@@ -7,6 +7,14 @@ import { useUserStore } from '@/store/userStore';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
 import { supabase } from '@/utils/supabase/client';
+import { usePathname } from 'next/navigation';
+import { screenIdForPathname } from '@/lib/screens/screenContext';
+import {
+  AskFailureError,
+  classifyAskError,
+  describeAskFailure,
+  evaluateAskCompanyGate,
+} from '@/lib/ceoChat/askPolicy';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -35,6 +43,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
   // 会社切替の検知用。会話履歴と進行中の応答はこの会社に紐づける
   const companyId = useUserStore((s) => s.companyId);
+  const pathname = usePathname();
 
   // === Strategy Store ===
   const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
@@ -87,6 +96,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [ctxUpdated, setCtxUpdated] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const [booting, setBooting] = useState(false);
@@ -121,7 +131,15 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     messagesRef.current = GREETING_MESSAGES;
     setMessages(GREETING_MESSAGES);
     setSending(false);
+    setNotice(null);
+    setInput('');
   }, [companyId]);
+
+  // 切替が確定（ストアの企業が画面の企業と一致）したら、切替中の通知を消す
+  const storeCompanyId = useStrategyStore((s: StrategyState) => s.companyId);
+  useEffect(() => {
+    if (storeCompanyId === (companyId ?? null)) setNotice(null);
+  }, [storeCompanyId, companyId]);
 
   useEffect(() => {
     setMounted(true);
@@ -213,6 +231,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       return false;
     }
     inFlightRef.current = true;
+    setNotice(null);
+    let keepDraft = false;
 
     const controller = new AbortController();
     askAbortRef.current = controller;
@@ -228,7 +248,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setMessages([...current, userMsg]);
 
     try {
-      if (!userOK) throw new Error('ログイン情報が未取得です');
+      if (!userOK) throw new AskFailureError({ kind: 'http', status: 401 });
 
       // ★ Option 2: restore 完了を待つ中は送信不可
       if (shouldWaitForRestore) {
@@ -242,8 +262,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
 
       const { data: sdata } = await supabase.auth.getSession();
+      // await 中に企業が切り替わった場合、切替前の企業のリクエストを組み立てない
+      if (isStale()) return true;
       const accessToken = sdata?.session?.access_token;
-      if (!accessToken) throw new Error('ログイン情報が無効です（access token なし）');
+      if (!accessToken) throw new AskFailureError({ kind: 'http', status: 401 });
 
       if (!strategyOK) {
         // ★ FIX: strategyOK でない場合は待機メッセージを表示（provision は呼ばない）
@@ -255,13 +277,29 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         return true;
       }
 
+      const companyGate = evaluateAskCompanyGate(
+        activeCompanyIdRef.current,
+        useStrategyStore.getState().companyId
+      );
+      if (!companyGate.ok) {
+        if (isStale()) return true;
+        keepDraft = true;
+        setMessages((prev) => prev.slice(0, -1));
+        setNotice(companyGate.message);
+        return false;
+      }
+
       const latestStrategyId = useStrategyStore.getState().strategyId;
+
+      const screenId = screenIdForPathname(pathname ?? '');
 
       const doAsk = async () => {
         // ★ Sprint 3A': meta を付与する場合と付与しない場合に対応
         const payload: any = {
           userId: user!.id,
           strategyId: latestStrategyId,
+          companyId: requestCompanyId,
+          ...(screenId ? { screen: { screenId } } : {}),
           messages: [...current.slice(-9), userMsg],
         };
         if (overrideMeta) {
@@ -288,7 +326,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         if (process.env.NODE_ENV !== 'production') {
           console.error('ask-ceo-agent failed:', r.status, r.raw);
         }
-        throw new Error('応答の取得に失敗しました');
+        throw new AskFailureError({ kind: 'http', status: r.status });
       }
 
       let data: AskResp | null = null;
@@ -309,12 +347,12 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     } catch (e) {
       // 会社切替による abort は通信エラーとして表示しない
       if (isStale()) return true;
-      const errorMsg = e instanceof Error ? e.message : String(e);
-      console.error('[CEOChatPanel] SEND_ERROR', { error_message: errorMsg });
+      const failure = classifyAskError(e);
+      console.error('[CEOChatPanel] SEND_ERROR', { failure_kind: failure.kind });
       if (process.env.NODE_ENV !== 'production') console.error(e);
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: '通信エラー。ネットワーク/ログイン/権限をご確認ください。' },
+        { role: 'assistant', content: describeAskFailure(failure) },
       ]);
     } finally {
       window.clearTimeout(timeoutId);
@@ -323,8 +361,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (!isStale()) {
         inFlightRef.current = false;
         setSending(false);
-        // 自動チェックイン送信時に、ユーザーが入力途中の下書きを消さない
-        setInput((prev) => (prev.trim() === trimmed ? '' : prev));
+        // 自動チェックイン送信時や送信を見送った時に、ユーザーの入力途中の下書きを消さない
+        if (!keepDraft) {
+          setInput((prev) => (prev.trim() === trimmed ? '' : prev));
+        }
       }
       autoResize();
     }
@@ -456,6 +496,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
       <div className="shrink-0 border-t px-5 py-3">
         <div className="space-y-2">
+          {notice && (
+            <p role="status" className="text-[12px] text-amber-700">
+              {notice}
+            </p>
+          )}
           <textarea
             ref={textareaRef}
             className="w-full min-h-[88px] resize-none overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 text-[14px] leading-6 outline-none focus:ring-2 focus:ring-zinc-300"

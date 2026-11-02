@@ -967,7 +967,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
                 onClick={() => setCeoPanelOpen(true)}
                 className="flex-1 rounded-lg border border-black/10 px-3 py-2 text-xs sm:text-sm shadow-sm bg-white active:scale-[0.99] font-medium"
               >
-                AIアシスタント
+                AI経営コンサルタント
               </button>
             </div>
           </div>

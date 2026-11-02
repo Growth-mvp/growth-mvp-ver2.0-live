@@ -1,11 +1,16 @@
 import { NextRequest } from 'next/server';
 
-jest.mock('@/lib/openai', () => ({
-  openai: {
-    chat: { completions: { create: (...args: unknown[]) => mockChatCreate(...args) } },
+const mockChatCreate = jest.fn();
+const mockOpenAICtor = jest.fn();
+jest.mock('openai', () => ({
+  __esModule: true,
+  default: class {
+    chat = { completions: { create: (...args: unknown[]) => mockChatCreate(...args) } };
+    constructor(opts: unknown) {
+      mockOpenAICtor(opts);
+    }
   },
 }));
-const mockChatCreate = jest.fn();
 
 jest.mock('@/utils/supabase/strategy', () => ({
   getFullStrategyDataByStrategyId: jest.fn(),
@@ -98,6 +103,7 @@ function req(body: unknown, auth = true) {
 const validBody = {
   userId: USER,
   strategyId: STRATEGY,
+  companyId: COMPANY_A,
   messages: [{ role: 'user', content: '事業の課題を教えてください' }],
 };
 
@@ -133,7 +139,7 @@ describe('POST /api/ask-ceo-agent 会社スコープ', () => {
     (resolveCompanyIdFromStrategyId as jest.Mock).mockResolvedValue(COMPANY_B);
     (requireMembership as jest.Mock).mockResolvedValue(null);
 
-    const res = await POST(req(validBody));
+    const res = await POST(req({ ...validBody, companyId: COMPANY_B }));
 
     expect(res.status).toBe(403);
     expect(requireMembership).toHaveBeenCalledWith(adminFake, USER, COMPANY_B);
@@ -157,7 +163,7 @@ describe('POST /api/ask-ceo-agent 会社スコープ', () => {
       companyId === COMPANY_B ? { userId: USER, companyId: COMPANY_B, role: 'member', departmentId: null } : null
     );
 
-    const res = await POST(req(validBody));
+    const res = await POST(req({ ...validBody, companyId: COMPANY_B }));
 
     expect(res.status).toBe(200);
     expect(getFullStrategyDataByStrategyId).toHaveBeenCalledWith(STRATEGY, COMPANY_B, adminFake);

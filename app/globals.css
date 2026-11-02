@@ -271,7 +271,7 @@ a:hover {
 
   /* 操作ボタン類を非表示 */
   button[aria-label*="メニュー"],
-  button[aria-label*="AIアシスタント"],
+  button[aria-label*="AI経営コンサルタント"],
   button[aria-label*="CEOChat"],
   button:has(svg) {
     display: none !important;

@@ -198,7 +198,8 @@ if [ -n "$TOKEN_MEMBER" ] && [ -n "$STRATEGY_ID_COMPANY_A" ] && [ -n "$USER_ID_M
 {
   "messages": [{"role":"user","content":"What are key strengths?"}],
   "userId": "$USER_ID_MEMBER",
-  "strategyId": "$STRATEGY_ID_COMPANY_A"
+  "strategyId": "$STRATEGY_ID_COMPANY_A",
+  "companyId": "$COMPANY_ID_A"
 }
 EOF
 )
@@ -221,7 +222,8 @@ if [ -n "$TOKEN_ADMIN" ] && [ -n "$STRATEGY_ID_COMPANY_B" ] && [ -n "$USER_ID_AD
 {
   "messages": [{"role":"user","content":"Help"}],
   "userId": "$USER_ID_ADMIN",
-  "strategyId": "$STRATEGY_ID_COMPANY_B"
+  "strategyId": "$STRATEGY_ID_COMPANY_B",
+  "companyId": "$COMPANY_ID_A"
 }
 EOF
 )

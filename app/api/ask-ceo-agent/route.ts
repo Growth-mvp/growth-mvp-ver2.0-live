@@ -7,7 +7,10 @@ import { NextResponse } from 'next/server';
 function makeRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
 }
-import { openai } from '@/lib/openai';
+import OpenAI from 'openai';
+import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
+import { resolveScreenContext } from '@/lib/screens/screenContext';
+import { buildOperationGuidance } from '@/lib/operationKnowledge/guidance';
 import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
@@ -28,6 +31,9 @@ import { buildHelpSystemPrompt } from '@/lib/helpPrompt';
 import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
 import { searchExternalFinancialData } from '@/lib/externalFinancialSearch';
 import { buildExternalFinancialBlock } from '@/lib/agentPrompt';
+import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
+import { selectCanonicalStory } from '@/lib/ceoChat/strategyRationale';
+import { selectContextSources, buildSelectedContextBlock } from '@/lib/ceoChat/contextSelection';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
@@ -49,29 +55,13 @@ type RequestBody = {
   messages: Message[];
   userId: string;
   strategyId: string;
+  companyId: string;
+  screen?: unknown;
   meta?: {
     stage?: 'strategy' | 'manual' | 'generic' | 'hybrid'; // 既存
     mode?: 'text' | 'facilitator' | 'help';               // Sprint 1-4: text/facilitator/help
     output?: 'text' | 'json';                              // Sprint 1: 出力形式
     insights?: 'none' | 'stage1';                          // Sprint 2: STAGE1インサイト注入
-  };
-};
-
-/* ========= 検索 API 統合用型 ========= */
-type SearchResult = {
-  operationId: string;
-  screen: string;
-  operationName: string;
-  description: string;
-  matchScore: number;
-  matchReasons: string[];
-  snippet: string;
-  permissions: string[];
-  savingMethod: string;
-  docReference: {
-    file: string;
-    startLine: number;
-    endLine: number;
   };
 };
 
@@ -83,14 +73,18 @@ GROWTH SHIFTは、戦略の策定・浸透・実行をつなぎ、組織の判�
 
 経営の意図を現場の判断に届け、日々の行動につなげることを目指します。認識、価値観、感情、関係性、暗黙の前提に生じるズレにも目を向けます。
 
+## 支援の姿勢
+
+最終的な判断と対話の主体は人です。AIは論点の整理、問い、たたき台、確認を支援します。業績向上は目指す成果ですが、利用するだけで保証されるものではありません。戦略の浸透には、経営者と社員の対話と納得が欠かせません。
+
 ## 各STAGE で取り組むこと
 
-- **STAGE1 財務・事業構造**：財務と事業の現状を捉え、企業価値と成長の論点を見いだす
-- **STAGE2 全社戦略**：未来の成長に向けた全社の方向性と経営の意図を言語化する
-- **STAGE3 事業・部門戦略**：全社の重点を事業・部門の役割、判断基準、共通行動へ展開する
-- **STAGE4 KPI・実行計画**：重点課題を指標と実行計画に落とし込む
-- **STAGE5 実行管理**：進捗を確認し、課題や次の行動を見直す
-- **STAGE6 財務シミュレーション**：実行の進み具合と期待される財務寄与を見て、見直しに使う
+- **STAGE1 会社の現状はどうか（企業価値分析）**：財務と事業の現状を捉え、企業価値と成長の論点を見いだす
+- **STAGE2 会社は何を目指すのか（全社戦略）**：未来の成長に向けた全社の方向性と経営の意図を言語化する
+- **STAGE3 各部門の役割は何か（事業・部門別戦略）**：全社の重点を事業・部門の役割、判断基準、共通行動へ展開する
+- **STAGE4 現場は何をするのか（実行計画策定）**：重点課題を指標と実行計画に落とし込む
+- **STAGE5 どうやって前に進めるか（実行支援）**：進捗を確認し、課題や次の行動を見直す
+- **STAGE6 成果を確かめる（業績シミュレーション）**：実行の進み具合と期待される財務寄与を見て、見直しに使う
 - **すり合わせルーム**：組織内の違和感と認識のズレを整理し、対話の論点を見つける
 
 ## STAGE2 について
@@ -112,106 +106,6 @@ const cap = (s: any, n: number) => {
   return t.length > n ? `${t.slice(0, n)}…` : t;
 };
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? (v as T[]) : []);
-function normalizeMessages(msgs: Message[]) {
-  const okRole = new Set<Role>(['system', 'user', 'assistant']);
-  return (Array.isArray(msgs) ? msgs : [])
-    .map((m) => ({
-      role: okRole.has(m?.role as Role) ? (m.role as Role) : ('user' as Role),
-      content: String(m?.content ?? ''),
-    }))
-    .filter((m) => m.content.trim().length > 0)
-  // モデルのコンテキスト圧迫を避けるため直近のみ
-    .slice(-12);
-}
-
-/* ========= 操作質問判定 ========= */
-/**
- * ユーザーの質問が「操作質問」かを判定
- * 操作質問の特徴：
- * - 「〜するには？」「〜はできますか？」「〜はどこ？」のような表現
- * - 画面名を含む：「STAGE0」「ORG-TRANSFORMATION」など
- * - 操作語を含む：「追加」「変更」「入力」「保存」「削除」「共有」「出力」など
- */
-function isOperationQuestion(messages: Message[]): boolean {
-  const lastMessage = messages.slice().reverse().find((m) => m.role === 'user')?.content ?? '';
-
-  // パターンマッチング
-  const operationPatterns = [
-    // 操作に関する疑問詞・助詞
-    /するには|やるには|方法|手順|やり方|どこ|どれ|入力|変更|追加|削除|保存|出力|共有|確認|見る|できますか|はできますか|はどこ|はどれ/,
-    // 画面名
-    /STAGE\d|ORG.TRANSFORMATION|Report|レポート|ホーム|Home/i,
-    // 具体的な操作語
-    /クリック|ボタン|画面|表示|エラー|UI|開く|入力|編集|更新|消す|作成/,
-  ];
-
-  return operationPatterns.some(pattern => pattern.test(lastMessage));
-}
-
-/**
- * 検索 API を呼び出して操作ガイド情報を取得
- */
-async function searchOperationGuide(query: string, requestId: string): Promise<SearchResult[] | null> {
-  try {
-    // サーバー内で検索関数を直接利用
-    const { scoreAndRankOperations } = await import('@/lib/search/scoring');
-    const { getAllOperations } = await import('@/lib/search/operationIndex');
-
-    const operations = await getAllOperations();
-    const scored = scoreAndRankOperations(operations, query, 5);
-    const results = scored.slice(0, 3); // 上位 3 件
-
-    console.log(`[ask-ceo-agent] ${requestId} search results`, {
-      count: results.length,
-      scores: results.map((r: any) => r.score?.toFixed(2)).join(','),
-    });
-
-    return results.length > 0 ? results : null;
-  } catch (e: any) {
-    console.warn(`[ask-ceo-agent] ${requestId} search failed:`, e?.message || e);
-    return null;
-  }
-}
-
-/* ========= 操作マニュアル簡易応答 ========= */
-const MANUAL_QA: Array<{ q: RegExp; a: string }> = [
-  {
-    q: /(okr).*(どこ|どれ|入力|書き方|やり方|方法)/i,
-    a: [
-      '【OKRの入力場所】',
-      '1) 上部メニューの「カスケード（/cascade）」を開く',
-      '2) 対象の部門カードを開く → プロジェクト → OKR を編集',
-      '3) 右上「AI要約/生成」で下書きを反映可能',
-      '',
-      '【編集のコツ】',
-      '- KRは数値/期日を入れてから再生成すると精度が上がります',
-    ].join('\n'),
-  },
-  {
-    q: /mvv.*(どこ|入力|やり方|方法)/i,
-    a: '【MVV】「戦略 基本情報」画面で Mission / Vision / Value を入力・保存してください。',
-  },
-  {
-    q: /swot.*(どこ|入力|書き方|やり方|方法)/i,
-    a: '【SWOT】「戦略 SWOT」画面で強み/弱み/機会/脅威を3つ以上ずつ。必要なら「例を表示」で下書きを挿入できます。',
-  },
-  {
-    q: /ストーリー.*(確定|最終|まとめ|やり方|方法)/i,
-    a: '【ストーリー確定】各章の本文を整えて「最終化」。その後 /cascade で部門ミッション/プロジェクト→OKRへ展開します。',
-  },
-];
-function answerManual(messages: Message[]) {
-  const last = messages.slice().reverse().find((m) => m.role === 'user')?.content ?? '';
-  const hit = MANUAL_QA.find((x) => x.q.test(last));
-  if (hit) return `【操作ガイド】\n${hit.a}`;
-  const list = [
-    '・MVVの入力手順',
-    '・SWOTの書き方',
-    '・ストーリー確定から部門戦略へ',
-    '・「OKRはどこに入力？」など、具体的に聞いてください',
-  ].join('\n');
-  return `【操作ガイド】よくある質問\n${list}`;
-}
 
 /* ========= OKR/進捗サマリ（プロンプトに埋め込む軽量要約） ========= */
 function buildOKRSummary(departments: any[] = []) {
@@ -279,6 +173,20 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
 
       strategy = normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData;
 
+      try {
+        const stage1 = computeStage1ValueAnalysis({
+          financePL: strategy.financePL,
+          financeBS: strategy.financeBS,
+          financeSummary: strategy.financeSummary as any,
+          segmentPL: strategy.segmentPL,
+          segmentBS: strategy.segmentBS,
+          pbrManual: strategy.pbrManual,
+        });
+        strategy.valueAnalysis = stage1.company;
+      } catch (e: any) {
+        console.warn('[ask-ceo-agent] stage1 value analysis error:', e?.message || e);
+      }
+
       const afterNormalize = {
         has_financeSummary: Array.isArray((strategy as any)?.financeSummary),
         financeSummary_count: Array.isArray((strategy as any)?.financeSummary) ? (strategy as any).financeSummary.length : 0,
@@ -340,7 +248,7 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
   }
 
   const answers2 = safeArray<any>((strategy as any)?.answers2);
-  const finalStory = safeArray<any>((strategy as any)?.finalStory);
+  const finalStory = safeArray<any>(selectCanonicalStory(strategy as any).chapters);
   return { strategy, answers2, finalStory, extraBlock: extraBlockFromFull };
 }
 
@@ -364,6 +272,7 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     // --- 認証（rbacGuard で統一） ---
     const admin = getSupabaseAdmin();
@@ -379,8 +288,14 @@ export async function POST(req: Request) {
     } catch {
       return NextResponse.json({ content: 'invalid payload', error: 'invalid payload' }, { status: 400 });
     }
-    const { messages, userId, strategyId, meta } = body ?? ({} as RequestBody);
-    if (!userId || !strategyId || !Array.isArray(messages)) {
+    const { messages, userId, strategyId, companyId: requestCompanyId, meta } = body ?? ({} as RequestBody);
+    if (
+      !userId ||
+      !strategyId ||
+      typeof requestCompanyId !== 'string' ||
+      requestCompanyId.length === 0 ||
+      !Array.isArray(messages)
+    ) {
       return NextResponse.json({ content: 'invalid payload', error: 'invalid payload' }, { status: 400 });
     }
 
@@ -389,11 +304,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ content: '権限がありません（ユーザー不一致）。', error: 'user mismatch' }, { status: 403 });
     }
 
-    // --- 会社スコープ: strategy の会社に対する所属を検証（他社・不存在は同じ 403） ---
+    // --- 会社スコープ: 送られた companyId と strategy の会社が一致し、かつ所属していること ---
     const strategyCompanyId = await resolveCompanyIdFromStrategyId(admin, strategyId);
-    const membership = strategyCompanyId
-      ? await requireMembership(admin, authUserId, strategyCompanyId)
-      : null;
+    if (!strategyCompanyId || strategyCompanyId !== requestCompanyId) {
+      return NextResponse.json(
+        { content: '企業が一致しません。画面を再読み込みしてください。', error: 'company mismatch' },
+        { status: 403 }
+      );
+    }
+    const membership = await requireMembership(admin, authUserId, strategyCompanyId);
     if (!membership) {
       return NextResponse.json({ content: 'この企業へのアクセス権がありません。', error: 'no membership' }, { status: 403 });
     }
@@ -525,34 +444,16 @@ export async function POST(req: Request) {
     }
     if (meta?.stage) intent = { stage: meta.stage, confidence: 0.99, reasons: ['forced'] };
 
-    // ★ 操作ガイド検索（操作質問の場合のみ）
-    let operationSearchResults: SearchResult[] | null = null;
-    let operationSearchUsed = false;
     const lastUserMessage = (messages || [])
       .slice()
       .reverse()
       .find((m) => m.role === 'user')?.content || '';
-
-    let isOperationQuestionDetected = false;
-    if (isOperationQuestion(messages)) {
-      isOperationQuestionDetected = true;
-      operationSearchResults = await searchOperationGuide(lastUserMessage, requestId);
-      if (operationSearchResults && operationSearchResults.length > 0) {
-        operationSearchUsed = true;
-        console.log(`[ask-ceo-agent] ${requestId} operation search used`, {
-          resultCount: operationSearchResults.length,
-        });
-      } else {
-        console.log(`[ask-ceo-agent] ${requestId} operation question detected but no results found`);
-      }
-    }
 
     // ★ Sprint 6A.1: system プロンプト構築（help/facilitator/advisor で分岐）
     // help モード時の注入順（UI創作防止）：
     // 1) buildHelpSystemPrompt（新規約：UI創作禁止、RAG優先）
     // 2) pickRelevantKnowledge（growthKnowledge から関連ナレッジ抽出）
     // 3) RAG 検索結果（buildRagContextBlock）
-    // 4) 操作ガイド検索結果（operationSearchResults）
     // → 規約を最上位に配置し、RAG根拠を優先させる
     let systemBase: string;
     let knowledgeIdsUsed: string[] = [];
@@ -579,22 +480,6 @@ export async function POST(req: Request) {
         console.error('[RAG] 検索エラー', err);
       }
 
-      // 操作ガイド検索結果を注入（操作質問の場合）
-      let operationGuideBlock = '';
-      if (isOperationQuestionDetected) {
-        if (operationSearchUsed && operationSearchResults && operationSearchResults.length > 0) {
-          const guideItems = operationSearchResults
-            .map((r) => `- **${r.operationName}** (${r.screen}): ${r.description}`)
-            .join('\n');
-          operationGuideBlock =
-            '\n\n【参考：操作ガイド情報】\n以下の操作ガイド項目が関連しています。ユーザーの質問に対して、これらのガイド情報を参考にして、具体的で分かりやすい回答をしてください。\n' +
-            guideItems;
-        } else {
-          operationGuideBlock =
-            '\n\n【ご注意】ユーザーは操作方法についての質問をしています。しかし、確認できる操作ガイドがありません。推測や一般的な回答ではなく「申し訳ございませんが、その操作は確認できるガイドがありません」と返してください。';
-        }
-      }
-
       // 注入順: 規約 → GROWTH SHIFT基礎ガイド → growthKnowledge → RAG検索結果 → 操作ガイド検索結果 → 禁則
       systemBase =
         buildHelpSystemPrompt({
@@ -603,26 +488,10 @@ export async function POST(req: Request) {
         }) +
         '\n\n' + GROWTH_SHIFT_FOUNDATION +
         ragContextBlock +
-        operationGuideBlock +
         '\n' +
         TABOO;
     } else {
       // advisor/facilitator モード: 既存ロジック（agent-based systemPrompt）
-      let operationGuideBlock = '';
-      if (isOperationQuestionDetected) {
-        if (operationSearchUsed && operationSearchResults && operationSearchResults.length > 0) {
-          const guideItems = operationSearchResults
-            .map((r) => `- **${r.operationName}** (${r.screen}): ${r.description}`)
-            .join('\n');
-          operationGuideBlock =
-            '\n\n【参考：操作ガイド情報】\n以下の操作ガイド項目が関連しています。必要に応じてこれらを参考にして回答してください。\n' +
-            guideItems;
-        } else {
-          operationGuideBlock =
-            '\n\n【ご注意】ユーザーは操作方法についての質問をしています。しかし、確認できる操作ガイドがありません。推測や一般的な回答ではなく「申し訳ございませんが、その操作は確認できるガイドがありません」と返してください。';
-        }
-      }
-
       // ③ 検査: どの経路が選ばれるか + 企業データ参照の判定
       const isGenericStage = intent.stage === 'generic';
 
@@ -689,7 +558,6 @@ export async function POST(req: Request) {
             (externalFinancialBlock ? '\n\n' + externalFinancialBlock : '') +
             '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
           : 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION) +
-        operationGuideBlock +
         '\n' +
         TABOO;
 
@@ -697,7 +565,35 @@ export async function POST(req: Request) {
       if (resolvedMode === 'facilitator') {
         systemBase += '\n\n' + buildFacilitatorBlock({ stage: 'generic' });
       }
+
+      const contextSelection = selectContextSources(lastUser);
+      const selectedContextBlock = buildSelectedContextBlock({
+        selection: contextSelection,
+        strategy: strategy as any,
+        companyDataIncluded: !!shouldUseAgentPrompt,
+      });
+      if (selectedContextBlock) systemBase += '\n\n' + selectedContextBlock;
+      console.log('[ask-ceo-agent]', requestId, 'context_selection', {
+        ...contextSelection,
+        companyDataIncluded: shouldUseAgentPrompt,
+        selected_block_len: selectedContextBlock.length,
+      });
     }
+
+    const screen = resolveScreenContext(body?.screen);
+    if (body?.screen !== undefined && !screen) {
+      console.warn('[ask-ceo-agent]', requestId, 'screen_context_rejected');
+    }
+    if (screen) {
+      systemBase += `\n\n【現在の画面】${screen.label}（${screen.pathname}）\n操作案内はこの画面の範囲で行う。`;
+    }
+
+    const guidance = buildOperationGuidance({
+      screenId: screen?.screenId ?? null,
+      query: lastUserMessage,
+      role: membership.role,
+    });
+    if (guidance.text) systemBase += '\n\n' + guidance.text;
 
     // ★ meta.output === 'json' のときだけJSON出力指示を追加
     const output = meta?.output ?? 'text';
@@ -734,7 +630,7 @@ export async function POST(req: Request) {
       model: 'gpt-5.6-luna',
       reasoning_effort: 'low',
       max_completion_tokens: 6000,
-      messages: [{ role: 'system', content: systemBase }, ...normalizeMessages(messages)],
+      messages: [{ role: 'system', content: systemBase }, ...sanitizeAskMessages(messages)],
     };
 
     // ★ meta.output === 'json' のときだけ response_format を付与（JSON形式を要求）
@@ -797,15 +693,14 @@ export async function POST(req: Request) {
     // ★ 診断ログ: 質問分類、モード、モデル、検索、ガイド注入、回答成否のみ記録
     if (process.env.DEBUG_AGENT_PROMPT === '1') {
       console.log('[ask-ceo-agent]', requestId, 'DIAGNOSIS', {
-        questionType: isOperationQuestionDetected ? 'operation' : 'concept_or_other',
+        questionType: guidance.text ? 'operation' : 'concept_or_other',
         selectedMode: resolvedMode,
         model: openaiReq.model,
-        searchUsed: operationSearchUsed,
-        searchResultCount: operationSearchResults?.length ?? 0,
-        searchResultIds: operationSearchResults?.map((r: any) => r.operationId) ?? [],
+        guidanceOperationCount: guidance.operationCount,
+        guidanceScreenIds: guidance.screenIds,
         guidesInjected: {
           growthShiftFoundation: !!(systemBase && systemBase.includes('GROWTH SHIFT')),
-          operationGuides: operationSearchUsed,
+          operationGuides: guidance.operationCount > 0,
           ragKnowledge: !!ragContextBlock,
         },
       });
@@ -907,25 +802,15 @@ export async function POST(req: Request) {
       response.knowledgeIdsUsed = knowledgeIdsUsed;
     }
 
-    // ★ 操作ガイド検索を使用したかを記録（debug/改善用）
-    if (operationSearchUsed && operationSearchResults) {
-      response.operationSearchUsed = true;
-      response.operationSearchCount = operationSearchResults.length;
-      response.operationSearchResults = operationSearchResults.map(r => ({
-        operationName: r.operationName,
-        screen: r.screen,
-        matchScore: r.matchScore,
-      }));
+    if (guidance.text) {
+      response.operationGuidance = { operationCount: guidance.operationCount, screenIds: guidance.screenIds };
     }
 
     // ★ Sprint 5.1: debug footer（NEXT_PUBLIC_DEBUG_AGENT=1 時のみ）
     // ★ Sprint 6A: RAG 情報を debug footer に追加
-    // ★ 操作ガイド検索情報を debug footer に追加
     if (process.env.NEXT_PUBLIC_DEBUG_AGENT === '1') {
-      const operationSearchInfo = operationSearchUsed
-        ? ` operationSearch=${operationSearchResults?.length || 0}`
-        : '';
-      const debugFooter = `\n\n[debug] mode=${resolvedMode} knowledge=${knowledgeIdsUsed?.join(',') || '-'} reasons=${autoModeResult?.reasons?.join('|') || '-'}${ragResultDebug ? ' ' + ragResultDebug : ''}${operationSearchInfo}`;
+      const guidanceInfo = guidance.operationCount > 0 ? ` guidance=${guidance.operationCount}` : '';
+      const debugFooter = `\n\n[debug] mode=${resolvedMode} knowledge=${knowledgeIdsUsed?.join(',') || '-'} reasons=${autoModeResult?.reasons?.join('|') || '-'}${ragResultDebug ? ' ' + ragResultDebug : ''}${guidanceInfo}`;
       response.content += debugFooter;
     }
 
