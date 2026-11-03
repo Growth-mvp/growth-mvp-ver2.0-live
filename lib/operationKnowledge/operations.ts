@@ -431,6 +431,150 @@ export const OPERATIONS: readonly OperationEntry[] = [
     save: { kind: 'auto', target: '計画スナップショットの保存' },
   },
 
+  {
+    operationId: 'stage4.open-finance-effect',
+    screenIds: ['stage4'],
+    label: '財務効果の算定根拠（任意）',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 81 },
+    purpose:
+      '施策の売上増加・費用削減・追加費用の金額を、算定根拠つきで登録する（任意）。確認して初めて、STAGE6の条件付きPL・CF試算に反映される。',
+    steps: [
+      'プロジェクトを選ぶ',
+      '「財務効果の算定根拠（任意）」を開く',
+      '「効果の種類」を選ぶ（金額が分からない施策は未設定のままでよい）',
+    ],
+    conditions: '任意。承認済みの計画は編集できない',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（未確認の内容はSTAGE6に反映されない）' },
+  },
+  {
+    operationId: 'stage4.finance-effect-kind',
+    screenIds: ['stage4'],
+    label: '効果の種類',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 111 },
+    purpose:
+      '効果の種類を選ぶ。売上増加（売上が増える）、費用削減（営業費用が減る）、追加費用（営業費用が増える）、財務換算しない施策のいずれか。',
+    steps: [
+      '「財務効果の算定根拠（任意）」を開く',
+      '「効果の種類」で一つ選ぶ（例（架空）：工程改善で人件費を減らすなら「費用削減」）',
+      '選んだ種類に応じて、算定方法と金額の欄が出る',
+    ],
+    conditions: '「財務換算しない施策」を選ぶと、金額の欄は出ない',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（未確認の内容はSTAGE6に反映されない）' },
+  },
+  {
+    operationId: 'stage4.finance-effect-method',
+    screenIds: ['stage4'],
+    label: '算定方法',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 137 },
+    purpose:
+      '金額の求め方を選ぶ。数量×単価、商談数×受注率×平均受注額（売上増加だけ）、直接入力の3つから一つ。',
+    steps: [
+      '「効果の種類」を選ぶ',
+      '「算定方法」で一つ選ぶ（例（架空）：研修を1人あたり単価で積むなら「数量×単価」）',
+      '選んだ方法の入力欄（数量・単価など）に数字を入れる',
+    ],
+    conditions: '「商談数×受注率×平均受注額」は売上増加の施策だけで選べる',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（未確認の内容はSTAGE6に反映されない）' },
+  },
+  {
+    operationId: 'stage4.finance-effect-amount',
+    screenIds: ['stage4'],
+    label: '金額（百万円）',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 187 },
+    purpose:
+      '直接入力の金額を百万円で入れる（例（架空）：年間の削減見込みが120万円なら「1.2」）。単位は次の「金額の単位」で決める。',
+    steps: [
+      '「算定方法」で「直接入力」を選ぶ',
+      '「金額（百万円）」に数字を入れる（例（架空）：1.2）',
+      '次に「金額の単位」を選ぶ',
+    ],
+    conditions: '数量×単価などを選んだときは、この欄ではなくその方法の欄に入れる',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（未確認の内容はSTAGE6に反映されない）' },
+  },
+  {
+    operationId: 'stage4.finance-effect-unit',
+    screenIds: ['stage4'],
+    label: '金額の単位',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 194 },
+    purpose:
+      '入力した金額が、一回限りの総額か、月額か、年額かを選ぶ。ここで決まった単位で年度に割り付けられる。',
+    steps: [
+      '「金額（百万円）」の数字を入れる',
+      '「金額の単位」で「一回限り（総額）」「月額」「年額」のどれかを選ぶ（例（架空）：毎月の削減なら「月額」）',
+      '「効果の開始月」を入れる',
+    ],
+    conditions: '未選択だと「未算定（入力不足）」になり、確認できない',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（未確認の内容はSTAGE6に反映されない）' },
+  },
+  {
+    operationId: 'stage4.finance-effect-timing',
+    screenIds: ['stage4'],
+    label: '効果の開始月',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 210 },
+    purpose:
+      '効果が始まる月を選ぶ。決算月と組み合わせて、どの年度に金額が割り付くかが決まる（例（架空）：決算が3月なら、2026年4月開始の効果は2026年度ではなく2027年度から入る）。',
+    steps: [
+      '「金額の単位」と「算定方法」を入力する',
+      '「効果の開始月」を選ぶ',
+      '効果が続く場合は「終了月（空欄＝継続）」を空欄のままにする',
+    ],
+    conditions: '一回限りの金額で終了月を入れると、その期間に均等に割り付けられる',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（未確認の内容はSTAGE6に反映されない）' },
+  },
+  {
+    operationId: 'stage4.finance-effect-source',
+    screenIds: ['stage4'],
+    label: '算定根拠・出所',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 237 },
+    purpose:
+      '金額の根拠（見積書、社内の計算、AIの提案など）を書く。確認済みにする前に必要で、空だと確認できない。',
+    steps: [
+      '「算定根拠・出所」に根拠を書く（例（架空）：「見積書（点検費の削減案・2026年9月提出）」）',
+      'AIの提案を使う場合は、「この値の出所」で「AIが提案した（未確認）」を選び、内容を確かめてから確認する',
+    ],
+    conditions: '未入力のままだと「未算定（入力不足）」と表示され、確認できない',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（未確認の内容はSTAGE6に反映されない）' },
+  },
+  {
+    operationId: 'stage4.confirm-finance-effect',
+    screenIds: ['stage4'],
+    label: '内容を確認し、確認済みにする',
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 269 },
+    purpose:
+      '利用者自身が財務効果の内容を確認したことを記録する。確認済みの効果だけが、STAGE6の条件付きPL・CF試算に反映される。',
+    steps: [
+      '不足表示の項目をすべて入力する（「不足：」の後ろに欄名が出る）',
+      '金額・単位・開始月・算定根拠の内容を見直す',
+      '「内容を確認し、確認済みにする」を押す',
+    ],
+    conditions: '不足項目があると押せない。確認後に金額などを変えると、確認は自動で外れる（試算からも外れる）',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（確認状態も保存される）' },
+  },
+  {
+    operationId: 'stage4.reflect-impact-proposal',
+    screenIds: ['stage4'],
+    label: 'この案を金額に反映',
+    source: { file: 'app/okr/page.tsx', line: 3967 },
+    purpose:
+      'AIが置いた成果見込みの計算結果を、旧北極星の手動金額（売上・営業利益の影響額）に書き込む。財務効果の確認とは別の操作で、条件付きPL・CF試算には入らない。',
+    steps: [
+      '「成果見込みと計算根拠」で、AIが置いた前提を確認・修正する',
+      '計算式と計算結果を確かめる',
+      '「この案を金額に反映」を押す（登録済みの金額が案の値に置き換わる）',
+    ],
+    conditions: '承認済みは無効。計算結果がない前提では押せない',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '計画スナップショットに保存（旧北極星の手動金額を書き換える）' },
+  },
+
   // ---- STAGE5（/execution）----
   {
     operationId: 'stage5.open-project-execution-panel',
@@ -503,13 +647,32 @@ export const OPERATIONS: readonly OperationEntry[] = [
     screenIds: ['stage5'],
     label: '成果見込み%',
     source: { file: 'app/execution/page.tsx', line: 1752 },
-    purpose: 'プロジェクトの売上・営業利益への成果見込み率と確度を更新し、STAGE6の試算に反映する。',
+    purpose:
+      'プロジェクトの売上・営業利益への成果見込み率と確度を更新する。旧北極星（手動金額）の参考計算に入る値で、財務効果の確認（条件付きPL・CF試算）には入らない。',
     steps: [
       '実行支援モーダル下部の「成果見込み / STAGE6連携」を開く',
       '成果見込み%（0〜100）を入力する',
       '確度を選ぶ',
     ],
     conditions: 'STAGE4のプロジェクトと数値の指標がある場合に表示される',
+    permission: NONE_PERMISSION,
+    save: { kind: 'auto', target: '戦略データへの自動保存' },
+  },
+
+  {
+    operationId: 'stage5.record-kr-actual',
+    screenIds: ['stage5'],
+    label: '実績を記録',
+    source: { file: 'components/stage5/KrActualSection.tsx', line: 75 },
+    purpose:
+      'KR（目標指標）の現在の実績値を、基準日つきで記録する。チェックイン（進み具合）と同じ画面にあるが別の記録で、財務効果や北極星の金額には入らない。',
+    steps: [
+      '実行支援を開き、対象のKRの「実績を記録」を押す（記録済みなら「実績を更新」）',
+      '「実績値（単位）」に数字を入れる（例（架空）：不良率の目標0.5に対し、実績0.8）',
+      '「基準日」を入れる（例：2026-10）。補足は任意',
+      '「保存」を押す',
+    ],
+    conditions: 'KRに識別子（ID）がないと記録できない（STAGE4でKRを保存し直す）。上書きした前の実績は履歴に残る',
     permission: NONE_PERMISSION,
     save: { kind: 'auto', target: '戦略データへの自動保存' },
   },
@@ -957,5 +1120,97 @@ export const OPERATIONS: readonly OperationEntry[] = [
     conditions: 'ログイン中のみ表示される',
     permission: NONE_PERMISSION,
     save: { kind: 'none', target: 'ローカルの保存キャッシュを削除する' },
+  },
+  {
+    operationId: 'stage6.open-target-tab',
+    screenIds: ['stage6'],
+    label: '1. 目標に届くか',
+    source: { file: 'components/stage6/financePlanStatus.ts', line: 12 },
+    purpose:
+      '条件付きPL試算（統一PL）を最初に見る場所。確認済みの施策効果を年度ごとに反映した売上・営業費用・営業利益と、経営目標との差額（指標ごとの目標年度）が出る。',
+    steps: [
+      '「1. 目標に届くか」を押す',
+      '「条件付きPL試算（統一PL）」で、ベースラインと施策効果の内訳を見る',
+      '「目標との差額」で、経営目標と比べた不足を見る（未算定の理由も同じ欄の下にある）',
+    ],
+    conditions: '経営目標に期限年がない指標は、差額を出さず理由を表示する',
+    permission: NONE_PERMISSION,
+    save: { kind: 'none', target: 'なし（画面の表示のみ）' },
+  },
+  {
+    operationId: 'stage6.open-cashflow-tab',
+    screenIds: ['stage6'],
+    label: '3. お金は足りるか',
+    source: { file: 'components/stage6/financePlanStatus.ts', line: 23 },
+    purpose:
+      '条件付きCF試算（確認済み効果のみ）を見る場所。下の「目標補間の経路と前提入力（参考情報）」には、目標へ到達する仮想的な経路と、税率などの前提入力がある。',
+    steps: [
+      '「3. お金は足りるか」を押す',
+      '「条件付きCF試算」の期末現預金と、未算定の理由を読む',
+      '未算定の理由に従って、下の前提入力（税率・減価償却費など）を入れる',
+    ],
+    conditions: '借入計画が未入力のときの期末現預金は「借入未反映・暫定」で、最終的な資金繰りの見通しではない',
+    permission: NONE_PERMISSION,
+    save: { kind: 'none', target: 'なし（画面の表示のみ）' },
+  },
+  {
+    operationId: 'stage6.open-verdict-tab',
+    screenIds: ['stage6'],
+    label: '5. 参考判定',
+    source: { file: 'components/stage6/financePlanStatus.ts', line: 33 },
+    purpose:
+      '施策効果を含まない既存の計画に基づく参考判定を見る場所。条件付きPL・CFによる達成可能性は判定していない。未算定は達成・未達のいずれにも扱わない。',
+    steps: ['「5. 参考判定」を押す', '画面上の注記を読み、達成可能性の判断は「1.」と「3.」の条件付き試算で行う'],
+    conditions: '目標補間の経路を使っているときは、その旨の注記が出る',
+    permission: NONE_PERMISSION,
+    save: { kind: 'none', target: 'なし（画面の表示のみ）' },
+  },
+  {
+    operationId: 'stage6.set-tax-rate',
+    screenIds: ['stage6'],
+    label: '税率',
+    source: { file: 'components/stage6/CashFlowSection.tsx', line: 278 },
+    purpose:
+      '営業CFの計算に使う税率（%）を入れる。空欄だと基準年度の実績から推計する（推計は確定値ではない）。営業CFの未算定の理由に税率が出たら、ここを入れる。',
+    steps: [
+      '「3. お金は足りるか」を開く',
+      '「推計前提（試算条件）」の「税率」に％で入れる（例（架空）：30）',
+      '「財務計画を保存」で保存する',
+    ],
+    conditions: '税率が未確定だと、営業CF以降は「未算定」になる',
+    permission: NONE_PERMISSION,
+    save: { kind: 'manual', target: '「財務計画を保存」で保存する' },
+  },
+  {
+    operationId: 'stage6.set-depreciation',
+    screenIds: ['stage6'],
+    label: '減価償却費',
+    source: { file: 'components/stage6/CashFlowSection.tsx', line: 285 },
+    purpose:
+      '営業CFに足す減価償却費（百万円）を入れる。空欄だと基準年度の実績（STAGE1の損益計算書）を使う。どちらもなければ未算定になる。',
+    steps: [
+      '「3. お金は足りるか」を開く',
+      '「推計前提（試算条件）」の「減価償却費」に百万円で入れる（例（架空）：10）',
+      '「財務計画を保存」で保存する',
+    ],
+    conditions: '基準年度の実績もこの欄も空だと、営業CF以降は「未算定」になる',
+    permission: NONE_PERMISSION,
+    save: { kind: 'manual', target: '「財務計画を保存」で保存する' },
+  },
+  {
+    operationId: 'stage6.set-receivable-ratio',
+    screenIds: ['stage6'],
+    label: '売上に対する未回収代金の割合',
+    source: { file: 'components/stage6/CashFlowSection.tsx', line: 293 },
+    purpose:
+      '売掛金の残高が売上の何％かを入れる。空欄だと基準年度の残高の比率を使う（回収までの日数ではない）。運転資金の未算定の理由が出たら、基準年度の売掛金などを確認する。',
+    steps: [
+      '「3. お金は足りるか」を開く',
+      '「推計前提（試算条件）」の「売上に対する未回収代金の割合」を％で入れる（例（架空）：12）',
+      '「財務計画を保存」で保存する',
+    ],
+    conditions: '基準年度の売掛金・在庫・買掛金の残高がないと、運転資金は未算定になる',
+    permission: NONE_PERMISSION,
+    save: { kind: 'manual', target: '「財務計画を保存」で保存する' },
   },
 ];

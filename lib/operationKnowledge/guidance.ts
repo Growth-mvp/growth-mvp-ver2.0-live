@@ -23,6 +23,10 @@ const WEAK_OPERATION_CUE = /(どうすれば|どうやって|どうしたら|や
 const APP_OBJECT = /(画面|欄|部門|SWOT|たたき台|論点|計画書|ルーム|セグメント|財務データ|業績目標|メトリクス|分析|KPI|OKR|STAGE|ステージ|GROWTH|アプリ)/i;
 const CONSULT_CUE = /(売上|利益|伸び|成果|効果|本当に|正しい|根拠|判断|リスク|投資|収益|原価|なぜ|動か|動いて|やる気|不満|反発|業績|市場|競合|戦略は|戦略で|勝て|方向性|どう思う)/;
 const ELEMENT_WORD = /(ボタン|タブ|項目|欄|リンク)/;
+/* 画面の用語（財務効果・算定根拠など）は、経営相談の判定から外す。「効果」「根拠」は経営の語としても使われるため */
+const APP_TERM = /(財務効果|財務換算|算定根拠|KR(の)?実績|実績を記録|条件付きPL|条件付きCF|統一PL|参考判定|未算定|確認済み|この案を金額に反映|効果の種類|旧北極星|金額が分からない|金額の入力)/;
+const APP_TERM_OPERATION_CUE = /(入力|入れ|何を|どこ|種類|単位|開始|記録|確認|反映|違い|見方|読み方|意味|どう考|どうすれば|どうしたら|書けば|例|って何|とは|何ですか|何です|何？)/;
+const APP_TERM_IN_CONSULT_CHECK = /(財務効果|算定根拠|KR(の)?実績|条件付きPL|条件付きCF|統一PL|参考判定|未算定|確認済み|旧北極星)/g;
 
 const STAGE_SCREEN_BY_NUMBER: Record<number, string> = {
   1: 'stage1',
@@ -47,8 +51,13 @@ export function normalizeRole(role: unknown): OperationRole {
 export function classifyQuestion(text: string): QuestionKind {
   const mentioned = detectMentionedScreenIds(text).length > 0;
   const object = mentioned || APP_OBJECT.test(text);
-  const operation = ONBOARDING_CUE.test(text) || STRONG_OPERATION_CUE.test(text) || (WEAK_OPERATION_CUE.test(text) && object);
-  const consult = CONSULT_CUE.test(text);
+  const appTerm = APP_TERM.test(text);
+  const operation =
+    ONBOARDING_CUE.test(text) ||
+    STRONG_OPERATION_CUE.test(text) ||
+    (WEAK_OPERATION_CUE.test(text) && object) ||
+    (appTerm && APP_TERM_OPERATION_CUE.test(text));
+  const consult = CONSULT_CUE.test(text.replace(APP_TERM_IN_CONSULT_CHECK, ''));
   if (operation && consult) return 'compound';
   if (operation) return 'operation';
   if (consult) return 'consult';
@@ -73,6 +82,9 @@ export function detectMentionedScreenIds(text: string): string[] {
   if (/社員向け/.test(text)) planAudience.push('plan-employee');
   if (planAudience.length > 0) ids.push(...planAudience);
   else if (/経営計画書|計画書/.test(text)) ids.push('plan-hub', 'plan-bank', 'plan-shareholder', 'plan-employee');
+  if (/条件付きPL|条件付きCF|統一PL|参考判定|未算定/.test(text)) ids.push('stage6');
+  if (/財務効果|算定根拠|効果の種類|この案を金額に反映|旧北極星/.test(text)) ids.push('stage4');
+  if (/KR(の)?実績|実績を記録/.test(text)) ids.push('stage5');
   return [...new Set(ids)];
 }
 
@@ -127,6 +139,7 @@ const RULES_BLOCK = [
   '6. 質問は一度に一つまでにする。',
   '7. 操作案内と経営相談を混同しない。経営の判断を求められたら、操作案内ではなく経営相談として答える。複合の質問では、経営相談の回答を優先し、操作案内は補助として短く添える。',
   '8. 最後に、次に行う一歩を示す。',
+  '9. 財務効果は、利用者自身が内容を確かめて確認するものとして案内する。利用者に代わって確認済みにする、金額に反映する、と案内しない。',
 ].join('\n');
 
 const HEADER = '【操作案内（登録簿に基づく）】\nこの案内は登録済みの操作だけを根拠にしています。登録にない操作は案内しないでください。';

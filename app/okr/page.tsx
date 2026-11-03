@@ -3788,7 +3788,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   成果見込みと計算根拠<span className="text-[11px] font-normal text-zinc-500">（AIが置いた目安・修正可）</span>
                 </h3>
                 <div className="mb-3 text-[11px] text-zinc-600">
-                  AIが置いた成果見込みです。前提を修正しても、登録済みの金額は変わりません。計算結果を金額に反映するときだけ「この案を金額に反映」を押してください。
+                  AIが置いた成果見込みです。前提を修正しても、登録済みの金額は変わりません。「この案を金額に反映」は、旧北極星の手動金額（売上・営業利益の影響額）を書き換えます。財務効果の確認（下の「財務効果の算定根拠」）とは別の操作で、条件付きPL・CF試算には入りません。
                 </div>
 
                 <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3">

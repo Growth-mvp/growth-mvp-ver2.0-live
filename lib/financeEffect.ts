@@ -237,9 +237,28 @@ export type FinanceEffectViewModel = {
 };
 
 /** 画面の表示文言（状態と不足項目）。STAGE6へは反映されないことを必ず添える */
+const MISSING_FIELD_HINT: Record<string, string> = {
+  '算定方法': '「算定方法」',
+  '金額の単位（一回限り・月額・年額）': '「金額の単位」',
+  '効果の開始時期': '「効果の開始月」',
+  '効果の終了時期（開始より後の月）': '「終了月」',
+  '算定根拠・出所': '「算定根拠・出所」',
+  '原価率（0〜100%）': '「原価率」',
+  '数量': '「数量」',
+  '単価': '「単価（百万円）」',
+  '商談数': '「商談数」',
+  '受注率（0〜100%）': '「受注率（%）」',
+  '平均受注額': '「平均受注額（百万円）」',
+  '直接金額': '「金額（百万円）」',
+};
+
+function missingTextOf(missing: string[]): string {
+  return `不足：${missing.map((m) => (MISSING_FIELD_HINT[m] ? `${m}（${MISSING_FIELD_HINT[m]}に入力）` : m)).join('、')}`;
+}
+
 export function financeEffectViewModel(effect: FinanceEffect | undefined): FinanceEffectViewModel {
   const result = computeFinanceEffect(effect);
-  const notice = 'この算定根拠は今回の段階ではSTAGE6の業績・資金試算に反映されません。';
+  const notice = '利用者が確認済みにした算定根拠だけが、STAGE6の条件付きPL・CF試算に反映されます。経営目標・旧北極星の金額には加算しません。未確認の内容は反映されません。';
   switch (result.status) {
     case 'NOT_SET':
       return { statusLabel: '未設定（任意）', tone: 'muted', missingText: null, notice };
@@ -249,7 +268,7 @@ export function financeEffectViewModel(effect: FinanceEffect | undefined): Finan
       return {
         statusLabel: '未算定（入力不足）',
         tone: 'warning',
-        missingText: result.missing.length ? `不足：${result.missing.join('、')}` : null,
+        missingText: result.missing.length ? missingTextOf(result.missing) : null,
         notice,
       };
     case 'DRAFT':

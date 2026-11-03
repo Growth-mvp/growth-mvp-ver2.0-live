@@ -85,6 +85,11 @@ export function FinanceEffectSection({ effect, legacy, disabled, overlapCandidat
       <div className="mt-3 space-y-3 text-[12px] text-zinc-700">
         <p className="rounded-md bg-zinc-50 px-2 py-1.5 text-[11px] text-zinc-600">{vm.notice}</p>
         {vm.missingText && <p className="text-[11px] text-amber-800">{vm.missingText}</p>}
+        {!current && (
+          <p className="text-[11px] text-zinc-600">
+            財務効果は任意です。金額を算定できない施策は、未設定のままで構いません。KRの実績とチェックインは、財務効果とは別に記録できます。
+          </p>
+        )}
 
         <div className="space-y-1 rounded-md border border-zinc-200 bg-zinc-50 p-2 text-[11px] text-zinc-700">
           <div className="font-semibold">従来の成果見込みと、新しい財務効果の関係</div>
@@ -211,6 +216,9 @@ export function FinanceEffectSection({ effect, legacy, disabled, overlapCandidat
               </label>
             </div>
 
+            <details className="rounded-md border border-zinc-200 bg-zinc-50 p-2">
+              <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700">詳細設定（任意・必要なときだけ）</summary>
+              <div className="mt-2 space-y-3">
             {current.kind === 'REVENUE_UP' && (
               <label className="block space-y-1">
                 <span className="text-[11px] font-semibold">原価率（%・参考。利益へは自動で差し引かない）</span>
@@ -222,6 +230,8 @@ export function FinanceEffectSection({ effect, legacy, disabled, overlapCandidat
               <span className="text-[11px] font-semibold">対象範囲</span>
               <input type="text" className={inputClass} disabled={disabled} value={current.scopeNote ?? ''} onChange={(e) => update({ scopeNote: e.target.value || undefined })} />
             </label>
+              </div>
+            </details>
 
             <label className="block space-y-1">
               <span className="text-[11px] font-semibold">算定根拠・出所</span>
