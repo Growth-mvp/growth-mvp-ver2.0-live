@@ -369,7 +369,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
             <Row label="投資によるお金の増減" term="投資CF・設備などへの投資" years={years} pick={(y) => y.investingCf} />
             <Row label="事業と投資を合わせたお金の増減" term="FCF" years={years} pick={(y) => y.fcf} strong />
             <Row label="期首現預金" years={years} pick={(y) => y.openingCash} />
-            <Row label="期末現預金（借入反映前）" years={years} pick={(y) => y.closingCashBeforeFinancing} strong />
+            <Row label="期末現預金（借入反映前・暫定）" years={years} pick={(y) => y.closingCashBeforeFinancing} />
             <Row label="借入・返済などによるお金の増減" term="財務CF（新規借入−元本返済−配当）" years={years} pick={(y) => y.financingCf} strong />
             <Row label="期末現預金（借入反映後）" years={years} pick={(y) => y.closingCashAfterFinancing} strong />
             <Row label="手元に残しておきたいお金" term="最低必要現預金" years={years} pick={(y) => y.minCash} />

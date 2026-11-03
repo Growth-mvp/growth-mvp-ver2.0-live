@@ -11,13 +11,15 @@ function valueOrUncalculated(v: number | null) {
   return v === null ? UNCALCULATED : mil(v);
 }
 
-function taxText(rate: number | null) {
-  return rate === null ? `${UNCALCULATED}（税率が未確定のため営業CFを算定しません）` : `${(rate * 100).toFixed(1)}%（既存CFと同じ税率の前提）`;
+function taxText(rate: number | null, basis: ConditionalCf['taxRateBasis']) {
+  if (rate === null) return `${UNCALCULATED}（税率が未確定のため営業CFを算定しません）`;
+  const source = basis === 'USER' ? '利用者入力' : '基準年度の実績からの推計（確定値ではありません）';
+  return `${(rate * 100).toFixed(1)}%（${source}）`;
 }
 
 export function ConditionalCfPanel({ cf }: { cf: ConditionalCf }) {
   const reasons = Array.from(new Set(cf.years.flatMap((y) => y.unknownReasons)));
-  const closingLabel = cf.debtEnabled ? '借入反映後' : '借入反映前（借入計画は未入力）';
+  const closingLabel = cf.debtEnabled ? '借入反映後' : '借入未反映・暫定';
 
   return (
     <section aria-label="条件付きCF試算" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
@@ -31,7 +33,7 @@ export function ConditionalCfPanel({ cf }: { cf: ConditionalCf }) {
       <dl className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
         <div className="rounded border border-slate-200 p-2">
           <dt className="font-semibold">税率</dt>
-          <dd className="mt-1">{taxText(cf.taxRate)}</dd>
+          <dd className="mt-1">{taxText(cf.taxRate, cf.taxRateBasis)}</dd>
         </div>
         <div className="rounded border border-slate-200 p-2">
           <dt className="font-semibold">運転資金・減価償却・投資・借入</dt>
@@ -45,6 +47,12 @@ export function ConditionalCfPanel({ cf }: { cf: ConditionalCf }) {
         <li>未算定：必要な前提が不足している状態。条件付きCFが未算定でも、目標補間CFで代用しません。</li>
       </ul>
 
+      {!cf.debtEnabled && (
+        <p className="rounded bg-amber-50 p-2 text-xs leading-relaxed text-amber-800 break-keep">
+          借入計画が未入力のため、期末現預金は借入未反映の暫定値です。最終的な資金繰りの見通しとしては扱わないでください。
+        </p>
+      )}
+
       <div className="overflow-x-auto">
         <table className="min-w-full text-right text-xs">
           <thead>
@@ -53,7 +61,7 @@ export function ConditionalCfPanel({ cf }: { cf: ConditionalCf }) {
               <th className="px-2 py-1 font-semibold">営業利益（統一PL）</th>
               <th className="px-2 py-1 font-semibold">営業CF（基準）</th>
               <th className="px-2 py-1 font-semibold">営業CF（条件付き）</th>
-              <th className="px-2 py-1 font-semibold">投資CF</th>
+              <th className="px-2 py-1 font-semibold">投資CF（STAGE4登録分）</th>
               <th className="px-2 py-1 font-semibold">財務CF</th>
               <th className="px-2 py-1 font-semibold">期首現預金</th>
               <th className="px-2 py-1 font-semibold">期末現預金（{closingLabel}・条件付き）</th>

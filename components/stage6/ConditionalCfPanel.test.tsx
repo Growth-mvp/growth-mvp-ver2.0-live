@@ -11,6 +11,7 @@ describe('条件付きCFパネルの表示', () => {
     const cf: ConditionalCf = {
       debtEnabled: false,
       taxRate: 0.3,
+      taxRateBasis: 'USER',
       years: [
         {
           fiscalYear: 2026,
@@ -36,6 +37,7 @@ describe('条件付きCFパネルの表示', () => {
     const cf: ConditionalCf = {
       debtEnabled: false,
       taxRate: 0.3,
+      taxRateBasis: 'USER',
       years: [
         {
           fiscalYear: 2026,
@@ -56,8 +58,15 @@ describe('条件付きCFパネルの表示', () => {
   });
 
   it('税率が未確定なら、その旨を表示する', () => {
-    const cf: ConditionalCf = { debtEnabled: false, taxRate: null, years: [] };
+    const cf: ConditionalCf = { debtEnabled: false, taxRate: null, taxRateBasis: 'HELD', years: [] };
     const html = renderToStaticMarkup(<ConditionalCfPanel cf={cf} />);
     expect(html).toContain('税率が未確定のため営業CFを算定しません');
+  });
+  it('推計の税率は推計と明示し、借入未入力なら期末現預金を暫定と表示する', () => {
+    const cf: ConditionalCf = { debtEnabled: false, taxRate: 0.3, taxRateBasis: 'ESTIMATE', years: [] };
+    const html = renderToStaticMarkup(<ConditionalCfPanel cf={cf} />);
+    expect(html).toContain('基準年度の実績からの推計（確定値ではありません）');
+    expect(html).toContain('借入未反映・暫定');
+    expect(html).toContain('最終的な資金繰りの見通しとしては扱わないでください');
   });
 });

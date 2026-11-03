@@ -1,4 +1,4 @@
-import type { CashFlowPlan } from './cashflow';
+import type { CashFlowPlan, CfBasis } from './cashflow';
 import type { UnifiedPl } from './unifiedPl';
 
 export type ConditionalCfYear = {
@@ -16,6 +16,7 @@ export type ConditionalCfYear = {
 export type ConditionalCf = {
   debtEnabled: boolean;
   taxRate: number | null;
+  taxRateBasis: CfBasis;
   years: ConditionalCfYear[];
 };
 
@@ -66,7 +67,10 @@ export function buildConditionalCashFlow(args: { baseline: CashFlowPlan; unified
     } else if (u.plan.revenueYen !== b.revenue.value) {
       reasons.push('売上の変動に対応する運転資金は算定しない');
     } else if (interest === null || rate === null || dep === null || dWc === null) {
-      reasons.push('税率・支払利息・減価償却費・運転資金増減のいずれかが未確定');
+      if (rate === null) reasons.push('税率が未確定（STAGE6の税率、またはSTAGE1の法人税等・税引前利益の実績が必要）');
+      if (interest === null) reasons.push('支払利息が未確定（STAGE1の基準年度の支払利息、または借入計画の利息が必要）');
+      if (dep === null) reasons.push('減価償却費が未確定（STAGE1の基準年度の減価償却費、またはSTAGE6の減価償却費が必要）');
+      if (dWc === null) reasons.push('運転資金増減が未確定（STAGE1の基準年度BSの売掛金・棚卸資産・買掛金が必要）');
     } else {
       conditionalOcf = netIncomeOf(op - interest, rate) + dep - dWc;
     }
@@ -105,5 +109,5 @@ export function buildConditionalCashFlow(args: { baseline: CashFlowPlan; unified
     };
   });
 
-  return { debtEnabled, taxRate: rate, years };
+  return { debtEnabled, taxRate: rate, taxRateBasis: baseline.taxRate.basis, years };
 }
