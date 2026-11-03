@@ -21,7 +21,7 @@ function fmtMJPY(v: number) {
 function summaryText(row: TargetGap | undefined) {
   if (!row || !(row.target > 0)) return '目標が未設定のため、達成率は算出していません';
   const pct = Math.round((row.forecast / row.target) * 100);
-  return `条件付き試算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}（条件付き達成率 ${pct}%）`;
+  return `現状＋北極星の施策寄与の参考計算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}（参考達成率 ${pct}%・重複の可能性あり）`;
 }
 
 export function TargetOverview({ northStarRows, dashboardSummary, excludedImpacts = [] }: Props) {

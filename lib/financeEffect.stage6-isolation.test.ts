@@ -36,7 +36,8 @@ describe('STAGE4の財務効果は、承認された連動境界の外のSTAGE6�
 
   it('連動境界のモジュールは、既存のCF計算・財務計画パイプラインを呼ばない（PL試算のみ）', () => {
     const text = readFileSync(FINANCE_EFFECT_BOUNDARY[0], 'utf8');
-    expect(text).not.toMatch(/cashflow|financePlanPipeline|computeStage6FinancePlan|buildCashFlowPlan/);
+    expect(text).not.toMatch(/financePlanPipeline|computeStage6FinancePlan|buildCashFlowPlan/);
+    expect(text).not.toMatch(/import\s+(?!type\s)[^;]*from\s+'\.\/cashflow'/);
   });
 
   it('対象の一覧が空でない（スキャンが機能している）', () => {

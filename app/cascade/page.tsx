@@ -2579,7 +2579,7 @@ function CascadePageContent() {
     }
 
     const existingBridge = (st as any).stage3_strategy_bridge;
-    const hasExistingBridge = !!existingBridge?.strategicCore && Object.keys(existingBridge.strategicCore).length > 0;
+    const hasExistingBridge = !!existingBridge && typeof existingBridge === 'object' && Object.keys(existingBridge).length > 0;
     if (hasExistingBridge && !window.confirm('既存の全社戦略サマリーを、新しい生成結果で置き換えます。よろしいですか？\n（キャンセルすると既存の内容を保持します）')) {
       setNotice('[INFO] 既存の全社戦略サマリーを保持しました');
       return;

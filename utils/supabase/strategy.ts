@@ -241,85 +241,10 @@ function ensureObject<T extends object = Record<string, any>>(v: any): T {
   return p && typeof p === 'object' && !Array.isArray(p) ? (p as T) : ({} as T);
 }
 
-function asStringArrayForBridge(value: any, max = 8): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => String(item ?? '').trim())
-    .filter(Boolean)
-    .slice(0, max);
-}
-
 function normalizeStage3StrategyBridgeForSave(value: any): any {
   const parsed = parseJson(value);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-
-  const bridge = { ...parsed };
-  const keyThemes = asStringArrayForBridge(bridge.keyThemes, 8);
-  const departmentIssues = asStringArrayForBridge(bridge.departmentIssues, 8);
-  const kpiCriteria = asStringArrayForBridge(bridge.kpiCriteria, 8);
-  const commonBehaviorChanges = asStringArrayForBridge(bridge.commonBehaviorChanges, 8);
-
-  const rawCore =
-    bridge.strategicCore && typeof bridge.strategicCore === 'object' && !Array.isArray(bridge.strategicCore)
-      ? bridge.strategicCore
-      : null;
-
-  const existingCore = rawCore
-    ? {
-        ...rawCore,
-        concreteDomains: asStringArrayForBridge(rawCore.concreteDomains, 8),
-        coreCapabilities: asStringArrayForBridge(rawCore.coreCapabilities, 8),
-        nonNegotiableThemes: asStringArrayForBridge(rawCore.nonNegotiableThemes, 8),
-      }
-    : null;
-
-  const hasUsefulCore =
-    !!existingCore &&
-    (
-      !!String(existingCore.primaryShift ?? '').trim() ||
-      existingCore.concreteDomains.length > 0 ||
-      !!String(existingCore.customerValue ?? '').trim() ||
-      existingCore.coreCapabilities.length > 0 ||
-      !!String(existingCore.portfolioShift ?? '').trim() ||
-      !!String(existingCore.behaviorChange ?? '').trim() ||
-      existingCore.nonNegotiableThemes.length > 0
-    );
-
-  const fallbackThemes = Array.from(new Set([
-    ...departmentIssues,
-    ...keyThemes,
-  ])).slice(0, 8);
-
-  const strategicCore = hasUsefulCore
-    ? existingCore
-    : {
-        ...(keyThemes[0] ? { primaryShift: keyThemes[0] } : {}),
-        ...(departmentIssues.length > 0 ? { concreteDomains: departmentIssues.slice(0, 8) } : {}),
-        ...(keyThemes[1] ? { customerValue: keyThemes[1] } : {}),
-        ...(keyThemes.length > 0 ? { coreCapabilities: keyThemes.slice(0, 8) } : {}),
-        ...(kpiCriteria[0] ? { portfolioShift: kpiCriteria[0] } : {}),
-        ...(commonBehaviorChanges[0] ? { behaviorChange: commonBehaviorChanges[0] } : {}),
-        ...(fallbackThemes.length > 0 ? { nonNegotiableThemes: fallbackThemes } : {}),
-      };
-
-  const departmentTranslationRules = asStringArrayForBridge(bridge.departmentTranslationRules, 8);
-
-  return {
-    ...bridge,
-    keyThemes,
-    departmentIssues,
-    kpiCriteria,
-    commonBehaviorChanges,
-    strategicCore,
-    departmentTranslationRules: departmentTranslationRules.length > 0
-      ? departmentTranslationRules
-      : [
-          '各部門ミッションは戦略の芯に対する自部門の役割を明記する',
-          '各プロジェクトは重点領域または保持すべきテーマに接続する',
-          'KPIは顧客価値・資源配分・行動変化を測る指標にする',
-        ],
-    generatedAt: bridge.generatedAt || new Date().toISOString(),
-  };
+  return parsed;
 }
 
 /* ============================================================

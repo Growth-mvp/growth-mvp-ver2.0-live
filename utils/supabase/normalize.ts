@@ -248,6 +248,46 @@ function normalizeOKR(input: AnyOKR): OKR {
   return base as OKR;
 }
 
+/* KR は許可リストで写すと戦略メタ・実績・支出条件が落ちるため、未知の項目は残し、既知の項目は型を整えて上書きする */
+function normalizeKrRecord(r: any): KRStructured {
+  const rest: any = { ...r };
+  delete rest.actual;
+  delete rest.actualHistory;
+  const actual = sanitizeKrActual(r?.actual);
+  const actualHistory = sanitizeKrActualHistory(r?.actualHistory);
+  return {
+    ...rest,
+    id: String(r?.id ?? ''),
+    kind: r?.kind,
+    label: String(r?.label ?? ''),
+    target: Number(r?.target ?? 0),
+    unit: r?.unit,
+    due: typeof r?.due === 'string' ? r.due : undefined,
+    owner: typeof r?.owner === 'string' ? r.owner : undefined,
+    scope: r?.scope,
+    baseKey: r?.baseKey,
+    baseOverride: r?.baseOverride != null ? Number(r.baseOverride) : undefined,
+    weight: r?.weight != null ? Number(r.weight) : undefined,
+    elasticity: r?.elasticity != null ? Number(r.elasticity) : undefined,
+    lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
+    startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
+    notes: typeof r?.notes === 'string' ? r.notes : undefined,
+    spend: r?.spend && typeof r.spend === 'object' ? r.spend : undefined,
+    ...(actual ? { actual } : {}),
+    ...(actualHistory ? { actualHistory } : {}),
+    milestones: Array.isArray(r?.milestones)
+      ? r.milestones.map((m: any) => ({
+          id: String(m?.id ?? ''),
+          title: String(m?.title ?? ''),
+          dueYm: typeof m?.dueYm === 'string' ? m.dueYm : undefined,
+          owner: typeof m?.owner === 'string' ? m.owner : undefined,
+          status: typeof m?.status === 'string' ? (m.status as any) : undefined,
+          dod: typeof m?.dod === 'string' ? m.dod : undefined,
+        }))
+      : undefined,
+  };
+}
+
 function normalizeProject(
   p: AnyProject,
   strategyId?: string,
@@ -283,80 +323,13 @@ function normalizeProject(
   const okrs: OKR[] = [...legacy, ...okrsRaw];
 
   const okrsV2: KRStructured[] | undefined = Array.isArray(obj.okrsV2)
-    ? (obj.okrsV2 as any[]).map((r) => {
-        const rest: any = { ...r };
-        delete rest.actual;
-        delete rest.actualHistory;
-        const actual = sanitizeKrActual(r?.actual);
-        const actualHistory = sanitizeKrActualHistory(r?.actualHistory);
-        return {
-          ...rest,
-          id: String(r?.id ?? ''),
-          kind: r?.kind,
-          label: String(r?.label ?? ''),
-          target: Number(r?.target ?? 0),
-          unit: r?.unit,
-          due: typeof r?.due === 'string' ? r.due : undefined,
-          owner: typeof r?.owner === 'string' ? r.owner : undefined,
-          scope: r?.scope,
-          baseKey: r?.baseKey,
-          baseOverride: r?.baseOverride != null ? Number(r.baseOverride) : undefined,
-          weight: r?.weight != null ? Number(r.weight) : undefined,
-          elasticity: r?.elasticity != null ? Number(r.elasticity) : undefined,
-          lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
-          startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
-          notes: typeof r?.notes === 'string' ? r.notes : undefined,
-          spend: r?.spend && typeof r.spend === 'object' ? r.spend : undefined,
-          ...(actual ? { actual } : {}),
-          ...(actualHistory ? { actualHistory } : {}),
-          // ★ 修正：milestones を保持（リロード後に消える問題を解決）
-          milestones: Array.isArray(r?.milestones)
-            ? r.milestones.map((m: any) => ({
-                id: String(m?.id ?? ''),
-                title: String(m?.title ?? ''),
-                dueYm: typeof m?.dueYm === 'string' ? m.dueYm : undefined,
-                owner: typeof m?.owner === 'string' ? m.owner : undefined,
-                status: typeof m?.status === 'string' ? (m.status as any) : undefined,
-                dod: typeof m?.dod === 'string' ? m.dod : undefined,
-              }))
-            : undefined,
-        };
-      })
+    ? (obj.okrsV2 as any[]).map(normalizeKrRecord)
     : undefined;
 
   const roles: ProjectRole[] | undefined = Array.isArray(obj.roles)
     ? (obj.roles as any[]).map((rr) => ({
         role: String(rr?.role ?? ''),
-        okrs: Array.isArray(rr?.okrs)
-          ? (rr.okrs as any[]).map((r) => ({
-              id: String(r?.id ?? ''),
-              kind: r?.kind,
-              label: String(r?.label ?? ''),
-              target: Number(r?.target ?? 0),
-              unit: r?.unit,
-              due: typeof r?.due === 'string' ? r.due : undefined,
-              owner: typeof r?.owner === 'string' ? r.owner : undefined,
-              scope: r?.scope,
-              baseKey: r?.baseKey,
-              baseOverride: r?.baseOverride != null ? Number(r.baseOverride) : undefined,
-              weight: r?.weight != null ? Number(r.weight) : undefined,
-              elasticity: r?.elasticity != null ? Number(r.elasticity) : undefined,
-              lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
-              startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
-              notes: typeof r?.notes === 'string' ? r.notes : undefined,
-              // ★ 修正：milestones を保持（リロード後に消える問題を解決）
-              milestones: Array.isArray(r?.milestones)
-                ? r.milestones.map((m: any) => ({
-                    id: String(m?.id ?? ''),
-                    title: String(m?.title ?? ''),
-                    dueYm: typeof m?.dueYm === 'string' ? m.dueYm : undefined,
-                    owner: typeof m?.owner === 'string' ? m.owner : undefined,
-                    status: typeof m?.status === 'string' ? (m.status as any) : undefined,
-                    dod: typeof m?.dod === 'string' ? m.dod : undefined,
-                  }))
-                : undefined,
-            }))
-          : [],
+        okrs: Array.isArray(rr?.okrs) ? (rr.okrs as any[]).map(normalizeKrRecord) : [],
       }))
     : undefined;
 
@@ -1025,8 +998,8 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const answers12 = normalizeStage2AnswersArray(src.answers12);
 
   // ★ STAGE2：最終ストーリー（3段階）
-  const finalStoryDraft = normalizeChaptersAnyNonDestructive(src.finalStoryDraft);
-  const finalStoryEdited = normalizeChaptersAnyNonDestructive(src.finalStoryEdited);
+  const finalStoryDraft = normalizeChaptersVerbatim(src.finalStoryDraft);
+  const finalStoryEdited = normalizeChaptersVerbatim(src.finalStoryEdited);
   const finalStoryFinal = normalizeChaptersVerbatim(src.finalStoryFinal);
 
   // ★ DIAG: Track what happened during normalization
@@ -1107,29 +1080,8 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     const raw = (src as any).stage3_strategy_bridge;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
 
-    // ★ 修正：spread operator で完全なオブジェクトを保持
-    // strategicCore, departmentTranslationRules, およびその他の未知フィールドを失わない
-    const preserved = {
-      ...raw,
-      strategicCore: raw.strategicCore,
-      departmentTranslationRules: raw.departmentTranslationRules ?? [],
-    };
-
-    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-      console.log('[normalizeStrategyData] STAGE3 bridge preservation', {
-        hasInput: !!raw,
-        inputKeys: raw ? Object.keys(raw) : [],
-        hasStrategicCore: !!raw?.strategicCore,
-        strategicCoreKeys: raw?.strategicCore ? Object.keys(raw.strategicCore) : [],
-        preserved: {
-          exists: !!preserved,
-          keys: Object.keys(preserved),
-          hasStrategicCore: !!preserved.strategicCore,
-        },
-      });
-    }
-
-    return preserved;
+    /* 保存された内容はそのまま保持する（欠けている項目を既定値で補わない） */
+    return { ...raw };
   })();
 
   const out: StrategyData = {

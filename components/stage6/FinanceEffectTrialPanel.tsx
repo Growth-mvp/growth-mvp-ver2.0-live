@@ -23,11 +23,11 @@ function withEffect(base: number | null, effect: number) {
 export function FinanceEffectTrialPanel({
   trial,
   forecastYears,
-  targetPathInUse,
+  targetEntered,
 }: {
   trial: FinanceEffectTrial;
   forecastYears: CfYear[];
-  targetPathInUse: boolean;
+  targetEntered: boolean;
 }) {
   const effectByYear = new Map(trial.years.map((y) => [y.fiscalYear, y]));
   const hasIncluded = trial.included.length > 0;
@@ -37,19 +37,18 @@ export function FinanceEffectTrialPanel({
       <div>
         <h4 className="text-sm font-bold text-slate-900">確認済み仮説による条件付き試算</h4>
         <p className="mt-1 text-xs leading-relaxed text-slate-600 break-keep">
-          STAGE4で利用者が確認済みにした財務効果を、既存の計画に重ねた試算です。実績ではなく、既存の計画・目標は変更していません。
+          基準は「現状延長」（基準年度の売上・営業利益を横置きした値）です。STAGE4で利用者が確認済みにした財務効果だけを重ねています。実績ではなく、既存の計画・目標は変更していません。
         </p>
+        {targetEntered && (
+          <p className="mt-1 text-xs leading-relaxed text-slate-600 break-keep">
+            経営目標（目標売上・目標営業利益）は、この表の基準に含めていません。目標への補間に施策効果を重ねると二重計上になるためです。
+          </p>
+        )}
       </div>
 
       {!trial.ready && (
         <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">
           決算月が未設定のため、財務効果の年度配分は行っていません。
-        </p>
-      )}
-
-      {trial.ready && hasIncluded && targetPathInUse && (
-        <p className="rounded bg-amber-50 p-2 text-xs leading-relaxed text-amber-800 break-keep">
-          経営目標の経路（目標売上・目標営業利益）を使用中です。目標値には施策の効果が含まれている場合があり、この試算を重ねると二重計上になる可能性があります。
         </p>
       )}
 
@@ -63,10 +62,10 @@ export function FinanceEffectTrialPanel({
             <thead>
               <tr className="border-b border-slate-200 text-slate-600">
                 <th className="px-2 py-1 text-left font-semibold">年度</th>
-                <th className="px-2 py-1 font-semibold">売上（既存計画）</th>
+                <th className="px-2 py-1 font-semibold">売上（現状延長）</th>
                 <th className="px-2 py-1 font-semibold">財務効果：売上</th>
                 <th className="px-2 py-1 font-semibold">売上（試算）</th>
-                <th className="px-2 py-1 font-semibold">営業利益（既存計画）</th>
+                <th className="px-2 py-1 font-semibold">営業利益（現状延長）</th>
                 <th className="px-2 py-1 font-semibold">費用削減・追加費用</th>
                 <th className="px-2 py-1 font-semibold">営業利益（試算）</th>
                 <th className="px-2 py-1 font-semibold">現金収支</th>
@@ -93,7 +92,7 @@ export function FinanceEffectTrialPanel({
             </tbody>
           </table>
           <p className="mt-1 text-[11px] text-slate-500">
-            単位：百万円。「未算定」は計算していない欄です（既存計画の値がない、または売上増加の年度の営業利益）。0とは区別してください。
+            単位：百万円。「未算定」は計算していない欄です（現状延長の値がない、または売上増加の年度の営業利益）。0とは区別してください。
           </p>
         </div>
       )}

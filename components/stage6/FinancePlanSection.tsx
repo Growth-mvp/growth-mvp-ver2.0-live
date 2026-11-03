@@ -7,7 +7,7 @@ import { useAccess } from '@/utils/access';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
-import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
+import { buildFinanceEffectTrial, withoutTargetPath } from '@/utils/stage6/financeEffectPlan';
 import { FinanceEffectTrialPanel } from './FinanceEffectTrialPanel';
 import {
   FINANCE_PLAN_CALC_VERSION,
@@ -82,8 +82,8 @@ function fmtMJPY(v: number) {
 function targetGapText(row: TargetGap | undefined) {
   if (!row || !Number.isFinite(row.gap)) return { value: '-', note: '目標または条件付き試算が未確定です' };
   return {
-    value: row.gap > 0 ? `不足 ${fmtMJPY(row.gap)}` : '試算上は目標達成',
-    note: `条件付き試算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}`,
+    value: row.gap > 0 ? `参考計算での不足 ${fmtMJPY(row.gap)}` : '参考計算では目標に到達（重複の可能性あり）',
+    note: `現状＋施策寄与の参考計算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}`,
   };
 }
 
@@ -211,9 +211,32 @@ function FinancePlanContent({
     [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule],
   );
 
+  const baselinePlan = useMemo(
+    () =>
+      buildCashFlowPlan(
+        {
+          financePL,
+          financeBS,
+          investment: investmentInput,
+          assumptions: withoutTargetPath(assumptions),
+          fiscalYearEndSet,
+        },
+        NOW_YEAR,
+      ),
+    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet],
+  );
+  const baselineForecastYears = useMemo(
+    () => baselinePlan.years.filter((y) => y.kind === 'FORECAST'),
+    [baselinePlan],
+  );
   const effectTrial = useMemo(
-    () => buildFinanceEffectTrial({ departments, fiscalYearEnd, fiscalYears: forecastYears }),
-    [departments, fiscalYearEnd, forecastYears],
+    () =>
+      buildFinanceEffectTrial({
+        departments,
+        fiscalYearEnd,
+        fiscalYears: baselineForecastYears.map((y) => y.year),
+      }),
+    [departments, fiscalYearEnd, baselineForecastYears],
   );
 
   const currentDomain: FinancePlanDomain = useMemo(() => {
@@ -509,8 +532,8 @@ function FinancePlanContent({
             {targetContent}
             <FinanceEffectTrialPanel
               trial={effectTrial}
-              forecastYears={plan.years.filter((y) => y.kind === 'FORECAST')}
-              targetPathInUse={assumptions.targetRevenueYen !== null || assumptions.targetOperatingIncomeYen !== null}
+              forecastYears={baselineForecastYears}
+              targetEntered={assumptions.targetRevenueYen !== null || assumptions.targetOperatingIncomeYen !== null}
             />
           </div>
         )}

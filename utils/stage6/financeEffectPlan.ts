@@ -1,6 +1,12 @@
 import type { Department } from '@/types/strategy';
 import { computeFinanceEffect } from '@/lib/financeEffect';
 import { parseFiscalYearEndMonth } from './investmentDemand';
+import type { CfAssumptions } from './cashflow';
+
+/** 経営目標への補間（目標経路）を外した前提。目標を入れていても現状延長（基準年度の横置き）になる */
+export function withoutTargetPath(assumptions: CfAssumptions): CfAssumptions {
+  return { ...assumptions, targetRevenueYen: null, targetOperatingIncomeYen: null, targetYear: null };
+}
 
 export type FinanceEffectTrialTarget = { deptName: string; projectTitle: string };
 
