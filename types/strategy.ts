@@ -412,6 +412,16 @@ export type ProjectPlanMilestone = {
  * KRStructured（戦略OKRの実務単位）
  * - 財務ブリッジで使うだけでなく、戦略的な説明責任を担保する
  */
+/** STAGE5：KR実績の1件（値・基準日・記録日時・補足）。値の単位は KR の unit に従う */
+export type KrActual = {
+  value: number;
+  /** 実績の対象期間または基準日（YYYY-MM または YYYY-MM-DD） */
+  asOf: string;
+  /** 記録した日時（ISO） */
+  recordedAt: string;
+  note?: string;
+};
+
 export type KRStructured = {
   id: UUID;
 
@@ -431,6 +441,12 @@ export type KRStructured = {
 
   /** Phase 1.5：投資KRの支出条件 */
   spend?: SpendSchedule;
+
+  /** STAGE5：KRの実績（現在値）。単位は KR の unit を参照する。財務効果・北極星には加算しない */
+  actual?: KrActual;
+
+  /** STAGE5：上書きされた過去の実績（削除せず残す） */
+  actualHistory?: KrActual[];
 
   /** 合成・変換・遅行 */
   weight?: number;

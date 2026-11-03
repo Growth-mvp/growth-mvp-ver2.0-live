@@ -23,6 +23,11 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { okrService } from '@/services/okrService';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
+import { KrActualSection, type KrRecordResult } from '@/components/stage5/KrActualSection';
+import { krLocateMessage, recordKrActual } from '@/lib/stage5/krActual';
+import type { KRStructured, KrActual } from '@/types/strategy';
+
+const NO_KRS: KRStructured[] = [];
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
@@ -316,6 +321,8 @@ function ExecPanel(props: {
   di?: number;
   pi?: number;
   onActivitySaved?: (payload: { okrId: string; at: string }) => void;
+  krs?: KRStructured[];
+  onRecordKrActual?: (krId: string, actual: KrActual) => KrRecordResult;
 }) {
   const {
     open,
@@ -1449,6 +1456,8 @@ function ExecPanel(props: {
           </div>
         </section>
 
+        {props.onRecordKrActual ? <KrActualSection krs={props.krs} onRecord={props.onRecordKrActual} /> : null}
+
         {/* Tabs */}
         <div className="inline-flex rounded-2xl border border-black/10 bg-white p-1 shadow-sm">
           <button
@@ -2571,6 +2580,37 @@ function ExecutionPageContent() {
   // ===== 選択（実行支援：OKR）=====
   const [selected, setSelected] = useState<SelectedExecutionItem | null>(null);
 
+  const selectedDi = selected?.di;
+  const selectedPi = selected?.pi;
+  const selectedKrs = useStrategyStore((st: any) =>
+    typeof selectedDi === 'number' && typeof selectedPi === 'number'
+      ? (st.departments?.[selectedDi]?.projects?.[selectedPi]?.okrsV2 ?? NO_KRS)
+      : undefined,
+  ) as KRStructured[] | undefined;
+
+  const recordKrActualFor = useCallback(
+    (krId: string, actual: KrActual): KrRecordResult => {
+      if (typeof selectedDi !== 'number' || typeof selectedPi !== 'number') {
+        return { ok: false, error: '施策が選択されていません。' };
+      }
+      const current = (useStrategyStore.getState() as any).departments?.[selectedDi]?.projects?.[selectedPi]?.okrsV2;
+      const result = recordKrActual(current, krId, actual);
+      if (!result.ok) return { ok: false, error: krLocateMessage(result.reason) };
+      const nextOkrsV2 = result.next;
+      useStrategyStore.setState((prev: any) => {
+        const departments = [...(prev.departments ?? [])];
+        const dept = { ...departments[selectedDi] };
+        const projects = [...(dept.projects ?? [])];
+        projects[selectedPi] = { ...projects[selectedPi], okrsV2: nextOkrsV2 };
+        dept.projects = projects;
+        departments[selectedDi] = dept;
+        return { departments, dirty: true, version: (prev.version ?? 0) + 1 };
+      });
+      return { ok: true };
+    },
+    [selectedDi, selectedPi],
+  );
+
   const queryOkrId = (searchParams.get('okrId') ?? '').trim();
   const queryProjectId = (searchParams.get('projectId') ?? '').trim();
   const queryDepartmentId = (searchParams.get('departmentId') ?? '').trim();
@@ -3050,6 +3090,8 @@ function ExecutionPageContent() {
                     projectId: selectedProjId,
                     companyId: scopeCompanyId,
                     krIds: [],
+                    di,
+                    pi,
                   };
                   void openExecutionSelection(next);
                 }}
@@ -3097,6 +3139,8 @@ function ExecutionPageContent() {
                   projectId: selectedProjId,
                   companyId: scopeCompanyId,
                   krIds: okrsV2.map((k: any) => k.id).filter(Boolean),
+                  di,
+                  pi,
                 };
                 void openExecutionSelection(next);
               }}
@@ -3448,6 +3492,8 @@ function ExecutionPageContent() {
         krIds={selected?.krIds ?? []}
         di={selected?.di}
         pi={selected?.pi}
+        krs={selectedKrs}
+        onRecordKrActual={recordKrActualFor}
         onActivitySaved={({ okrId, at }) => {
           setProjectActivityMap((prev) => {
             const before = prev[okrId];

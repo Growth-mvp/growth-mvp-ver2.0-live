@@ -69,6 +69,7 @@ import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
 import { adoptableImpact } from '@/lib/okr/impactAdoption';
 import { FinanceEffectSection } from '@/components/okr/FinanceEffectSection';
 import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
+import { krLocateMessage, locateKrById } from '@/lib/stage5/krActual';
 import {
   buildAssumptionPatch,
   buildReflectPatch,
@@ -2934,8 +2935,12 @@ const [editingMilestoneTitle, setEditingMilestoneTitle] = useState('');
 const [editingMilestoneDueYm, setEditingMilestoneDueYm] = useState('');
 const editingMilestoneTitleInputRef = useRef<HTMLInputElement>(null);
 
-const startEditKr = (kr: any, fallbackId: string) => {
-  const id = String(kr?.id ?? fallbackId);
+const startEditKr = (kr: any, _fallbackId: string) => {
+  const id = typeof kr?.id === 'string' ? kr.id : '';
+  if (!id) {
+    alert(krLocateMessage('missing-id'));
+    return;
+  }
   setEditingKrId(id);
   setEditingKrDraft({
     label: String(kr?.label ?? ''),
@@ -2964,6 +2969,13 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
   const nextLabel = editingKrDraft.label.trim();
   if (!nextLabel) {
     alert('名称（ラベル）を入力してください。');
+    return;
+  }
+
+  const currentOkrsV2 = (useStrategyStore.getState() as any).departments?.[dIdx]?.projects?.[pIdx]?.okrsV2;
+  const located = locateKrById(currentOkrsV2, krId);
+  if (!located.ok) {
+    alert(krLocateMessage(located.reason));
     return;
   }
 

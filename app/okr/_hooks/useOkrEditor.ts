@@ -234,7 +234,7 @@ export function useOkrEditor(args: {
       if (!selectedProj) return;
 
       const committed = ensureArray(selectedProj.okrsV2 as KRStructuredX[] | undefined);
-      const base = committed.map((k) => mkKRStructured({ ...(k as KRStructuredX), id: (k as any).id ?? genId() }));
+      const base = committed.map((k) => mkKRStructured({ ...(k as KRStructuredX), id: (k as any).id || genId() }));
 
       const ts = new Intl.DateTimeFormat('ja-JP', {
         month: '2-digit',

@@ -20,6 +20,7 @@ import type {
   Stage2DeepDive,
 } from '@/types/strategy';
 import { ensureDepartmentId, ensureProjectId } from './stableIdGenerator';
+import { sanitizeKrActual, sanitizeKrActualHistory } from '@/lib/stage5/krActual';
 import { normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
@@ -294,6 +295,8 @@ function normalizeProject(
         startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
         notes: typeof r?.notes === 'string' ? r.notes : undefined,
         spend: r?.spend && typeof r.spend === 'object' ? r.spend : undefined,
+        ...(sanitizeKrActual(r?.actual) ? { actual: sanitizeKrActual(r?.actual) } : {}),
+        ...(sanitizeKrActualHistory(r?.actualHistory) ? { actualHistory: sanitizeKrActualHistory(r?.actualHistory) } : {}),
         // ★ 修正：milestones を保持（リロード後に消える問題を解決）
         milestones: Array.isArray(r?.milestones)
           ? r.milestones.map((m: any) => ({
@@ -1235,6 +1238,14 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       stage3_bridge_hasStrategicCore: (out as any).stage3_strategy_bridge?.strategicCore ? true : false,
       stage3_bridge_keys: (out as any).stage3_strategy_bridge ? Object.keys((out as any).stage3_strategy_bridge) : [],
     });
+  }
+
+  /* STAGE6 の入力（North Star の目標・手動の寄与行）は正規化で落とさない。読込時の退避・復元とは別に、常に保持する */
+  if (Array.isArray(src.companyTargets) && (out as any).companyTargets === undefined) {
+    (out as any).companyTargets = src.companyTargets;
+  }
+  if (Array.isArray(src.projectTargetImpacts) && (out as any).projectTargetImpacts === undefined) {
+    (out as any).projectTargetImpacts = src.projectTargetImpacts;
   }
 
   return out;
