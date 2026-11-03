@@ -9,6 +9,8 @@ import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
 import { buildFinanceEffectTrial, withoutTargetPath } from '@/utils/stage6/financeEffectPlan';
 import { UnifiedPlPanel } from './UnifiedPlPanel';
+import { ConditionalCfPanel } from './ConditionalCfPanel';
+import { buildConditionalCashFlow } from '@/utils/stage6/conditionalCf';
 import { buildUnifiedPl, type PlTarget } from '@/utils/stage6/unifiedPl';
 import { isOperatingIncomeLabel, isRevenueLabel, northStarValueToMJPY } from '@/utils/stage6/compute';
 import {
@@ -223,10 +225,11 @@ function FinancePlanContent({
           investment: investmentInput,
           assumptions: withoutTargetPath(assumptions),
           fiscalYearEndSet,
+          debt: debtEntered ? schedule : undefined,
         },
         NOW_YEAR,
       ),
-    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet],
+    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule],
   );
   const baselineForecastYears = useMemo(
     () => baselinePlan.years.filter((y) => y.kind === 'FORECAST'),
@@ -264,6 +267,10 @@ function FinancePlanContent({
         target: unifiedTarget,
       }),
     [baselineForecastYears, effectTrial, unifiedTarget],
+  );
+  const conditionalCf = useMemo(
+    () => buildConditionalCashFlow({ baseline: baselinePlan, unified: unifiedPl }),
+    [baselinePlan, unifiedPl],
   );
 
   const currentDomain: FinancePlanDomain = useMemo(() => {
@@ -572,6 +579,7 @@ function FinancePlanContent({
           <div className="space-y-4">
             <TabHeader tab="cashflow" />
             <CashFlowPanel plan={plan} form={cfForm} setForm={setCfFormByUser} />
+            <ConditionalCfPanel cf={conditionalCf} />
           </div>
         )}
 
