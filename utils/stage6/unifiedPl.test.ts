@@ -155,34 +155,48 @@ describe('統一PL：売上増加・費用削減・追加費用の符号と年�
   });
 });
 
-describe('統一PL：経営目標との差額（経営目標 − 条件付きPL試算、正＝不足）', () => {
-  it('G1 目標年度の差額：売上 1,200・営業利益 80 の目標に対し、費用削減のみのFY2028は 売上 200 不足・利益 7 不足', () => {
-    const costRed = confirmed({ kind: 'COST_REDUCTION', method: 'DIRECT_AMOUNT', directAmountYen: 500_000, amountBasis: 'MONTHLY', startYm: '2026-10', endYm: '2027-09' });
-    const p = plan([dept('製造部', [proj('工程改善', costRed)])], '3', { revenueYen: 1_200 * M, operatingIncomeYen: 80 * M, dueYear: 2028 });
-    // 手計算：FY2028 の売上 1,000、営業利益 70 + 3 = 73 → 差額 売上 200、利益 7
-    expect(p.gap?.fiscalYear).toBe(2028);
-    expect(p.gap?.revenueYen).toBe(200 * M);
-    expect(p.gap?.operatingIncomeYen).toBe(7 * M);
+describe('統一PL：経営目標との差額（指標ごとの目標年度で比較。正＝不足）', () => {
+  /* 費用削減：月 0.5、2026年10月〜2027年9月。FY2026 は 0、FY2027 は 3（10〜3月）、FY2028 は 3（4〜9月） → 営業利益 70・73・73 */
+  const costRedOct = confirmed({ kind: 'COST_REDUCTION', method: 'DIRECT_AMOUNT', directAmountYen: 500_000, amountBasis: 'MONTHLY', startYm: '2026-10', endYm: '2027-09' });
+
+  it('G1 同じ年度：売上・営業利益とも FY2028。売上は 1,200 − 1,000 = 200、利益は 80 − 73 = 7', () => {
+    const p = plan([dept('製造部', [proj('工程改善', costRedOct)])], '3', { revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2028 });
+    expect(p.gap?.revenue).toEqual({ fiscalYear: 2028, valueYen: 200 * M, reason: null });
+    expect(p.gap?.operatingIncome).toEqual({ fiscalYear: 2028, valueYen: 7 * M, reason: null });
   });
 
-  it('G2 売上増加がある年度の利益差額は算出せず、理由を表示する', () => {
-    const p = plan([dept('営業部', [proj('新規開拓', revenueUp60)])], '3', { revenueYen: 1_200 * M, operatingIncomeYen: 80 * M, dueYear: 2028 });
-    // 手計算：売上は 1,060 → 差額 140。利益は売上増加のため未算定
-    expect(p.gap?.revenueYen).toBe(140 * M);
-    expect(p.gap?.operatingIncomeYen).toBeNull();
-    expect(p.gap?.reasons.join('')).toContain('売上増加があるため営業利益は未算定');
+  it('G2 年度が異なる：売上は FY2028、営業利益は FY2026 で比べる。利益は 80 − 70 = 10（FY2028 の 73 で比べない）', () => {
+    const p = plan([dept('製造部', [proj('工程改善', costRedOct)])], '3', { revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2026 });
+    expect(p.gap?.revenue.fiscalYear).toBe(2028);
+    expect(p.gap?.revenue.valueYen).toBe(200 * M);
+    expect(p.gap?.operatingIncome.fiscalYear).toBe(2026);
+    expect(p.gap?.operatingIncome.valueYen).toBe(10 * M);
   });
 
-  it('G3 目標年度が未設定・予測期間外のときは差額を出さず、理由を表示する', () => {
-    const none = plan([dept('製造部', [proj('工程改善')])], '3', { revenueYen: 1_200 * M, operatingIncomeYen: 80 * M, dueYear: null });
-    expect(none.gap?.revenueYen).toBeNull();
-    expect(none.gap?.reasons[0]).toContain('目標年度が未設定');
-    const outside = plan([dept('製造部', [proj('工程改善')])], '3', { revenueYen: 1_200 * M, operatingIncomeYen: 80 * M, dueYear: 2031 });
-    expect(outside.gap?.revenueYen).toBeNull();
-    expect(outside.gap?.reasons[0]).toContain('予測期間に含まれない');
+  it('G3 売上増加がある年度：売上の差額は出し、営業利益の差額は算出せず理由を出す（0扱いしない）', () => {
+    const p = plan([dept('営業部', [proj('新規開拓', revenueUp60)])], '3', { revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2028 });
+    // 手計算：売上 1,060 → 差額 140。利益は売上増加のため未算定
+    expect(p.gap?.revenue.valueYen).toBe(140 * M);
+    expect(p.gap?.operatingIncome.valueYen).toBeNull();
+    expect(p.gap?.operatingIncome.reason).toContain('売上増加があるため営業利益は未算定');
   });
 
-  it('G4 基準年度の値が未確定なら、その年度の試算は未算定になる（効果の内訳は残す）', () => {
+  it('G4 目標年度・目標値の欠落と予測期間外：それぞれ差額を出さず、指標ごとの理由を出す', () => {
+    const noYear = plan([dept('製造部', [proj('工程改善')])], '3', { revenueYen: 1_200 * M, revenueDueYear: null, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2028 });
+    expect(noYear.gap?.revenue.valueYen).toBeNull();
+    expect(noYear.gap?.revenue.reason).toContain('売上の目標年度が未設定');
+    expect(noYear.gap?.operatingIncome.valueYen).toBe(10 * M);
+
+    const noTarget = plan([dept('製造部', [proj('工程改善')])], '3', { revenueYen: null, revenueDueYear: 2028, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2028 });
+    expect(noTarget.gap?.revenue.valueYen).toBeNull();
+    expect(noTarget.gap?.revenue.reason).toContain('経営目標（売上）が未設定');
+
+    const outside = plan([dept('製造部', [proj('工程改善')])], '3', { revenueYen: 1_200 * M, revenueDueYear: 2031, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2028 });
+    expect(outside.gap?.revenue.valueYen).toBeNull();
+    expect(outside.gap?.revenue.reason).toContain('予測期間に含まれない');
+  });
+
+  it('G5 基準年度の値が未確定なら、その年度の試算は未算定になる（効果の内訳は残す）', () => {
     const costRed = confirmed({ kind: 'COST_REDUCTION', method: 'DIRECT_AMOUNT', directAmountYen: 1_200_000, amountBasis: 'ANNUAL', startYm: '2026-04' });
     const trial = trialOf([dept('製造部', [proj('工程改善', costRed)])]);
     const p = buildUnifiedPl({

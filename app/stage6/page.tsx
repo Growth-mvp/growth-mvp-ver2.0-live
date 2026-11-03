@@ -258,20 +258,25 @@ function Stage6PageContent() {
                 excludedImpacts={stage6.excludedImpactRows}
               />
 
-              <TabImpact
-                projectContrib={stage6.projectContrib as any}
-                core={stage6.core}
-                deptFilter={projectFilters.deptFilter}
-                setDeptFilter={projectFilters.setDeptFilter}
-                selectedProjectKeys={projectFilters.selectedProjectKeys}
-                selectedSet={projectFilters.selectedSet}
-                selectedSummary={projectFilters.selectedSummary}
-                toggleProject={projectFilters.toggleProject}
-                selectAllFiltered={projectFilters.selectAllFiltered}
-                clearAllFiltered={projectFilters.clearAllFiltered}
-                revenueGapMJPY={stage6.dashboardSummary?.revenue.gap}
-                opGapMJPY={stage6.dashboardSummary?.op.gap}
-              />
+              <details className="rounded-xl border border-slate-200 bg-white p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700">旧北極星の施策別寄与（参考情報・折りたたみ）</summary>
+                <div className="mt-4">
+                  <TabImpact
+                    projectContrib={stage6.projectContrib as any}
+                    core={stage6.core}
+                    deptFilter={projectFilters.deptFilter}
+                    setDeptFilter={projectFilters.setDeptFilter}
+                    selectedProjectKeys={projectFilters.selectedProjectKeys}
+                    selectedSet={projectFilters.selectedSet}
+                    selectedSummary={projectFilters.selectedSummary}
+                    toggleProject={projectFilters.toggleProject}
+                    selectAllFiltered={projectFilters.selectAllFiltered}
+                    clearAllFiltered={projectFilters.clearAllFiltered}
+                    revenueGapMJPY={stage6.dashboardSummary?.revenue.gap}
+                    opGapMJPY={stage6.dashboardSummary?.op.gap}
+                  />
+                </div>
+              </details>
 
               <ReviewCandidatesSection reviewCandidates={stage6.reviewCandidates} />
             </>

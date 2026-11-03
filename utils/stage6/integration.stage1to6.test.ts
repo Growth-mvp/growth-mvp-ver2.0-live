@@ -42,7 +42,7 @@ const ASSUMPTIONS: CfAssumptions = {
   targetOperatingIncomeYen: null,
   targetYear: null,
 };
-const TARGET: PlTarget = { revenueYen: 1_200 * M, operatingIncomeYen: 80 * M, dueYear: 2028 };
+const TARGET: PlTarget = { revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2028 };
 
 const confirmed = (over: Record<string, unknown>) => ({ confirmed: true, sourceNote: '見積書（架空）', source: 'USER_INPUT', ...over });
 const EFFECT_REVENUE = confirmed({ kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', directAmountYen: 60 * M, amountBasis: 'ANNUAL', startYm: '2026-04' });
@@ -104,7 +104,7 @@ describe('統合2：経営目標は予測に加算されない', () => {
     // 手計算：FY2028 の売上は 基準 1,000 + 売上増加 60 = 1,060（目標 1,200 は足さない）
     expect(mil(withT.unified.years[2].plan.revenueYen)).toBe(1_060);
     // 差額 ＝ 目標 1,200 − 試算 1,060 = 140
-    expect(withT.unified.gap?.revenueYen).toBe(140 * M);
+    expect(withT.unified.gap?.revenue.valueYen).toBe(140 * M);
   });
 });
 

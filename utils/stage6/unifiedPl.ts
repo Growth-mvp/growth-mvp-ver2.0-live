@@ -3,8 +3,13 @@ import type { FinanceEffectTrialYear } from './financeEffectPlan';
 /** B：直近の確定財務実績を横ばいに置いた暫定仮定（円）。成長予測ではない */
 export type BaselineYear = { fiscalYear: number; revenueYen: number | null; operatingIncomeYen: number | null };
 
-/** A：STAGE2の経営目標（円）。予測には加算せず、差額の比較に使う */
-export type PlTarget = { revenueYen: number | null; operatingIncomeYen: number | null; dueYear: number | null };
+/** A：STAGE2の経営目標（円）。予測には加算せず、差額の比較に使う。指標ごとに期限年度を持つ */
+export type PlTarget = {
+  revenueYen: number | null;
+  revenueDueYear: number | null;
+  operatingIncomeYen: number | null;
+  operatingIncomeDueYear: number | null;
+};
 
 export type UnifiedPlYear = {
   fiscalYear: number;
@@ -16,12 +21,16 @@ export type UnifiedPlYear = {
   unknownReasons: string[];
 };
 
+/** 指標ごとの差額。経営目標 − その指標の期限年度の条件付きPL試算（正＝不足） */
+export type UnifiedPlMetricGap = {
+  fiscalYear: number | null;
+  valueYen: number | null;
+  reason: string | null;
+};
+
 export type UnifiedPlGap = {
-  fiscalYear: number;
-  /** 経営目標 − 条件付きPL試算（正＝不足）。算定できない場合は null */
-  revenueYen: number | null;
-  operatingIncomeYen: number | null;
-  reasons: string[];
+  revenue: UnifiedPlMetricGap;
+  operatingIncome: UnifiedPlMetricGap;
 };
 
 export type UnifiedPl = {
@@ -72,37 +81,59 @@ export function buildUnifiedPl(args: {
     };
   });
 
-  return { years, gap: gapOf(args.target, years) };
+  return { years, gap: args.target ? gapOf(args.target, years) : null };
 }
 
-function gapOf(target: PlTarget | null, years: UnifiedPlYear[]): UnifiedPlGap | null {
-  if (!target) return null;
-  if (target.dueYear === null) {
-    return { fiscalYear: 0, revenueYen: null, operatingIncomeYen: null, reasons: ['経営目標の目標年度が未設定のため、差額は算出していません'] };
+function gapOf(target: PlTarget, years: UnifiedPlYear[]): UnifiedPlGap {
+  return {
+    revenue: metricGap({
+      label: '売上',
+      targetYen: target.revenueYen,
+      dueYear: target.revenueDueYear,
+      years,
+      planOf: (row) => row.plan.revenueYen,
+      unavailableReason: '売上の試算が未算定のため差額は算出していません',
+    }),
+    operatingIncome: metricGap({
+      label: '営業利益',
+      targetYen: target.operatingIncomeYen,
+      dueYear: target.operatingIncomeDueYear,
+      years,
+      planOf: (row) => row.plan.operatingIncomeYen,
+      unavailableReason: (row) =>
+        row.unknownReasons.includes(OP_UNKNOWN_REASON)
+          ? '売上増加があるため営業利益は未算定（差額は算出していません）'
+          : '営業利益の試算が未算定のため差額は算出していません',
+    }),
+  };
+}
+
+function metricGap(args: {
+  label: string;
+  targetYen: number | null;
+  dueYear: number | null;
+  years: UnifiedPlYear[];
+  planOf: (row: UnifiedPlYear) => number | null;
+  unavailableReason: string | ((row: UnifiedPlYear) => string);
+}): UnifiedPlMetricGap {
+  if (args.targetYen === null) {
+    return { fiscalYear: args.dueYear, valueYen: null, reason: `経営目標（${args.label}）が未設定のため差額は算出していません` };
   }
-  const row = years.find((y) => y.fiscalYear === target.dueYear);
+  if (args.dueYear === null) {
+    return { fiscalYear: null, valueYen: null, reason: `${args.label}の目標年度が未設定のため、差額は算出していません` };
+  }
+  const row = args.years.find((y) => y.fiscalYear === args.dueYear);
   if (!row) {
     return {
-      fiscalYear: target.dueYear,
-      revenueYen: null,
-      operatingIncomeYen: null,
-      reasons: [`目標年度（${target.dueYear}年度）が予測期間に含まれないため、差額は算出していません`],
+      fiscalYear: args.dueYear,
+      valueYen: null,
+      reason: `${args.label}の目標年度（${args.dueYear}年度）が予測期間に含まれないため、差額は算出していません`,
     };
   }
-  const reasons: string[] = [];
-  let revenueYen: number | null = null;
-  if (target.revenueYen !== null && row.plan.revenueYen !== null) {
-    revenueYen = target.revenueYen - row.plan.revenueYen;
-  } else {
-    reasons.push('売上の目標値または試算値が未算定');
+  const plan = args.planOf(row);
+  if (plan === null) {
+    const reason = typeof args.unavailableReason === 'string' ? args.unavailableReason : args.unavailableReason(row);
+    return { fiscalYear: row.fiscalYear, valueYen: null, reason };
   }
-  let operatingIncomeYen: number | null = null;
-  if (target.operatingIncomeYen !== null && row.plan.operatingIncomeYen !== null) {
-    operatingIncomeYen = target.operatingIncomeYen - row.plan.operatingIncomeYen;
-  } else if (row.unknownReasons.includes(OP_UNKNOWN_REASON)) {
-    reasons.push('売上増加があるため営業利益は未算定');
-  } else {
-    reasons.push('営業利益の目標値または試算値が未算定');
-  }
-  return { fiscalYear: row.fiscalYear, revenueYen, operatingIncomeYen, reasons };
+  return { fiscalYear: row.fiscalYear, valueYen: args.targetYen - plan, reason: null };
 }

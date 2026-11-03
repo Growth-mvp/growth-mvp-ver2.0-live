@@ -17,14 +17,14 @@ import {
 } from './financePlanStatus';
 
 describe('FINANCE_TABS', () => {
-  it('目標に届くかから計画は成り立つかまでの5タブを順に並べる', () => {
+  it('目標に届くかから参考判定までの5タブを順に並べる', () => {
     expect(FINANCE_TABS.map((t) => t.key)).toEqual(['target', 'investment', 'cashflow', 'debt', 'verdict']);
     expect(FINANCE_TABS.map((t) => t.label)).toEqual([
       '1. 目標に届くか',
       '2. いくら必要か',
       '3. お金は足りるか',
       '4. 借入・返済を考える',
-      '5. 計画は成り立つか',
+      '5. 参考判定',
     ]);
   });
 

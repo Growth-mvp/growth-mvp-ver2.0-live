@@ -1,10 +1,10 @@
 import type { FinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
-import type { UnifiedPl, UnifiedPlYear } from '@/utils/stage6/unifiedPl';
+import type { PlTarget, UnifiedPl, UnifiedPlMetricGap, UnifiedPlYear } from '@/utils/stage6/unifiedPl';
 
 const MILLION = 1_000_000;
 const UNCALCULATED = '未算定';
 
-type Target = { revenueYen: number | null; operatingIncomeYen: number | null; dueYear: number | null };
+type Target = PlTarget;
 
 function mil(v: number) {
   return (v / MILLION).toLocaleString('ja-JP', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
@@ -37,6 +37,14 @@ function gapText(v: number | null) {
   return `目標を達成（${mil(-v)} 百万円超過）`;
 }
 
+function yearLabel(year: number | null | undefined) {
+  return year === null || year === undefined ? '年度未設定' : `${year}年度`;
+}
+
+function metricGapText(gap: UnifiedPlMetricGap | undefined) {
+  return gap && gap.valueYen !== null ? gapText(gap.valueYen) : UNCALCULATED;
+}
+
 function uniqueReasons(years: UnifiedPlYear[], gapReasons: string[]) {
   return Array.from(new Set([...years.flatMap((y) => y.unknownReasons), ...gapReasons]));
 }
@@ -52,7 +60,10 @@ export function UnifiedPlPanel({
 }) {
   const included = trial.included.length;
   const excluded = trial.excluded.length;
-  const reasons = uniqueReasons(plan.years, plan.gap?.reasons ?? []);
+  const reasons = uniqueReasons(
+    plan.years,
+    [plan.gap?.revenue.reason, plan.gap?.operatingIncome.reason].filter((r): r is string => r !== null && r !== undefined),
+  );
   const firstBaseline = plan.years.find((y) => y.baseline.revenueYen !== null) ?? plan.years[0];
 
   return (
@@ -68,8 +79,8 @@ export function UnifiedPlPanel({
         <div className="rounded border border-slate-200 p-2">
           <dt className="font-semibold">経営目標（STAGE2・予測に加算しない）</dt>
           <dd className="mt-1">
-            売上 {targetText(target.revenueYen)} ／ 営業利益 {targetText(target.operatingIncomeYen)}
-            {target.dueYear !== null ? `（目標年度 ${target.dueYear}年度）` : '（目標年度 未設定）'}
+            売上 {targetText(target.revenueYen)}（目標年度 {yearLabel(target.revenueDueYear)}）
+            ／ 営業利益 {targetText(target.operatingIncomeYen)}（目標年度 {yearLabel(target.operatingIncomeDueYear)}）
           </dd>
         </div>
         <div className="rounded border border-slate-200 p-2">
@@ -89,8 +100,8 @@ export function UnifiedPlPanel({
         <div className="rounded border border-slate-200 p-2">
           <dt className="font-semibold">目標との差額（経営目標 − 条件付きPL試算）</dt>
           <dd className="mt-1">
-            {plan.gap && plan.gap.fiscalYear > 0 ? `${plan.gap.fiscalYear}年度` : '年度未確定'}：売上 {gapText(plan.gap?.revenueYen ?? null)} ／ 営業利益{' '}
-            {gapText(plan.gap?.operatingIncomeYen ?? null)}
+            <div>売上（{yearLabel(plan.gap?.revenue.fiscalYear)}）：{metricGapText(plan.gap?.revenue)}</div>
+            <div>営業利益（{yearLabel(plan.gap?.operatingIncome.fiscalYear)}）：{metricGapText(plan.gap?.operatingIncome)}</div>
           </dd>
         </div>
       </dl>

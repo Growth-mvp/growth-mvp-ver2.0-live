@@ -21,41 +21,14 @@ function fmtMJPY(v: number) {
 function summaryText(row: TargetGap | undefined) {
   if (!row || !(row.target > 0)) return '目標が未設定のため、達成率は算出していません';
   const pct = Math.round((row.forecast / row.target) * 100);
-  return `現状＋北極星の施策寄与の参考計算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}（参考達成率 ${pct}%・重複の可能性あり）`;
+  return `旧北極星の参考計算：現状＋手動の施策寄与 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}（参考達成率 ${pct}%・重複の可能性あり）`;
 }
 
 export function TargetOverview({ northStarRows, dashboardSummary, excludedImpacts = [] }: Props) {
   return (
     <div className="space-y-5">
-      {excludedImpacts.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <div className="font-semibold">北極星の集計から外した金額（{excludedImpacts.length}件）</div>
-          <ul className="mt-1 list-disc pl-5 text-xs">
-            {excludedImpacts.map((e, i) => (
-              <li key={`${e.projectId}-${e.targetId}-${i}`}>
-                {e.projectId}（目標: {e.targetId}、登録額: {e.valueMJPY === null ? '不明' : `${e.valueMJPY} 百万円`}）：{e.reason}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1 text-xs">金額は削除していません。対象の施策を確認し、必要なら金額を入力し直してください。</p>
-        </div>
-      )}
       <div>
-        <h4 className="text-sm font-bold text-slate-900">売上・営業利益の目標と条件付き試算（要約）</h4>
-        <ul className="mt-2 space-y-1 text-sm text-slate-800">
-          <li>
-            <span className="font-semibold">売上：</span>
-            {summaryText(dashboardSummary?.revenue)}
-          </li>
-          <li>
-            <span className="font-semibold">営業利益：</span>
-            {summaryText(dashboardSummary?.op)}
-          </li>
-        </ul>
-      </div>
-
-      <div>
-        <h4 className="text-sm font-bold text-slate-900">STAGE2で設定した経営目標</h4>
+        <h4 className="text-sm font-bold text-slate-900">経営目標（STAGE2で設定・予測には加算しない）</h4>
         {northStarRows.length === 0 ? (
           <div className="mt-2 rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-600">
             経営目標が未設定です。STAGE2で目標を設定すると、ここに表示されます。
@@ -89,11 +62,42 @@ export function TargetOverview({ northStarRows, dashboardSummary, excludedImpact
       </div>
 
       <details className="rounded-xl border border-slate-200 bg-white p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-          詳細グラフを開く
+        <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+          旧北極星の手動金額による参考計算（参考情報・折りたたみ）
         </summary>
-        <div className="mt-4">
-          <TabValueDashboard northStarRows={northStarRows} dashboardSummary={dashboardSummary} />
+        <div className="mt-4 space-y-4">
+          <p className="text-xs leading-relaxed text-slate-600 break-keep">
+            従来の北極星の手動金額（施策ごとの売上・利益の寄与）から作る参考計算です。確認済みの財務効果による条件付きPL試算とは別の値で、両方を足し合わせないでください。
+          </p>
+          {excludedImpacts.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="font-semibold">旧北極星の集計から外した金額（{excludedImpacts.length}件）</div>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {excludedImpacts.map((e, i) => (
+                  <li key={`${e.projectId}-${e.targetId}-${i}`}>
+                    {e.projectId}（目標: {e.targetId}、登録額: {e.valueMJPY === null ? '不明' : `${e.valueMJPY} 百万円`}）：{e.reason}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs">金額は削除していません。対象の施策を確認し、必要なら金額を入力し直してください。</p>
+            </div>
+          )}
+          <ul className="space-y-1 text-sm text-slate-800">
+            <li>
+              <span className="font-semibold">売上：</span>
+              {summaryText(dashboardSummary?.revenue)}
+            </li>
+            <li>
+              <span className="font-semibold">営業利益：</span>
+              {summaryText(dashboardSummary?.op)}
+            </li>
+          </ul>
+          <details className="rounded-xl border border-slate-200 bg-white p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-900">詳細グラフを開く</summary>
+            <div className="mt-4">
+              <TabValueDashboard northStarRows={northStarRows} dashboardSummary={dashboardSummary} />
+            </div>
+          </details>
         </div>
       </details>
     </div>

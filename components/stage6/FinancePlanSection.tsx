@@ -11,7 +11,7 @@ import { buildFinanceEffectTrial, withoutTargetPath } from '@/utils/stage6/finan
 import { UnifiedPlPanel } from './UnifiedPlPanel';
 import { ConditionalCfPanel } from './ConditionalCfPanel';
 import { buildConditionalCashFlow } from '@/utils/stage6/conditionalCf';
-import { buildUnifiedPl, type PlTarget } from '@/utils/stage6/unifiedPl';
+import { buildUnifiedPl, type PlTarget, type UnifiedPlMetricGap } from '@/utils/stage6/unifiedPl';
 import { isOperatingIncomeLabel, isRevenueLabel, northStarValueToMJPY } from '@/utils/stage6/compute';
 import {
   FINANCE_PLAN_CALC_VERSION,
@@ -83,11 +83,18 @@ function fmtMJPY(v: number) {
   return `${Math.round(v).toLocaleString('ja-JP')} 百万円`;
 }
 
-function targetGapText(row: TargetGap | undefined) {
-  if (!row || !Number.isFinite(row.gap)) return { value: '-', note: '目標または条件付き試算が未確定です' };
+type UnifiedGapView = { value: string; note: string; warn: boolean };
+
+function unifiedGapView(args: { gap: UnifiedPlMetricGap | undefined; targetYen: number | null; planYen: number | null }): UnifiedGapView {
+  const gap = args.gap;
+  if (!gap || gap.valueYen === null || gap.fiscalYear === null) {
+    return { value: '未算定', note: gap?.reason ?? '経営目標が未設定のため差額は算出していません', warn: false };
+  }
+  const diff = gap.valueYen / 1_000_000;
   return {
-    value: row.gap > 0 ? `参考計算での不足 ${fmtMJPY(row.gap)}` : '参考計算では目標に到達（重複の可能性あり）',
-    note: `現状＋施策寄与の参考計算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}`,
+    value: diff > 0 ? `不足 ${fmtMJPY(diff)}` : '目標を達成',
+    note: `${gap.fiscalYear}年度：経営目標 ${fmtMJPY((args.targetYen ?? 0) / 1_000_000)} ／ 条件付きPL試算 ${fmtMJPY((args.planYen ?? 0) / 1_000_000)}`,
+    warn: diff > 0,
   };
 }
 
@@ -108,7 +115,6 @@ export function FinancePlanSection(props: SectionProps) {
 
 function FinancePlanContent({
   companyId,
-  dashboardSummary,
   targetContent,
   reviewCandidateCount = 0,
 }: SectionProps & { companyId: string | null }) {
@@ -160,6 +166,7 @@ function FinancePlanContent({
   );
   const fiscalYearEndSet = parseFiscalYearEndMonth(fiscalYearEnd) !== null;
   const assumptions = useMemo(() => toCashFlowAssumptions(cfForm), [cfForm]);
+  const targetPathInUse = assumptions.targetRevenueYen !== null || assumptions.targetOperatingIncomeYen !== null;
 
   const investmentInput = useMemo(
     () => ({
@@ -243,7 +250,8 @@ function FinancePlanContent({
     return {
       revenueYen: toYen(revenueTarget),
       operatingIncomeYen: toYen(opTarget),
-      dueYear: revenueTarget?.dueYear ?? opTarget?.dueYear ?? null,
+      revenueDueYear: revenueTarget?.dueYear ?? null,
+      operatingIncomeDueYear: opTarget?.dueYear ?? null,
     };
   }, [companyTargets]);
   const effectTrial = useMemo(
@@ -404,8 +412,16 @@ function FinancePlanContent({
           ? '入力内容は画面に保持されています（全体保存でも保存されます）。'
           : freshnessLabel(freshness);
 
-  const revenueGap = targetGapText(dashboardSummary?.revenue);
-  const opGap = targetGapText(dashboardSummary?.op);
+  const revenueGap = unifiedGapView({
+    gap: unifiedPl.gap?.revenue,
+    targetYen: unifiedTarget.revenueYen,
+    planYen: unifiedPl.years.find((y) => y.fiscalYear === unifiedPl.gap?.revenue.fiscalYear)?.plan.revenueYen ?? null,
+  });
+  const opGap = unifiedGapView({
+    gap: unifiedPl.gap?.operatingIncome,
+    targetYen: unifiedTarget.operatingIncomeYen,
+    planYen: unifiedPl.years.find((y) => y.fiscalYear === unifiedPl.gap?.operatingIncome.fiscalYear)?.plan.operatingIncomeYen ?? null,
+  });
   const top3 = unconfirmed.slice(0, 3);
 
   return (
@@ -449,18 +465,18 @@ function FinancePlanContent({
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
         <KpiCard
-          label="北極星の参考計算と売上目標の差"
+          label="条件付きPL試算と売上目標の差"
           value={revenueGap.value}
           note={revenueGap.note}
-          tone={dashboardSummary && dashboardSummary.revenue.gap > 0 ? 'warn' : 'neutral'}
+          tone={revenueGap.warn ? 'warn' : 'neutral'}
           onClick={() => setTab('target')}
           actionLabel={`${tabLabelOf('target')}で確認`}
         />
         <KpiCard
-          label="北極星の参考計算と営業利益目標の差"
+          label="条件付きPL試算と営業利益目標の差"
           value={opGap.value}
           note={opGap.note}
-          tone={dashboardSummary && dashboardSummary.op.gap > 0 ? 'warn' : 'neutral'}
+          tone={opGap.warn ? 'warn' : 'neutral'}
           onClick={() => setTab('target')}
           actionLabel={`${tabLabelOf('target')}で確認`}
         />
@@ -563,8 +579,11 @@ function FinancePlanContent({
         {tab === 'target' && (
           <div className="space-y-6">
             <TabHeader tab="target" />
-            {targetContent}
             <UnifiedPlPanel plan={unifiedPl} trial={effectTrial} target={unifiedTarget} />
+            <p className="text-xs leading-relaxed text-slate-600 break-keep">
+              目標に至る補間の経路は「3. お金は足りるか」の参考情報にあります。旧北極星の手動金額による参考計算は、下の折りたたみにあります。
+            </p>
+            {targetContent}
           </div>
         )}
 
@@ -578,8 +597,19 @@ function FinancePlanContent({
         {tab === 'cashflow' && (
           <div className="space-y-4">
             <TabHeader tab="cashflow" />
-            <CashFlowPanel plan={plan} form={cfForm} setForm={setCfFormByUser} />
             <ConditionalCfPanel cf={conditionalCf} />
+            <section
+              aria-label="目標補間の経路と前提入力（参考情報）"
+              className="space-y-4 rounded-lg border border-dashed border-slate-300 bg-slate-50/40 p-4"
+            >
+              <div>
+                <h4 className="text-sm font-bold text-slate-700">目標補間の経路と前提入力（参考情報）</h4>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 break-keep">
+                  この表は経営目標へ到達する仮想的な経路で、業績予測ではありません。条件付きCFが未算定でも、この表の値で代用しません。税率・減価償却費・比率・目標の前提入力もここにあります。
+                </p>
+              </div>
+              <CashFlowPanel plan={plan} form={cfForm} setForm={setCfFormByUser} />
+            </section>
           </div>
         )}
 
@@ -593,6 +623,12 @@ function FinancePlanContent({
         {tab === 'verdict' && (
           <div className="space-y-4">
             <TabHeader tab="verdict" />
+            <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 break-keep">
+              {targetPathInUse
+                ? 'この判定は、経営目標へ到達する仮想的な経路（目標補間）に基づく参考判定です。施策効果は含まず、施策による業績達成可能性を判定したものではありません。'
+                : 'この判定は、直近実績を横ばいにした既存の計画（施策効果を含まない）に基づく参考判定です。施策による業績達成可能性を判定したものではありません。'}
+              条件付きPL・CFの結果は「1. 目標に届くか」と「3. お金は足りるか」の上段を参照してください。
+            </p>
             <FinanceVerdictPanel
               plan={plan}
               schedule={schedule}

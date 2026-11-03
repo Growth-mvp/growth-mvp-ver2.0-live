@@ -11,7 +11,7 @@ export const FINANCE_TABS: readonly { key: FinanceTab; label: string; descriptio
     key: 'target',
     label: '1. 目標に届くか',
     description:
-      '経営目標に対して、現場の取り組みがどれだけ貢献するかを確認します。目標との差を把握し、必要な施策を見直します。',
+      '確認済みの施策効果による条件付きPL試算を先に確認し、経営目標との差を見ます。目標に至る補間の経路は参考情報です。',
   },
   {
     key: 'investment',
@@ -21,7 +21,7 @@ export const FINANCE_TABS: readonly { key: FinanceTab; label: string; descriptio
   {
     key: 'cashflow',
     label: '3. お金は足りるか',
-    description: '売上や利益の見通しをもとに、事業で生まれるお金と必要になるお金を試算します。',
+    description: '確認済みの施策効果による条件付きCF試算を先に確認します。目標補間の経路は参考情報で、業績予測ではありません。',
   },
   {
     key: 'debt',
@@ -30,9 +30,9 @@ export const FINANCE_TABS: readonly { key: FinanceTab; label: string; descriptio
   },
   {
     key: 'verdict',
-    label: '5. 計画は成り立つか',
+    label: '5. 参考判定',
     description:
-      '資金繰りや返済の見通しを確認し、計画を進めるうえでの問題と見直すべき点を明らかにします。',
+      '施策効果を含まない既存の計画（目標補間の経路、または目標未入力時は横ばい）に基づく参考判定です。条件付きPL・CFによる達成可能性は判定していません。未算定は達成・未達のいずれにも扱いません。',
   },
 ];
 

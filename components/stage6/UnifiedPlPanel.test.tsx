@@ -26,7 +26,7 @@ describe('統一PLの表示', () => {
     ];
     const plan = buildUnifiedPl({ baseline, effects: years, target: null });
     const html = renderToStaticMarkup(
-      <UnifiedPlPanel plan={plan} trial={trialWith(years, [{ deptName: '製造部', projectTitle: '工程改善', kind: 'COST_REDUCTION' }])} target={{ revenueYen: null, operatingIncomeYen: null, dueYear: null }} />,
+      <UnifiedPlPanel plan={plan} trial={trialWith(years, [{ deptName: '製造部', projectTitle: '工程改善', kind: 'COST_REDUCTION' }])} target={{ revenueYen: null, revenueDueYear: null, operatingIncomeYen: null, operatingIncomeDueYear: null }} />,
     );
     // 手計算（2027年度）：ベースラインの営業費用 1,000 − 70 = 930 → 費用削減 3 で 927。営業利益 70 + 3 = 73
     const row = cells(html).slice(1, 10);
@@ -40,7 +40,7 @@ describe('統一PLの表示', () => {
     ];
     const plan = buildUnifiedPl({ baseline, effects: years, target: null });
     const html = renderToStaticMarkup(
-      <UnifiedPlPanel plan={plan} trial={trialWith(years, [{ deptName: '営業部', projectTitle: '新規開拓', kind: 'REVENUE_UP' }])} target={{ revenueYen: null, operatingIncomeYen: null, dueYear: null }} />,
+      <UnifiedPlPanel plan={plan} trial={trialWith(years, [{ deptName: '営業部', projectTitle: '新規開拓', kind: 'REVENUE_UP' }])} target={{ revenueYen: null, revenueDueYear: null, operatingIncomeYen: null, operatingIncomeDueYear: null }} />,
     );
     const row = cells(html).slice(1, 10);
     expect(row).toEqual(['1,000.0', '+60.0', '1,060.0', '930.0', '0.0', '0.0', '未算定', '70.0', '未算定']);
@@ -48,9 +48,9 @@ describe('統一PLの表示', () => {
   });
 
   it('名称：統一PL・ベースライン・確認済み効果・経営目標・目標との差額を区別して表示する', () => {
-    const plan = buildUnifiedPl({ baseline, effects: [], target: { revenueYen: 1_200 * M, operatingIncomeYen: null, dueYear: 2028 } });
+    const plan = buildUnifiedPl({ baseline, effects: [], target: { revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: null, operatingIncomeDueYear: null } });
     const html = renderToStaticMarkup(
-      <UnifiedPlPanel plan={plan} trial={trialWith([])} target={{ revenueYen: 1_200 * M, operatingIncomeYen: null, dueYear: 2028 }} />,
+      <UnifiedPlPanel plan={plan} trial={trialWith([])} target={{ revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: null, operatingIncomeDueYear: null }} />,
     );
     expect(html).toContain('条件付きPL試算（統一PL）');
     expect(html).toContain('経営目標（STAGE2・予測に加算しない）');
@@ -59,13 +59,13 @@ describe('統一PLの表示', () => {
     expect(html).toContain('目標との差額（経営目標 − 条件付きPL試算）');
     // 2028年度：売上 1,200 − 1,000 = 200 不足。営業利益の目標は未設定
     expect(html).toContain('不足 200.0 百万円');
-    expect(html).toContain('営業利益の目標値または試算値が未算定');
+    expect(html).toContain('経営目標（営業利益）が未設定のため差額は算出していません');
   });
 
   it('決算月が未設定なら表を出さず、その旨を表示する', () => {
     const plan = buildUnifiedPl({ baseline, effects: [], target: null });
     const html = renderToStaticMarkup(
-      <UnifiedPlPanel plan={plan} trial={{ ...trialWith([]), ready: false }} target={{ revenueYen: null, operatingIncomeYen: null, dueYear: null }} />,
+      <UnifiedPlPanel plan={plan} trial={{ ...trialWith([]), ready: false }} target={{ revenueYen: null, revenueDueYear: null, operatingIncomeYen: null, operatingIncomeDueYear: null }} />,
     );
     expect(html).toContain('決算月が未設定');
     expect(html).not.toContain('<table');
@@ -77,9 +77,18 @@ describe('統一PLの表示', () => {
       <UnifiedPlPanel
         plan={plan}
         trial={{ ...trialWith([]), legacyReferenced: [{ deptName: '営業部', projectTitle: '新規開拓' }] }}
-        target={{ revenueYen: null, operatingIncomeYen: null, dueYear: null }}
+        target={{ revenueYen: null, revenueDueYear: null, operatingIncomeYen: null, operatingIncomeDueYear: null }}
       />,
     );
     expect(html).toContain('削除せず参考情報として保持しており、この統一PLには加算していません（新規開拓）');
+  });
+
+  it('売上と営業利益の目標年度が異なるとき、指標ごとの年度と差額を表示する', () => {
+    const target = { revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2027 };
+    const plan = buildUnifiedPl({ baseline, effects: [], target });
+    const html = renderToStaticMarkup(<UnifiedPlPanel plan={plan} trial={trialWith([])} target={target} />);
+    // 手計算：売上は 2028年度で 1,200 − 1,000 = 200 不足。営業利益は 2027年度で 80 − 70 = 10 不足
+    expect(html).toContain('売上（2028年度）：不足 200.0 百万円');
+    expect(html).toContain('営業利益（2027年度）：不足 10.0 百万円');
   });
 });
