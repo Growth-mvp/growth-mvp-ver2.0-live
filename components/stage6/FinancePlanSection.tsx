@@ -8,7 +8,9 @@ import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/s
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
 import { buildFinanceEffectTrial, withoutTargetPath } from '@/utils/stage6/financeEffectPlan';
-import { FinanceEffectTrialPanel } from './FinanceEffectTrialPanel';
+import { UnifiedPlPanel } from './UnifiedPlPanel';
+import { buildUnifiedPl, type PlTarget } from '@/utils/stage6/unifiedPl';
+import { isOperatingIncomeLabel, isRevenueLabel, northStarValueToMJPY } from '@/utils/stage6/compute';
 import {
   FINANCE_PLAN_CALC_VERSION,
   buildStoredFinancePlan,
@@ -112,6 +114,7 @@ function FinancePlanContent({
     Array.isArray(s.departments) ? s.departments : EMPTY_DEPARTMENTS,
   );
   const fiscalYearEnd = useStrategyStore((s: StrategyState) => s.fiscalYearEnd);
+  const companyTargets = useStrategyStore((s: StrategyState) => s.companyTargets);
   const financePL = useStrategyStore((s: StrategyState) => (Array.isArray(s.financePL) ? s.financePL : EMPTY_PL));
   const financeBS = useStrategyStore((s: StrategyState) => (Array.isArray(s.financeBS) ? s.financeBS : EMPTY_BS));
   const storedRaw = useStrategyStore(
@@ -229,6 +232,17 @@ function FinancePlanContent({
     () => baselinePlan.years.filter((y) => y.kind === 'FORECAST'),
     [baselinePlan],
   );
+  const unifiedTarget = useMemo<PlTarget>(() => {
+    const revenueTarget = (companyTargets ?? []).find((t) => isRevenueLabel(t.label));
+    const opTarget = (companyTargets ?? []).find((t) => isOperatingIncomeLabel(t.label));
+    const toYen = (t: { base: number; unit: string } | undefined) =>
+      t && Number.isFinite(t.base) && t.base > 0 ? northStarValueToMJPY(t.base, t.unit) * 1_000_000 : null;
+    return {
+      revenueYen: toYen(revenueTarget),
+      operatingIncomeYen: toYen(opTarget),
+      dueYear: revenueTarget?.dueYear ?? opTarget?.dueYear ?? null,
+    };
+  }, [companyTargets]);
   const effectTrial = useMemo(
     () =>
       buildFinanceEffectTrial({
@@ -237,6 +251,19 @@ function FinancePlanContent({
         fiscalYears: baselineForecastYears.map((y) => y.year),
       }),
     [departments, fiscalYearEnd, baselineForecastYears],
+  );
+  const unifiedPl = useMemo(
+    () =>
+      buildUnifiedPl({
+        baseline: baselineForecastYears.map((y) => ({
+          fiscalYear: y.year,
+          revenueYen: y.revenue.value,
+          operatingIncomeYen: y.operatingIncome.value,
+        })),
+        effects: effectTrial.years,
+        target: unifiedTarget,
+      }),
+    [baselineForecastYears, effectTrial, unifiedTarget],
   );
 
   const currentDomain: FinancePlanDomain = useMemo(() => {
@@ -415,7 +442,7 @@ function FinancePlanContent({
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
         <KpiCard
-          label="売上目標との差"
+          label="北極星の参考計算と売上目標の差"
           value={revenueGap.value}
           note={revenueGap.note}
           tone={dashboardSummary && dashboardSummary.revenue.gap > 0 ? 'warn' : 'neutral'}
@@ -423,7 +450,7 @@ function FinancePlanContent({
           actionLabel={`${tabLabelOf('target')}で確認`}
         />
         <KpiCard
-          label="営業利益目標との差"
+          label="北極星の参考計算と営業利益目標の差"
           value={opGap.value}
           note={opGap.note}
           tone={dashboardSummary && dashboardSummary.op.gap > 0 ? 'warn' : 'neutral'}
@@ -530,11 +557,7 @@ function FinancePlanContent({
           <div className="space-y-6">
             <TabHeader tab="target" />
             {targetContent}
-            <FinanceEffectTrialPanel
-              trial={effectTrial}
-              forecastYears={baselineForecastYears}
-              targetEntered={assumptions.targetRevenueYen !== null || assumptions.targetOperatingIncomeYen !== null}
-            />
+            <UnifiedPlPanel plan={unifiedPl} trial={effectTrial} target={unifiedTarget} />
           </div>
         )}
 

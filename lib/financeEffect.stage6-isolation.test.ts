@@ -13,7 +13,8 @@ function sourceFiles(dir: string): string[] {
 
 const FINANCE_EFFECT_BOUNDARY = [
   path.join(ROOT, 'utils', 'stage6', 'financeEffectPlan.ts'),
-  path.join(ROOT, 'components', 'stage6', 'FinanceEffectTrialPanel.tsx'),
+  path.join(ROOT, 'utils', 'stage6', 'unifiedPl.ts'),
+  path.join(ROOT, 'components', 'stage6', 'UnifiedPlPanel.tsx'),
   path.join(ROOT, 'components', 'stage6', 'FinancePlanSection.tsx'),
 ];
 

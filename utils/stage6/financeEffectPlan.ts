@@ -14,7 +14,13 @@ export type FinanceEffectTrialExclusion = FinanceEffectTrialTarget & { reason: s
 
 export type FinanceEffectTrialYear = {
   fiscalYear: number;
+  /** 売上増加（円。正） */
   revenueYen: number;
+  /** 費用削減（円。営業費用を減らす正の値） */
+  costReductionYen: number;
+  /** 追加費用（円。営業費用を増やす正の値） */
+  costIncreaseYen: number;
+  /** 営業利益への効果（費用削減 − 追加費用。売上増加は含まない） */
   operatingEffectYen: number;
 };
 
@@ -100,7 +106,8 @@ export function buildFinanceEffectTrial(args: {
     const fyStart = (fiscalYear - 1) * 12 + endMonth;
     const fyEnd = fiscalYear * 12 + endMonth - 1;
     let revenueYen = 0;
-    let operatingEffectYen = 0;
+    let costReductionYen = 0;
+    let costIncreaseYen = 0;
     for (const flow of flows) {
       const from = Math.max(fyStart, flow.startIdx);
       const to = Math.min(fyEnd, flow.endIdx ?? Number.POSITIVE_INFINITY);
@@ -108,9 +115,10 @@ export function buildFinanceEffectTrial(args: {
       if (months === 0) continue;
       const amount = months * flow.perMonthYen;
       if (flow.kind === 'REVENUE_UP') revenueYen += amount;
-      else operatingEffectYen += flow.kind === 'COST_INCREASE' ? -amount : amount;
+      else if (flow.kind === 'COST_REDUCTION') costReductionYen += amount;
+      else costIncreaseYen += amount;
     }
-    return { fiscalYear, revenueYen, operatingEffectYen };
+    return { fiscalYear, revenueYen, costReductionYen, costIncreaseYen, operatingEffectYen: costReductionYen - costIncreaseYen };
   });
 
   return trial;
