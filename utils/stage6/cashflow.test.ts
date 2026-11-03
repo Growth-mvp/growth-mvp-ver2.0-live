@@ -279,7 +279,8 @@ describe('推計シナリオの表示', () => {
     expect(buildCashFlowPlan(input(), NOW).scenario.basis).toBe('ESTIMATE');
     const user = buildCashFlowPlan(input({}, { targetRevenueYen: 1_200_000_000, targetYear: 2027 }), NOW);
     expect(user.scenario.basis).toBe('USER');
-    expect(user.scenario.note).toContain('正式な目標ではありません');
+    expect(user.scenario.note).toContain('独立した予測ではありません');
+    expect(buildCashFlowPlan(input(), NOW).scenario.note).toContain('独立した予測ではありません');
   });
 
   it('推計値は基準年度の実績と区別できる根拠を持つ', () => {

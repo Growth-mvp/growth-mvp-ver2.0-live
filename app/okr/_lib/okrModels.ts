@@ -385,7 +385,8 @@ export function guessKindAndBase(text: string): {
   if (/シナジー|連携|横串|コラボ/.test(text)) return { kind: 'SYNERGY', baseKey: 'synergy' };
   if (/売上|収益|利益|arr|mrr/i.test(t)) return { kind: 'REVENUE', baseKey: 'revenue' };
 
-  return { kind: 'ACQ', baseKey: 'acq' };
+  // 判定できない指標は顧客獲得にせず、売上へ換算しない活動指標として扱う
+  return { kind: 'ACTIVITY', baseKey: 'acq' };
 }
 
 /** track推定（最低限）

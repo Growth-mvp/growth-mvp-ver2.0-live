@@ -21,6 +21,7 @@ import type { Ym, DeltasByMonth } from './simulationBridge';
 export type BaseTrajectory = {
   startYm: Ym;
   endYm: Ym;
+  effectStartYm?: Ym;
 
   qtyMonthly: Record<Ym, number>;
   arpuMonthly: Record<Ym, number>;

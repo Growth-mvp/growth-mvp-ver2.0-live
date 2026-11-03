@@ -6,9 +6,12 @@ import { TabValueDashboard } from './TabValue.dashboard';
 type DashboardSummary = NonNullable<Parameters<typeof TabValueDashboard>[0]['dashboardSummary']>;
 type TargetGap = Pick<DashboardSummary['revenue'], 'forecast' | 'target' | 'gap'>;
 
+type ExcludedImpact = { projectId: string; targetId: string; valueMJPY: number | null; reason: string };
+
 type Props = {
   northStarRows: NorthStarRow[];
   dashboardSummary?: DashboardSummary;
+  excludedImpacts?: ExcludedImpact[];
 };
 
 function fmtMJPY(v: number) {
@@ -16,16 +19,29 @@ function fmtMJPY(v: number) {
 }
 
 function summaryText(row: TargetGap | undefined) {
-  if (!row || !(row.target > 0)) return '目標が未設定のため、達成見込みは算出していません';
+  if (!row || !(row.target > 0)) return '目標が未設定のため、達成率は算出していません';
   const pct = Math.round((row.forecast / row.target) * 100);
-  return `見込み ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}（達成見込み ${pct}%）`;
+  return `条件付き試算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}（条件付き達成率 ${pct}%）`;
 }
 
-export function TargetOverview({ northStarRows, dashboardSummary }: Props) {
+export function TargetOverview({ northStarRows, dashboardSummary, excludedImpacts = [] }: Props) {
   return (
     <div className="space-y-5">
+      {excludedImpacts.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <div className="font-semibold">北極星の集計から外した金額（{excludedImpacts.length}件）</div>
+          <ul className="mt-1 list-disc pl-5 text-xs">
+            {excludedImpacts.map((e, i) => (
+              <li key={`${e.projectId}-${e.targetId}-${i}`}>
+                {e.projectId}（目標: {e.targetId}、登録額: {e.valueMJPY === null ? '不明' : `${e.valueMJPY} 百万円`}）：{e.reason}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs">金額は削除していません。対象の施策を確認し、必要なら金額を入力し直してください。</p>
+        </div>
+      )}
       <div>
-        <h4 className="text-sm font-bold text-slate-900">売上・営業利益の見込みと目標（要約）</h4>
+        <h4 className="text-sm font-bold text-slate-900">売上・営業利益の目標と条件付き試算（要約）</h4>
         <ul className="mt-2 space-y-1 text-sm text-slate-800">
           <li>
             <span className="font-semibold">売上：</span>

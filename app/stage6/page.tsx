@@ -6,6 +6,7 @@ import { AlertCircle } from 'lucide-react';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 
+import { FinancialExclusionNotice } from '@/components/stage6/FinancialExclusionNotice';
 import { TabImpact } from '@/components/stage6/TabImpact';
 import { TargetOverview } from '@/components/stage6/TargetOverview';
 import { useProjectFilters } from '@/components/stage6/hooks/useProjectFilters';
@@ -244,6 +245,8 @@ function Stage6PageContent() {
           </div>
         )}
 
+        <FinancialExclusionNotice items={stage6.financialExclusions} />
+
         <FinancePlanSection
           dashboardSummary={stage6.dashboardSummary}
           reviewCandidateCount={stage6.reviewCandidates?.length ?? 0}
@@ -252,6 +255,7 @@ function Stage6PageContent() {
               <TargetOverview
                 northStarRows={stage6.northStarRows}
                 dashboardSummary={stage6.dashboardSummary}
+                excludedImpacts={stage6.excludedImpactRows}
               />
 
               <TabImpact

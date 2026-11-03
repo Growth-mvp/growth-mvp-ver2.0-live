@@ -62,15 +62,15 @@ export function fmtPct(v: number | null) {
   return v === null ? '-' : `${(v * 100).toFixed(1)}%`;
 }
 
-export function BasisBadge({ basis }: { basis: CfBasis }) {
+export function BasisBadge({ basis, label }: { basis: CfBasis; label?: string }) {
   return (
     <span className={`mt-0.5 inline-block rounded px-1 text-[10px] font-semibold ${BASIS_CLASS[basis]}`}>
-      {BASIS_LABEL[basis]}
+      {label ?? BASIS_LABEL[basis]}
     </span>
   );
 }
 
-export function Cell({ cell }: { cell: CfValue | undefined }) {
+export function Cell({ cell, interpolated }: { cell: CfValue | undefined; interpolated?: boolean }) {
   if (!cell) return <td className="px-2 py-1.5 text-right text-slate-400">-</td>;
   const held = cell.value === null;
   const notApplicable = held && cell.basis === 'ACTUAL';
@@ -79,7 +79,7 @@ export function Cell({ cell }: { cell: CfValue | undefined }) {
       <div className={held ? 'text-amber-700' : 'font-medium text-slate-900'}>
         {notApplicable ? '対象外' : fmtMil(cell.value)}
       </div>
-      <BasisBadge basis={cell.basis} />
+      <BasisBadge basis={cell.basis} label={interpolated && cell.basis === 'USER' ? '目標への補間' : undefined} />
     </td>
   );
 }
@@ -99,12 +99,14 @@ export function Row({
   years,
   pick,
   strong,
+  interpolated,
 }: {
   label: string;
   term?: string;
   years: CfYear[];
   pick: (y: CfYear) => CfValue;
   strong?: boolean;
+  interpolated?: boolean;
 }) {
   return (
     <tr className={strong ? 'bg-slate-50/70' : ''}>
@@ -112,7 +114,7 @@ export function Row({
         <TermLabel primary={label} term={term} />
       </td>
       {years.map((y) => (
-        <Cell key={y.year} cell={pick(y)} />
+        <Cell key={y.year} cell={pick(y)} interpolated={interpolated} />
       ))}
     </tr>
   );
@@ -248,7 +250,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
           <div className="text-slate-500">{plan.taxRate.note}</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <div className="font-semibold text-slate-600">今後の業績の見通し</div>
+          <div className="font-semibold text-slate-600">目標の扱い（補間の前提）</div>
           <div className="mt-1 text-sm text-slate-900">{plan.scenario.note}</div>
         </div>
       </div>
@@ -316,7 +318,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
           />
           <Field
             label="目標売上"
-            term="今後の業績の見通し（推計シナリオ）"
+            term="経営者が登録した目標（補間の前提）"
             value={form.targetRevenue}
             onChange={setField('targetRevenue')}
             unit="百万円"
@@ -324,7 +326,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
           />
           <Field
             label="目標営業利益"
-            term="今後の業績の見通し（推計シナリオ）"
+            term="経営者が登録した目標（補間の前提）"
             value={form.targetOperatingIncome}
             onChange={setField('targetOperatingIncome')}
             unit="百万円"
@@ -332,14 +334,14 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
           />
           <Field
             label="目標年度"
-            term="今後の業績の見通し（推計シナリオ）"
+            term="経営者が登録した目標（補間の前提）"
             value={form.targetYear}
             onChange={setField('targetYear')}
             unit="年"
           />
         </div>
         <p className="mt-2 text-[11px] text-slate-500">
-          売上・営業利益の目標を入れると、基準年度から目標年度まで直線的に推計します。これは今後の業績の見通しを試算したものであり、会社が承認した計画値ではありません。
+          売上・営業利益の目標を入れると、基準年度から目標年度まで直線的に補間します。補間値は目標への通過点であり、独立した予測ではありません。会社が承認した計画値でもありません。
         </p>
       </details>
 
@@ -350,14 +352,14 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
               <th className="px-2 py-2 text-left font-semibold">項目（百万円）</th>
               {years.map((y) => (
                 <th key={y.year} className="px-2 py-2 text-right font-semibold">
-                  {y.year}年{y.kind === 'ACTUAL' ? '（実績）' : '（推計）'}
+                  {y.year}年{y.kind === 'ACTUAL' ? '（実績）' : plan.scenario.basis === 'USER' ? '（目標への補間）' : '（横ばいの推計）'}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            <Row label="売上高" years={years} pick={(y) => y.revenue} />
-            <Row label="営業利益" years={years} pick={(y) => y.operatingIncome} />
+            <Row label="売上高" years={years} pick={(y) => y.revenue} interpolated />
+            <Row label="営業利益" years={years} pick={(y) => y.operatingIncome} interpolated />
             <Row label="支払利息" term="借入計画・据置の利息" years={years} pick={(y) => y.interest} />
             <Row label="税引後利益（推計）" years={years} pick={(y) => y.netIncome} />
             <Row label="減価償却費" years={years} pick={(y) => y.depreciation} />

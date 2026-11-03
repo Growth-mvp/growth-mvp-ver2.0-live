@@ -66,84 +66,20 @@ import {
 } from './_lib/okrModels';
 
 import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
+import { adoptableImpact } from '@/lib/okr/impactAdoption';
+import { FinanceEffectSection } from '@/components/okr/FinanceEffectSection';
+import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
+import {
+  buildAssumptionPatch,
+  buildReflectPatch,
+  getImpactPreset,
+  getImpactResultFromAssumptions,
+  toFiniteNumber,
+} from '@/lib/okr/impactAssumptions';
 
 type ImpactRole = 'REVENUE' | 'COST' | 'FUTURE';
 type ImpactAssumptions = Record<string, number | undefined>;
 
-const toFiniteNumber = (value: any): number | undefined => {
-  if (value === '' || value == null) return undefined;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
-};
-
-const roundImpact = (value: number): number => Math.round(value * 10) / 10;
-
-const getImpactResultFromAssumptions = (role: ImpactRole | undefined, assumptions: ImpactAssumptions | undefined) => {
-  const a = assumptions ?? {};
-
-  if (role === 'REVENUE') {
-    const targetCustomers = toFiniteNumber(a.targetCustomers) ?? 0;
-    const conversionRatePct = toFiniteNumber(a.conversionRatePct) ?? 0;
-    const averageDealMJPY = toFiniteNumber(a.averageDealMJPY) ?? 0;
-    const revenueMJPY = roundImpact(targetCustomers * (conversionRatePct / 100) * averageDealMJPY);
-    return {
-      resultKey: 'impactRevenueMJPY',
-      resultLabel: '売上への見込み効果',
-      resultValue: revenueMJPY,
-      formula: `${targetCustomers}社 × ${conversionRatePct}% × ${averageDealMJPY}百万円 = ${revenueMJPY}百万円`,
-    };
-  }
-
-  if (role === 'COST') {
-    const currentCostMJPY = toFiniteNumber(a.currentCostMJPY) ?? 0;
-    const reductionRatePct = toFiniteNumber(a.reductionRatePct) ?? 0;
-    const opIncomeMJPY = roundImpact(currentCostMJPY * (reductionRatePct / 100));
-    return {
-      resultKey: 'impactOpIncomeMJPY',
-      resultLabel: '利益への見込み効果',
-      resultValue: opIncomeMJPY,
-      formula: `${currentCostMJPY}百万円 × ${reductionRatePct}% = ${opIncomeMJPY}百万円`,
-    };
-  }
-
-  if (role === 'FUTURE') {
-    const peopleCount = toFiniteNumber(a.peopleCount) ?? 0;
-    const durationMonths = toFiniteNumber(a.durationMonths) ?? 0;
-    const monthlyCostPerPersonMJPY = toFiniteNumber(a.monthlyCostPerPersonMJPY) ?? 0;
-    const externalCostMJPY = toFiniteNumber(a.externalCostMJPY) ?? 0;
-    const investmentMJPY = roundImpact(peopleCount * durationMonths * monthlyCostPerPersonMJPY + externalCostMJPY);
-    return {
-      resultKey: 'impactInvestmentMJPY',
-      resultLabel: '必要な投資',
-      resultValue: investmentMJPY,
-      formula: `${peopleCount}人 × ${durationMonths}か月 × ${monthlyCostPerPersonMJPY}百万円 + ${externalCostMJPY}百万円 = ${investmentMJPY}百万円`,
-    };
-  }
-
-  return null;
-};
-
-const getImpactPreset = (role: ImpactRole | undefined, size: 'small' | 'standard' | 'large'): ImpactAssumptions => {
-  if (role === 'REVENUE') {
-    if (size === 'small') return { targetCustomers: 10, conversionRatePct: 10, averageDealMJPY: 10 };
-    if (size === 'large') return { targetCustomers: 50, conversionRatePct: 30, averageDealMJPY: 30 };
-    return { targetCustomers: 30, conversionRatePct: 20, averageDealMJPY: 20 };
-  }
-
-  if (role === 'COST') {
-    if (size === 'small') return { currentCostMJPY: 50, reductionRatePct: 10 };
-    if (size === 'large') return { currentCostMJPY: 200, reductionRatePct: 20 };
-    return { currentCostMJPY: 120, reductionRatePct: 10 };
-  }
-
-  if (role === 'FUTURE') {
-    if (size === 'small') return { peopleCount: 2, durationMonths: 3, monthlyCostPerPersonMJPY: 1, externalCostMJPY: 4 };
-    if (size === 'large') return { peopleCount: 5, durationMonths: 6, monthlyCostPerPersonMJPY: 1.2, externalCostMJPY: 14 };
-    return { peopleCount: 3, durationMonths: 6, monthlyCostPerPersonMJPY: 1, externalCostMJPY: 12 };
-  }
-
-  return {};
-};
 
 /* ============================================================
  * 【ARCHITECTURE】STAGE4/5/6 データフロー設計と okrs / okrsV2 の独立性
@@ -1843,41 +1779,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           updateProjectRole(dIdx, pIdx, draft.role);
         }
 
-        // 3. impact を更新（既存値がない場合のみ補完）
-        // ★ 修正：売上と営業利益の優先順位を分離して設定
-        if (draft.impact) {
-          const currentImpact = (selectedProj as any) || {};
-          const impactPatch: Record<string, any> = {};
-          const impactRole = (draft.role || (selectedProj as any)?.role) as ImpactRole | undefined;
-          const assumptions = draft.impact.assumptions as ImpactAssumptions | undefined;
-          const calculatedImpact = getImpactResultFromAssumptions(impactRole, assumptions);
-
-          // 売上寄与（impactRevenueMJPY）は REVENUE 役割のみ
-          if (!currentImpact.impactRevenueMJPY && impactRole === 'REVENUE') {
-            impactPatch.impactRevenueMJPY = calculatedImpact?.resultValue ?? draft.impact.revenueMJPY;
-          }
-
-          // 営業利益寄与（impactOpIncomeMJPY）は COST 役割のみ設定
-          // ★ 修正：既存の calculatedImpact ロジックを使用（getImpactResultFromAssumptions から）
-          if (!currentImpact.impactOpIncomeMJPY && impactRole === 'COST') {
-            impactPatch.impactOpIncomeMJPY = calculatedImpact?.resultValue ?? draft.impact.opIncomeMJPY;
-          }
-
-          if (!currentImpact.impactInvestmentMJPY && impactRole === 'FUTURE') {
-            impactPatch.impactInvestmentMJPY = calculatedImpact?.resultValue ?? draft.impact.investmentMJPY;
-          }
-          if (!currentImpact.impactRationale && draft.impact.rationale) {
-            impactPatch.impactRationale = draft.impact.rationale;
-          }
-          if (!currentImpact.impactAssumptions && assumptions) {
-            impactPatch.impactAssumptions = assumptions;
-          }
-
-          if (Object.keys(impactPatch).length > 0) {
-            updateProjectImpactAndSave(dIdx, pIdx, impactPatch);
-          }
-        }
-
         // 4. KPI を更新（既存の okrsV2 と統合）
         // 既存 KPI がなければ生成値を使用、既存 KPI があれば既存値を優先
         if (Array.isArray(draft.kpis) && draft.kpis.length > 0) {
@@ -1985,19 +1886,15 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           const assumptions = draft.impact.assumptions as ImpactAssumptions | undefined;
           const calculatedImpact = getImpactResultFromAssumptions(impactRole, assumptions);
 
-          // 売上寄与（impactRevenueMJPY）は REVENUE 役割のみ
-          if (!currentImpact.impactRevenueMJPY && impactRole === 'REVENUE') {
-            impactPatch.impactRevenueMJPY = calculatedImpact?.resultValue ?? draft.impact.revenueMJPY;
-          }
-
-          // 営業利益寄与（impactOpIncomeMJPY）は COST 役割のみ設定
-          // ★ 修正：既存の calculatedImpact ロジックを使用（getImpactResultFromAssumptions から）
-          if (!currentImpact.impactOpIncomeMJPY && impactRole === 'COST') {
-            impactPatch.impactOpIncomeMJPY = calculatedImpact?.resultValue ?? draft.impact.opIncomeMJPY;
-          }
-
-          if (!currentImpact.impactInvestmentMJPY && impactRole === 'FUTURE') {
-            impactPatch.impactInvestmentMJPY = calculatedImpact?.resultValue ?? draft.impact.investmentMJPY;
+          // 効果額は利用者が「反映」したときにだけ入る（役割ごと。既存の承認済み値は変えない）
+          const adoption = adoptableImpact({
+            role: impactRole,
+            draftImpact: draft.impact,
+            calculatedValue: calculatedImpact?.resultValue,
+            current: currentImpact,
+          });
+          if (adoption.kind === 'adoptable') {
+            impactPatch[adoption.field] = adoption.value;
           }
           if (!currentImpact.impactRationale && draft.impact.rationale) {
             impactPatch.impactRationale = draft.impact.rationale;
@@ -2203,27 +2100,25 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     [selectedImpactRole, selectedImpactAssumptions],
   );
 
+  // 前提の保存のみ。効果額の欄は変えない（反映は reflectImpactProposal の明示操作だけ）
   const updateImpactAssumptionsAndSave = useCallback(
     (assumptionPatch: ImpactAssumptions) => {
       if (!selected || !selectedImpactRole) return;
-
-      const nextAssumptions = {
-        ...(((selectedProj as any)?.impactAssumptions || {}) as ImpactAssumptions),
-        ...assumptionPatch,
-      };
-      const calculated = getImpactResultFromAssumptions(selectedImpactRole, nextAssumptions);
-      const impactPatch: Record<string, any> = {
-        impactAssumptions: nextAssumptions,
-      };
-
-      if (calculated) {
-        impactPatch[calculated.resultKey] = calculated.resultValue;
-      }
-
-      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, impactPatch);
+      updateProjectImpactAndSave(
+        selected.deptIdx,
+        selected.projIdx,
+        buildAssumptionPatch(selectedImpactAssumptions, assumptionPatch),
+      );
     },
-    [selected, selectedProj, selectedImpactRole, updateProjectImpactAndSave],
+    [selected, selectedImpactRole, selectedImpactAssumptions, updateProjectImpactAndSave],
   );
+
+  const reflectImpactProposal = useCallback(() => {
+    if (!selected || !selectedImpactRole) return;
+    const patch = buildReflectPatch(selectedImpactRole, selectedImpactAssumptions);
+    if (!patch) return;
+    updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, patch);
+  }, [selected, selectedImpactRole, selectedImpactAssumptions, updateProjectImpactAndSave]);
 
   useEffect(() => {
     if (!selected || !mainOKR) return;
@@ -3655,26 +3550,38 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     </div>
                   )}
 
-                  {/* 期待する成果 */}
-                  {generatedDraft.impact && (
+                  {/* 期待する成果（利用者が「反映」するまで確定値ではない） */}
+                  {generatedDraft.impact && (() => {
+                    const previewRole = (generatedDraft.role || (selectedProj as any)?.role) as ImpactRole | undefined;
+                    const previewCalc = getImpactResultFromAssumptions(previewRole, generatedDraft.impact.assumptions as ImpactAssumptions | undefined);
+                    const adoption = adoptableImpact({
+                      role: previewRole,
+                      draftImpact: generatedDraft.impact,
+                      calculatedValue: previewCalc?.resultValue,
+                      current: (selectedProj as any) || {},
+                    });
+                    const impactLabel: Record<string, string> = {
+                      impactRevenueMJPY: '売上増分',
+                      impactOpIncomeMJPY: '営業利益増分',
+                      impactInvestmentMJPY: '必要投資',
+                    };
+                    return (
                     <div className="mb-3 text-[12px]">
                       <span className="font-medium text-indigo-800">期待する成果：</span>
                       <div className="text-indigo-700 mt-1 ml-2 text-[11px]">
-                        {generatedDraft.impact.revenueMJPY !== null && (
-                          <p>• 売上増分: {generatedDraft.impact.revenueMJPY}百万円</p>
+                        {adoption.kind === 'adoptable' && (
+                          <p>• {impactLabel[adoption.field]}: {adoption.value}百万円（「反映」するまで確定値ではありません）</p>
                         )}
-                        {generatedDraft.impact.opIncomeMJPY !== null && (
-                          <p>• 営業利益増分: {generatedDraft.impact.opIncomeMJPY}百万円</p>
-                        )}
-                        {generatedDraft.impact.investmentMJPY !== null && (
-                          <p>• 必要投資: {generatedDraft.impact.investmentMJPY}百万円</p>
+                        {adoption.kind === 'already_set' && (
+                          <p>• {impactLabel[adoption.field]}: 既存の承認済みの値（{String(adoption.current)}百万円）を変えません</p>
                         )}
                         {generatedDraft.impact.rationale && (
                           <p className="mt-1 italic">根拠: {generatedDraft.impact.rationale}</p>
                         )}
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* KPI案 */}
                   {Array.isArray(generatedDraft.kpis) && generatedDraft.kpis.length > 0 && (
@@ -3869,7 +3776,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   成果見込みと計算根拠<span className="text-[11px] font-normal text-zinc-500">（AIが置いた目安・修正可）</span>
                 </h3>
                 <div className="mb-3 text-[11px] text-zinc-600">
-                  AIが置いた成果見込みです。前提条件を修正すると、見込み数値も変わります。
+                  AIが置いた成果見込みです。前提を修正しても、登録済みの金額は変わりません。計算結果を金額に反映するときだけ「この案を金額に反映」を押してください。
                 </div>
 
                 <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
@@ -4021,7 +3928,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 </div>
 
                 <div className="mb-3 rounded-lg border border-zinc-200 bg-white p-3">
-                  <div className="text-[11px] font-semibold text-zinc-500">自動計算された見込み</div>
+                  <div className="text-[11px] font-semibold text-zinc-500">計算結果（案・未反映）</div>
                   <div className="mt-1 flex items-end justify-between gap-3">
                     <div className="text-[13px] font-semibold text-zinc-800">{selectedImpactCalculation?.resultLabel ?? '見込み効果'}</div>
                     <div className="text-[20px] font-bold text-zinc-950">
@@ -4030,8 +3937,31 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     </div>
                   </div>
                   <div className="mt-2 rounded-md bg-zinc-50 px-2 py-1.5 text-[11px] text-zinc-600">
-                    計算式：{selectedImpactCalculation?.formula ?? '前提を入力すると自動計算されます'}
+                    計算式：{selectedImpactCalculation?.formula ?? '前提を入力すると計算結果が表示されます'}
                   </div>
+                  <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-zinc-700">
+                    <span>
+                      登録済みの金額：
+                      {selectedImpactCalculation && (selectedProj as any)?.[selectedImpactCalculation.resultKey] !== undefined
+                        ? `${(selectedProj as any)[selectedImpactCalculation.resultKey]}百万円`
+                        : '未登録'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={reflectImpactProposal}
+                      disabled={!selectedImpactCalculation || isHydrating || isApproved()}
+                      className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      この案を金額に反映
+                    </button>
+                  </div>
+                  {selectedImpactCalculation &&
+                    (selectedProj as any)?.[selectedImpactCalculation.resultKey] !== undefined &&
+                    (selectedProj as any)[selectedImpactCalculation.resultKey] !== selectedImpactCalculation.resultValue && (
+                      <p className="mt-1 text-[11px] text-amber-800">
+                        反映すると、登録済みの金額が案の値に置き換わります。
+                      </p>
+                    )}
                 </div>
 
                 <button
@@ -4110,6 +4040,18 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 )}
               </div>
             )}
+          {selectedProj && selected && (
+            <FinanceEffectSection
+              effect={(selectedProj as any).financeEffect}
+              legacy={{
+                revenueMJPY: (selectedProj as any).impactRevenueMJPY,
+                opIncomeMJPY: (selectedProj as any).impactOpIncomeMJPY,
+              }}
+              disabled={isHydrating || isApproved()}
+              overlapCandidates={findFinanceEffectOverlapCandidates(departments, selected.deptIdx, selected.projIdx)}
+              onChange={(next) => updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffect: next })}
+            />
+          )}
           </div>
 
           {/* ========== Card 3: 成長KPI ========== */}

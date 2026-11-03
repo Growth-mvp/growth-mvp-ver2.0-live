@@ -321,12 +321,12 @@ export function buildCashFlowPlan(
 
   const hasScenario = a.targetRevenueYen !== null || a.targetOperatingIncomeYen !== null || a.targetYear !== null;
   let scenarioBasis: CfBasis = 'ESTIMATE';
-  let scenarioNote = '横ばい（推計シナリオ未指定）';
+  let scenarioNote = '横ばい（目標未登録のため基準年度の水準を横置き。独立した予測ではありません）';
   let targetYear: number | null = null;
   if (hasScenario && Y !== null) {
     targetYear = a.targetYear ?? Y + horizon;
     scenarioBasis = 'USER';
-    scenarioNote = '利用者指定の推計シナリオ（正式な目標ではありません）';
+    scenarioNote = '経営者が登録した目標への補間（独立した予測ではありません）';
     if (targetYear <= Y) globalHolds.push('推計シナリオの目標年度は基準年度より後である必要があります');
   }
   const scenarioValid = !hasScenario || (targetYear !== null && Y !== null && targetYear > Y);

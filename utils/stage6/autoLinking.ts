@@ -14,35 +14,7 @@ import type {
 import type { IssueBlock } from '@/types/strategy';
 import type { BridgeKR } from '@/utils/simulationBridge';
 import { normalizeValueToUnit } from './compute';
-
-/**
- * ★単位統一ヘルパー：任意の単位を JPY（円）に変換
- * - 百万円 → * 1e6（100万 = 1,000,000 yen）
- * - 万円 → * 1e4
- * - 円 / yen → そのまま
- */
-function toYen(value: number, unit: string): number {
-  if (!Number.isFinite(value)) return 0;
-
-  const u = (unit ?? '').toLowerCase();
-  if (u.includes('百万') || u.includes('million')) return value * 1_000_000;
-  if (u.includes('万')) return value * 10_000;
-  // 円 / yen / 空文字 → そのまま
-  return value;
-}
-
-/**
- * ★単位統一ヘルパー：JPY（円）から任意の単位に変換
- */
-function fromYen(valueYen: number, unit: string): number {
-  if (!Number.isFinite(valueYen)) return 0;
-
-  const u = (unit ?? '').toLowerCase();
-  if (u.includes('百万') || u.includes('million')) return valueYen / 1_000_000;
-  if (u.includes('万')) return valueYen / 10_000;
-  // 円 / yen / 空文字 → そのまま
-  return valueYen;
-}
+import { yenPerUnit } from '@/lib/okr/impactUnits';
 
 /**
  * ターゲット分類（ラベルのキーワードから推定）
@@ -104,15 +76,55 @@ function getKRRelevanceScore(
   return 0.05;
 }
 
+/** 有効な関連度の下限。これ未満の施策は配分の根拠にしない */
+const RELEVANCE_MIN = 0.01;
+const WEIGHT_MIN = 0.7;
+const WEIGHT_MAX = 1.2;
+
+export function clampExecWeight(weight: number | undefined): number {
+  if (typeof weight !== 'number' || !Number.isFinite(weight)) return 1.0;
+  return Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, weight));
+}
+
+/**
+ * 目標の差分（円）を、有効な正の関連度と実行重みで施策へ配分する。
+ * 配分率 = (関連度 × 実行重み) ÷ 有効な施策の合計。負・ゼロ・非有限の関連度は分母に入れない。
+ * 有効な施策がなければ全額を未配分とし、均等配分はしない。
+ */
+export function allocateGapAcrossProjects(args: {
+  gapYen: number;
+  relevances: Map<string, number>;
+  weights: Map<string, number>;
+}): { shares: Map<string, number>; allocatedYen: number; unallocatedYen: number } {
+  const gap = Number.isFinite(args.gapYen) ? args.gapYen : 0;
+  const raw = new Map<string, number>();
+  args.relevances.forEach((relevance, key) => {
+    if (!Number.isFinite(relevance) || relevance < RELEVANCE_MIN) return;
+    const value = relevance * clampExecWeight(args.weights.get(key));
+    if (Number.isFinite(value) && value > 0) raw.set(key, value);
+  });
+  const denominator = Array.from(raw.values()).reduce((sum, v) => sum + v, 0);
+  if (raw.size === 0 || !Number.isFinite(denominator) || denominator <= 0) {
+    return { shares: new Map(), allocatedYen: 0, unallocatedYen: gap };
+  }
+  const shares = new Map<string, number>();
+  let allocatedYen = 0;
+  raw.forEach((value, key) => {
+    const share = value / denominator;
+    shares.set(key, share);
+    allocatedYen += gap * share;
+  });
+  return { shares, allocatedYen, unallocatedYen: gap - allocatedYen };
+}
+
 /**
  * inferAutoProjectTargetImpacts: AUTO推定の生成
  *
  * 方針：
- * 1. target ごとに category を分類
+ * 1. target ごとに category を分類し、金額単位の目標だけを対象にする
  * 2. projectKey ごとに関連スコアを集計（KR単位で加重平均）
- * 3. target の gap = scenarioValue - base を計算
- * 4. 関連スコアで按分して projectDelta を算出
- * 5. executionWeights で補正（0.7..1.2にclip）
+ * 3. target の gap = scenarioValue - base を円に換算する
+ * 4. 有効な正の関連度 × 実行重み で gap を按分する（実行重みはこの1回だけ掛ける）
  */
 export function inferAutoProjectTargetImpacts(args: {
   companyTargets: CompanyTarget[];
@@ -129,215 +141,59 @@ export function inferAutoProjectTargetImpacts(args: {
     scenarioKey,
   } = args;
 
-  const DEBUG = process.env.NODE_ENV === 'development' && !!process.env.NEXT_PUBLIC_DEBUG_STAGE6;
-
-  // ★Early return logs
-  if (!companyTargets || companyTargets.length === 0) {
-    if (DEBUG) console.log('[autoLinking] skip: companyTargets empty');
-    return [];
-  }
-  if (!projectKeys || projectKeys.length === 0) {
-    if (DEBUG) console.log('[autoLinking] skip: projectKeys empty');
-    return [];
-  }
-  if (!projectKrsMap || projectKrsMap.size === 0) {
-    if (DEBUG) console.log('[autoLinking] skip: projectKrsMap empty');
-    return [];
-  }
+  if (!companyTargets || companyTargets.length === 0) return [];
+  if (!projectKeys || projectKeys.length === 0) return [];
+  if (!projectKrsMap || projectKrsMap.size === 0) return [];
 
   const results: ProjectTargetImpact[] = [];
 
   companyTargets.forEach((target) => {
-    if (!target.base) {
-      // base がなければスキップ
-      return;
-    }
+    if (!target.base) return;
 
-    // target の scenario 値を取得
     const scenarioValue =
       scenarioKey === 'low' ? target.low : scenarioKey === 'high' ? target.high : target.base;
+    if (scenarioValue === undefined) return;
 
-    if (scenarioValue === undefined) {
-      return; // scenario値がなければスキップ
-    }
+    const perUnitYen = yenPerUnit(target.unit);
+    if (perUnitYen === null) return;
 
-    // ★修正：gap計算を yen に統一
-    const scenarioYen = toYen(scenarioValue, target.unit);
-    const baseYen = toYen(target.base, target.unit);
-    let gapYen = scenarioYen - baseYen;
-
-    // ★修正：NaN/Infinity のときは gapYen=0 で続行（スキップしない）
-    let gapFinite = Number.isFinite(gapYen);
-    if (!gapFinite) {
-      gapYen = 0;
-      if (DEBUG) {
-        console.log(`[autoLinking] gap NaN->0: target=${target.id}, scenarioYen=${scenarioYen}, baseYen=${baseYen}`);
-      }
-    }
-
-    if (Math.abs(gapYen) < 0.01) {
-      // gap がほぼ 0 なら寄与がない
-      return;
-    }
+    const gapYen = (scenarioValue - target.base) * perUnitYen;
+    if (!Number.isFinite(gapYen) || Math.abs(gapYen) < 0.01) return;
 
     const targetCategory = classifyTarget(target.label);
-
-    // プロジェクトごとの関連スコアを計算
-    const projectRelevances = new Map<string, number>();
-    let maxRelevance = 0;
+    const relevances = new Map<string, number>();
+    const weights = new Map<string, number>();
 
     projectKeys.forEach((projKey) => {
       const krs = projectKrsMap.get(projKey) ?? [];
-      if (krs.length === 0) {
-        projectRelevances.set(projKey, 0);
-        return;
-      }
-
-      // KR ごとのスコアを加重平均
       let totalScore = 0;
       let totalWeight = 0;
-
       krs.forEach((kr) => {
         const score = getKRRelevanceScore(kr.kind, targetCategory);
-        const weight = kr.weight ?? 1; // weight がなければ 1
+        const weight = kr.weight ?? 1;
         totalScore += score * weight;
         totalWeight += weight;
       });
-
-      const avgRelevance = totalWeight > 0 ? totalScore / totalWeight : 0;
-      projectRelevances.set(projKey, avgRelevance);
-      maxRelevance = Math.max(maxRelevance, avgRelevance);
+      relevances.set(projKey, totalWeight > 0 ? totalScore / totalWeight : 0);
+      weights.set(projKey, clampExecWeight(executionWeightsMap.get(projKey)?.weight));
     });
 
-    // ★フォールバック：関連スコアが全て 0 でも均等按分（必ず出力）
-    let fallbackUsed = false;
-    if (maxRelevance < 0.01) {
-      fallbackUsed = true;
-      // すべてのプロジェクトに均等配賦
-      if (DEBUG) {
-        console.log(`[autoLinking][target] maxRelevance=0 fallback for ${target.id}, 均等按分で出力`);
-      }
-
-      projectKeys.forEach((projKey) => {
-        const share = 1 / projectKeys.length;
-        let projectDeltaYen = gapYen * share;
-
-        // ★修正：NaN でも続行
-        if (!Number.isFinite(projectDeltaYen)) {
-          projectDeltaYen = 0;
-        }
-
-        const execWeight = executionWeightsMap.get(projKey)?.weight ?? 1.0;
-        const clippedExecWeight = Math.max(0.7, Math.min(1.2, execWeight));
-        projectDeltaYen *= clippedExecWeight;
-
-        const confidence = clippedExecWeight / 1.2; // 0.7..1
-
-        // ★修正：delta は target.unit に戻す
-        const delta = fromYen(projectDeltaYen, target.unit);
-
-        results.push({
-          projectId: projKey,
-          targetId: target.id,
-          delta,
-          notes: `[AUTO-FALLBACK] 均等按分 (relevance=0), execWeight=${clippedExecWeight.toFixed(2)}`,
-          source: 'auto',
-          locked: false,
-          confidence: Math.max(0, Math.min(1, confidence)),
-        });
-      });
-
-      // ログ出力（target単位）
-      if (DEBUG) {
-        console.log(`[autoLinking][target] ${target.id} ${target.label}: gapYen=${gapYen}, fallback=${fallbackUsed}`);
-      }
-
-      return; // 次の target へ
-    }
-
-    // 関連スコアで gapYen を按分
-    projectKeys.forEach((projKey) => {
-      const relevance = projectRelevances.get(projKey) ?? 0;
-      if (relevance < 0.01) {
-        return; // relevance が低すぎればスキップ
-      }
-
-      // 按分比 = relevance / Σ(relevance)
-      const totalRelevance = Array.from(projectRelevances.values()).reduce((s, r) => s + r, 0);
-      const share = totalRelevance > 0 ? relevance / totalRelevance : 0;
-
-      // プロジェクト単位の delta （yen）
-      let projectDeltaYen = gapYen * share;
-
-      // ★修正：NaN/Infinity のときは 0 で続行（スキップしない）
-      let deltaFinite = Number.isFinite(projectDeltaYen);
-      if (!deltaFinite) {
-        projectDeltaYen = 0;
-      }
-
-      // executionWeight で補正（0.7..1.2 に clip）
-      const execWeight = executionWeightsMap.get(projKey)?.weight ?? 1.0;
-      const clippedExecWeight = Math.max(0.7, Math.min(1.2, execWeight));
-      projectDeltaYen *= clippedExecWeight;
-
-      // 信頼度：relevance と execWeight に基づいて算出
-      let confidence = (relevance * 0.6 + clippedExecWeight * 0.4) / 1.8; // 0..1 に正規化
-
-      // NaN だった場合は confidence を低め（0.1）に
-      if (!deltaFinite) {
-        confidence = 0.1;
-      }
-
-      // ★修正：delta は target.unit に戻す
-      const delta = fromYen(projectDeltaYen, target.unit);
-
-      const notesSuffix = deltaFinite ? '' : ' [AUTO-NaN->0]';
+    const { shares } = allocateGapAcrossProjects({ gapYen, relevances, weights });
+    shares.forEach((share, projKey) => {
+      const relevance = relevances.get(projKey) ?? 0;
+      const weight = weights.get(projKey) ?? 1;
+      const confidence = Math.max(0, Math.min(1, (relevance * 0.6 + weight * 0.4) / 1.8));
       results.push({
         projectId: projKey,
         targetId: target.id,
-        delta,
-        notes: `[AUTO] relevance=${relevance.toFixed(2)}, share=${share.toFixed(2)}, execWeight=${clippedExecWeight.toFixed(2)}${notesSuffix}`,
+        delta: (gapYen * share) / perUnitYen,
+        notes: `[AUTO] relevance=${relevance.toFixed(2)}, share=${share.toFixed(2)}, execWeight=${weight.toFixed(2)}`,
         source: 'auto',
         locked: false,
-        confidence: Math.max(0, Math.min(1, confidence)),
+        confidence,
       });
     });
-
-    // ログ出力（target単位）
-    if (DEBUG) {
-      console.log(`[autoLinking][target] ${target.id} ${target.label}: gapYen=${gapYen}, gapFinite=${gapFinite}, fallback=${fallbackUsed}`);
-    }
   });
-
-  // ★修正：最後の保険（results.length===0 の場合）
-  if (results.length === 0 && companyTargets.length > 0 && projectKeys.length > 0) {
-    if (DEBUG) {
-      console.log('[autoLinking] EMPTY-SAFEGUARD: results=0, generating delta=0 for first project per target');
-    }
-
-    companyTargets.forEach((target) => {
-      if (!projectKeys[0]) return; // projectKeys が空ならスキップ
-
-      results.push({
-        projectId: projectKeys[0],
-        targetId: target.id,
-        delta: 0,
-        notes: `[AUTO-EMPTY-SAFEGUARD] 生成ロジック全failure時の保険`,
-        source: 'auto',
-        locked: false,
-        confidence: 0,
-      });
-    });
-
-    if (DEBUG) {
-      console.log(`[autoLinking] SAFEGUARD generated ${results.length} impacts`);
-    }
-  }
-
-  // ★最終ログ（必ず N > 0 を確認）
-  if (DEBUG) {
-    console.log(`[STAGE6] AUTO targetImpacts: ${results.length}件生成（${results.length > 0 ? '✓' : '✗'}）`);
-  }
 
   return results;
 }

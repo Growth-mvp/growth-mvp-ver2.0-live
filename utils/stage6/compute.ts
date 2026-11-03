@@ -9,6 +9,7 @@
 import type { YearlyPL } from '@/utils/financeSimulation';
 import {
   buildBridgeDeltas,
+  krFinancialExclusionReason,
   type BridgeInput,
   type BridgeKR,
 } from '@/utils/simulationBridge';
@@ -50,9 +51,20 @@ export function compactJPY(n: number) {
 }
 
 /**
+ * 成長率・比率を表す表記（日本語・英語の揺れを含む）。金額の表記とは区別する。
+ */
+const GROWTH_RATE_PATTERN = /成長|growth|cagr|伸び|増加率|変化率|率|rate|%/i;
+
+function isGrowthRateLabel(label: string): boolean {
+  return GROWTH_RATE_PATTERN.test(label);
+}
+
+/**
  * ★ Helper: ラベルから売上の判定
  * 複数のラベルバリアントに対応
  */
+const NON_REVENUE_AMOUNT_PATTERN = /原価|総利益|粗利|利益|債権|売掛|費用|コスト|cogs|cost|gross|profit|receivable|margin/i;
+
 export function isRevenueLabel(label: string): boolean {
   if (!label) return false;
   const lower = label.toLowerCase();
@@ -65,7 +77,7 @@ export function isRevenueLabel(label: string): boolean {
     jpLower.includes('営業収益') ||
     lower.includes('sales_revenue') ||
     lower.includes('salesrevenue')
-  ) && !jpLower.includes('成長');
+  ) && !isGrowthRateLabel(label) && !NON_REVENUE_AMOUNT_PATTERN.test(label);
 }
 
 /**
@@ -85,7 +97,7 @@ export function isOperatingIncomeLabel(label: string): boolean {
     lower.includes('operatingprofit') ||
     lower.includes('operatingincome') ||
     lower.includes('op ')
-  ) && !jpLower.includes('率') && !jpLower.includes('rate') && !jpLower.includes('%');
+  ) && !isGrowthRateLabel(label);
 }
 
 /**
@@ -980,10 +992,10 @@ export function calcYearlyFromKrs(args: {
   const bridgeInput: BridgeInput = {
     startYm: baseTraj.startYm,
     endYm: baseTraj.endYm,
+    effectStartYm: baseTraj.effectStartYm,
     krs: scenarioKrs,
     base: baseFigures,
     config: {
-      activityDefault: 'ACQ',
       activityRoute: { 訪問: 'ACQ', 新規: 'ACQ' },
     },
   };
@@ -1090,6 +1102,7 @@ export function buildProjectContributions(args: {
   roi?: number;
   evidence?: any;
   executionWeight?: any;
+  financeExcludedKrCount: number;
 }> {
   const {
     core,
@@ -1284,48 +1297,6 @@ export function buildProjectContributions(args: {
           });
         }
 
-        // フォールバック：計算値が0でも、KR がある程度は寄与があるはず
-        if ((deltaRevenueTotal === 0 && deltaOpTotal === 0) && krs.length > 0) {
-          // 簡易推定：第1KRの target を参考に推定
-          const firstKr = krs[0];
-          if (firstKr) {
-            const parsedTarget = Number(firstKr?.target);
-            const targetUnit = (firstKr as any)?.unit;
-
-            if (!Number.isNaN(parsedTarget) && parsedTarget !== 0) {
-              const unitNorm = normalizeUnit(targetUnit);
-
-              if (unitNorm === 'JPY') {
-                // 売上直接値
-                deltaRevenueTotal = Math.max(0, parsedTarget);
-                if ((baseline?.[baseline.length - 1]?.revenue ?? 0) > 0) {
-                  const opMargin =
-                    (baseline[baseline.length - 1]?.op_income ?? 0) /
-                    (baseline[baseline.length - 1]?.revenue ?? 1);
-                  deltaOpTotal = deltaRevenueTotal * opMargin;
-                }
-              } else if (unitNorm === '%') {
-                // パーセンテージ増（売上成長）
-                const yearlyHeadRev = yearly?.[0]?.revenue ?? 0;
-                const yearlyHeadOp = yearly?.[0]?.op_income ?? 0;
-                const baselineHeadRev = baseline?.[0]?.revenue ?? 0;
-                const baselineHeadOp = baseline?.[0]?.op_income ?? 0;
-
-                if (yearlyHeadRev > baselineHeadRev && yearlyHeadOp > baselineHeadOp) {
-                  deltaRevenueTotal = yearlyHeadRev - baselineHeadRev;
-                  deltaOpTotal = yearlyHeadOp - baselineHeadOp;
-                } else if ((baseline?.[baseline.length - 1]?.revenue ?? 0) > 0) {
-                  const uplift = Math.min(0.2, (parsedTarget * 0.01) / Math.max(1, Math.abs(parsedTarget)));
-                  deltaRevenueTotal = (baseline?.[baseline.length - 1]?.revenue ?? 0) * uplift;
-                  const opMargin =
-                    (baseline?.[baseline.length - 1]?.op_income ?? 0) /
-                    (baseline?.[baseline.length - 1]?.revenue ?? 1);
-                  deltaOpTotal = deltaRevenueTotal * opMargin;
-                }
-              }
-            }
-          }
-        }
       }
 
       const roi = p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
@@ -1375,6 +1346,7 @@ export function buildProjectContributions(args: {
         roi,
         evidence,
         executionWeight,
+        financeExcludedKrCount: krs.filter((kr: BridgeKR) => krFinancialExclusionReason(kr.kind) !== null).length,
       };
     });
 

@@ -550,6 +550,36 @@ export type SpendRecurrence = 'ONE_TIME' | 'RECURRING';
 export type SpendAmountBasis = 'TOTAL' | 'MONTHLY' | 'ANNUAL';
 export type SpendDuplicateDecision = 'SAME_KEEP' | 'SAME_DUPLICATE' | 'DIFFERENT';
 
+/** ★Phase 2：STAGE4 施策の財務効果の算定根拠（任意。STAGE6の計算には未接続） */
+export type FinanceEffectKind = 'REVENUE_UP' | 'COST_REDUCTION' | 'COST_INCREASE' | 'NOT_FINANCIAL';
+export type FinanceEffectMethod = 'QUANTITY_UNIT_PRICE' | 'FUNNEL' | 'DIRECT_AMOUNT';
+export type FinanceEffectSource = 'AI_PROPOSED' | 'USER_INPUT';
+
+export type FinanceEffect = {
+  kind: FinanceEffectKind;
+  method?: FinanceEffectMethod;
+  quantity?: number;
+  unitPriceYen?: number;
+  meetingsPerPeriod?: number;
+  winRatePct?: number;
+  averageDealYen?: number;
+  directAmountYen?: number;
+  /** 原価率（売上増加の場合の参考。利益へは自動で差し引かない） */
+  costRatePct?: number;
+  amountBasis?: SpendAmountBasis;
+  startYm?: Ym;
+  endYm?: Ym;
+  /** 対象範囲（重複候補の判定にも使う） */
+  scopeNote?: string;
+  /** 算定根拠・出所 */
+  sourceNote?: string;
+  source: FinanceEffectSource;
+  confirmed: boolean;
+  confirmedAt?: string;
+  /** 既存実績・他施策との重複についての利用者の説明 */
+  overlapNote?: string;
+};
+
 export type SpendSchedule = {
   category?: SpendCategoryCode;
   recurrence?: SpendRecurrence;
@@ -693,11 +723,17 @@ export type Project = {
   /** ★STAGE4 実行計画：承認者ID（approved の場合） */
   approvedBy?: string;
 
+  /** ★施策の一意ID（北極星の金額行の紐づけ用）。名前・並び順に依存しない。金額を初めて登録したときに付与 */
+  projectUid?: string;
+
   /** ★Phase 1：プロジェクトオーナー（ユーザーID） */
   ownerUserId?: string | null;
 
   /** ★Phase 1：プロジェクトオーナー（表示名） */
   ownerName?: string | null;
+
+  /** ★Phase 2：財務効果の算定根拠（任意）。STAGE6の統一計算にはまだ接続しない */
+  financeEffect?: FinanceEffect;
 
   /** ★STAGE4 実行計画：スキルプラン（プロジェクト単位） */
   skillPlans?: SkillPlan[];
@@ -1153,6 +1189,9 @@ export type ProjectTargetImpact = {
 
   /** North Star指標への寄与量（単位は target.unit に依存） */
   delta: number;
+
+  /** 手動行の金額単位。新規の行は百万円で保存（未設定の旧行は百万円として扱う） */
+  deltaUnit?: 'million_yen';
 
   /** 根拠メモ（任意） */
   notes?: string;

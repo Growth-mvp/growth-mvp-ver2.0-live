@@ -26,6 +26,7 @@ export type ProjectContribution = {
   proj: string;
   investTotal: number;
   krCount: number;
+  financeExcludedKrCount?: number;
   deltaRevenueTotal: number;
   deltaOpTotal: number;
   roi?: number;

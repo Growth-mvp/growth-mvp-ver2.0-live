@@ -78,10 +78,10 @@ function fmtMJPY(v: number) {
 }
 
 function targetGapText(row: TargetGap | undefined) {
-  if (!row || !Number.isFinite(row.gap)) return { value: '-', note: '目標または見込みが未確定です' };
+  if (!row || !Number.isFinite(row.gap)) return { value: '-', note: '目標または条件付き試算が未確定です' };
   return {
-    value: row.gap > 0 ? `不足 ${fmtMJPY(row.gap)}` : '目標達成見込み',
-    note: `見込み ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}`,
+    value: row.gap > 0 ? `不足 ${fmtMJPY(row.gap)}` : '試算上は目標達成',
+    note: `条件付き試算 ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}`,
   };
 }
 

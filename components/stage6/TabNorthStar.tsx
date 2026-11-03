@@ -47,9 +47,9 @@ export function TabNorthStar({
     return (
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4">
-          <h2 className="text-lg font-bold text-slate-900">North Star Metrics vs プロジェクト合計予測</h2>
+          <h2 className="text-lg font-bold text-slate-900">North Star（目標）vs 施策効果に基づく条件付き試算</h2>
           <p className="mt-1 text-[12px] text-slate-600">
-            会社目標（North Star）と、プロジェクト実行による達成予測のギャップを可視化します。
+            会社目標（North Star）と、プロジェクト実行による条件付き試算とのギャップを可視化します。独立した予測ではありません。
           </p>
         </div>
 
@@ -168,9 +168,9 @@ export function TabNorthStar({
       {/* B. North Star Metrics */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4">
-          <h2 className="text-lg font-bold text-slate-900">North Star Metrics vs プロジェクト合計予測</h2>
+          <h2 className="text-lg font-bold text-slate-900">North Star（目標）vs 施策効果に基づく条件付き試算</h2>
           <p className="mt-1 text-[12px] text-slate-600">
-            会社目標（North Star）と、プロジェクト実行による達成予測のギャップを可視化します。
+            会社目標（North Star）と、プロジェクト実行による条件付き試算とのギャップを可視化します。独立した予測ではありません。
           </p>
         </div>
 
@@ -185,10 +185,10 @@ export function TabNorthStar({
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">低位</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">基準</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">高位</th>
-                <th className="px-3 py-2 text-right font-semibold text-slate-700">予測値</th>
+                <th className="px-3 py-2 text-right font-semibold text-slate-700">条件付き試算</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">達成率</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">ギャップ</th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-700">★予測内訳（Top3PJ）</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-700">試算内訳（施策Top3）</th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">操作</th>
               </tr>
             </thead>
@@ -297,7 +297,7 @@ export function TabNorthStar({
                           {row.breakdown && row.breakdown.length > 0 && (
                             <div className="mb-4 pb-3 border-b border-slate-200">
                               <div className="text-xs font-semibold text-slate-900 mb-2">
-                                予測内訳（Top3）
+                                試算内訳（施策Top3）
                               </div>
                               <div className="space-y-1">
                                 {row.breakdown

@@ -51,7 +51,7 @@ function ThreeBarChart({
       <div>
         <div className="text-base font-semibold text-slate-900">{title}</div>
         <div className="mt-2 text-sm text-slate-600">
-          達成見込み: <span className="text-slate-900 font-semibold">{achievementPct}%</span>
+          条件付き達成率: <span className="text-slate-900 font-semibold">{achievementPct}%</span>
         </div>
       </div>
 
@@ -70,7 +70,7 @@ function ThreeBarChart({
 
         <div className="flex items-center gap-4">
           <div className="w-12 flex-shrink-0">
-            <div className="text-xs font-semibold text-slate-600">見込み</div>
+            <div className="text-xs font-semibold text-slate-600">条件付き試算</div>
           </div>
           <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden">
             <div className="h-full rounded-full bg-slate-400 transition-all" style={{ width: `${Math.min(100, forecastWidth)}%` }} />
@@ -117,7 +117,7 @@ export function TabValueDashboard({
         <div className="mb-5">
           <h3 className="text-base font-semibold text-slate-900">会社業績の3本比較</h3>
           <p className="mt-2 text-sm text-slate-600">
-            現状、見込み、目標を並べて、目標達成見込みを確認します。
+            現状、条件付き試算、目標を並べて、試算上の目標達成を確認します。
           </p>
         </div>
         <div className="grid gap-5 md:grid-cols-2">

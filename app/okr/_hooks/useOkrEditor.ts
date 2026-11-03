@@ -4,6 +4,7 @@
 import { useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
+import { applyProjectImpactPatch } from '@/lib/okr/projectImpactPatch';
 
 import {
   ensureArray,
@@ -164,107 +165,7 @@ export function useOkrEditor(args: {
         >
       >,
     ) => {
-      useStrategyStore.setState((st: any) => {
-        const departments: Department[] = Array.isArray(st.departments) ? (st.departments as Department[]) : [];
-        const deptPrev = departments[dIdx];
-        if (!deptPrev) return st;
-
-        const deptName = (deptPrev.name ?? '').trim() || `dept${dIdx + 1}`;
-        const projsPrev: Project[] = Array.isArray(deptPrev.projects) ? (deptPrev.projects as Project[]) : [];
-        const projPrev = projsPrev[pIdx];
-        if (!projPrev) return st;
-
-        const projTitle = ((projPrev.title ?? projPrev.name) ?? '').trim() || `proj${pIdx + 1}`;
-        const projectId = `${deptName}::${projTitle}::${pIdx}`;
-
-        // ---- departments の更新（Projectに金額ゴールを持たせる） ----
-        const nextDepartments = [...departments];
-        const nextDept: Department = { ...deptPrev };
-        const nextProjs = [...projsPrev];
-        const nextProj: Project = { ...projPrev, ...patch };
-        nextProjs[pIdx] = nextProj;
-        nextDept.projects = nextProjs;
-        nextDepartments[dIdx] = nextDept;
-
-        // ---- companyTargets から targetId を解決（固定前提） ----
-        const targets = Array.isArray(st.companyTargets) ? st.companyTargets : [];
-        const norm = (s: any) =>
-          String(s ?? '')
-            .replace(/[\s　]+/g, '')
-            .toLowerCase();
-
-        const revenueTarget = targets.find((t: any) => norm(t?.label).includes('売上') || norm(t?.label).includes('revenue'));
-        const opIncomeTarget = targets.find(
-          (t: any) =>
-            norm(t?.label).includes('営業利益') ||
-            norm(t?.label).includes('営業益') ||
-            norm(t?.label).includes('op') ||
-            norm(t?.label).includes('operatingincome'),
-        );
-
-        // ★ TARGET MATCHING DIAGNOSIS ★
-        // companyTargets と金額ゴール入力値を記録
-        const hasRevenueInput = typeof (patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY) === 'number';
-        const hasOpIncomeInput = typeof (patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY) === 'number';
-        const existingCompanyTargets = targets.map((t: any) => ({
-          id: t?.id,
-          label: t?.label,
-          unit: t?.unit,
-        }));
-
-
-        const impacts = Array.isArray(st.projectTargetImpacts) ? [...st.projectTargetImpacts] : [];
-
-        const upsertImpact = (targetId: string | undefined, delta: any, notesPrefix: string, targetType: 'revenue' | 'op_income') => {
-          if (!targetId) {
-            // No target found - failure is already logged above
-            return;
-          }
-          const v = typeof delta === 'number' ? delta : Number(delta);
-          const has = Number.isFinite(v);
-          const key = `${projectId}::${targetId}`;
-          const idx = impacts.findIndex((x: any) => `${x?.projectId}::${x?.targetId}` === key);
-
-          // 空入力は削除（=連携解除）
-          if (!has) {
-            if (idx >= 0) {
-              impacts.splice(idx, 1);
-            }
-            return;
-          }
-
-          const notesBase = (patch.impactRationale ?? nextProj.impactRationale ?? '').toString().trim();
-          const notes = notesBase ? `${notesPrefix} ${notesBase}` : `${notesPrefix}`;
-
-          const row: any = {
-            projectId,
-            targetId,
-            delta: v, // 単位は companyTargets の unit（想定：百万円）
-            source: 'manual',
-            locked: true,
-            confidence: typeof patch.impactConfidence === 'number' ? patch.impactConfidence : nextProj.impactConfidence,
-            notes,
-          };
-
-          if (idx >= 0) {
-            impacts[idx] = { ...(impacts[idx] as any), ...row };
-          } else {
-            impacts.push(row);
-          }
-        };
-
-        // 売上寄与 / 営業利益寄与（コスト削減も利益寄与として扱う）
-        upsertImpact(revenueTarget?.id, patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY, '[STAGE4] 売上寄与', 'revenue');
-        upsertImpact(opIncomeTarget?.id, patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY, '[STAGE4] 営業利益寄与', 'op_income');
-
-        return {
-          ...st,
-          departments: nextDepartments,
-          projectTargetImpacts: impacts,
-          dirty: true,
-          version: (st.version ?? 0) + 1,
-        };
-      });
+      useStrategyStore.setState((st: any) => applyProjectImpactPatch(st, dIdx, pIdx, patch));
     },
     [],
   );

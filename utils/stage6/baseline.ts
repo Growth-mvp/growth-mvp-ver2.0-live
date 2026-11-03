@@ -167,9 +167,10 @@ export function mkBaseFigures(strategyState: any): (BaseFigures & { operatingInc
         Math.max(1000, (revenue ?? 1) / (cogs ?? 1)),
     ),
     churn: 0.02,
+    // 販管費は人件費を含む総額。内訳が未登録のため人件費は別建てにせず、二重計上を防ぐ
     fixed_cost: (basePL.sga ?? 0) / 12,
     variable_cost: cogs / 12,
-    personnel_cost: (basePL.sga ?? 0) / 2 / 12,
+    personnel_cost: 0,
     invest: 0,
     success_rate: 0.8,
     synergy: 0,
@@ -282,6 +283,7 @@ export function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null 
   const result: BaseTrajectory = {
     startYm,
     endYm,
+    effectStartYm: `${year + 1}-01` as Ym,
     qtyMonthly: {},
     arpuMonthly: {},
     churnMonthly: {},
@@ -296,7 +298,7 @@ export function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null 
     result.churnMonthly[ym] = 0.02;
     result.fixedCostMonthly[ym] = baselinePL.sga / 12;
     result.variableCostMonthly[ym] = baselinePL.cogs / 12;
-    result.personnelCostMonthly[ym] = baselinePL.sga / 2 / 12;
+    result.personnelCostMonthly[ym] = 0;
   });
 
   return result;

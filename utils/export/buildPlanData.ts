@@ -8,6 +8,7 @@
  */
 
 import type { StrategyData, Department, Project } from '@/types/strategy';
+import { isRevenueLabel } from '@/utils/stage6/compute';
 
 export type AudienceType = 'bank' | 'shareholder' | 'employee';
 
@@ -401,7 +402,7 @@ function extractNorthStarRevenue(
   let companyTarget: string | undefined;
   if (Array.isArray((state as any)?.companyTargets)) {
     const salesTarget = (state as any).companyTargets.find(
-      (t: any) => t?.label && (t.label.includes('売上') || t.label.includes('Revenue'))
+      (t: any) => t?.label && isRevenueLabel(t.label)
     );
     if (salesTarget) {
       const baseValue = salesTarget.base;

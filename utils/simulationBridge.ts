@@ -70,6 +70,7 @@ export type BridgeInput = {
   krs: BridgeKR[];
   base: BaseFigures;
   config?: BridgeConfig;
+  effectStartYm?: Ym;
 };
 
 export type DeltasByMonth = {
@@ -144,11 +145,11 @@ function resolveBaseValue(kr: BridgeKR, base: BaseFigures): number | undefined {
   }
 }
 
-function getApplyMonths(startYm: Ym, endYm: Ym, kr: BridgeKR): Ym[] {
+export function getApplyMonths(startYm: Ym, endYm: Ym, kr: BridgeKR, effectStartYm: Ym): Ym[] {
   const rawStart = kr.startYm ?? startYm;
   const rawDue = kr.due ? kr.due.slice(0, 7) : endYm;
 
-  const kStart = rawStart < startYm ? startYm : rawStart;
+  const kStart = rawStart < effectStartYm ? effectStartYm : rawStart;
   const kDueClamped = rawDue > endYm ? endYm : rawDue;
   if (kStart > kDueClamped) return [];
 
@@ -183,10 +184,36 @@ function applyAdd(bucket: Record<Ym, number>, val: number, applyMonths: Ym[], we
   }
 }
 
+const FINANCIAL_EXCLUSION_REASON: Partial<Record<BridgeKR['kind'], string>> = {
+  INVEST: '投資目標は支出条件（CAPEX・OPEX）から計上するため、KRの金額は営業費用へ加算しない',
+  ACQ: '商談数・件数・率を売上増加へ換算する根拠が未設定',
+  SYNERGY: '部門連携の率を全社売上へ掛ける根拠が未設定',
+  REVENUE: '売上の金額が一回限り・月額・年額のどれか未設定のため、そのまま売上へ加算しない',
+  ARPU: '単価の変化を売上へ換算する対象数量と期間が未設定',
+  CHURN: '解約率の変化を売上の変化率とみなす根拠が未設定（継続率と解約率は別の指標）',
+  COST_FIXED: '費用の金額が一回限り・月額・年額のどれか未設定のため、そのまま費用へ加算しない',
+  COST_VARIABLE: '変動費の基準（売上に対する率か原価の金額か）と対象範囲が未確認',
+  PERSONNEL: '人件費の金額が一回限り・月額・年額のどれか未設定のため、そのまま費用へ加算しない',
+  SUCCESS_RATE: '成功率を掛ける売上の対象と期間が未設定',
+};
+
+/** 財務換算の根拠が未設定のKRの理由（対象なら文字列、換算に含めるなら null） */
+export function krFinancialExclusionReason(kind: BridgeKR['kind']): string | null {
+  return FINANCIAL_EXCLUSION_REASON[kind] ?? null;
+}
+
+export function listFinancialExclusions(krs: BridgeKR[]): { id: string; label: string; kind: BridgeKR['kind']; reason: string }[] {
+  return (Array.isArray(krs) ? krs : []).flatMap((kr) => {
+    const reason = krFinancialExclusionReason(kr.kind);
+    return reason ? [{ id: kr.id, label: kr.label, kind: kr.kind, reason }] : [];
+  });
+}
+
 /* ===== core ===== */
 export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
-  const { startYm, endYm, krs, base, config } = input;
+  const { startYm, endYm, krs, base, config, effectStartYm } = input;
   const months = ymRange(startYm, endYm);
+  const effectFloorYm = effectStartYm ?? startYm;
 
   const deltas: DeltasByMonth = {
     revenue: initDelta(months),
@@ -206,10 +233,11 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
   const safeKrs: BridgeKR[] = Array.isArray(krs) ? krs : [];
   if (safeKrs.length === 0) return deltas;
 
-  const activityDefault: ActivityMapping = config?.activityDefault ?? 'ACQ';
+  const activityDefault: ActivityMapping | undefined = config?.activityDefault;
 
   for (const kr of safeKrs) {
-    const applyMonths = getApplyMonths(startYm, endYm, kr);
+    if (krFinancialExclusionReason(kr.kind)) continue;
+    const applyMonths = getApplyMonths(startYm, endYm, kr, effectFloorYm);
     if (!applyMonths.length) continue;
 
     const baseVal = resolveBaseValue(kr, base);
@@ -306,8 +334,9 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
         break;
       }
       case 'ACTIVITY': {
-        const route: ActivityMapping =
+        const route: ActivityMapping | undefined =
           (config?.activityRoute && config.activityRoute[kr.label]) ?? activityDefault;
+        if (!route || route === 'ACQ') break;
 
         const inputVal = normalizeByUnit(kr.target, kr.unit);
         const e = typeof kr.elasticity === 'number' ? kr.elasticity : 1;
@@ -319,7 +348,6 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
           delta = inputVal * e;
         }
 
-        if (route === 'ACQ') applyAdd(deltas.acq, delta, applyMonths, kr.weight);
         if (route === 'ARPU') applyAdd(deltas.arpu, delta, applyMonths, kr.weight);
         if (route === 'CHURN') applyAdd(deltas.churn, delta, applyMonths, kr.weight);
         break;

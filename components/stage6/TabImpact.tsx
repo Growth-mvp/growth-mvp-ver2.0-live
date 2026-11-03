@@ -8,6 +8,11 @@ interface ExtendedProjectContribution extends ProjectContribution {
   targetOpIncomeMJPY?: number;
 }
 
+function contribLabel(p: ExtendedProjectContribution, value: number) {
+  const allExcluded = (p.krCount ?? 0) > 0 && p.financeExcludedKrCount === p.krCount;
+  return allExcluded ? '未算定' : fmtMJPY(value);
+}
+
 interface TabImpactProps {
   projectContrib: ExtendedProjectContribution[];
   core: any;
@@ -203,9 +208,9 @@ export function TabImpact({
                   </div>
 
                   <div className="font-semibold text-slate-800">{fmtMJPY(p.targetRevenueMJPY)}</div>
-                  <div className="font-semibold text-slate-900">{fmtMJPY(p.deltaRevenueTotal)}</div>
+                  <div className="font-semibold text-slate-900">{contribLabel(p, p.deltaRevenueTotal)}</div>
                   <div className="font-semibold text-slate-800">{fmtMJPY(p.targetOpIncomeMJPY)}</div>
-                  <div className="font-semibold text-slate-900">{fmtMJPY(p.deltaOpTotal)}</div>
+                  <div className="font-semibold text-slate-900">{contribLabel(p, p.deltaOpTotal)}</div>
                 </div>
               );
             })}

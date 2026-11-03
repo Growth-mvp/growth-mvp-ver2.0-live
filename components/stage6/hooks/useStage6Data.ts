@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { YearlyPL } from '@/utils/financeSimulation';
-import type { BridgeKR } from '@/utils/simulationBridge';
+import { listFinancialExclusions, type BridgeKR } from '@/utils/simulationBridge';
 import type { KRStructured, Department } from '@/types/strategy';
 import type {
   ProjectContribution,
@@ -30,7 +30,6 @@ import {
   getExecutionWeight,
   buildNorthStarRowsPhaseE,
   buildIssueResolutionsPhaseE,
-  normalizeValueToUnit,
   matchProgressLogToProject,
   normalizeProjectName,
   isRevenueLabel,
@@ -50,6 +49,8 @@ import {
   inferAutoProjectIssueLinks,
   mergeLinks,
 } from '@/utils/stage6/autoLinking';
+import { chartEffectiveDelta, resolveManualImpacts } from '@/lib/okr/impactRows';
+import { unitToYen } from '@/lib/okr/impactUnits';
 
 const DEBUG = process.env.NODE_ENV === 'development' && !!process.env.NEXT_PUBLIC_DEBUG_STAGE6;
 
@@ -589,8 +590,13 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   }, [isReady, allProjectKeys, companyTargets, core.projectKrsMap, core.executionWeightsMap, scenarioKey]);
 
   // === STAGE6 Phase E：effectiveProjectTargetImpacts（manual + auto マージ） ===
+  const manualImpactResolution = useMemo(
+    () => resolveManualImpacts({ rows: projectTargetImpacts, departments, companyTargets }),
+    [projectTargetImpacts, departments, companyTargets],
+  );
+
   const effectiveProjectTargetImpacts = useMemo(() => {
-    const manual = Array.isArray(projectTargetImpacts) ? projectTargetImpacts : [];
+    const manual = manualImpactResolution.rows;
     const auto = autoProjectTargetImpacts;
 
     const effective = mergeImpacts({ manual, auto });
@@ -600,7 +606,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     return effective;
-  }, [projectTargetImpacts, autoProjectTargetImpacts]);
+  }, [manualImpactResolution, autoProjectTargetImpacts]);
 
 
   // === STAGE6 統一基準修正 FIX-FINAL：参照元ルール完全統一 + Op Fallback ===
@@ -1184,7 +1190,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
 
         const weight = core.executionWeightsMap.get(imp.projectId)?.weight ?? 1;
         const execW = Number.isFinite(weight) ? weight : 1;
-        const effectiveDelta = delta * execW;
+        const effectiveDelta = chartEffectiveDelta({ delta, source: imp.source }, execW);
 
         const cur = byTarget.get(imp.targetId) ?? { deltaSum: 0, breakdown: [] };
         cur.deltaSum += effectiveDelta;
@@ -1398,7 +1404,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     if (revRow) {
       // Phase E の寄与Δ（単位: revRow.unit）。なければ0。
       const phaseEDeltaDisplay = (revRow as any).phaseEDelta ?? 0;
-      revDeltaYen = normalizeValueToUnit(phaseEDeltaDisplay, revRow.unit, 'yen') ?? phaseEDeltaDisplay;
+      revDeltaYen = unitToYen(phaseEDeltaDisplay, revRow.unit) ?? 0;
 
       if (DEBUG) {
         console.log(
@@ -1409,7 +1415,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
 
     if (opRow) {
       const phaseEDeltaDisplay = (opRow as any).phaseEDelta ?? 0;
-      opDeltaYen = normalizeValueToUnit(phaseEDeltaDisplay, opRow.unit, 'yen') ?? phaseEDeltaDisplay;
+      opDeltaYen = unitToYen(phaseEDeltaDisplay, opRow.unit) ?? 0;
 
       if (DEBUG) {
         console.log(
@@ -1869,9 +1875,16 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     console.groupEnd();
   }
 
+  const financialExclusions = useMemo(() => {
+    const all: BridgeKR[] = [];
+    core.projectKrsMap?.forEach((krs: BridgeKR[]) => all.push(...krs));
+    return listFinancialExclusions(all);
+  }, [core.projectKrsMap]);
+
   return {
     // Status
     hydrated,
+    financialExclusions,
     isHydrating,
     isReady,
     companyName: core.companyName,
@@ -1888,6 +1901,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     chartData: chartDataWithPhaseE,  // ★Phase E の影響を反映したグラフデータ
     // STAGE6 Step 1 & 2: Dashboard summary & metric cards
     dashboardSummary,
+    // 北極星の集計から外した手動行（理由つき）
+    excludedImpactRows: manualImpactResolution.excluded,
     // Supporting data
     financePL,
     companyTargets,
