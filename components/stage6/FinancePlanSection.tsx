@@ -7,6 +7,8 @@ import { useAccess } from '@/utils/access';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
+import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
+import { FinanceEffectTrialPanel } from './FinanceEffectTrialPanel';
 import {
   FINANCE_PLAN_CALC_VERSION,
   buildStoredFinancePlan,
@@ -207,6 +209,11 @@ function FinancePlanContent({
         NOW_YEAR,
       ),
     [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule],
+  );
+
+  const effectTrial = useMemo(
+    () => buildFinanceEffectTrial({ departments, fiscalYearEnd, fiscalYears: forecastYears }),
+    [departments, fiscalYearEnd, forecastYears],
   );
 
   const currentDomain: FinancePlanDomain = useMemo(() => {
@@ -500,6 +507,11 @@ function FinancePlanContent({
           <div className="space-y-6">
             <TabHeader tab="target" />
             {targetContent}
+            <FinanceEffectTrialPanel
+              trial={effectTrial}
+              forecastYears={plan.years.filter((y) => y.kind === 'FORECAST')}
+              targetPathInUse={assumptions.targetRevenueYen !== null || assumptions.targetOperatingIncomeYen !== null}
+            />
           </div>
         )}
 

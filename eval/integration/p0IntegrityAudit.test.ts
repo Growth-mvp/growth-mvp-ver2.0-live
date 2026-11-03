@@ -160,11 +160,11 @@ describe('1. 施策と金額行の同一性', () => {
     expect(r.excluded).toHaveLength(1);
   });
 
-  it('1-9 保存・再読込で行が落ちる件（単体の正規化関数）：今回は変更せず保留（共通保存処理）', () => {
+  it('1-9 正規化の単体関数を通しても、北極星の手動行は落ちない', () => {
     const st = withRevenue(baseState([dept('営業部', [proj('A')])]), 0, 0, 10);
     const loaded: any = normalizeStrategyData(JSON.parse(JSON.stringify({ departments: st.departments, projectTargetImpacts: st.projectTargetImpacts })) as any);
-    R.S1_9_persist_rows = { 正規化後の行: loaded.projectTargetImpacts ?? null, 判定: '単体関数では欠落（既存挙動・保留）。本番読込は utils/supabase/strategy.ts で退避・復元' };
-    expect(loaded.projectTargetImpacts).toBeUndefined();
+    R.S1_9_persist_rows = { 正規化後の行: loaded.projectTargetImpacts ?? null, 判定: '正規化で保持（companyTargets・projectTargetImpacts の通し）' };
+    expect(loaded.projectTargetImpacts).toEqual(st.projectTargetImpacts);
   });
 });
 

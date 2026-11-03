@@ -99,7 +99,7 @@ export function FinanceEffectSection({ effect, legacy, disabled, overlapCandidat
               {note}
             </div>
           ))}
-          <div>従来の売上・営業利益の見込みは、これまでどおり北極星に反映されます。財務効果は、STAGE6の統一試算にはまだ接続していません。</div>
+          <div>従来の売上・営業利益の見込みは、これまでどおり北極星に反映されます。確認済みの財務効果は、STAGE6の「確認済み仮説による条件付き試算」に反映されます（北極星の金額には加算しません）。</div>
         </div>
 
         <label className="block space-y-1">
