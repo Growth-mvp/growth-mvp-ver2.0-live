@@ -48,7 +48,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.08 }}
               className="mt-2 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[20px] xl:dark:text-neutral-100"
             >
-            GROWTH SHIFT｜現場が動く経営計画をつくり、業績を伸ばす仕組み
+            GROWTH SHIFT｜経営計画実行プラットフォーム
             </motion.div>
 
             <motion.p
@@ -56,7 +56,7 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.16 }}
               className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] xl:dark:text-neutral-300"
-            >
+            >現場が動く経営計画をつくり、業績を伸ばす仕組み
               
 
             </motion.p>
