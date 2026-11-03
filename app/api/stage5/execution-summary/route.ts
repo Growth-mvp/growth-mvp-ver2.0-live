@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
 import { isValidUUID } from '@/lib/utils/isValidUUID';
+import { isProgressLogCheckin } from '@/lib/progressLogCheckin';
 
 type RecentProjectUpdate = {
   departmentId: string;
@@ -34,15 +35,6 @@ type ExecutionSummaryResponse = {
   };
   error?: string;
 };
-
-function isProgressLogCheckin(log: any): boolean {
-  if (log == null) return false;
-  if (typeof log.score === 'number') return true;
-  if (log.status != null) return true;
-  if (log.content == null) return false;
-  if (typeof log.content === 'string') return log.content.trim().length > 0;
-  return true;
-}
 
 function normalizeDisplayName(value: unknown, fallback: string): string {
   const text = typeof value === 'string' ? value.trim() : '';

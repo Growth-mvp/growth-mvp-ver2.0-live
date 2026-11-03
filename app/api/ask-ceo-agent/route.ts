@@ -33,7 +33,22 @@ import { searchExternalFinancialData } from '@/lib/externalFinancialSearch';
 import { buildExternalFinancialBlock } from '@/lib/agentPrompt';
 import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
 import { selectCanonicalStory } from '@/lib/ceoChat/strategyRationale';
-import { selectContextSources, buildSelectedContextBlock } from '@/lib/ceoChat/contextSelection';
+import {
+  selectContextSources,
+  selectStage56Sources,
+  selectSupplementSources,
+  buildSelectedContextBlock,
+  hasCompanyReference,
+  isGeneralKnowledgeQuestion,
+} from '@/lib/ceoChat/contextSelection';
+import { buildExecutionSummaryBlock } from '@/lib/ceoChat/stage4Projection';
+import {
+  buildStage5ProgressBlock,
+  formatOwnProgressLines,
+  CHECKIN_LOOKBACK_DAYS,
+} from '@/lib/ceoChat/stage5Progress';
+import { buildStage6PlanBlock, buildCashPositionBlock } from '@/lib/ceoChat/stage6Plan';
+import { buildFocusAnswersBlock } from '@/lib/ceoChat/supplementBlocks';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
@@ -101,59 +116,41 @@ const TABOO =
   '【回答禁止】個人情報・人事評価や人事異動の断定、株主・取締役の機微情報、具体的な法的助言、確証のない断定的表現には答えません。必要な場合は専門家相談を案内します。';
 
 /* ========= ユーティリティ ========= */
-const cap = (s: any, n: number) => {
-  const t = String(s ?? '');
-  return t.length > n ? `${t.slice(0, n)}…` : t;
-};
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
-/* ========= OKR/進捗サマリ（プロンプトに埋め込む軽量要約） ========= */
-function buildOKRSummary(departments: any[] = []) {
-  const lines: string[] = [];
-  departments.forEach((d, di) => {
-    const dName = String(d?.name ?? `Department ${di + 1}`);
-    const projects = safeArray<any>(d?.projects);
-    if (!projects.length) return;
-    lines.push(`■ 部門: ${dName}`);
-    projects.forEach((p, pi) => {
-      const pTitle = String(p?.title ?? p?.name ?? `Project ${pi + 1}`);
-      const okrs = safeArray<any>(p?.okrs);
-      if (!okrs.length) {
-        lines.push(`  - プロジェクト ${pTitle}（OKRなし）`);
-        return;
-      }
-      lines.push(`  - プロジェクト ${pTitle}`);
-      okrs.forEach((o: any, oi: number) => {
-        const kr = safeArray<string>(o?.keyResults);
-        const owner = o?.owner ? ` / Owner: ${String(o.owner)}` : '';
-        lines.push(`    • O${oi + 1}: ${cap(o?.objective ?? '', 200)} / KR: ${kr.length}件${owner}`);
-        kr.forEach((k, ki) => lines.push(`       - KR${ki + 1}: ${cap(String(k || ''), 160)}`));
-      });
-    });
-  });
-  return lines.join('\n');
-}
+/* ========= 進捗サマリ（プロンプトに埋め込む軽量要約） ========= */
 function buildProgressSummary(progressLogs: any[] = []) {
   if (!progressLogs.length) return '（進捗ログなし）';
-  const sorted = [...progressLogs].sort(
-    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-  );
-  const recent = sorted.slice(0, 30);
-  const lines: string[] = [];
-  recent.forEach((r: any) => {
-    const ts = String(r?.created_at ?? '').replace('T', ' ').replace('Z', '');
-    const dept = r?.department ? ` [${String(r.department)}]` : '';
-    const rating = Number.isFinite(r?.rating) ? ` ★${r.rating}` : '';
-    const txt = cap(r?.progress_text ?? '', 200);
-    const adv = r?.advice ? ` / Advice: ${cap(String(r.advice), 120)}` : '';
-    lines.push(`- ${ts}${dept}${rating} : ${txt}${adv}`);
-  });
-  return lines.join('\n');
+  return formatOwnProgressLines(progressLogs).join('\n');
+}
+
+async function fetchStage5Company(admin: SupabaseClient, companyId: string, now: Date) {
+  const since = new Date(now.getTime() - CHECKIN_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const [okrRes, logRes] = await Promise.all([
+    admin.from('okrs').select('id, department_id, project_id, objective, is_deleted').eq('company_id', companyId),
+    admin
+      .from('progress_logs')
+      .select('okr_id, created_at, content, score, status')
+      .eq('company_id', companyId)
+      .gte('created_at', since)
+      .limit(5000),
+  ]);
+  return {
+    okrs: okrRes.error ? [] : safeArray<any>(okrRes.data),
+    companyLogs: logRes.error ? [] : safeArray<any>(logRes.data),
+    companyLogsFailed: !!okrRes.error || !!logRes.error,
+  };
 }
 
 /* ========= コンテキスト取得（strategyId必須） ========= */
-async function fetchStrategyContext(args: { companyId: string; strategyId: string; userId: string; supabaseAdmin?: SupabaseClient }) {
-  const { companyId, strategyId, userId, supabaseAdmin } = args;
+async function fetchStrategyContext(args: {
+  companyId: string;
+  strategyId: string;
+  userId: string;
+  question: string;
+  supabaseAdmin?: SupabaseClient;
+}) {
+  const { companyId, strategyId, userId, question, supabaseAdmin } = args;
 
   // strategyId + companyId で直接取得（データ混在防止）
   let strategy: StrategyData | null = null;
@@ -212,9 +209,7 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
     const adminClient = supabaseAdmin ?? getSupabaseAdmin();
     const { data: logs, error: plErr } = await adminClient
       .from('progress_logs')
-      .select(
-        'id, created_at, progress_text, rating, rating_comment, advice, help_request, department, user_id, okr_id'
-      )
+      .select('id, created_at, content, score, status, user_id, okr_id')
       .eq('user_id', userId)
       .eq('company_id', companyId)  // ★ company_id でフィルタ（RLS準拠）
       .order('created_at', { ascending: false })
@@ -236,10 +231,10 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
   }
 
   const departments = safeArray<any>(strategy?.departments ?? (strategy as any)?.editableCascadeResult);
-  const okrSummaryText = buildOKRSummary(departments);
+  const executionText = buildExecutionSummaryBlock(departments, question).text;
   const progressSummaryText = buildProgressSummary(progressLogs);
   const extraBlockFromFull =
-    `\n\n---\n# OKRサマリ\n${okrSummaryText || '（OKRなし）'}\n` +
+    `\n\n---\n${executionText}\n` +
     `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
 
   // フルが取れない場合（strategyId が無効または削除されている場合）
@@ -345,11 +340,14 @@ export async function POST(req: Request) {
       userId: userId.substring(0, 8),
     });
 
+    const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
+
     // ★ アプローチ1: server-side admin client を fetchStrategyContext に渡す
     const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext({
       companyId,
       strategyId,
       userId,
+      question: lastUser,
       supabaseAdmin: admin,
     });
 
@@ -372,9 +370,6 @@ export async function POST(req: Request) {
       financeSummary_count: financeSummaryCount,
       has_valueAnalysis: hasValueAnalysis,
     });
-
-    // ★ lastUser の定義（外部検索の前に必要）
-    const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
     // ★ 外部決算情報検索（一旦停止）
     let externalFinancialBlock = '';
@@ -493,8 +488,6 @@ export async function POST(req: Request) {
     } else {
       // advisor/facilitator モード: 既存ロジック（agent-based systemPrompt）
       // ③ 検査: どの経路が選ばれるか + 企業データ参照の判定
-      const isGenericStage = intent.stage === 'generic';
-
       // 企業名をノーマライズ（「株式会社」削除、スペース削除等）
       const normalizeCompanyName = (name: string): string => {
         return name
@@ -509,8 +502,8 @@ export async function POST(req: Request) {
       const companyName = (strategy as any)?.companyName || '';
       const normalizedCompanyName = normalizeCompanyName(companyName);
 
-      // 質問が「当社」「弊社」を含むか判定
-      const hasPronouns = /当社|弊社|うちの|うちは/.test(lastUser);
+      // 会社への言及（当社・わが社・社長など）があるか判定
+      const hasPronouns = hasCompanyReference(lastUser);
 
       // 企業名を含むかを判定（企業名を正規化した上で、質問に含まれるか）
       const hasCompanyName = normalizedCompanyName && lastUser.includes(companyName);
@@ -522,17 +515,21 @@ export async function POST(req: Request) {
       // 選択中企業のデータを使用すべきか判定（企業名の表記ゆれに対応）
       const isAboutSelectedCompany = hasPronouns || hasCompanyName || hasNormalizedCompanyName;
 
+      // 一般的な経営知識の質問だけ企業データを省く。経営相談は主語が省略されていても企業データを使う
+      const isGeneralQuestion = !isAboutSelectedCompany && isGeneralKnowledgeQuestion(lastUser);
+
       // 他社名を明示した質問かを検出
       // 選択中企業に関する質問の場合は、他社明示と判定しない
       const hasExplicitOtherCompany = !isAboutSelectedCompany && /\w+の[^を]*?は|外部|競合|他社/.test(lastUser);
 
       // generic でも、選択中企業に関する質問ならば agentPrompt を使用
-      const shouldUseAgentPrompt = !isGenericStage || isAboutSelectedCompany;
+      const shouldUseAgentPrompt = !isGeneralQuestion;
 
       console.log('[ask-ceo-agent]', requestId, '③_system_prompt_route', {
         intent_stage: intent.stage,
         using_agent_prompt: shouldUseAgentPrompt,
         using_generic_response: !shouldUseAgentPrompt,
+        is_general_question: isGeneralQuestion,
         is_about_selected_company: isAboutSelectedCompany,
         has_pronouns: hasPronouns,
         has_company_name: hasCompanyName,
@@ -573,6 +570,52 @@ export async function POST(req: Request) {
         companyDataIncluded: !!shouldUseAgentPrompt,
       });
       if (selectedContextBlock) systemBase += '\n\n' + selectedContextBlock;
+
+      if (shouldUseAgentPrompt) {
+        const stageSources = selectStage56Sources(lastUser);
+        if (stageSources.progress) {
+          const now = new Date();
+          const company = await fetchStage5Company(admin, companyId, now);
+          systemBase +=
+            '\n\n' +
+            buildStage5ProgressBlock({
+              departments: (strategy as any)?.departments,
+              okrs: company.okrs,
+              companyLogs: company.companyLogs,
+              companyLogsFailed: company.companyLogsFailed,
+              now,
+            });
+        }
+        if (stageSources.plan) {
+          systemBase +=
+            '\n\n' +
+            buildStage6PlanBlock({
+              csvFinanceData: (strategy as any)?.csvFinanceData,
+              companyId,
+              financePL: (strategy as any)?.financePL,
+              financeBS: (strategy as any)?.financeBS,
+              departments: (strategy as any)?.departments,
+              fiscalYearEnd: (strategy as any)?.fiscalYearEnd,
+              currentYear: new Date().getFullYear(),
+              simulationResults: (strategy as any)?.simulationResults,
+            });
+        }
+        const supplement = selectSupplementSources(lastUser);
+        if (supplement.cash && !stageSources.plan) {
+          systemBase +=
+            '\n\n' +
+            buildCashPositionBlock({
+              csvFinanceData: (strategy as any)?.csvFinanceData,
+              companyId,
+              financePL: (strategy as any)?.financePL,
+              financeBS: (strategy as any)?.financeBS,
+            });
+        }
+        if (supplement.talent) {
+          const focus = buildFocusAnswersBlock(strategy as any, lastUser);
+          if (focus) systemBase += '\n\n' + focus;
+        }
+      }
       console.log('[ask-ceo-agent]', requestId, 'context_selection', {
         ...contextSelection,
         companyDataIncluded: shouldUseAgentPrompt,
