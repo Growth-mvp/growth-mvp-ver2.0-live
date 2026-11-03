@@ -65,6 +65,9 @@ DEBUG_GUARD_CHANGES.md
 /model-comparison/captures/
 /model-comparison/results/
 
+# AI evaluation outputs and run logs (regenerable; eval/ test code stays tracked)
+/eval/**/results*/
+
 # Claude Code instruction file (changes frequently, not part of repo)
 prompt.txt
 
