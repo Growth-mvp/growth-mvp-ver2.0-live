@@ -21,10 +21,12 @@ jest.mock('openai', () => ({
   },
 }));
 
-import { POST } from './route';
+import { POST, maxDuration } from './route';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { logAuditEvent } from '@/lib/server/auditLog';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { createFakeDb } from '@/lib/plans/testing/fakeSupabase';
+import { PLAN_DEADLINE_MS, PLAN_POST_AI_RESERVE_MS, PLAN_ATTEMPT_SAFETY_MS } from '@/lib/plans/generationBudget';
+import { createFakeDb, planRow } from '@/lib/plans/testing/fakeSupabase';
 
 const COMPANY_A = '11111111-1111-4111-8111-111111111111';
 const COMPANY_B = '22222222-2222-4222-8222-222222222222';
@@ -236,5 +238,112 @@ describe('POST /api/plans/[audience]/generate', () => {
 
     expect(db.rows.generated_plans).toHaveLength(2);
     expect(db.rows.generated_plans.map((r) => r.audience).sort()).toEqual(['bank', 'shareholder']);
+  });
+});
+
+function providerError(name: string, status?: number) {
+  return Object.assign(new Error(name), { name, status });
+}
+
+function existingPlan(audience: string) {
+  return planRow({
+    company_id: COMPANY_A,
+    strategy_id: STRATEGY_A,
+    audience,
+    generated_text: '既存の本文',
+    sections: ['既存'],
+    generated_at: '2026-01-01T00:00:00.000Z',
+    created_by: USER_ADMIN,
+    updated_by: USER_ADMIN,
+    version: 3,
+  });
+}
+
+describe.each(['bank', 'shareholder', 'employee'] as const)('time budget for audience %s', (audience) => {
+  it('saves the generated plan with a per-attempt timeout and no SDK retries', async () => {
+    const res = await POST(makeRequest(validBody), context(audience));
+    const json = await res.json();
+
+    expect(json).toEqual(expect.objectContaining({ status: 'saved', version: 1, audience }));
+    expect(db.rows.generated_plans).toEqual([expect.objectContaining({ audience, generated_text: LONG_TEXT })]);
+    const options = mockCreate.mock.calls[0][1];
+    expect(options.maxRetries).toBe(0);
+    expect(options.timeout).toBeGreaterThan(0);
+    expect(options.timeout).toBeLessThanOrEqual(PLAN_DEADLINE_MS - PLAN_POST_AI_RESERVE_MS - PLAN_ATTEMPT_SAFETY_MS);
+  });
+
+  it('returns a JSON timeout error and keeps the existing plan when the attempt times out', async () => {
+    db.rows.generated_plans.push(existingPlan(audience));
+    mockCreate.mockRejectedValue(providerError('APIConnectionTimeoutError'));
+
+    const res = await POST(makeRequest(validBody), context(audience));
+    const json = await res.json();
+
+    expect(res.status).toBe(504);
+    expect(json.code).toBe('GENERATION_TIMEOUT');
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(db.rows.generated_plans).toEqual([
+      expect.objectContaining({ generated_text: '既存の本文', sections: ['既存'], version: 3 }),
+    ]);
+    expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'PLAN_GENERATE_FAILED' }));
+  });
+
+  it('retries once after a transient provider error and saves the retried result', async () => {
+    mockCreate
+      .mockRejectedValueOnce(providerError('RateLimitError', 429))
+      .mockResolvedValueOnce(openAiReply());
+
+    const res = await POST(makeRequest(validBody), context(audience));
+
+    expect((await res.json()).status).toBe('saved');
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(db.rows.generated_plans).toEqual([expect.objectContaining({ audience, generated_text: LONG_TEXT })]);
+  });
+
+  it('does not retry a non-transient provider error and keeps the existing plan', async () => {
+    db.rows.generated_plans.push(existingPlan(audience));
+    mockCreate.mockRejectedValue(providerError('BadRequestError', 400));
+
+    const res = await POST(makeRequest(validBody), context(audience));
+
+    expect(res.status).toBe(500);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(db.rows.generated_plans).toEqual([expect.objectContaining({ generated_text: '既存の本文', version: 3 })]);
+  });
+});
+
+describe('time budget declaration and timing log', () => {
+  it('declares a 120 second max duration equal to the time budget', () => {
+    expect(maxDuration).toBe(120);
+    expect(PLAN_DEADLINE_MS).toBe(maxDuration * 1000);
+  });
+
+  it('logs phase timings without plan text, prompt, or identifiers', async () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      await POST(makeRequest(validBody), context('bank'));
+
+      const line = infoSpy.mock.calls.find((call) => call[0] === '[Plan Gen timing]');
+      expect(line).toBeDefined();
+      const serialized = String(line![1]);
+      expect(JSON.parse(serialized)).toEqual({
+        audience: 'bank',
+        outcome: 'saved',
+        totalMs: expect.any(Number),
+        phases: {
+          auth: expect.any(Number),
+          db: expect.any(Number),
+          build: expect.any(Number),
+          prompt: expect.any(Number),
+          llm: expect.any(Number),
+          save: expect.any(Number),
+        },
+      });
+      for (const secret of [LONG_TEXT, 'テスト株式会社', COMPANY_A, STRATEGY_A, USER_ADMIN, 'test-token']) {
+        expect(serialized).not.toContain(secret);
+      }
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 });
