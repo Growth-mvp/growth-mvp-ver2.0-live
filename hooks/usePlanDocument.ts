@@ -35,6 +35,22 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+class UncertainGenerationError extends Error {}
+
+async function fetchSavedDocument(scope: PlanScope): Promise<PlanDocument | null> {
+  const response = await fetch(`/api/plans/${scope.audience}/saved`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify(scope),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`保存済みの計画書を読み込めませんでした（${response.status}）`);
+  }
+  const body = (await response.json()) as GenerateResponseBody;
+  return toPlanDocument(scope, { ...body, status: 'saved', saveReason: null });
+}
+
 /**
  * 経営計画書の保存済み取得・生成・未保存時の操作を一括で扱う。
  *
@@ -127,31 +143,59 @@ export function usePlanDocument(target: PlanTarget, role: PlanRole) {
     // 切替後の結果を画面に出さないため、応答はトークンで照合する（キーだけでは切り替え往復を防げない）
     const token = generation.start(key);
     if (token === null) return;
+    const versionBefore = visibleDocument(stored, key)?.version ?? null;
     setGenerating({ key, token });
     setError(null);
     try {
-      const response = await fetch(`/api/plans/${scope.audience}/generate`, {
-        method: 'POST',
-        headers: await authHeaders(),
-        body: JSON.stringify({ companyId: scope.companyId, strategyId: scope.strategyId }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`/api/plans/${scope.audience}/generate`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify({ companyId: scope.companyId, strategyId: scope.strategyId }),
+        });
+      } catch {
+        throw new UncertainGenerationError('通信が途切れました。');
+      }
       if (!generation.isCurrent(token)) return;
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
-        throw new Error(errorBody.error || `生成に失敗しました（${response.status}）`);
+        const message = errorBody.error || `生成に失敗しました（${response.status}）`;
+        if (response.status >= 500 && response.status !== 503 && errorBody.code !== 'GENERATION_TIMEOUT') {
+          throw new UncertainGenerationError(message);
+        }
+        throw new Error(message);
       }
       const body = (await response.json()) as GenerateResponseBody;
       setStored(toPlanDocument(scope, body));
     } catch (err) {
       if (!generation.isCurrent(token)) return;
-      setError(err instanceof Error ? err.message : '計画書の生成に失敗しました。');
+      let message = err instanceof Error ? err.message : '計画書の生成に失敗しました。';
+      if (err instanceof UncertainGenerationError) {
+        let saved: PlanDocument | null | undefined;
+        try {
+          saved = await fetchSavedDocument(scope);
+        } catch {
+          saved = undefined;
+        }
+        if (!generation.isCurrent(token) || activeKey.current !== key) return;
+        if (saved === undefined) {
+          message = `${message} 保存状態を確認できませんでした。再読み込みして確認してください。`;
+        } else if ((saved?.version ?? null) !== versionBefore) {
+          setStored(saved);
+          message = `${message} 保存済みの計画書を再取得しました（版 ${saved?.version ?? '-'}）。内容を確認してください。`;
+        } else {
+          message = `${message} 保存済みの計画書は変わっていません。もう一度お試しください。`;
+        }
+      }
+      setError(message);
     } finally {
       // 無効になった旧リクエストは、新しい会社の生成中状態に触れない
       generation.finish(token);
       setGenerating((current) => (current !== null && current.token === token ? null : current));
     }
-  }, [scope, key, canGenerate, generation]);
+  }, [scope, key, canGenerate, generation, stored]);
 
   // 未保存の本文がある間は、ページの再読み込み・閉じる操作で警告する
   useEffect(() => {
