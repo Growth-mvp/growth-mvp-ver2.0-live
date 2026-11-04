@@ -154,6 +154,7 @@ async function sendText(text: string) {
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   mockPathname = '/stage1';
   jest.clearAllMocks();
   mockFetch.mockReset();
@@ -574,15 +575,15 @@ describe('会話履歴の保持', () => {
     expect(sent[sent.length - 1]).toEqual({ role: 'user', content: '最新の質問' });
   });
 
-  it('会話本文をブラウザのストレージに保存しない', async () => {
-    const setItem = jest.spyOn(Storage.prototype, 'setItem');
+  it('会話本文を localStorage に保存しない（sessionStorage のみ）', async () => {
     mockFetch.mockResolvedValueOnce(okResponse('秘密の回答'));
     await renderReadyPanel();
     await sendText('秘密の質問');
     await waitFor(() => expect(screen.getByText('秘密の回答')).toBeTruthy());
 
-    const written = setItem.mock.calls.map((c) => String(c[1])).join('\n');
-    expect(written).not.toContain('秘密の回答');
-    expect(written).not.toContain('秘密の質問');
+    const local = Array.from({ length: localStorage.length }, (_, i) => localStorage.getItem(localStorage.key(i) ?? '') ?? '').join('\n');
+    expect(local).not.toContain('秘密の回答');
+    expect(local).not.toContain('秘密の質問');
+    expect(sessionStorage.getItem('growth-ceo-chat-history')).toContain('秘密の回答');
   });
 });

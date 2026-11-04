@@ -40,3 +40,37 @@ export function buildAskHistory(messages: CeoChatMessage[]): CeoChatMessage[] {
   }
   return picked;
 }
+
+export const CEO_CHAT_SNAPSHOT_KEY = 'growth-ceo-chat-history';
+export const CEO_CHAT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+export type CeoChatSnapshot = {
+  v: 1;
+  ownerKey: string;
+  savedAt: number;
+  messages: CeoChatMessage[];
+};
+
+function isCeoChatMessage(m: unknown): m is CeoChatMessage {
+  if (!m || typeof m !== 'object') return false;
+  const { role, content } = m as { role?: unknown; content?: unknown };
+  return (role === 'user' || role === 'assistant') && typeof content === 'string';
+}
+
+export function parseCeoChatSnapshot(raw: string | null, now: number): CeoChatSnapshot | null {
+  if (!raw) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== 'object') return null;
+  const d = data as { v?: unknown; ownerKey?: unknown; savedAt?: unknown; messages?: unknown };
+  if (d.v !== 1 || typeof d.ownerKey !== 'string' || typeof d.savedAt !== 'number') return null;
+  if (now - d.savedAt > CEO_CHAT_RETENTION_MS || d.savedAt > now) return null;
+  if (!Array.isArray(d.messages)) return null;
+  const messages = d.messages.filter(isCeoChatMessage);
+  if (messages.length === 0) return null;
+  return { v: 1, ownerKey: d.ownerKey, savedAt: d.savedAt, messages: enforceChatLimits(messages) };
+}

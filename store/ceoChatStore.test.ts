@@ -31,6 +31,8 @@ function appendUser(ticket: ReturnType<typeof openCeoChatRequest>, content: stri
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
+  localStorage.clear();
   signOut();
   signIn('user-1', 'company-a');
 });
@@ -164,15 +166,88 @@ describe('会話履歴ストア: 上限', () => {
   });
 });
 
+function allLocalStorageValues(): string {
+  return Array.from({ length: localStorage.length }, (_, i) => localStorage.getItem(localStorage.key(i) ?? '') ?? '').join('\n');
+}
+
+function reloadStore() {
+  jest.resetModules();
+  const userStore = require('@/store/userStore') as typeof import('@/store/userStore');
+  const store = require('./ceoChatStore') as typeof import('./ceoChatStore');
+  return { userStore, store };
+}
+
 describe('会話履歴ストア: 保存先', () => {
-  it('履歴の更新で localStorage / sessionStorage に書き込まない', () => {
-    const local = jest.spyOn(Storage.prototype, 'setItem');
+  it('会話本文は localStorage に書き込まず、sessionStorage にだけ保存する', () => {
     const ticket = openCeoChatRequest(ownerOf('user-1', 'company-a'));
     appendUser(ticket, '秘密の質問');
+
+    expect(allLocalStorageValues()).not.toContain('秘密の質問');
+    expect(sessionStorage.getItem('growth-ceo-chat-history')).toContain('秘密の質問');
+  });
+
+  it('クリア後は sessionStorage の保存分も消える', () => {
+    const ticket = openCeoChatRequest(ownerOf('user-1', 'company-a'));
+    appendUser(ticket, '質問');
+
     clearCeoChat();
 
-    const written = local.mock.calls.map((c) => String(c[1])).join('\n');
-    expect(written).not.toContain('秘密の質問');
-    local.mockRestore();
+    expect(sessionStorage.getItem('growth-ceo-chat-history')).toBeNull();
+  });
+});
+
+describe('会話履歴ストア: リロード後の復元', () => {
+  it('リロード後も、同じユーザー・同じ企業の会話を復元する', () => {
+    const ticket = openCeoChatRequest(ownerOf('user-1', 'company-a'));
+    appendUser(ticket, 'リロード前の質問');
+
+    const { userStore, store } = reloadStore();
+    userStore.useUserStore.setState({ user: { id: 'user-1' } as any, companyId: 'company-a' } as any);
+
+    expect(store.useCeoChatStore.getState().messages.map((m) => m.content)).toContain('リロード前の質問');
+  });
+
+  it('リロード後に別の企業へ切り替わった場合は、保存分を破棄する', () => {
+    appendUser(openCeoChatRequest(ownerOf('user-1', 'company-a')), 'A社の質問');
+
+    const { userStore, store } = reloadStore();
+    userStore.useUserStore.setState({ user: { id: 'user-1' } as any, companyId: 'company-b' } as any);
+
+    expect(store.useCeoChatStore.getState().messages).toEqual(CEO_CHAT_GREETING);
+    expect(sessionStorage.getItem('growth-ceo-chat-history')).toBeNull();
+  });
+
+  it('ログアウトすると保存分も消え、再ログインしても復元しない', () => {
+    appendUser(openCeoChatRequest(ownerOf('user-1', 'company-a')), '質問');
+
+    signOut();
+
+    expect(sessionStorage.getItem('growth-ceo-chat-history')).toBeNull();
+    const { userStore, store } = reloadStore();
+    userStore.useUserStore.setState({ user: { id: 'user-1' } as any, companyId: 'company-a' } as any);
+    expect(store.useCeoChatStore.getState().messages).toEqual(CEO_CHAT_GREETING);
+  });
+
+  it('保存期限（30日）を過ぎた履歴は復元しない', () => {
+    const old = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    sessionStorage.setItem(
+      'growth-ceo-chat-history',
+      JSON.stringify({ v: 1, ownerKey: ownerOf('user-1', 'company-a'), savedAt: old, messages: [{ role: 'user', content: '古い質問' }] })
+    );
+
+    const { userStore, store } = reloadStore();
+    userStore.useUserStore.setState({ user: { id: 'user-1' } as any, companyId: 'company-a' } as any);
+
+    expect(store.useCeoChatStore.getState().messages).toEqual(CEO_CHAT_GREETING);
+  });
+
+  it('壊れた保存データは読まずに捨てる', () => {
+    sessionStorage.setItem('growth-ceo-chat-history', '{not json');
+
+    const { userStore, store } = reloadStore();
+    userStore.useUserStore.setState({ user: { id: 'user-1' } as any, companyId: 'company-a' } as any);
+
+    expect(store.useCeoChatStore.getState().messages).toEqual(CEO_CHAT_GREETING);
+    expect(sessionStorage.getItem('growth-ceo-chat-history')).toBeNull();
   });
 });
