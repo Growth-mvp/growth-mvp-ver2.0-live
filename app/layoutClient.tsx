@@ -17,6 +17,12 @@ import { useUserStore } from '@/store/userStore';
 import MfaGate from '@/components/MfaGate';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { CompanyProvider } from '@/context/CompanyContext';
+import CeoPanelResizeHandle from '@/components/CeoPanelResizeHandle';
+import {
+  CEO_PANEL_WIDTH_DEFAULT,
+  CEO_PANEL_WIDTH_STORAGE_KEY,
+  parseStoredCeoPanelWidth,
+} from '@/lib/layout/ceoPanelWidth';
 
 /* ================================
  * ルート判定
@@ -177,6 +183,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const [ceoPanelOpen, setCeoPanelOpen] = useState(false);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
+  const [ceoPanelWidth, setCeoPanelWidth] = useState(CEO_PANEL_WIDTH_DEFAULT);
+  const [ceoPanelResizing, setCeoPanelResizing] = useState(false);
 
   useEffect(() => {
     const el = mainRef.current;
@@ -235,6 +243,27 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       }
     }
   }, [ceoPanelOpen, mounted]);
+
+  // ★ 右パネル幅の復元（画面遷移はこのレイアウトが保持するため、遷移後も維持される）
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      setCeoPanelWidth(
+        parseStoredCeoPanelWidth(localStorage.getItem(CEO_PANEL_WIDTH_STORAGE_KEY), window.innerWidth)
+      );
+    } catch {
+      // localStorage 利用不可の場合は既定幅
+    }
+  }, [mounted]);
+
+  const commitCeoPanelWidth = (width: number) => {
+    setCeoPanelWidth(width);
+    try {
+      localStorage.setItem(CEO_PANEL_WIDTH_STORAGE_KEY, String(width));
+    } catch {
+      // localStorage 利用不可の場合は保存しない
+    }
+  };
 
   // ★ 右パネルの表示判定
   const showCeoPanel = mounted && (isLargeScreen || ceoPanelOpen);
@@ -851,12 +880,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       className={[
         'relative min-h-dvh overflow-hidden transition-[margin]',
         'bg-white',
-        '[--left-w:0] [--right-w:0]',
+        '[--left-w:0]',
         // Sidebar 幅の段階化: xl以上で sidebar固定表示（iPad対応）
         // iPad portrait/landscapeではdrawer方式を使用
-        'xl:[--left-w:16rem] xl:[--right-w:16rem]',
-        '2xl:[--left-w:18rem] 2xl:[--right-w:16rem]',
+        'xl:[--left-w:16rem]',
+        '2xl:[--left-w:18rem]',
       ].join(' ')}
+      style={{ '--right-w': `${ceoPanelWidth}px` } as React.CSSProperties}
     >
       {/* 左サイドバー */}
       {!hideSidebar && (
@@ -900,6 +930,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             'transition-opacity duration-200',
           ].join(' ')}
         >
+          <CeoPanelResizeHandle
+            width={ceoPanelWidth}
+            onChange={setCeoPanelWidth}
+            onCommit={commitCeoPanelWidth}
+            onDraggingChange={setCeoPanelResizing}
+          />
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="ml-auto w-full h-full max-w-[var(--right-w)] [&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
               <CEOChatPanel />
@@ -920,14 +956,21 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           />
           <div
             className={[
-              'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
+              'absolute right-0 top-0 flex h-dvh w-[16rem] max-w-[90vw] flex-col sm:w-[var(--right-w)]',
               'bg-white shadow-xl border-l border-black/5',
               'transition-transform duration-200',
               ceoPanelOpen ? 'translate-x-0' : 'translate-x-full',
             ].join(' ')}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="[&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
+            <CeoPanelResizeHandle
+              className="hidden sm:block"
+              width={ceoPanelWidth}
+              onChange={setCeoPanelWidth}
+              onCommit={commitCeoPanelWidth}
+              onDraggingChange={setCeoPanelResizing}
+            />
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <div className="h-full [&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
                 <CEOChatPanel />
               </div>
             </div>
@@ -950,8 +993,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           // lg-xl (1366px帯): overlay なので marginRight なし（div を圧迫しない）
           // 2xl (1536px+): 常設 panel なので marginRight を適用
           marginRight: !hideSidebar && isLargeScreen ? 'var(--right-w)' : undefined,
-          // 2xl で margin-right が変わる時の smooth transition
-          transition: 'margin-right 0.2s ease-in-out',
+          // 2xl で margin-right が変わる時の smooth transition（幅のドラッグ中は追従のため無効）
+          transition: ceoPanelResizing ? 'none' : 'margin-right 0.2s ease-in-out',
         }}
       >
         {!hideSidebar && (

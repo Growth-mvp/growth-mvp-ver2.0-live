@@ -6,6 +6,7 @@ import { on } from '@/utils/actionBus';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
+import CEOChatMarkdown from '@/components/CEOChatMarkdown';
 import { supabase } from '@/utils/supabase/client';
 import { usePathname } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
@@ -103,7 +104,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const [mounted, setMounted] = useState(false);
 
   const listRef = useRef<HTMLDivElement | null>(null);
-  const endRef = useRef<HTMLDivElement | null>(null);
   const debounceRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const bootingLockRef = useRef(false);
@@ -176,9 +176,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     }
   }, [storeHydrated, userOK, strategyOK, shouldWaitForRestore]);
 
-  /** ====== スクロール追従 ====== */
+  /** ====== スクロール追従（一覧の中だけをスクロールし、親要素の位置を動かさない） ====== */
   useEffect(() => {
-    if (endRef.current) endRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages, sending]);
 
   /** ====== コンテキスト更新イベント ====== */
@@ -474,15 +475,17 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         </div>
       </header>
 
-      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3" aria-live="polite">
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-3" aria-live="polite">
         {messages.map((m, i) => (
           <div key={i}
             className={[
-              'mb-1 max-w-[90%] whitespace-pre-wrap text-[14px] leading-6 rounded-lg px-3 py-2',
-              m.role === 'user' ? 'ml-auto bg-zinc-100 text-zinc-900' : 'mr-auto bg-white border border-zinc-200 text-zinc-900'
+              'mb-1 max-w-[90%] text-[14px] leading-6 rounded-lg px-3 py-2',
+              m.role === 'user'
+                ? 'ml-auto whitespace-pre-wrap bg-zinc-100 text-zinc-900'
+                : 'mr-auto bg-white border border-zinc-200 text-zinc-900'
             ].join(' ')}
           >
-            {m.content}
+            {m.role === 'user' ? m.content : <CEOChatMarkdown content={m.content} />}
           </div>
         ))}
         {sending && (
@@ -491,7 +494,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             思考中…
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       <div className="shrink-0 border-t px-5 py-3">

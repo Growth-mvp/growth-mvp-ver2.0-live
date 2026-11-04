@@ -3,6 +3,9 @@ const ESM_PACKAGES = [
   'escape-string-regexp', 'is-plain-obj', 'longest-streak', 'markdown-table',
   'mdast-util-[^/]+', 'micromark', 'micromark-[^/]+', 'remark', 'remark-gfm', 'remark-parse',
   'remark-stringify', 'trough', 'unified', 'unist-util-[^/]+', 'vfile', 'vfile-message', 'zwitch',
+  'react-markdown', 'remark-rehype', 'hast-util-[^/]+', 'estree-util-[^/]+', 'property-information',
+  'comma-separated-tokens', 'space-separated-tokens', 'style-to-js', 'style-to-object',
+  'inline-style-parser', 'html-url-attributes', 'trim-lines', 'html-void-elements',
 ];
 
 module.exports = {
