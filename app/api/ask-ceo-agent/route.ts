@@ -47,7 +47,8 @@ import {
   formatOwnProgressLines,
   CHECKIN_LOOKBACK_DAYS,
 } from '@/lib/ceoChat/stage5Progress';
-import { buildStage6PlanBlock, buildCashPositionBlock } from '@/lib/ceoChat/stage6Plan';
+import { buildStage6PlanBlock, buildCashPositionBlock, latestActual } from '@/lib/ceoChat/stage6Plan';
+import { buildStage2TargetBlock, isStage2TargetQuestion } from '@/lib/ceoChat/stage2Targets';
 import { buildFocusAnswersBlock } from '@/lib/ceoChat/supplementBlocks';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
@@ -614,6 +615,12 @@ export async function POST(req: Request) {
         if (supplement.talent) {
           const focus = buildFocusAnswersBlock(strategy as any, lastUser);
           if (focus) systemBase += '\n\n' + focus;
+        }
+        if (isStage2TargetQuestion(lastUser)) {
+          systemBase += '\n\n' + buildStage2TargetBlock({
+            companyTargets: (strategy as any)?.companyTargets,
+            actual: latestActual((strategy as any)?.financePL, (strategy as any)?.financeBS),
+          });
         }
       }
       console.log('[ask-ceo-agent]', requestId, 'context_selection', {
