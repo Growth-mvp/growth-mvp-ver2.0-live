@@ -15,12 +15,21 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { canGeneratePlan } from '@/lib/plans/planDocumentState';
 import { savePlanWithRetry } from '@/utils/supabase/generated-plans';
+import { isTimeoutError, isTransientError } from '@/lib/stage2/draftBudget';
+import {
+  PLAN_MAX_ATTEMPTS,
+  PlanGenerationTimeoutError,
+  createPhaseTimer,
+  planAttemptTimeoutMs,
+} from '@/lib/plans/generationBudget';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
+type PlanGenerateOutcome = 'rejected' | 'saved' | 'unsaved' | 'incomplete' | 'timeout' | 'error';
 
 /**
  * /app/api/plans/[audience]/generate/route.ts
@@ -53,6 +62,10 @@ export async function POST(
   // ★ catch ブロックからアクセスできるように外で初期化
   let userId: string | null = null;
   let body: GenerateRequest | null = null;
+  const startedAt = Date.now();
+  const timer = createPhaseTimer();
+  let audienceForLog = 'unknown';
+  let outcome: PlanGenerateOutcome = 'rejected';
 
   try {
     // ===== Step 0: params await =====
@@ -75,6 +88,7 @@ export async function POST(
         { status: 400 }
       );
     }
+    audienceForLog = audience;
 
     // ===== Step 3: 企業スコープ確認 =====
     const membership = await requireMembership(admin, userId, body.companyId);
@@ -89,6 +103,7 @@ export async function POST(
     if (!canGeneratePlan(membership.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    timer.mark('auth');
 
     // ===== Step 4: StrategyData 取得 (service_role で直接取得) =====
     // RLS 回避用に service_role を使用（認証ユーザーのメンバーシップは既に Step 3 で検証済み）
@@ -153,6 +168,8 @@ export async function POST(
       throw err;
     }
 
+    timer.mark('db');
+
     // ===== Step 5: PlanData 構築 =====
     let planData;
     try {
@@ -177,6 +194,8 @@ export async function POST(
     }
     planData = withBankFinancialPlan(planData, audience, bankFinancialPlan);
 
+    timer.mark('build');
+
     // ===== Step 6: プロンプト構築 =====
     let prompt;
     try {
@@ -186,6 +205,8 @@ export async function POST(
       });
       throw err;
     }
+
+    timer.mark('prompt');
 
     // ===== Step 7: 入力ガード（疑わしいキーワード検査） =====
     const { autoMotive, exhaust, ceramic, oem } = checkSuspiciousKeywords(prompt);
@@ -213,9 +234,10 @@ export async function POST(
 
       // ★ gpt-5.6-luna は temperature パラメータをサポートしない
       // modelParams から指定されたパラメータをそのまま使用
-      response = await openai.chat.completions.create({
-        ...modelParams,
-        messages: [
+      response = await createPlanCompletion(
+        openai,
+        modelParams,
+        [
           {
             role: 'system',
             content: getSystemPrompt(audience),
@@ -225,7 +247,9 @@ export async function POST(
             content: prompt,
           },
         ],
-      });
+        startedAt
+      );
+      timer.mark('llm');
       if (DEBUG) console.log('[Plan Gen Step 8b] OpenAI API call complete', {
         model: response.model,
         finishReason: response.choices[0]?.finish_reason,
@@ -249,6 +273,7 @@ export async function POST(
 
       // ★ 本文が空の場合はエラーとして扱う（HTTP 200 ではなくエラーを返す）
       if (!generatedText || generatedText.trim() === '') {
+        outcome = 'incomplete';
         console.error('[Plan Gen Step 8c] Generation produced no content', {
           finishReason: firstChoice?.finish_reason,
           usageCompletionTokens: response.usage?.completion_tokens,
@@ -297,6 +322,7 @@ export async function POST(
         generatedText.toLowerCase().includes('generation failed') ||
         generatedText.length < 100
       ) {
+        outcome = 'incomplete';
         console.error('[Plan Gen Step 10] Invalid generated text detected', {
           generatedTextLength: generatedText.length,
         });
@@ -325,6 +351,7 @@ export async function POST(
       const sections = parseSections(generatedText, audience);
       // ★ sections が空でないか検証
       if (!sections || sections.length === 0) {
+        outcome = 'incomplete';
         console.error('[Plan Gen Step 10] No sections generated', {
           sectionCount: sections?.length || 0,
         });
@@ -348,6 +375,9 @@ export async function POST(
         sections,
         generatedAt,
       });
+
+      timer.mark('save');
+      outcome = save.status;
 
       if (save.status === 'unsaved') {
         console.error('[Plan Gen] Save failed after generation', {
@@ -391,6 +421,7 @@ export async function POST(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     const errorCode = (err as any)?.status || (err as any)?.code;
+    outcome = err instanceof PlanGenerationTimeoutError ? 'timeout' : 'error';
 
     console.error('[Plan Gen] Catch block error', {
       errorType: err?.constructor?.name,
@@ -417,6 +448,17 @@ export async function POST(
       });
     }
 
+    if (err instanceof PlanGenerationTimeoutError) {
+      return NextResponse.json(
+        {
+          error: 'Generation timed out',
+          code: 'GENERATION_TIMEOUT',
+          details: 'No plan was saved. Please try again.',
+        },
+        { status: 504 }
+      );
+    }
+
     if (err instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid input', details: err.errors },
@@ -432,10 +474,42 @@ export async function POST(
       { error: 'Failed to generate plan' },
       { status: 500 }
     );
+  } finally {
+    console.info(
+      '[Plan Gen timing]',
+      JSON.stringify({ audience: audienceForLog, outcome, ...timer.summary() })
+    );
   }
 }
 
 // ===== Helper Functions =====
+
+async function createPlanCompletion(
+  openai: OpenAI,
+  modelParams: ReturnType<typeof getOpenAIModelParamsForProcess>,
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  startedAt: number
+) {
+  for (let attempt = 1; ; attempt++) {
+    const timeout = planAttemptTimeoutMs(startedAt, Date.now());
+    if (timeout === null) throw new PlanGenerationTimeoutError();
+
+    try {
+      return await openai.chat.completions.create(
+        { ...modelParams, messages },
+        { timeout, maxRetries: 0 }
+      );
+    } catch (err) {
+      if (isTimeoutError(err)) throw new PlanGenerationTimeoutError();
+      const canRetry =
+        attempt < PLAN_MAX_ATTEMPTS &&
+        isTransientError(err) &&
+        planAttemptTimeoutMs(startedAt, Date.now()) !== null;
+      if (!canRetry) throw err;
+      console.warn('[Plan Gen] Transient OpenAI error, retrying within time budget', { attempt });
+    }
+  }
+}
 
 /**
  * DB 行（snake_case）を StrategyData 型に変換
