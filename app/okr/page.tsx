@@ -21,7 +21,8 @@ import {
   GitCompare,
 } from 'lucide-react';
 
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type SaveResult } from '@/store/strategyStore';
+import { krSaveOutcome } from '@/lib/strategy/krSaveOutcome';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import { useCapabilities } from '@/hooks/useCapabilities';
@@ -49,8 +50,12 @@ import type { Department as DepartmentStrategy, SpendSchedule } from '@/types/st
 import { SpendConditionsPanel } from '@/components/stage4/SpendConditionsPanel';
 import { applySpendPatch, buildItemsForProject, type InvestmentItem } from '@/utils/stage6/investmentDemand';
 import {
+  assignIdToKrRef,
   ensureArray,
   ensureKrIds,
+  genId,
+  mkAiKpiKr,
+  mergeGeneratedKpisIntoOkrsV2,
   mkKRStructured,
   buildKRFromText,
   diffKrSets,
@@ -666,25 +671,25 @@ function OKRPageContent() {
     async (
       mode: 'debounced' | 'immediate' = 'debounced',
       reason: string = 'stage4_snapshot_fields',
-    ) => {
-      if (!saveNow) return;
-      if (!hydrated) return;
-      if ((boot as any)?.isHydrating) return;
-      if (isRestoring) return;
-      if (restoreReady === false) return;
+    ): Promise<SaveResult | undefined> => {
+      if (!saveNow) return undefined;
+      if (!hydrated) return undefined;
+      if ((boot as any)?.isHydrating) return undefined;
+      if (isRestoring) return undefined;
+      if (restoreReady === false) return undefined;
 
-      const run = async () => {
+      const run = async (): Promise<SaveResult | undefined> => {
         try {
-          await saveNow({ reason, force: true });
+          return await saveNow({ reason, force: true });
         } catch (e) {
           console.warn(`[${reason}] save failed`, e);
+          return undefined;
         }
       };
 
       if (mode === 'immediate') {
         if (stage4SnapshotSaveTimerRef.current) window.clearTimeout(stage4SnapshotSaveTimerRef.current);
-        await run();
-        return;
+        return await run();
       }
 
       if (stage4SnapshotSaveTimerRef.current) window.clearTimeout(stage4SnapshotSaveTimerRef.current);
@@ -1802,14 +1807,10 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             // 既存 KPI が不足している場合のみ生成値で補足
             const updatedOkrsV2 = [
               ...existingOkrsV2,
-              ...draft.kpis.slice(existingOkrsV2.length).map((kpi: any) => ({
-                label: kpi.label,
-                target: kpi.target,
-                unit: kpi.unit,
-                due: kpi.due,
-                owner: kpi.owner || '',
-                milestones: Array.isArray(kpi.milestones) ? kpi.milestones : [],
-              })),
+              ...draft.kpis
+                .slice(existingOkrsV2.length)
+                .filter((kpi: any) => !existingOkrsV2.some((k: any) => String(k?.label ?? '').trim() === String(kpi?.label ?? '').trim()))
+                .map((kpi: any) => mkAiKpiKr(kpi)),
             ];
 
             proj.okrsV2 = updatedOkrsV2;
@@ -1915,7 +1916,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         // ★ ポイント：既存 KPI に AI案の target/unit/due/owner/milestones を補完
         // AI案は追記ではなく、既存 KPI を具体化するために使う
         let updatedKpisCount = 0;
-        const mergeResults: Array<{ existingLabel: string; draftLabel?: string; updatedFields: string[] }> = [];
+        let ambiguousKpisCount = 0;
 
         if (Array.isArray(draft.kpis) && draft.kpis.length > 0) {
           patchDepartments((prev) => {
@@ -1927,76 +1928,11 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             const proj = projects[pIdx];
             if (!proj) return prev;
 
-            const existingOkrsV2 = ensureArray(proj.okrsV2);
-            const draftLabels = draft.kpis.map((kpi: any) => kpi.label);
+            const merged = mergeGeneratedKpisIntoOkrsV2(ensureArray(proj.okrsV2), sourceKpis, draft.kpis);
+            updatedKpisCount = merged.updatedCount;
+            ambiguousKpisCount = merged.ambiguousCount;
 
-            // ★ STAGE3 KPIがある場合は sourceKpis を基準に構築
-            // ない場合は既存 KPI と AI案を index 順でマッチング
-            const kpisToProcess = sourceKpis.length > 0 ? sourceKpis : existingOkrsV2.map((kr: any) => kr.label);
-
-            const updatedOkrsV2 = kpisToProcess.map((kpiLabel: string, idx: number) => {
-              const existingKr = existingOkrsV2[idx];
-              const draftKpi = draft.kpis[idx];
-
-              const updatedFields: string[] = [];
-              // ★ sourceKpis がある場合は新規作成、ない場合は既存を保持
-              const updatedKr: any = sourceKpis.length > 0
-                ? { label: kpiLabel }
-                : existingKr ? { ...existingKr } : { label: kpiLabel };
-
-              // ★ sourceKpis がある場合、ラベルは常にsourceKpiで固定
-              if (sourceKpis.length > 0) {
-                updatedKr.label = sourceKpis[idx];
-                updatedFields.push('label (fixed from STAGE3)');
-              }
-
-              if (!draftKpi) return updatedKr;
-
-              // target が 0 または未設定なら AI案の target を入れる
-              if (!updatedKr.target || updatedKr.target === 0) {
-                if (draftKpi.target) {
-                  updatedKr.target = Number(draftKpi.target);
-                  updatedFields.push('target');
-                }
-              }
-
-              // unit が未設定なら AI案の unit を入れる
-              if (!updatedKr.unit && draftKpi.unit) {
-                updatedKr.unit = draftKpi.unit;
-                updatedFields.push('unit');
-              }
-
-              // due が未設定なら AI案の due を入れる
-              if (!updatedKr.due && draftKpi.due) {
-                updatedKr.due = draftKpi.due;
-                updatedFields.push('due');
-              }
-
-              // owner が未設定なら AI案の owner を入れる
-              if (!updatedKr.owner && draftKpi.owner) {
-                updatedKr.owner = draftKpi.owner;
-                updatedFields.push('owner');
-              }
-
-              // milestones が未設定なら AI案の milestones を入れる
-              if ((!updatedKr.milestones || updatedKr.milestones.length === 0) && Array.isArray(draftKpi.milestones) && draftKpi.milestones.length > 0) {
-                updatedKr.milestones = draftKpi.milestones;
-                updatedFields.push('milestones');
-              }
-
-              if (updatedFields.length > 0) {
-                updatedKpisCount++;
-                mergeResults.push({
-                  existingLabel: existingKr.label,
-                  draftLabel: draftKpi.label,
-                  updatedFields,
-                });
-              }
-
-              return updatedKr;
-            });
-
-            proj.okrsV2 = updatedOkrsV2;
+            proj.okrsV2 = merged.okrsV2;
             projects[pIdx] = proj;
             dept.projects = projects;
             next[dIdx] = dept;
@@ -2007,7 +1943,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
         // 反映内容をサマリー
         const summary: string[] = [];
-        if (draft.objective && !mainOKR?.objective) summary.push('目的');
+        if (draft.objective && mainOKR && !mainOKR.objective) summary.push('目的');
         if (draft.role && !selectedProj?.role) summary.push('役割');
         if (draft.impact) {
           const impactCount = [
@@ -2018,12 +1954,17 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           if (impactCount > 0) summary.push(`期待成果(${impactCount}項目)`);
         }
         if (updatedKpisCount > 0) summary.push(`既存KPI ${updatedKpisCount}件に目標値・期限・途中目標を反映`);
+        if (ambiguousKpisCount > 0) summary.push(`同名KPIが複数あるため反映しなかったもの ${ambiguousKpisCount}件`);
+
+        const outcome = krSaveOutcome(await persistStage4Snapshot('immediate', 'stage4_ai_draft_apply'));
+        if (!outcome.ok) {
+          alert(`AI案を画面に反映しましたが、保存されませんでした。${outcome.message}`);
+          return;
+        }
 
         generatedDraftScopeRef.current = null;
         setGeneratedDraft(null);
-        queueStage4SnapshotPersist();
 
-        // 成功メッセージ
         const msg = summary.length > 0
           ? `AI案を反映しました：${summary.join('、')}`
           : 'AI案の反映が完了しました。';
@@ -2935,8 +2876,34 @@ const [editingMilestoneTitle, setEditingMilestoneTitle] = useState('');
 const [editingMilestoneDueYm, setEditingMilestoneDueYm] = useState('');
 const editingMilestoneTitleInputRef = useRef<HTMLInputElement>(null);
 
+// 利用者が「編集」を押したKRだけに ID を付与する（一括補完はしない）
+const assignIdToSelectedKr = (kr: any): string => {
+  if (!selected) return '';
+  const dIdx = selected.deptIdx;
+  const pIdx = selected.projIdx;
+  const current = (useStrategyStore.getState() as any).departments?.[dIdx]?.projects?.[pIdx]?.okrsV2;
+  const newId = genId();
+  if (!Array.isArray(current) || assignIdToKrRef(current, kr, newId) === null) return '';
+
+  patchDepartments((prev: any) => {
+    const next = [...prev];
+    const dept = { ...next[dIdx] };
+    const projs = [...ensureArray(dept.projects)];
+    const proj = { ...(projs[pIdx] as any) };
+    const withId = assignIdToKrRef(ensureArray(proj.okrsV2), kr, newId);
+    if (!withId) return prev;
+    proj.okrsV2 = withId;
+    projs[pIdx] = proj;
+    dept.projects = projs;
+    next[dIdx] = dept;
+    return next;
+  });
+  return newId;
+};
+
 const startEditKr = (kr: any, _fallbackId: string) => {
-  const id = typeof kr?.id === 'string' ? kr.id : '';
+  let id = typeof kr?.id === 'string' && kr.id.trim() !== '' ? kr.id : '';
+  if (!id) id = assignIdToSelectedKr(kr);
   if (!id) {
     alert(krLocateMessage('missing-id'));
     return;
@@ -2959,7 +2926,7 @@ const cancelEditKr = () => {
   setEditingMilestoneDueYm('');
 };
 
-const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
+const saveEditKr = async (dIdx: number, pIdx: number, krId: string) => {
   if (!editingKrDraft) return;
   const t = Number(editingKrDraft.target);
   if (!Number.isFinite(t)) {
@@ -3013,8 +2980,12 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
     return next;
   });
 
+  const outcome = krSaveOutcome(await persistStage4Snapshot('immediate', 'stage4_kr_edit'));
+  if (!outcome.ok) {
+    alert(outcome.message);
+    return;
+  }
   cancelEditKr();
-  queueStage4SnapshotPersist();
 };
 
 // ★ TASK 2, 3: Helper functions for KR sync
@@ -3059,7 +3030,7 @@ function removeKrEverywhere(project: any, krId?: string, krLabel?: string) {
   });
 }
 
-const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
+const deleteKr = async (dIdx: number, pIdx: number, krId: string) => {
   // ★ 診断: KR削除クリック確認
   console.log('KR_DELETE_CLICKED', { dIdx, pIdx, krId, timestamp: new Date().toISOString() });
 
@@ -3126,7 +3097,8 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
   });
 
   if (editingKrId === krId) cancelEditKr();
-  queueStage4SnapshotPersist();
+  const deleteOutcome = krSaveOutcome(await persistStage4Snapshot('immediate', 'stage4_kr_delete'));
+  if (!deleteOutcome.ok) alert(`KRを削除しましたが、保存されませんでした。${deleteOutcome.message}`);
 
   // ★ 診断: 削除直後に selectedProj 再取得して状態確認
   setTimeout(() => {
@@ -3226,7 +3198,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
   const selectedIsOpen = selectedAddKey && openAdd[selectedAddKey] ? true : false;
   const selectedDraft: Draft = selectedAddKey && draftMap[selectedAddKey] ? (draftMap[selectedAddKey] as Draft) : emptyDraft;
 
-  const addStructuredKRFromDraft = (dIdx: number, pIdx: number) => {
+  const addStructuredKRFromDraft = async (dIdx: number, pIdx: number) => {
     const k = keyFor(dIdx, pIdx);
     const draft = draftMap[k] ?? emptyDraft;
 
@@ -3287,7 +3259,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     } as any);
 
     addStructuredKR(dIdx, pIdx, kr);
-    queueStage4SnapshotPersist();
+    const addOutcome = krSaveOutcome(await persistStage4Snapshot('immediate', 'stage4_kr_add'));
+    if (!addOutcome.ok) alert(`KRを追加しましたが、保存されませんでした。${addOutcome.message}`);
 
     resetDraft(k);
     setOpenAdd((m: any) => ({ ...m, [k]: false }));
@@ -4244,7 +4217,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => addStructuredKRFromDraft(selected.deptIdx, selected.projIdx)}
+                      onClick={() => void addStructuredKRFromDraft(selected.deptIdx, selected.projIdx)}
                       disabled={isHydrating}
                       className="h-9 flex-1 rounded-xl bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
                     >
@@ -4445,7 +4418,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           <div className="flex gap-2 pt-1">
             <button
               type="button"
-              onClick={() => saveEditKr(selected!.deptIdx, selected!.projIdx, rowId)}
+              onClick={() => void saveEditKr(selected!.deptIdx, selected!.projIdx, rowId)}
               disabled={isHydrating}
               className="flex-1 h-9 rounded-lg bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
             >
@@ -4461,7 +4434,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             </button>
             <button
               type="button"
-              onClick={() => deleteKr(selected!.deptIdx, selected!.projIdx, rowId)}
+              onClick={() => void deleteKr(selected!.deptIdx, selected!.projIdx, rowId)}
               disabled={isHydrating}
               className="h-9 rounded-lg border border-red-200 bg-white px-3 text-[12px] text-red-700 hover:bg-red-50 disabled:opacity-50"
             >
@@ -4484,7 +4457,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               </button>
               <button
                 type="button"
-                onClick={() => deleteKr(selected!.deptIdx, selected!.projIdx, rowId)}
+                onClick={() => void deleteKr(selected!.deptIdx, selected!.projIdx, rowId)}
                 disabled={isHydrating}
                 className="h-8 rounded-lg border border-red-200 bg-white px-3 text-[12px] text-red-700 hover:bg-red-50 disabled:opacity-50"
               >

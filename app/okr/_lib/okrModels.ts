@@ -342,6 +342,94 @@ export function ensureKrIds(departments: Department[]): Department[] {
   return touched ? patched : departments;
 }
 
+/** AI案から新規に追加するKR（編集・実績記録の照合に使う ID を必ず付与） */
+export function mkAiKpiKr(kpi: any): KRStructuredX {
+  return {
+    id: genId(),
+    label: String(kpi?.label ?? ''),
+    target: kpi?.target,
+    unit: kpi?.unit,
+    due: kpi?.due,
+    owner: kpi?.owner || '',
+    milestones: Array.isArray(kpi?.milestones) ? kpi.milestones : [],
+  } as KRStructuredX;
+}
+
+/** AI案を既存のKR一覧へ反映する。既存KRはラベルが一意に一致する場合だけ対応づけ、同じオブジェクトを残す（ID・実績・履歴・財務項目を保持）。
+ *  空欄のみ AI案で補完する。同名KRが複数ある場合は対応先を決めず、何も書き換えない（ambiguousCount に数える）。
+ *  照合先がない新規KPIは新しいIDのKRとして追加し、照合されなかった既存KRは削除しない。 */
+export function mergeGeneratedKpisIntoOkrsV2(
+  existing: any[],
+  sourceKpis: string[],
+  draftKpis: any[],
+): { okrsV2: any[]; updatedCount: number; ambiguousCount: number } {
+  const labelOf = (k: any) => String(k?.label ?? '').trim();
+  const targets = sourceKpis.length > 0 ? sourceKpis : existing.map(labelOf);
+  const used = new Set<number>();
+  const addedLabels = new Set<string>();
+  const out: any[] = [];
+  let updatedCount = 0;
+  let ambiguousCount = 0;
+
+  targets.forEach((rawLabel) => {
+    const label = String(rawLabel ?? '').trim();
+    if (!label || label.includes('[object Object]') || addedLabels.has(label)) return;
+
+    const sameIdx = existing.flatMap((k, i) => (labelOf(k) === label ? [i] : []));
+    if (sameIdx.length > 1 || (sameIdx.length === 1 && used.has(sameIdx[0]))) {
+      ambiguousCount++;
+      return;
+    }
+    if (sameIdx.length === 1) used.add(sameIdx[0]);
+    else addedLabels.add(label);
+
+    const kr: any = sameIdx.length === 1 ? { ...existing[sameIdx[0]] } : { id: genId(), label };
+
+    const draftKpi = draftKpis.find((d) => labelOf(d) === label);
+    let filled = false;
+    if (draftKpi) {
+      if (!kr.target && draftKpi.target) {
+        kr.target = Number(draftKpi.target);
+        filled = true;
+      }
+      if (!kr.unit && draftKpi.unit) {
+        kr.unit = draftKpi.unit;
+        filled = true;
+      }
+      if (!kr.due && draftKpi.due) {
+        kr.due = draftKpi.due;
+        filled = true;
+      }
+      if (!kr.owner && draftKpi.owner) {
+        kr.owner = draftKpi.owner;
+        filled = true;
+      }
+      if ((!kr.milestones || kr.milestones.length === 0) && Array.isArray(draftKpi.milestones) && draftKpi.milestones.length > 0) {
+        kr.milestones = draftKpi.milestones;
+        filled = true;
+      }
+    }
+    if (filled) updatedCount++;
+    out.push(kr);
+  });
+
+  existing.forEach((k, i) => {
+    if (!used.has(i)) out.push(k);
+  });
+
+  return { okrsV2: out, updatedCount, ambiguousCount };
+}
+
+/** 指定の参照と同一のKRで ID が未設定のものにだけ id を付与した新しい配列を返す。対象がない・既にIDがある場合は null */
+export function assignIdToKrRef(list: readonly any[], target: unknown, id: string): any[] | null {
+  const idx = list.indexOf(target as any);
+  if (idx < 0) return null;
+  if (typeof list[idx]?.id === 'string' && list[idx].id.trim() !== '') return null;
+  const next = [...list];
+  next[idx] = { ...list[idx], id };
+  return next;
+}
+
 /* ============================================================
  * カスケードOKR → 構造化KR たたき台 用ヘルパー
  * ========================================================== */

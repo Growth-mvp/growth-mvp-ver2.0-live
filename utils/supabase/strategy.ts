@@ -624,8 +624,7 @@ export const okrsV2ToOkrs = (okrsV2: any[], fallbackTitle: string) => {
   // okrsV2はKR配列（KPI行）なので、1つのOKRにまとめる
   const krs = ensureArray(okrsV2)
     .map(x => (typeof x?.label === 'string' ? x.label.trim() : ''))
-    .filter(Boolean)
-    .map(label => ({ label }));
+    .filter(Boolean);
 
   return [{
     objective: fallbackTitle,
@@ -1984,10 +1983,9 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         timestamp: now,
       });
 
-      // Return gracefully - no hard error that could break auto-save UI
       return {
         data: null,
-        error: null, // Soft block: no error object, just skip save silently
+        error: { status: 409, code: 'SAVE_SCOPE_NOT_READY', message: 'company scope not ready: save blocked' },
       };
     }
 
@@ -2007,10 +2005,9 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           timestamp: now,
         });
 
-        // Return gracefully - no hard error
         return {
           data: null,
-          error: null, // Soft block: prevents retry storms and toast loops
+          error: { status: 409, code: 'SAVE_SCOPE_MISMATCH', message: 'company scope mismatch: save blocked' },
         };
       }
     }

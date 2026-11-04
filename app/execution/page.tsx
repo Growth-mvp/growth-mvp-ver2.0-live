@@ -24,7 +24,8 @@ import { okrService } from '@/services/okrService';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { KrActualSection, type KrRecordResult } from '@/components/stage5/KrActualSection';
-import { krLocateMessage, recordKrActual } from '@/lib/stage5/krActual';
+import { krLocateMessage, recordKrActual, revertKrActual } from '@/lib/stage5/krActual';
+import { krSaveOutcome } from '@/lib/strategy/krSaveOutcome';
 import type { KRStructured, KrActual } from '@/types/strategy';
 
 const NO_KRS: KRStructured[] = [];
@@ -322,7 +323,7 @@ function ExecPanel(props: {
   pi?: number;
   onActivitySaved?: (payload: { okrId: string; at: string }) => void;
   krs?: KRStructured[];
-  onRecordKrActual?: (krId: string, actual: KrActual) => KrRecordResult;
+  onRecordKrActual?: (krId: string, actual: KrActual) => KrRecordResult | Promise<KrRecordResult>;
 }) {
   const {
     open,
@@ -2589,24 +2590,39 @@ function ExecutionPageContent() {
   ) as KRStructured[] | undefined;
 
   const recordKrActualFor = useCallback(
-    (krId: string, actual: KrActual): KrRecordResult => {
+    async (krId: string, actual: KrActual): Promise<KrRecordResult> => {
       if (typeof selectedDi !== 'number' || typeof selectedPi !== 'number') {
         return { ok: false, error: '施策が選択されていません。' };
       }
       const current = (useStrategyStore.getState() as any).departments?.[selectedDi]?.projects?.[selectedPi]?.okrsV2;
       const result = recordKrActual(current, krId, actual);
       if (!result.ok) return { ok: false, error: krLocateMessage(result.reason) };
-      const nextOkrsV2 = result.next;
-      useStrategyStore.setState((prev: any) => {
-        const departments = [...(prev.departments ?? [])];
-        const dept = { ...departments[selectedDi] };
-        const projects = [...(dept.projects ?? [])];
-        projects[selectedPi] = { ...projects[selectedPi], okrsV2: nextOkrsV2 };
-        dept.projects = projects;
-        departments[selectedDi] = dept;
-        return { departments, dirty: true, version: (prev.version ?? 0) + 1 };
-      });
-      return { ok: true };
+      const beforeKr = (current as KRStructured[]).find((k) => k.id === krId);
+      const writeOkrsV2 = (next: KRStructured[]) =>
+        useStrategyStore.setState((prev: any) => {
+          const departments = [...(prev.departments ?? [])];
+          const dept = { ...departments[selectedDi] };
+          const projects = [...(dept.projects ?? [])];
+          projects[selectedPi] = { ...projects[selectedPi], okrsV2: next };
+          dept.projects = projects;
+          departments[selectedDi] = dept;
+          return { departments, dirty: true, version: (prev.version ?? 0) + 1 };
+        });
+      writeOkrsV2(result.next);
+
+      const saved: any = await useStrategyStore
+        .getState()
+        .saveStrategyData({ reason: 'stage5_kr_actual', force: true })
+        .catch(() => undefined);
+      const outcome = krSaveOutcome(saved);
+      if (outcome.ok) return { ok: true };
+      const scopeChanged = saved?.reason === 'scope_changed';
+      if (!scopeChanged && beforeKr) {
+        const latest = (useStrategyStore.getState() as any).departments?.[selectedDi]?.projects?.[selectedPi]?.okrsV2;
+        const reverted = revertKrActual(latest, krId, beforeKr);
+        if (reverted) writeOkrsV2(reverted);
+      }
+      return { ok: false, error: outcome.message };
     },
     [selectedDi, selectedPi],
   );

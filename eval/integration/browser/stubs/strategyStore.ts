@@ -92,6 +92,7 @@ state.setCompanyScope = () => {};
 state.refetchFromServer = async () => {};
 state.saveStrategyData = async (...args: any[]) => {
   w.__storeLog.push({ action: 'saveStrategyData', args: args.length });
+  return { ok: true as const };
 };
 state.setFinancePlanAssumptions = (...args: any[]) => {
   w.__storeLog.push({ action: 'setFinancePlanAssumptions', args: args.length });

@@ -9,7 +9,7 @@ export type KrRecordResult = { ok: true } | { ok: false; error: string };
 type Props = {
   /** undefined は、施策を特定できていない状態（KRの一覧は表示できない） */
   krs?: KRStructured[];
-  onRecord: (krId: string, actual: KrActual) => KrRecordResult;
+  onRecord: (krId: string, actual: KrActual) => KrRecordResult | Promise<KrRecordResult>;
 };
 
 type FormState = { value: string; asOf: string; note: string };
@@ -20,16 +20,19 @@ function KrActualRow({ kr, onRecord }: { kr: KRStructured; onRecord: Props['onRe
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const view = krActualView(kr);
   const hasId = typeof kr.id === 'string' && kr.id.trim() !== '';
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return;
     const parsed = parseKrActualInput({ value: form.value, asOf: form.asOf, note: form.note }, new Date().toISOString());
     if (!parsed.ok) {
       setError(parsed.error);
       return;
     }
-    const result = onRecord(kr.id, parsed.actual);
+    setSaving(true);
+    const result = await Promise.resolve(onRecord(kr.id, parsed.actual)).finally(() => setSaving(false));
     if (!result.ok) {
       setError(result.error);
       return;
@@ -107,10 +110,11 @@ function KrActualRow({ kr, onRecord }: { kr: KRStructured; onRecord: Props['onRe
           <div className="sm:col-span-3 flex items-center gap-2">
             <button
               type="button"
-              onClick={submit}
-              className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs font-medium text-white"
+              onClick={() => void submit()}
+              disabled={saving}
+              className="rounded-xl bg-gray-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             >
-              保存
+              {saving ? '保存中…' : '保存'}
             </button>
             <button
               type="button"

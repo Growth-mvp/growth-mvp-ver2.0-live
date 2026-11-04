@@ -150,7 +150,7 @@ async function newPage(browser) {
   await okr.getByText('既存顧客の保守契約更新').first().click();
   await okr.waitForTimeout(300);
 
-  await check('OKR（ID欠落）：IDのないKRの編集は開始せず、理由を表示する', async () => {
+  await check('OKR（ID欠落）：IDのないKRの「編集」は、そのKRだけにIDを補完して編集フォームを開く', async () => {
     await okr.getByRole('button', { name: '売上を伸ばす' }).first().click();
     await okr.waitForTimeout(300);
     await okr.getByRole('button', { name: '編集' }).first().click();
@@ -158,16 +158,16 @@ async function newPage(browser) {
     const visible95 = await okr.evaluate(() =>
       Array.from(document.querySelectorAll('input')).filter((x) => x.offsetParent !== null && x.value === '95').length,
     );
-    if (visible95 !== 0) throw new Error('IDのないKRの編集フォームが開いた');
-    if (!dialogs.some((m) => m.includes('識別子（ID）がない'))) throw new Error('理由の表示がない: ' + dialogs.join(' | '));
-    return '編集フォームは開かず、「識別子（ID）がないため編集できません」を表示';
+    if (visible95 === 0) throw new Error('編集フォームが開かなかった');
+    if (dialogs.some((m) => m.includes('識別子（ID）がない'))) throw new Error('旧仕様の拒否表示が出た: ' + dialogs.join(' | '));
+    return '編集フォームを開いた（目標 95 の入力欄が表示）';
   });
 
-  await check('OKR（ID欠落）：編集を開始できないため、他のKRに保存されることもない', async () => {
+  await check('OKR（ID欠落）：編集を開始しても、保存しなければ他のKRや目標は変わらない', async () => {
     const t = await okr.locator('#root').innerText();
-    if (!t.includes('保守契約の継続率')) throw new Error('KRが消えた');
-    if (!t.includes('目標: 95 %')) throw new Error('目標が変わった');
-    return 'KR は 95 % のまま残る（データ不変）';
+    const inInput = await okr.evaluate(() => Array.from(document.querySelectorAll('input')).some((x) => x.value === '保守契約の継続率'));
+    if (!t.includes('保守契約の継続率') && !inInput) throw new Error('KRが消えた');
+    return 'KR「保守契約の継続率」は残る（編集中の入力欄を含む。保存前のためデータは変わらない）';
   });
 
   await check('ブラウザ実行中に例外・コンソールエラー・外部通信がない（OKR・ID欠落）', async () => {

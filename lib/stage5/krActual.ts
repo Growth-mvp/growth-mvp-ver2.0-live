@@ -68,6 +68,24 @@ export function recordKrActual(
   return { ok: true, next: list.map((k, i) => (i === loc.index ? updated : k)), replaced: previous };
 }
 
+/** 保存に失敗したときの巻き戻し。対象KRの実績と履歴だけを記録前の値に戻す（他のKRと他の項目は変えない）。 */
+export function revertKrActual(
+  okrsV2: unknown,
+  krId: string,
+  before: Pick<KRStructured, 'actual' | 'actualHistory'>,
+): KRStructured[] | null {
+  const loc = locateKrById(okrsV2, krId);
+  if (!loc.ok) return null;
+  const list = okrsV2 as KRStructured[];
+  const kr = list[loc.index];
+  const restored: KRStructured = { ...kr };
+  if (before.actual) restored.actual = before.actual;
+  else delete restored.actual;
+  if (before.actualHistory && before.actualHistory.length > 0) restored.actualHistory = before.actualHistory;
+  else delete restored.actualHistory;
+  return list.map((k, i) => (i === loc.index ? restored : k));
+}
+
 /** 読込時の検査。構造が不正な実績は採用しない（推測で補正しない）。 */
 export function sanitizeKrActual(raw: unknown): KrActual | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;

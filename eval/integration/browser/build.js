@@ -28,6 +28,14 @@ const STUB_MAP = {
 /* STAGE5 実行画面だけ、保存関数の参照を差し替える（OKR画面は実際の投影関数を使うため差し替えない） */
 const EXEC_STUB_MAP = { ...STUB_MAP, '@/utils/supabase/strategy': S('supabaseStrategy.ts') };
 
+/* 流れの検証用（KR編集→AI案→実績→保存失敗→会社切替）。store は localStorage に保存する flowStore、
+ * 周辺は misc-flow（安全な session トークン・会社に追随するユーザー）に差し替える。既存の STUB_MAP は変えない。 */
+const FLOW_STUB_MAP = Object.fromEntries(
+  Object.entries(STUB_MAP).map(([k, v]) => [k, v === S('misc.ts') ? S('misc-flow.ts') : v]),
+);
+FLOW_STUB_MAP['@/store/strategyStore'] = S('flowStore.ts');
+const FLOW_EXEC_STUB_MAP = { ...FLOW_STUB_MAP, '@/utils/supabase/strategy': S('supabaseStrategy.ts') };
+
 function stubPlugin(map = STUB_MAP) {
   const keys = Object.keys(map).map((k) => k.replace(/[/.*+?^${}()|[\]\\]/g, '\\$&'));
   const filter = new RegExp('^(' + keys.join('|') + ')$');
@@ -101,6 +109,21 @@ function html(title, bundleName) {
     outfile: path.join(outDir, 'stage46-bundle.js'),
   });
   fs.writeFileSync(path.join(outDir, 'stage46.html'), html('STAGE4→6 条件付き試算 ローカル確認', 'stage46-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'flow-okr-entry.tsx')],
+    outfile: path.join(outDir, 'flow-okr-bundle.js'),
+    plugins: [stubPlugin(FLOW_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'flow-okr.html'), html('STAGE4 OKR 流れの検証', 'flow-okr-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'flow-exec-entry.tsx')],
+    outfile: path.join(outDir, 'flow-exec-bundle.js'),
+    plugins: [stubPlugin(FLOW_EXEC_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'flow-exec.html'), html('STAGE5 実行画面 流れの検証', 'flow-exec-bundle.js'));
+  console.log('built', path.join(outDir, 'flow-okr.html'), path.join(outDir, 'flow-exec.html'));
   console.log('built', path.join(outDir, 'index.html'), path.join(outDir, 'okr.html'), path.join(outDir, 'stage5.html'));
 })().catch((e) => {
   console.error('build failed:', e.message);
