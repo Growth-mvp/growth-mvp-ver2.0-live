@@ -5,6 +5,16 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { on } from '@/utils/actionBus';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import {
+  ceoChatOwnerKey,
+  clearCeoChat,
+  getCeoChatMessages,
+  isCeoChatRequestCurrent,
+  openCeoChatRequest,
+  setCeoChatPending,
+  updateCeoChatMessages,
+  useCeoChatStore,
+} from '@/store/ceoChatStore';
 import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
 import CEOChatMarkdown from '@/components/CEOChatMarkdown';
 import { supabase } from '@/utils/supabase/client';
@@ -16,8 +26,13 @@ import {
   describeAskFailure,
   evaluateAskCompanyGate,
 } from '@/lib/ceoChat/askPolicy';
+import {
+  buildAskHistory,
+  CEO_CHAT_GREETING,
+  type CeoChatMessage,
+} from '@/lib/ceoChat/chatHistory';
 
-type Msg = { role: 'user' | 'assistant'; content: string };
+type Msg = CeoChatMessage;
 
 type AskResp = {
   content?: string;
@@ -26,10 +41,6 @@ type AskResp = {
   confidence?: number;
   error?: string;
 };
-
-const GREETING_MESSAGES: Msg[] = [
-  { role: 'assistant', content: 'こんにちは。AI経営コンサルタントです。' },
-];
 
 type Props = { embedded?: boolean };
 
@@ -45,6 +56,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // 会社切替の検知用。会話履歴と進行中の応答はこの会社に紐づける
   const companyId = useUserStore((s) => s.companyId);
   const pathname = usePathname();
+  const ownerKey = ceoChatOwnerKey(user?.id, companyId);
 
   // === Strategy Store ===
   const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
@@ -91,12 +103,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     return () => unsub();
   }, []);
 
-  const [messages, setMessages] = useState<Msg[]>(GREETING_MESSAGES);
-  const messagesRef = useRef(messages);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // 会話履歴はストアが保持する（パネルの開閉・aside/ドロワーの切替でも失われない）
+  const messages = useCeoChatStore((s) => (s.ownerKey === ownerKey ? s.messages : CEO_CHAT_GREETING));
+  const sending = useCeoChatStore((s) => s.pending && s.ownerKey === ownerKey);
 
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [ctxUpdated, setCtxUpdated] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -109,7 +120,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const bootingLockRef = useRef(false);
   const unmountedRef = useRef(false);
   const autoEnsureOnceRef = useRef(false);
-  const inFlightRef = useRef(false);
   const askAbortRef = useRef<AbortController | null>(null);
 
   // ★ Sprint 3B': 自動チェックイン用 refs
@@ -118,8 +128,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const nudgeCountRef = useRef<number>(0);
   const nudgeInFlightRef = useRef<boolean>(false);
 
-  // 会社が切り替わったら、前の会社の会話履歴を破棄し、進行中の応答を無効化する。
-  // （破棄しないと A の会話履歴が B の会社の生成リクエストに載る）
+  // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
   const activeCompanyIdRef = useRef<string | null>(companyId ?? null);
   useEffect(() => {
     const nextCompanyId = companyId ?? null;
@@ -127,10 +136,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     activeCompanyIdRef.current = nextCompanyId;
     askAbortRef.current?.abort();
     askAbortRef.current = null;
-    inFlightRef.current = false;
-    messagesRef.current = GREETING_MESSAGES;
-    setMessages(GREETING_MESSAGES);
-    setSending(false);
     setNotice(null);
     setInput('');
   }, [companyId]);
@@ -145,7 +150,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setMounted(true);
     return () => {
       unmountedRef.current = true;
-      askAbortRef.current?.abort();
     };
   }, []);
 
@@ -228,10 +232,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // ★ Sprint 3A': meta オプション対応に拡張
   const send = useCallback(async (text: string, overrideMeta?: any): Promise<boolean> => {
     const trimmed = text.trim();
-    if (!trimmed || inFlightRef.current) {
+    if (!trimmed || useCeoChatStore.getState().pending) {
       return false;
     }
-    inFlightRef.current = true;
     setNotice(null);
     let keepDraft = false;
 
@@ -239,24 +242,25 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     askAbortRef.current = controller;
     const timeoutId = window.setTimeout(() => controller.abort(), ASK_TIMEOUT_MS);
 
-    const current = messagesRef.current;
+    // 送信開始時の会話の所有者（userId + companyId）と世代。応答時点で変わっていれば結果を捨てる
+    const ticket = openCeoChatRequest(ownerKey);
+    const current = getCeoChatMessages(ticket);
     const userMsg: Msg = { role: 'user', content: trimmed };
-    // リクエスト開始時の会社。応答時点で会社が変わっていれば結果を捨てる
     const requestCompanyId = activeCompanyIdRef.current;
-    const isStale = () => activeCompanyIdRef.current !== requestCompanyId;
+    const isStale = () =>
+      activeCompanyIdRef.current !== requestCompanyId ||
+      (ticket !== null && !isCeoChatRequestCurrent(ticket));
 
-    setSending(true);
-    setMessages([...current, userMsg]);
+    setCeoChatPending(ticket, true);
+    updateCeoChatMessages(ticket, (msgs) => [...msgs, userMsg]);
 
     try {
       if (!userOK) throw new AskFailureError({ kind: 'http', status: 401 });
 
       // ★ Option 2: restore 完了を待つ中は送信不可
       if (shouldWaitForRestore) {
-        // 送信ユーザーメッセージを削除して、待機メッセージを表示
-        setMessages((prev) => prev.slice(0, -1));
-        setMessages((prev) => [
-          ...prev,
+        updateCeoChatMessages(ticket, (msgs) => [
+          ...msgs.slice(0, -1),
           { role: 'assistant', content: '戦略データを読み込み中です…少々お待ちください。' },
         ]);
         return true;
@@ -270,9 +274,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
       if (!strategyOK) {
         // ★ FIX: strategyOK でない場合は待機メッセージを表示（provision は呼ばない）
-        setMessages((prev) => prev.slice(0, -1));
-        setMessages((prev) => [
-          ...prev,
+        updateCeoChatMessages(ticket, (msgs) => [
+          ...msgs.slice(0, -1),
           { role: 'assistant', content: '戦略データを読み込み中です…少々お待ちください。' },
         ]);
         return true;
@@ -285,7 +288,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (!companyGate.ok) {
         if (isStale()) return true;
         keepDraft = true;
-        setMessages((prev) => prev.slice(0, -1));
+        updateCeoChatMessages(ticket, (msgs) => msgs.slice(0, -1));
         setNotice(companyGate.message);
         return false;
       }
@@ -301,7 +304,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           strategyId: latestStrategyId,
           companyId: requestCompanyId,
           ...(screenId ? { screen: { screenId } } : {}),
-          messages: [...current.slice(-9), userMsg],
+          messages: [...buildAskHistory(current), userMsg],
         };
         if (overrideMeta) {
           payload.meta = overrideMeta;  // AI診断時のみ meta を付与
@@ -342,8 +345,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (isStale()) return true;
 
       // ← 先に送信フラグを落としてからメッセージを追加（UI固着防止）
-      setSending(false);
-      setMessages((prev) => [...prev, { role: 'assistant', content }]);
+      setCeoChatPending(ticket, false);
+      updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
       return true;
     } catch (e) {
       // 会社切替による abort は通信エラーとして表示しない
@@ -351,8 +354,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       const failure = classifyAskError(e);
       console.error('[CEOChatPanel] SEND_ERROR', { failure_kind: failure.kind });
       if (process.env.NODE_ENV !== 'production') console.error(e);
-      setMessages((prev) => [
-        ...prev,
+      updateCeoChatMessages(ticket, (msgs) => [
+        ...msgs,
         { role: 'assistant', content: describeAskFailure(failure) },
       ]);
     } finally {
@@ -360,8 +363,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (askAbortRef.current === controller) askAbortRef.current = null;
       // 切替後の別リクエストが使っている送信状態・入力欄には触らない
       if (!isStale()) {
-        inFlightRef.current = false;
-        setSending(false);
+        setCeoChatPending(ticket, false);
         // 自動チェックイン送信時や送信を見送った時に、ユーザーの入力途中の下書きを消さない
         if (!keepDraft) {
           setInput((prev) => (prev.trim() === trimmed ? '' : prev));
@@ -370,7 +372,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       autoResize();
     }
     return true;
-  }, [sending, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize]);
+  }, [ownerKey, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize]);
 
   /** ====== 自動チェックイン（idle時のみ） ====== */
   // ★ Sprint 3B': nudgeIfNeeded - ガード条件を満たしたら1回だけ自動送信
@@ -528,7 +530,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             </span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => { setMessages([{ role: 'assistant', content: '履歴をリセットしました。' }]); }}
+                onClick={() => { clearCeoChat(); }}
                 className="rounded-md px-3 py-2 text-[12px] hover:bg-gray-100 min-h-[2.5rem] sm:min-h-auto"
                 type="button"
               >

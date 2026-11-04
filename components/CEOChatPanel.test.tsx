@@ -49,6 +49,7 @@ const { default: CEOChatPanel } = require('./CEOChatPanel') as typeof import('./
 const { useUserStore } = require('@/store/userStore') as typeof import('@/store/userStore');
 const { useStrategyStore } = require('@/store/strategyStore') as typeof import('@/store/strategyStore');
 import { describeAskFailure } from '@/lib/ceoChat/askPolicy';
+const { ceoChatOwnerKey, openCeoChatRequest, updateCeoChatMessages } = require('@/store/ceoChatStore') as typeof import('@/store/ceoChatStore');
 
 const COMPANY_A = 'company-a';
 const COMPANY_B = 'company-b';
@@ -158,6 +159,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   global.fetch = mockFetch as unknown as typeof fetch;
   mockGetSession.mockResolvedValue({ data: { session: { access_token: 'token-1' } } });
+  useUserStore.setState({ user: null, companyId: null } as any);
   useUserStore.setState({ user: { id: 'user-1' } as any, companyId: COMPANY_A } as any);
   setReady(COMPANY_A, STRATEGY_A);
   jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -283,7 +285,7 @@ describe('企業切替と送信ゲート', () => {
     expect(sentBody(1).messages).toEqual([GREETING_HISTORY, { role: 'user', content: 'B社への質問' }]);
   });
 
-  it('アンマウント後に届いた応答は、再マウント後の画面に表示されない', async () => {
+  it('送信中にパネルを閉じても、同一企業の応答は再マウント後に保持される', async () => {
     const pending = deferred<unknown>();
     mockFetch.mockReturnValueOnce(pending.promise);
     const first = await renderReadyPanel();
@@ -293,14 +295,14 @@ describe('企業切替と送信ゲート', () => {
 
     first.unmount();
     await act(async () => {
-      pending.resolve(okResponse('古い回答'));
+      pending.resolve(okResponse('保持される回答'));
     });
 
     await renderReadyPanel();
     await flush();
 
-    expect(screen.queryByText('古い回答')).toBeNull();
-    expect(screen.getByText('こんにちは。AI経営コンサルタントです。')).toBeTruthy();
+    expect(screen.getByText('質問')).toBeTruthy();
+    expect(screen.getByText('保持される回答')).toBeTruthy();
   });
 });
 
@@ -487,5 +489,100 @@ describe('エラー表示', () => {
     );
     expect(screen.getByText('失敗した質問')).toBeTruthy();
     expect(textbox().value).toBe('');
+  });
+});
+
+describe('会話履歴の保持', () => {
+  it('パネルを閉じて開き直しても、同一企業の会話は残る', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse('回答です'));
+    const first = await renderReadyPanel();
+    await sendText('質問');
+    await waitFor(() => expect(screen.getByText('回答です')).toBeTruthy());
+
+    first.unmount();
+    await renderReadyPanel();
+
+    expect(screen.getByText('質問')).toBeTruthy();
+    expect(screen.getByText('回答です')).toBeTruthy();
+  });
+
+  it('ログアウト後に同じユーザーで再ログインしても、前の会話は残らない', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse('回答です'));
+    await renderReadyPanel();
+    await sendText('質問');
+    await waitFor(() => expect(screen.getByText('回答です')).toBeTruthy());
+
+    act(() => {
+      useUserStore.setState({ user: null, companyId: null } as any);
+    });
+    act(() => {
+      useUserStore.setState({ user: { id: 'user-1' } as any, companyId: COMPANY_A } as any);
+    });
+    setReady(COMPANY_A, STRATEGY_A);
+    await flush();
+
+    expect(screen.queryByText('回答です')).toBeNull();
+    expect(chatBubbles()).toContain('こんにちは。AI経営コンサルタントです。');
+  });
+
+  it('企業を A→B→A と切り替えても、A の会話は復元されない', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse('A社の回答'));
+    await renderReadyPanel();
+    await sendText('A社への質問');
+    await waitFor(() => expect(screen.getByText('A社の回答')).toBeTruthy());
+
+    switchCompany(COMPANY_B);
+    setReady(COMPANY_B, STRATEGY_B);
+    await flush();
+    switchCompany(COMPANY_A);
+    setReady(COMPANY_A, STRATEGY_A);
+    await flush();
+
+    expect(chatBubbles()).not.toContain('A社の回答');
+    expect(chatBubbles()).not.toContain('A社への質問');
+  });
+
+  it('クリアで保持履歴が消え、次の送信には挨拶のみが履歴として含まれる', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse('回答です'));
+    await renderReadyPanel();
+    await sendText('最初の質問');
+    await waitFor(() => expect(screen.getByText('回答です')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'クリア' }));
+    expect(screen.queryByText('回答です')).toBeNull();
+
+    mockFetch.mockResolvedValueOnce(okResponse('次の回答'));
+    await sendText('次の質問');
+    await waitFor(() => expect(screen.getByText('次の回答')).toBeTruthy());
+
+    expect(sentBody(1).messages).toEqual([GREETING_HISTORY, { role: 'user', content: '次の質問' }]);
+  });
+
+  it('AIへの送信履歴は件数と文字数の上限内に収まる', async () => {
+    const ticket = openCeoChatRequest(ceoChatOwnerKey('user-1', COMPANY_A));
+    for (let i = 0; i < 30; i++) {
+      const role = i % 2 === 0 ? 'user' : 'assistant';
+      updateCeoChatMessages(ticket, (msgs: any[]) => [...msgs, { role, content: `発言${i}` }]);
+    }
+    mockFetch.mockResolvedValueOnce(okResponse('回答'));
+    await renderReadyPanel();
+    await sendText('最新の質問');
+    await waitFor(() => expect(screen.getByText('回答')).toBeTruthy());
+
+    const sent = sentBody().messages;
+    expect(sent.length).toBeLessThanOrEqual(10);
+    expect(sent[sent.length - 1]).toEqual({ role: 'user', content: '最新の質問' });
+  });
+
+  it('会話本文をブラウザのストレージに保存しない', async () => {
+    const setItem = jest.spyOn(Storage.prototype, 'setItem');
+    mockFetch.mockResolvedValueOnce(okResponse('秘密の回答'));
+    await renderReadyPanel();
+    await sendText('秘密の質問');
+    await waitFor(() => expect(screen.getByText('秘密の回答')).toBeTruthy());
+
+    const written = setItem.mock.calls.map((c) => String(c[1])).join('\n');
+    expect(written).not.toContain('秘密の回答');
+    expect(written).not.toContain('秘密の質問');
   });
 });
