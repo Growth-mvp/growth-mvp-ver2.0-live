@@ -468,12 +468,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     <div className={rootCls} data-embedded={embedded ? 'true' : 'false'}>
       <header className="shrink-0 px-5 pt-5 pb-3 border-b">
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <AbstractCoachAvatar size={60} status={
               !userOK ? ('loading' as any) : sending ? ('thinking' as any) : ctxUpdated ? ('responding' as any) : ('idle' as any)
             } />
-            <div className="leading-tight">
+            <div className="leading-tight min-w-0 break-words">
               <div className="text-[16px] font-semibold tracking-[-0.01em]">AI経営コンサルタント</div>
+              <div className="mt-0.5 text-[12px] font-normal text-zinc-500">あなたの仕事と成長を支える戦略パートナー</div>
             </div>
           </div>
           {ctxUpdated && (
