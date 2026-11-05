@@ -50,6 +50,7 @@ import {
 import { buildStage6PlanBlock, buildCashPositionBlock, latestActual } from '@/lib/ceoChat/stage6Plan';
 import { buildStage2TargetBlock, isStage2TargetQuestion } from '@/lib/ceoChat/stage2Targets';
 import { buildFocusAnswersBlock } from '@/lib/ceoChat/supplementBlocks';
+import { isCeoWebSearchEnabled, resolveCeoWebSearch } from '@/lib/ceoChat/webSearch';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
@@ -620,6 +621,23 @@ export async function POST(req: Request) {
           systemBase += '\n\n' + buildStage2TargetBlock({
             companyTargets: (strategy as any)?.companyTargets,
             actual: latestActual((strategy as any)?.financePL, (strategy as any)?.financeBS),
+          });
+        }
+        const webSearch = await resolveCeoWebSearch({
+          enabled: isCeoWebSearchEnabled(process.env.CEO_CHAT_WEB_SEARCH_ENABLED),
+          question: lastUser,
+          strategy: strategy as StrategyData,
+          client: openai,
+        });
+        if (webSearch.block) systemBase += '\n\n' + webSearch.block;
+        if (webSearch.category) {
+          console.log('[ask-ceo-agent]', requestId, 'ceo_web_search', {
+            category: webSearch.category,
+            status: webSearch.status,
+            categoryCount: webSearch.categoryCount,
+            sourceCount: webSearch.sourceCount,
+            elapsedMs: webSearch.elapsedMs,
+            skipReason: webSearch.skipReason ?? null,
           });
         }
       }

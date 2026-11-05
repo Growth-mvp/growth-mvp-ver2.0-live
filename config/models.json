@@ -49,6 +49,11 @@
       "maxCompletionTokens": 2500,
       "jsonMode": true
     },
+    "ceoChatWebSearch": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 2500,
+      "jsonMode": false
+    },
     "stage2Ot": {
       "modelRole": "reasoning",
       "maxCompletionTokens": 3000,
