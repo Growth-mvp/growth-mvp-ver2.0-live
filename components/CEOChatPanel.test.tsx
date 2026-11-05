@@ -80,7 +80,7 @@ function errorResponse(status: number) {
 }
 
 // パネルの初期表示（挨拶）は会話履歴として送信内容に含まれる（既存仕様）
-const GREETING_HISTORY = { role: 'assistant', content: 'こんにちは。AI経営コンサルタントです。' };
+const GREETING_HISTORY = { role: 'assistant', content: '操作の質問から、仕事や経営の相談まで、何でも聞いてください。' };
 
 function chatBubbles(): string {
   return document.querySelector('[aria-live="polite"]')?.textContent ?? '';
@@ -260,7 +260,7 @@ describe('企業切替と送信ゲート', () => {
 
     expect(chatBubbles()).not.toContain('A社の回答');
     expect(chatBubbles()).not.toContain('A社への質問');
-    expect(chatBubbles()).toContain('こんにちは。AI経営コンサルタントです。');
+    expect(chatBubbles()).toContain('操作の質問から、仕事や経営の相談まで、何でも聞いてください。');
   });
 
   it('A社からB社へ切り替えると A社の会話履歴を破棄し、B社の送信には A社の履歴を含めない', async () => {
@@ -523,7 +523,7 @@ describe('会話履歴の保持', () => {
     await flush();
 
     expect(screen.queryByText('回答です')).toBeNull();
-    expect(chatBubbles()).toContain('こんにちは。AI経営コンサルタントです。');
+    expect(chatBubbles()).toContain('操作の質問から、仕事や経営の相談まで、何でも聞いてください。');
   });
 
   it('企業を A→B→A と切り替えても、A の会話は復元されない', async () => {
