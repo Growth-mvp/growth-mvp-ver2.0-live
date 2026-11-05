@@ -41,6 +41,7 @@ const OTHER_MEMBER = 'user-other-member';
 const OUTSIDER = 'user-outsider';
 const MULTI = 'user-multi';
 const CASE_1 = 'case-1';
+const CASE_B = 'case-b';
 const TOPIC_1 = 'topic-1';
 const REQUEST_1 = 'request-1';
 const CANDIDATE_1 = 'candidate-1';
@@ -71,6 +72,13 @@ function seedDb(): Record<string, Row[]> {
         company_id: COMPANY_A,
         created_by: MEMBER,
         visibility_mode: 'anonymous',
+        status: 'generated',
+      },
+      {
+        id: CASE_B,
+        company_id: COMPANY_B,
+        created_by: 'user-b-member',
+        visibility_mode: 'manager_only',
         status: 'generated',
       },
     ],
@@ -218,8 +226,8 @@ describe('組織変革ルーム：すり合わせ依頼（POST /cases/[id]/reque
     expect(writesTo('org_alignment_requests').some((w) => w.op === 'insert')).toBe(true);
   });
 
-  it('会社の管理者は、他人のケースの依頼を作成できる', async () => {
-    const res = await call(ADMIN);
+  it('会社の管理者は、他人のケースの依頼を作成できる（公開範囲は現状のまま）', async () => {
+    const res = await call(ADMIN, 'anonymous');
     expect(res.status).toBe(201);
   });
 
@@ -229,21 +237,76 @@ describe('組織変革ルーム：すり合わせ依頼（POST /cases/[id]/reque
     expect(writesTo('org_alignment_cases')).toEqual([]);
   });
 
-  it.failing(
-    '【要修正】同じ会社の一般社員は、他人のケースに依頼を作成できない（現状は 201 で成功する）',
-    async () => {
-      const res = await call(OTHER_MEMBER);
-      expect(res.status).toBe(403);
-      expect(writesTo('org_alignment_cases')).toEqual([]);
-      expect(writesTo('org_alignment_requests')).toEqual([]);
-    }
-  );
+  const callCase = (caseId: string, userId: string, body: Record<string, unknown>) =>
+    requestAlignment(
+      request(`${URL_BASE}/cases/${caseId}/request-alignment`, tokenOf[userId], 'POST', body),
+      { params: Promise.resolve({ id: caseId }) }
+    );
 
-  it('【現状の記録】依頼によって、他人のケースの visibility_mode と status が書き換えられる', async () => {
-    const res = await call(OTHER_MEMBER, 'named');
+  const caseUpdates = () => writesTo('org_alignment_cases').filter((w) => w.op === 'update');
+
+  it('一般社員は、他人のケースに依頼を作成できず、ケースも書き換えられない', async () => {
+    const res = await call(OTHER_MEMBER);
+    expect(res.status).toBe(403);
+    expect(writesTo('org_alignment_cases')).toEqual([]);
+    expect(writesTo('org_alignment_requests')).toEqual([]);
+  });
+
+  it('一般社員は、他人のケースの公開範囲を変えなくても依頼できない', async () => {
+    const res = await call(OTHER_MEMBER, 'anonymous');
+    expect(res.status).toBe(403);
+    expect(writesTo('org_alignment_requests')).toEqual([]);
+  });
+
+  it('管理職は、他人のケースに依頼を作成できない', async () => {
+    const res = await call(MANAGER);
+    expect(res.status).toBe(403);
+    expect(writesTo('org_alignment_cases')).toEqual([]);
+  });
+
+  it('作成者本人は、自分のケースの公開範囲を変えて依頼できる', async () => {
+    const res = await call(MEMBER, 'named');
     expect(res.status).toBe(201);
-    const update = writesTo('org_alignment_cases').find((w) => w.op === 'update');
-    expect(update?.payload).toMatchObject({ visibility_mode: 'named', status: 'alignment_requested' });
+    expect(caseUpdates()[0]?.payload).toMatchObject({ visibility_mode: 'named', status: 'alignment_requested' });
+  });
+
+  it('管理者は、他人のケースに依頼を作れるが、公開範囲は変えられない', async () => {
+    const res = await call(ADMIN, 'anonymous');
+    expect(res.status).toBe(201);
+    const payload = caseUpdates()[0]?.payload ?? {};
+    expect(payload.status).toBe('alignment_requested');
+    expect(payload).not.toHaveProperty('visibility_mode');
+  });
+
+  it('管理者は、本人の同意なく匿名投稿を実名公開へ変更できない', async () => {
+    const res = await call(ADMIN, 'named');
+    expect(res.status).toBe(403);
+    expect(caseUpdates()).toEqual([]);
+    expect(writesTo('org_alignment_requests')).toEqual([]);
+  });
+
+  it('不正な公開範囲は拒否し、何も書き換えない', async () => {
+    const res = await call(MEMBER, 'public_everyone');
+    expect(res.status).toBe(400);
+    expect(caseUpdates()).toEqual([]);
+  });
+
+  it('body の企業IDが投稿の会社と一致しない場合は、投稿の存在を明かさず 404 にする', async () => {
+    const res = await callCase(CASE_1, ADMIN, { visibilityMode: 'anonymous', companyId: COMPANY_B });
+    expect(res.status).toBe(404);
+    expect(caseUpdates()).toEqual([]);
+  });
+
+  it('複数企業に所属する利用者は、投稿の会社（A社）での所属で判定される（A社では一般社員）', async () => {
+    const res = await callCase(CASE_1, MULTI, { visibilityMode: 'anonymous' });
+    expect(res.status).toBe(403);
+    expect(caseUpdates()).toEqual([]);
+  });
+
+  it('複数企業に所属する利用者は、B社の投稿についてはB社の管理者として依頼できる（公開範囲は変えられない）', async () => {
+    const res = await callCase(CASE_B, MULTI, { visibilityMode: 'manager_only' });
+    expect(res.status).toBe(201);
+    expect(caseUpdates()[0]?.payload).not.toHaveProperty('visibility_mode');
   });
 });
 

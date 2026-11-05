@@ -19,6 +19,7 @@ import type {
   OrgAlignmentInsightDashboard,
 } from '@/types/org-alignment';
 import { requireAdminMfa } from '@/lib/server/mfaGuard';
+import { isOrgInsightAiEnabled } from '@/lib/orgAlignment/insightAiGate';
 
 const ROUTE_TAG = 'app/api/org-alignment/admin/insights/generate';
 
@@ -77,6 +78,11 @@ export async function POST(req: NextRequest) {
     // admin ロール必須
     if (membership.role !== 'admin') {
       return json({ error: 'Access denied. Admin role required.' }, 403);
+    }
+
+    // 個人投稿本文を外部AIへ送る前に、保護策が成立するまでは停止する
+    if (!isOrgInsightAiEnabled(process.env.ORG_INSIGHT_AI_GENERATION_ENABLED)) {
+      return json({ error: 'insight_generation_suspended' }, 503);
     }
 
     const companyId = membership.companyId;

@@ -10,6 +10,7 @@ import type {
   InsightSourceCase,
   VisibilityMode,
 } from '@/types/org-alignment';
+import { externalCreatorId } from '@/utils/supabase/org-alignment-visibility';
 
 /**
  * 会社の org_alignment_cases を取得（AI集計用）
@@ -294,7 +295,7 @@ export async function getInsightSourceCases(
     cases.push({
       caseId: row.case_id,
       visibilityMode,
-      createdBy: caseData.created_by,
+      createdBy: externalCreatorId(visibilityMode, caseData.created_by),
       createdAt: caseData.created_at,
       userName: visibilityMode === 'anonymous' ? null : userName,
       userEmail: visibilityMode === 'anonymous' ? null : userEmail,

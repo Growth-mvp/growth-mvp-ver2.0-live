@@ -8,6 +8,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import { requireAdminMfa } from '@/lib/server/mfaGuard';
+import { externalCreatorId } from '@/utils/supabase/org-alignment-visibility';
 
 export async function GET(req: NextRequest) {
   try {
@@ -150,7 +151,7 @@ export async function GET(req: NextRequest) {
             counterpartyDetail: caseData.counterparty_detail,
             visibilityMode: caseData.visibility_mode,
             createdAt: caseData.created_at,
-            createdBy: caseData.created_by,
+            createdBy: externalCreatorId(caseData.visibility_mode, caseData.created_by),
             posterName,
             posterEmail,
           },
