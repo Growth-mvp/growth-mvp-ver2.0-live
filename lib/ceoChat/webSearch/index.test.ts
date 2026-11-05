@@ -4,6 +4,7 @@ const createMock = jest.fn();
 const client = { responses: { create: (...args: unknown[]) => createMock(...args) } } as never;
 
 const STRATEGY = {
+  companyName: 'テスト株式会社',
   industry: 'it',
   businessContent: 'SaaSを提供',
   businessSegments: [],
@@ -87,7 +88,7 @@ describe('検索の入口（判定ごとの呼び出し有無）', () => {
     const r = await resolveCeoWebSearch({
       enabled: true,
       question: '最新の法改正が当社に与える影響は何か',
-      strategy: { industry: 'other', businessContent: '', businessSegments: [] },
+      strategy: { companyName: 'テスト株式会社', industry: 'other', businessContent: '', businessSegments: [] },
       client,
     });
     expect(createMock).not.toHaveBeenCalled();

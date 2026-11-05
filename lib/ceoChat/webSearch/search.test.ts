@@ -45,7 +45,7 @@ describe('検索リクエストの内容', () => {
       tools: [{ type: 'web_search' }],
       tool_choice: 'required',
       store: false,
-      instructions: CEO_SEARCH_INSTRUCTIONS,
+      instructions: expect.stringContaining(CEO_SEARCH_INSTRUCTIONS),
       input: '業界: 情報通信・IT\n公開分類の一覧',
     });
     expect(params.include).toEqual(['web_search_call.action.sources']);
@@ -68,8 +68,8 @@ describe('検索結果の解析と出典', () => {
     const r = await runPublicSearch(client, 'q');
     expect(r.status).toBe('completed');
     expect(r.facts).toEqual([
-      { text: line1, sources: [{ title: '業界統計', url: URL_A }] },
-      { text: line2, sources: [{ title: '業界統計', url: URL_B }] },
+      { text: line1, sources: [{ title: '業界統計', url: URL_A }], period: null, publishedOn: null, kind: null },
+      { text: line2, sources: [{ title: '業界統計', url: URL_B }], period: null, publishedOn: null, kind: null },
     ]);
     expect(r.confirmedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });

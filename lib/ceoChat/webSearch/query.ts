@@ -1,8 +1,8 @@
 import { industryOptions } from '@/utils/industryTemplates';
-import { matchCompanyMarkets, planSearchCalls } from '@/lib/swot/marketTaxonomy';
+import { matchCompanyMarkets, planSearchCalls, type CompanyMatch } from '@/lib/swot/marketTaxonomy';
 import type { StrategyData } from '@/types/strategy';
 
-type QuerySource = Pick<StrategyData, 'industry' | 'businessContent' | 'businessSegments'>;
+export type QuerySource = Pick<StrategyData, 'industry' | 'businessContent' | 'businessSegments'>;
 
 export type PublicSearchQuery = {
   input: string;
@@ -28,14 +28,19 @@ export function publicIndustryLabel(code: string | undefined): string {
  * 検索入力は、業種ラベル・公開市場分類のラベルとテーマだけで組み立てる。
  * 事業の文章や顧客名は照合にだけ使い、検索入力には入れない（照合結果は分類 ID に変換される）。
  */
-export function buildPublicSearchQuery(source: QuerySource): PublicSearchQueryResult {
-  const industryLabel = publicIndustryLabel(source.industry);
+/** 会社の事業から公開市場分類を照合する（照合に使う文章は外へ出さない） */
+export function companyMatchOf(source: QuerySource): CompanyMatch {
   const segments = (source.businessSegments ?? []).map((s) => ({
     revenue: typeof s.revenue === 'number' ? s.revenue : undefined,
     productTexts: [s.name, s.summary ?? '', s.scope ?? '', ...(s.mainProductsServices ?? [])],
     customerTexts: s.keyCustomers ?? [],
   }));
-  const match = matchCompanyMarkets({ businessContent: source.businessContent ?? '', segments });
+  return matchCompanyMarkets({ businessContent: source.businessContent ?? '', segments });
+}
+
+export function buildPublicSearchQuery(source: QuerySource): PublicSearchQueryResult {
+  const industryLabel = publicIndustryLabel(source.industry);
+  const match = companyMatchOf(source);
   const plans = planSearchCalls({ industryLabel, regions: [], match });
   const plan = plans.find((p) => p.id === 'product_customer') ?? plans[0];
 

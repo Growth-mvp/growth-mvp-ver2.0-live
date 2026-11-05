@@ -50,7 +50,17 @@ import {
 import { buildStage6PlanBlock, buildCashPositionBlock, latestActual } from '@/lib/ceoChat/stage6Plan';
 import { buildStage2TargetBlock, isStage2TargetQuestion } from '@/lib/ceoChat/stage2Targets';
 import { buildFocusAnswersBlock } from '@/lib/ceoChat/supplementBlocks';
-import { isCeoWebSearchEnabled, resolveCeoWebSearch } from '@/lib/ceoChat/webSearch';
+import {
+  buildStatClaimNotice,
+  checkStatisticClaims,
+  countUnmatchedNumbers,
+  countUrls,
+  isCeoWebSearchEnabled,
+  resolveCeoWebSearch,
+  verifyAnswerUrls,
+  type CeoFact,
+  type WebSearchDiagnostics,
+} from '@/lib/ceoChat/webSearch';
 import {
   buildReviewPromptBlock,
   buildStage4ReviewCandidates,
@@ -462,6 +472,9 @@ export async function POST(req: Request) {
     // 3) RAG 検索結果（buildRagContextBlock）
     // → 規約を最上位に配置し、RAG根拠を優先させる
     let systemBase: string;
+    let externalSourceAllowlist: string[] | null = null;
+    let webSearchDiagnostics: WebSearchDiagnostics | null = null;
+    let webSearchFacts: CeoFact[] = [];
     let reviewCandidates = new Map<string, ReviewCandidate>();
     let reviewRun: {
       applicable: boolean;
@@ -647,6 +660,11 @@ export async function POST(req: Request) {
           client: openai,
         });
         if (webSearch.block) systemBase += '\n\n' + webSearch.block;
+        if (webSearch.category) {
+          externalSourceAllowlist = webSearch.allowedUrls;
+          webSearchDiagnostics = webSearch.diagnostics;
+          webSearchFacts = webSearch.facts;
+        }
         if (webSearch.category) {
           console.log('[ask-ceo-agent]', requestId, 'ceo_web_search', {
             category: webSearch.category,
@@ -860,6 +878,43 @@ export async function POST(req: Request) {
         finishReason: detailed.choices[0]?.finish_reason ?? null,
         contentChars: rawContent.length,
       }));
+    }
+    if (externalSourceAllowlist) {
+      const check = verifyAnswerUrls(content, externalSourceAllowlist, [
+        process.env.NEXT_PUBLIC_APP_URL ?? '',
+        process.env.NEXT_PUBLIC_SITE_URL ?? '',
+      ]);
+      content = check.content;
+      console.log('[ask-ceo-agent]', requestId, 'ceo_web_search_url_check', {
+        allowed: externalSourceAllowlist.length,
+        removed: check.removed,
+      });
+      const statCheck = checkStatisticClaims(content, webSearchFacts, [
+        JSON.stringify(strategy ?? {}),
+        ...messages.map((m: any) => String(m?.content ?? '')),
+      ]);
+      const statNotice = buildStatClaimNotice(statCheck.findings);
+      if (statNotice && output !== 'json') content = `${content}\n\n${statNotice}`;
+      if (process.env.NODE_ENV === 'development' && webSearchDiagnostics) {
+        console.log('[ask-ceo-agent]', requestId, 'ceo_web_search_diag', {
+          ...webSearchDiagnostics,
+          urlsInAnswer: countUrls(content),
+          urlsRemoved: check.removed,
+          numbersNotInSearchFacts: countUnmatchedNumbers(
+            content,
+            webSearchFacts.flatMap((f) => [f.text, f.period ?? ''])
+          ),
+          statClaims: {
+            checked: statCheck.checked,
+            unverifiable: statCheck.unverifiable,
+            findingKinds: statCheck.findings.reduce<Record<string, number>>(
+              (acc, f) => ({ ...acc, [f.kind]: (acc[f.kind] ?? 0) + 1 }),
+              {}
+            ),
+            noticeAppended: statNotice !== '' && output !== 'json',
+          },
+        });
+      }
     }
 
     // ★ meta.output === 'json' のときだけJSON解析 & 検証
