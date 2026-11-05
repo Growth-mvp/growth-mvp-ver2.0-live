@@ -51,6 +51,15 @@ import { buildStage6PlanBlock, buildCashPositionBlock, latestActual } from '@/li
 import { buildStage2TargetBlock, isStage2TargetQuestion } from '@/lib/ceoChat/stage2Targets';
 import { buildFocusAnswersBlock } from '@/lib/ceoChat/supplementBlocks';
 import { isCeoWebSearchEnabled, resolveCeoWebSearch } from '@/lib/ceoChat/webSearch';
+import {
+  buildReviewPromptBlock,
+  buildStage4ReviewCandidates,
+  classifyReviewRun,
+  extractReviewMarkers,
+  type ReviewCandidate,
+  type ReviewMarkerDiagnostics,
+  type ReviewTarget,
+} from '@/lib/ceoChat/reviewTargets';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
@@ -453,6 +462,14 @@ export async function POST(req: Request) {
     // 3) RAG 検索結果（buildRagContextBlock）
     // → 規約を最上位に配置し、RAG根拠を優先させる
     let systemBase: string;
+    let reviewCandidates = new Map<string, ReviewCandidate>();
+    let reviewRun: {
+      applicable: boolean;
+      stage4Total: number;
+      unlinkable: number;
+      shownInPrompt: number;
+      relevantOutsideShown: number;
+    } = { applicable: false, stage4Total: 0, unlinkable: 0, shownInPrompt: 0, relevantOutsideShown: 0 };
     let knowledgeIdsUsed: string[] = [];
     let ragResultDebug = '';
     let ragContextBlock = '';
@@ -640,6 +657,17 @@ export async function POST(req: Request) {
             skipReason: webSearch.skipReason ?? null,
           });
         }
+        const reviewIndex = buildStage4ReviewCandidates((strategy as any)?.departments, strategyId);
+        const reviewBlock = buildReviewPromptBlock(reviewIndex, lastUser);
+        if (reviewBlock.text) systemBase += '\n\n' + reviewBlock.text;
+        reviewCandidates = new Map(reviewBlock.shown.map((c) => [c.id, c]));
+        reviewRun = {
+          applicable: true,
+          stage4Total: reviewIndex.candidates.length,
+          unlinkable: reviewIndex.unlinkableProjects,
+          shownInPrompt: reviewBlock.shown.length,
+          relevantOutsideShown: reviewBlock.relevantOutsideShown,
+        };
       }
       console.log('[ask-ceo-agent]', requestId, 'context_selection', {
         ...contextSelection,
@@ -815,7 +843,24 @@ export async function POST(req: Request) {
 
     // ★ LLM応答を取得（JSON出力時も含む）
     const rawContent = (detailed.choices[0]?.message?.content || '応答の取得に失敗しました。').trim();
-    const content = rawContent;
+    let reviewTargets: ReviewTarget[] = [];
+    let reviewMarker: ReviewMarkerDiagnostics | null = null;
+    let content = rawContent;
+    if (output !== 'json') {
+      const review = extractReviewMarkers(content, reviewCandidates);
+      content = review.content;
+      reviewTargets = review.reviewTargets;
+      reviewMarker = review.diagnostics;
+    }
+    if (reviewRun.applicable) {
+      console.log('[ask-ceo-agent]', requestId, 'stage4_review', classifyReviewRun({
+        asJson: output === 'json',
+        ...reviewRun,
+        marker: reviewMarker,
+        finishReason: detailed.choices[0]?.finish_reason ?? null,
+        contentChars: rawContent.length,
+      }));
+    }
 
     // ★ meta.output === 'json' のときだけJSON解析 & 検証
     let structured: boolean | undefined = undefined;
@@ -853,6 +898,8 @@ export async function POST(req: Request) {
       confidence: intent.confidence,
       resolvedMode,  // Sprint 4: モード解決結果を返す
     };
+
+    response.reviewTargets = reviewTargets;
 
     // JSON出力時のみ optional フィールドを追加
     if (output === 'json') {

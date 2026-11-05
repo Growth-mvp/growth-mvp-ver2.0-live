@@ -1,4 +1,6 @@
-export type CeoChatMessage = { role: 'user' | 'assistant'; content: string };
+import type { ReviewTarget } from './reviewTargets';
+
+export type CeoChatMessage = { role: 'user' | 'assistant'; content: string; reviewTargets?: ReviewTarget[] };
 
 export const CEO_CHAT_GREETING: CeoChatMessage[] = [
   { role: 'assistant', content: 'こんにちは。AI経営コンサルタントです。' },

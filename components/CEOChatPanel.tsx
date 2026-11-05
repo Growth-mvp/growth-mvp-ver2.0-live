@@ -17,6 +17,8 @@ import {
 } from '@/store/ceoChatStore';
 import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
 import CEOChatMarkdown from '@/components/CEOChatMarkdown';
+import CEOChatReviewTargets from '@/components/CEOChatReviewTargets';
+import { parseReviewTargets } from '@/lib/ceoChat/reviewTargets';
 import { supabase } from '@/utils/supabase/client';
 import { usePathname } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
@@ -40,6 +42,7 @@ type AskResp = {
   stageUsed?: 'strategy' | 'manual' | 'generic' | 'hybrid';
   confidence?: number;
   error?: string;
+  reviewTargets?: unknown;
 };
 
 type Props = { embedded?: boolean };
@@ -346,7 +349,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
       // ← 先に送信フラグを落としてからメッセージを追加（UI固着防止）
       setCeoChatPending(ticket, false);
-      updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
+      const reviewTargets = parseReviewTargets(data?.reviewTargets);
+      updateCeoChatMessages(ticket, (msgs) => [
+        ...msgs,
+        { role: 'assistant', content, ...(reviewTargets.length > 0 ? { reviewTargets } : {}) },
+      ]);
       return true;
     } catch (e) {
       // 会社切替による abort は通信エラーとして表示しない
@@ -488,6 +495,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             ].join(' ')}
           >
             {m.role === 'user' ? m.content : <CEOChatMarkdown content={m.content} />}
+            {m.role === 'assistant' && m.reviewTargets && (
+              <CEOChatReviewTargets targets={m.reviewTargets} currentStrategyId={strategyId} />
+            )}
           </div>
         ))}
         {sending && (
