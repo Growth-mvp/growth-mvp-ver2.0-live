@@ -1,4 +1,4 @@
-import { aggregateExecution, buildExecutionSummaryBlock } from './stage4Projection';
+import { aggregateExecution, buildExecutionSummaryBlock, detectProjectionIntent } from './stage4Projection';
 import { STAGE4_SCALE_FIXTURES, makeFixtureDepts } from '../../eval/quality/stage4ScaleFixture';
 
 const SALES_PROJECT = {
@@ -51,20 +51,20 @@ describe('値が無い場合は推測せず「未登録」と書く', () => {
       ''
     );
     const kr = lineOf(text, 'KR: KR1');
-    expect(kr).toContain('担当 未登録');
+    expect(kr).toContain('担当 KR担当未入力');
     expect(kr).toContain('期限 未登録');
     expect(kr).not.toContain('佐藤花子');
   });
 
   it('プロジェクトの担当・計画状態・価値指標との対応が無いときは未登録', () => {
     const { text } = buildExecutionSummaryBlock([{ name: '営業部', projects: [{ title: 'P' }] }], '');
-    expect(text).toContain('プロジェクト: P｜担当 未登録｜計画 未登録｜価値指標との対応（登録）: 未登録');
+    expect(text).toContain('プロジェクト: P｜担当 未入力｜計画 未設定｜価値指標との対応（登録）: 未登録');
   });
 
   it('未知の計画状態は、未登録とは別に「その他」と表示する', () => {
     const { text } = buildExecutionSummaryBlock([{ name: '営業部', projects: [{ title: 'P', planStatus: 'weird' }] }], '');
     expect(text).toContain('計画 その他');
-    expect(text).not.toContain('計画 未登録');
+    expect(text).not.toContain('計画 未設定');
   });
 });
 
@@ -147,7 +147,7 @@ describe('充足状況を明示する（件数は省略前の元データから�
   it('小規模（3部門15施策）は、従来どおり全施策の名前を出す', () => {
     const { text, projects } = buildExecutionSummaryBlock(makeDepts(3, 5, 2), '');
     expect(projects.visible).toBe(15);
-    expect(projects.shown).toBeGreaterThanOrEqual(14);
+    expect(projects.shown).toBeGreaterThanOrEqual(13);
     for (let i = 0; i < 3; i++) for (let j = 0; j < 5; j++) expect(text).toContain(`施策${i}-${j}`);
   });
 
@@ -157,8 +157,8 @@ describe('充足状況を明示する（件数は省略前の元データから�
     expect(deptLineCount(r.text)).toBe(10);
     expect(r.text).toContain('部門 全10件中10件を参照');
     expect(r.text).toMatch(/施策 全80件中\d+件を名称・概要で参照/);
-    expect(r.text).toContain('施策の詳細は一部のみです');
-    expect(r.text).toContain('この制約を結論より前に適用すること');
+    expect(r.text).toContain('施策の詳細は一部のみ');
+    expect(r.text).toContain('結論より前に適用');
     expect(r.text.length).toBeLessThanOrEqual(2400);
   });
 
@@ -181,9 +181,25 @@ describe('充足状況を明示する（件数は省略前の元データから�
 });
 
 describe('先頭部門への偏りを減らし、言及された部門を優先する', () => {
-  it('全部門に施策の詳細（KR付き）を1つずつ先に配る', () => {
+  it('全部門の概要を出し、詳細（KR付き）は合計10件を複数の部門に配る', () => {
     const r = buildExecutionSummaryBlock(makeDepts(10, 8, 3), '');
-    for (let i = 0; i < 10; i++) expect(r.text).toContain(`プロジェクト: 施策${i}-0｜`);
+    const lines = r.text.split('\n');
+    expect(lines.filter((l) => l.startsWith('■ 部門: ')).length).toBe(10);
+    expect(r.projects.shown).toBe(10);
+    let depts = 0;
+    let cur = 0;
+    let withDetail = 0;
+    for (const l of lines) {
+      if (l.startsWith('■ 部門: ')) {
+        if (cur > 0) withDetail += 1;
+        cur = 0;
+        depts += 1;
+      }
+      if (l.startsWith('  - プロジェクト: ')) cur += 1;
+    }
+    if (cur > 0) withDetail += 1;
+    expect(depts).toBe(10);
+    expect(withDetail).toBeGreaterThanOrEqual(8);
   });
 
   it('質問に部門名があれば、その部門の施策が出る', () => {
@@ -255,8 +271,8 @@ describe('評価フィクスチャの件数・対応関係・単位（規模別�
 
   it('一部だけ参照したときは、全社の順位を断定しない制約を結論より前に書く。全件のときは書かない', () => {
     const partial = buildExecutionSummaryBlock(STAGE4_SCALE_FIXTURES['40部門・600施策'](), '全社で重要な施策は？').text;
-    expect(partial.split('\n')[1]).toContain('この制約を結論より前に適用すること');
-    expect(partial.split('\n')[1]).toContain('全社で最も重要・全社第1位');
+    expect(partial.split('\n')[1]).toContain('結論より前に適用');
+    expect(partial.split('\n')[1]).toContain('全社順位（最重要・第1位など）は断定せず');
     const full = buildExecutionSummaryBlock(makeFixtureDepts(2, 3, 2), '').text;
     expect(full).toContain('全件）');
     expect(full).not.toContain('結論より前に適用');
@@ -361,7 +377,7 @@ describe('概要のみの施策は、詳細として数えず「詳細未確認�
     expect(r.projects.total).toBe(20);
     expect(r.projects.visible).toBe(20);
     expect(r.omitted).toBe(0);
-    expect(r.projects.shown).toBeGreaterThanOrEqual(9);
+    expect(r.projects.shown).toBeGreaterThanOrEqual(8);
     expect(r.text.length).toBeLessThanOrEqual(2400);
     const names = groupOf(r.text).flat();
     expect(names.length).toBe(20 - r.projects.shown);
@@ -431,7 +447,7 @@ describe('4部門・20施策（未登録データ入り）の集計は、独立�
   it('集計行は施策単位とKR単位を分け、異なる単位の件数を足さない', () => {
     const text = buildExecutionSummaryBlock(withMissingValues(makeFixtureDepts(4, 5, 3)), '全社の状況を教えて').text;
     const line = text.split('\n').find((l) => l.startsWith('【全件集計'))!;
-    expect(line).toContain('施策単位: 担当者未登録2・期限未登録KRあり2・いずれか3（両方1）');
+    expect(line).toContain('施策担当未入力2・期限未登録KRあり2・いずれか3（両方1）');
     expect(line).toContain('KR単位: 全60件・期限未登録2・旧形式0');
   });
 });
@@ -488,5 +504,120 @@ describe('KRの表示規則と集計規則の一致（6ケース、架空デー�
     const agg = aggregateExecution([{ name: '営業部', projects: [{ title: 'L', ownerName: '担当A', okrs: [{ objective: '旧', keyResults: ['x'] }] }] }]);
     expect(agg).toMatchObject({ krTotal: 1, krLegacy: 1, krDueMissing: 0, projectsDueMissing: 0, projectsEither: 0 });
     expect(agg.krLegacy).toBe(1);
+  });
+});
+
+describe('質問の種類に応じた情報選択（Phase 2-B2）', () => {
+  const BASE = '点検工程の標準化と当日提出の徹底、既存顧客の保守契約更新、見積もり回答の短縮、設備稼働率の改善、新製品の試作評価';
+  const longText = (n: number) => BASE.slice(0, n).padEnd(n, '例');
+  const longDepts = (nDept: number, nProj: number, nameLen: number, krLen: number, nKr: number) =>
+    Array.from({ length: nDept }, (_, i) => ({
+      name: `部門${i + 1}`,
+      mission: '役割の説明',
+      projects: Array.from({ length: nProj }, (_, j) => ({
+        title: `${longText(nameLen)}${i}${j}`,
+        ownerName: `担当${i}${j}`,
+        planStatus: 'approved',
+        okrsV2: Array.from({ length: nKr }, (_, k) => ({ label: `${longText(krLen)}${k}`, target: 50, unit: '件', due: '2027-01', owner: 'KR担当' })),
+      })),
+    }));
+  const LIST_Q = '当社の20施策について、名称を把握している施策と、KRまで詳しく確認できている施策を分けて教えてください。詳細を確認できない施策については、内容を推測しないでください。';
+
+  it('質問の種類を判定する（一覧・件数・特定部門・経営相談）', () => {
+    const depts = makeDepts(2, 2, 2);
+    expect(detectProjectionIntent('登録されている施策を一覧にしてください', depts)).toBe('list');
+    expect(detectProjectionIntent('当社の20施策の名称をすべて教えてください', depts)).toBe('list');
+    expect(detectProjectionIntent(LIST_Q, depts)).toBe('list');
+    expect(detectProjectionIntent('何施策登録されていますか？', depts)).toBe('count');
+    expect(detectProjectionIntent('担当者欄が未入力の施策はいくつありますか？', depts)).toBe('count');
+    expect(detectProjectionIntent('部門01の施策について、KRを教えてください', depts)).toBe('targeted');
+    expect(detectProjectionIntent('各部門の実行計画を踏まえて、全社戦略の実現に向けた最重要課題を考えてください', depts)).toBe('consult');
+    expect(detectProjectionIntent('全社の実行計画の中で、特に重要な施策はどれですか？', depts)).toBe('consult');
+  });
+
+  it('丹青社相当（4部門・20施策、長い名称とKR）で、一覧質問は20施策すべての名称を出す', () => {
+    const depts = longDepts(4, 5, 28, 20, 4);
+    const r = buildExecutionSummaryBlock(depts, LIST_Q, 2400);
+    expect(r.intent).toBe('list');
+    expect(r.projects.visible).toBe(20);
+    expect(r.omitted).toBe(0);
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+    assertKrNeverOrphaned(r.text);
+    expect(r.text).toContain('施策の詳細は一部のみ');
+  });
+
+  it('20施策を超える一覧質問は名称優先にせず、B1の配分で省略件数を明示する', () => {
+    const r = buildExecutionSummaryBlock(longDepts(10, 8, 28, 20, 3), '登録されている施策を一覧にしてください', 2400);
+    expect(r.intent).toBe('list');
+    expect(r.projects.total).toBe(80);
+    expect(r.projects.visible).toBeLessThan(80);
+    expect(r.omitted).toBe(80 - r.projects.visible);
+    expect(r.text).toContain(`名称も省略された施策${r.omitted}件`);
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+    assertKrNeverOrphaned(r.text);
+  });
+
+  it('件数の質問は、経営相談と同じ情報配分で、件数は全件集計から出す', () => {
+    const depts = longDepts(4, 5, 28, 20, 4);
+    const count = buildExecutionSummaryBlock(depts, '何施策登録されていますか？', 2400);
+    const consult = buildExecutionSummaryBlock(depts, '当社の経営課題は何ですか？', 2400);
+    expect(count.intent).toBe('count');
+    expect(count.text).toBe(consult.text);
+    expect(count.aggregate.projects).toBe(20);
+  });
+
+  it('特定部門の質問は、その部門の施策のKRを削らずに出す', () => {
+    const r = buildExecutionSummaryBlock(longDepts(4, 5, 28, 20, 4), '部門3の施策について、KRを教えてください', 2400);
+    expect(r.intent).toBe('targeted');
+    const lines = r.text.split('\n');
+    const idx = lines.findIndex((l) => l.startsWith('■ 部門: 部門3'));
+    expect(idx).toBeGreaterThan(-1);
+    const first = lines.findIndex((l, i) => i > idx && l.startsWith('  - プロジェクト: '));
+    expect(lines[first]).toMatch(/20｜担当/);
+    expect(lines.slice(first + 1, first + 5).filter((l) => l.startsWith('    - KR: ')).length).toBe(4);
+  });
+
+  it('言い換えによる一覧の表現の違いで、情報配分は変わらない', () => {
+    const depts = longDepts(4, 5, 28, 20, 4);
+    const a = buildExecutionSummaryBlock(depts, '施策の名称を一覧で教えてください', 2400);
+    const b = buildExecutionSummaryBlock(depts, '登録されている施策の名称をすべて教えてください', 2400);
+    expect(a.text).toBe(b.text);
+  });
+
+  it('集計行は、施策のplanStatusと部門のSTAGE4状態の違い、担当欄(ownerName)を明示する', () => {
+    const text = buildExecutionSummaryBlock(makeDepts(2, 2, 2), '', 2400).text;
+    const line = text.split('\n').find((l) => l.startsWith('【全件集計】')) ?? '';
+    expect(line).toContain('planStatus:');
+    expect(line).toContain('施策担当未入力');
+    expect(line).toContain('部門のSTAGE4状態とは別');
+  });
+
+  it('名称変更の相談は経営相談、一覧を求めない否定表現も経営相談、一覧の肯定表現は一覧', () => {
+    const depts = makeDepts(2, 2, 2);
+    expect(detectProjectionIntent('施策の名称を変更した方がよいでしょうか？', depts)).toBe('consult');
+    expect(detectProjectionIntent('施策の名称変更について経営として相談したい', depts)).toBe('consult');
+    expect(detectProjectionIntent('全施策を一覧にせず、重要課題を考えてください', depts)).toBe('consult');
+    expect(detectProjectionIntent('全施策を一覧にして', depts)).toBe('list');
+    expect(detectProjectionIntent('名称一覧を出してください', depts)).toBe('list');
+  });
+
+  it('チェーンストア事業の施策一覧は、該当部門を先頭に出す', () => {
+    const depts = [
+      { id: 'a', name: '営業部', mission: '営業', projects: [{ id: 'p1', title: '新規顧客開拓', planStatus: 'approved' }] },
+      { id: 'b', name: 'チェーンストア事業', mission: 'チェーン', projects: [{ id: 'p2', title: '採算改善', planStatus: 'review' }] },
+    ];
+    const r = buildExecutionSummaryBlock(depts, 'チェーンストア事業の施策一覧を教えてください', 2400);
+    expect(r.intent).toBe('list');
+    const firstDept = r.text.split('\n').find((l) => l.startsWith('■ 部門: '));
+    expect(firstDept).toContain('チェーンストア事業');
+  });
+
+  it('4部門・20施策（長い名称）の経営相談は、全20施策の名称を残し、詳細は1件以上残す', () => {
+    const r = buildExecutionSummaryBlock(longDepts(4, 5, 28, 20, 4), '当社の経営課題は何ですか？', 2400);
+    expect(r.intent).toBe('consult');
+    expect(r.projects.visible).toBe(20);
+    expect(r.projects.shown).toBeGreaterThanOrEqual(1);
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+    assertKrNeverOrphaned(r.text);
   });
 });

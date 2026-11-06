@@ -8,6 +8,7 @@ const HEADER = '# 部門・OKR・実行計画（STAGE3・4、閲覧権限の範�
 const OMITTED_NAME_MAX = 5;
 const OMITTED_NAME_CHARS = 80;
 const MENTION_SHARE = 0.6;
+const NAME_FIRST_MAX_PROJECTS = 20;
 const GROUP_HEADER = '  概要のみ（詳細未確認）:';
 const STATUS_LABEL: Record<string, string> = {
   draft: '下書き',
@@ -50,6 +51,7 @@ export type ExecutionSummary = {
   projects: { total: number; shown: number; withKr: number; visible: number };
   complete: boolean;
   aggregate: ExecutionAggregate;
+  intent: ProjectionIntent;
 };
 
 type ProjectView = {
@@ -93,6 +95,29 @@ function byMentionFirst<T>(items: T[], question: string, nameOf: (item: T) => st
     .map((item, index) => ({ item, index, hit: mentioned(question, nameOf(item)) ? 1 : 0 }))
     .sort((a, b) => b.hit - a.hit || a.index - b.index)
     .map((x) => x.item);
+}
+
+export type ProjectionIntent = 'list' | 'count' | 'targeted' | 'consult';
+
+const LIST_CUE = /一覧|名称(?!(を|の)?(変更|変え|改称|改名))|リスト|施策名|施策の名前|(全施策|すべての施策|全ての施策|登録されている施策)[^。？?]{0,10}(教え|挙げ|列挙|示し|見せ)/;
+const LIST_NEGATION = /一覧(に|で|を)?(せず|しな|不要|ではなく|じゃなく)/;
+const COUNT_CUE = /何件|何施策|いくつ|何個|件数|何社|何名|何部門/;
+
+export function detectProjectionIntent(question: string, departments: unknown): ProjectionIntent {
+  const q = question ?? '';
+  if (LIST_CUE.test(q) && !LIST_NEGATION.test(q)) return 'list';
+  if (COUNT_CUE.test(q)) return 'count';
+  const names = records(departments).flatMap((d) => [
+    text(d.name),
+    ...records(d.projects).map((p) => text(p.title ?? p.name)),
+  ]);
+  if (names.some((n) => n.length > 0 && q.includes(n))) return 'targeted';
+  return 'consult';
+}
+
+function planStatusLabel(planStatus: unknown): string {
+  if (isMissing(planStatus)) return '未設定';
+  return STATUS_LABEL[text(planStatus)] ?? OTHER_STATUS;
 }
 
 function legacyKeyResults(project: AnyRecord): string[] {
@@ -155,7 +180,7 @@ export function aggregateExecution(departments: unknown): ExecutionAggregate {
 
 function aggregateLine(a: ExecutionAggregate): string {
   const s = a.byPlanStatus;
-  return `【全件集計】部門${a.departments}件・施策${a.projects}件（承認済み${s.承認済み}・確認中${s.確認中}・下書き${s.下書き}・${OTHER_STATUS}${s.その他}・${MISSING}${s.未登録}）｜施策単位: 担当者${MISSING}${a.ownerMissing}・期限${MISSING}KRあり${a.projectsDueMissing}・いずれか${a.projectsEither}（両方${a.projectsBoth}）｜KR単位: 全${a.krTotal}件・期限${MISSING}${a.krDueMissing}・旧形式${a.krLegacy}`;
+  return `【全件集計】部門${a.departments}件・施策${a.projects}件｜施策単位（planStatus: 承認済み${s.承認済み}・確認中${s.確認中}・下書き${s.下書き}・${OTHER_STATUS}${s.その他}・未設定${s.未登録}／施策担当未入力${a.ownerMissing}・期限${MISSING}KRあり${a.projectsDueMissing}・いずれか${a.projectsEither}（両方${a.projectsBoth}））｜KR単位: 全${a.krTotal}件・期限${MISSING}${a.krDueMissing}・旧形式${a.krLegacy}｜部門のSTAGE4状態とは別`;
 }
 
 function formatKr(kr: AnyRecord): string {
@@ -172,7 +197,7 @@ function formatKr(kr: AnyRecord): string {
   const parts = [
     `KR: ${orMissing(kr.label)}`,
     `目標 ${target}${target === MISSING ? '' : unit}`,
-    `担当 ${orMissing(kr.owner)}`,
+    `担当 ${isMissing(kr.owner) ? 'KR担当未入力' : text(kr.owner)}`,
     `期限 ${orMissing(kr.due)}`,
   ];
   if (milestones.length > 0) parts.push(`マイルストーン ${milestones.join('、')}`);
@@ -193,13 +218,13 @@ function formatImpact(project: AnyRecord): string {
 
 function projectView(project: AnyRecord): ProjectView {
   const title = orMissing(project.title ?? project.name);
-  const status = STATUS_LABEL[text(project.planStatus)] ?? (isMissing(project.planStatus) ? MISSING : OTHER_STATUS);
+  const status = planStatusLabel(project.planStatus);
   const links = Array.isArray(project.valueDriverLinks)
     ? project.valueDriverLinks.map(text).filter(Boolean)
     : [];
   const header = [
     `  - プロジェクト: ${title}`,
-    `担当 ${orMissing(project.ownerName)}`,
+    `担当 ${isMissing(project.ownerName) ? '未入力' : text(project.ownerName)}`,
     `計画 ${status}`,
     `価値指標との対応（登録）: ${links.length > 0 ? links.join('、') : MISSING}`,
   ].join('｜');
@@ -275,7 +300,7 @@ function coverageText(
     ? `。概要も省略された部門: ${picked.join('、')}${rest > 0 ? `、ほか${rest}部門` : ''}`
     : '';
   const projectNote = omittedProjects > 0 ? `、名称も省略された施策${omittedProjects}件` : '';
-  return `（充足状況: 部門 全${depts.total}件中${depts.shown}件を参照（うち施策の詳細あり${depts.detailed}件）、施策 全${projects.total}件中${projects.visible}件を名称・概要で参照（うち詳細あり${projects.shown}件、KRまで表示${projects.withKr}件）${projectNote}。施策の詳細は一部のみです。この制約を結論より前に適用すること: 全社で最も重要・全社第1位など全社の順位を断定せず、参照できた施策の中での重要候補として限定して述べる。全社の戦略課題から論じることは可能。${deptNote}）`;
+  return `（充足状況: 部門 全${depts.total}件中${depts.shown}件を参照（うち施策の詳細あり${depts.detailed}件）、施策 全${projects.total}件中${projects.visible}件を名称・概要で参照（うち詳細あり${projects.shown}件、KRまで表示${projects.withKr}件）${projectNote}。施策の詳細は一部のみ（結論より前に適用）: 全社順位（最重要・第1位など）は断定せず、参照できた施策の中の重要候補として限定する。全社の戦略課題からの議論は可能。${deptNote}）`;
 }
 
 export function buildExecutionSummaryBlock(
@@ -284,6 +309,7 @@ export function buildExecutionSummaryBlock(
   budget: number = EXECUTION_CHAR_BUDGET
 ): ExecutionSummary {
   const q = question ?? '';
+  const intent = detectProjectionIntent(q, departments);
   const aggregate = aggregateExecution(departments);
   const depts = byMentionFirst(records(departments), q, (d) => text(d.name));
   if (depts.length === 0) {
@@ -294,6 +320,7 @@ export function buildExecutionSummaryBlock(
       projects: { total: 0, shown: 0, withKr: 0, visible: 0 },
       complete: true,
       aggregate,
+      intent,
     };
   }
 
@@ -333,6 +360,7 @@ export function buildExecutionSummaryBlock(
       projects: { total: projectTotal, shown: projectTotal, withKr: projectTotal, visible: projectTotal },
       complete: true,
       aggregate,
+      intent,
     };
   }
 
@@ -381,10 +409,40 @@ export function buildExecutionSummaryBlock(
     overviewChosen: Set<ProjectView>;
   };
 
+  const fillOverview = (detail: Map<ProjectView, string[]>, budgetLeft: number): Set<ProjectView> => {
+    const overviewChosen = new Set<ProjectView>();
+    const ovCursor = new Map<DeptItem, number>(shownDepts.map((it) => [it, 0]));
+    const groupOpen = new Set<DeptItem>();
+    let left = budgetLeft;
+    let progress = true;
+    while (progress && left > 0) {
+      progress = false;
+      for (const it of shownDepts) {
+        let i = ovCursor.get(it) ?? 0;
+        while (i < it.views.length && detail.has(it.views[i])) i += 1;
+        if (i >= it.views.length) {
+          ovCursor.set(it, i);
+          continue;
+        }
+        const v = it.views[i];
+        const cost = v.overviewLine.length + 1 + (groupOpen.has(it) ? 0 : GROUP_HEADER.length + 1);
+        if (cost > left) {
+          ovCursor.set(it, i);
+          continue;
+        }
+        left -= cost;
+        groupOpen.add(it);
+        overviewChosen.add(v);
+        ovCursor.set(it, i + 1);
+        progress = true;
+      }
+    }
+    return overviewChosen;
+  };
+
   const makePlan = (namesFirst: boolean): Plan => {
   const detail = new Map<ProjectView, string[]>();
   const detailOrder: ProjectView[] = [];
-  const overviewChosen = new Set<ProjectView>();
   const cursor = new Map<DeptItem, number>(shownDepts.map((it) => [it, 0]));
   let remaining = bodyBudget - used - (namesFirst ? namesAllCost : 0);
 
@@ -422,47 +480,30 @@ export function buildExecutionSummaryBlock(
   };
 
   if (namesFirst) {
+    const overviewChosen = new Set<ProjectView>();
     for (const it of shownDepts) for (const v of it.views) overviewChosen.add(v);
     runDetails();
-  } else {
-    runDetails();
-    const ovCursor = new Map<DeptItem, number>(shownDepts.map((it) => [it, 0]));
-    const groupOpen = new Set<DeptItem>();
-    let left = remaining;
-    let progress = true;
-    while (progress && left > 0) {
-      progress = false;
-      for (const it of shownDepts) {
-        let i = ovCursor.get(it) ?? 0;
-        while (i < it.views.length && detail.has(it.views[i])) i += 1;
-        if (i >= it.views.length) {
-          ovCursor.set(it, i);
-          continue;
-        }
-        const v = it.views[i];
-        const cost = v.overviewLine.length + 1 + (groupOpen.has(it) ? 0 : GROUP_HEADER.length + 1);
-        if (cost > left) {
-          ovCursor.set(it, i);
-          continue;
-        }
-        left -= cost;
-        groupOpen.add(it);
-        overviewChosen.add(v);
-        ovCursor.set(it, i + 1);
-        progress = true;
-      }
-    }
+    return { detail, detailOrder, overviewChosen };
   }
-  return { detail, detailOrder, overviewChosen };
+  runDetails();
+  return { detail, detailOrder, overviewChosen: fillOverview(detail, remaining) };
   };
 
-  const detailFirst = makePlan(false);
+  const everyNameVisible = (plan: Plan) =>
+    shownDepts.every((it) => it.views.every((v) => plan.detail.has(v) || plan.overviewChosen.has(v)));
   const namesAllFit = used + namesAllCost <= bodyBudget;
-  const namesPlan = namesAllFit ? makePlan(true) : null;
-  const tolerance = Math.max(2, Math.floor(detailFirst.detailOrder.length * 0.2));
-  const chosen = namesPlan && namesPlan.detailOrder.length >= detailFirst.detailOrder.length - tolerance
-    ? namesPlan
-    : detailFirst;
+  const nameFirst = intent === 'list' && projectTotal <= NAME_FIRST_MAX_PROJECTS && namesAllFit;
+  let chosen: Plan;
+  if (nameFirst) {
+    chosen = makePlan(true);
+  } else {
+    const detailFirst = makePlan(false);
+    const namesPlan = namesAllFit ? makePlan(true) : null;
+    const tolerance = Math.max(2, Math.floor(detailFirst.detailOrder.length * 0.2));
+    const keepsDetail = namesPlan !== null && namesPlan.detailOrder.length >= detailFirst.detailOrder.length - tolerance;
+    const namesCompletes = namesPlan !== null && namesPlan.detailOrder.length >= 2 && !everyNameVisible(detailFirst);
+    chosen = namesPlan && (keepsDetail || namesCompletes) ? namesPlan : detailFirst;
+  }
   const { detail, detailOrder, overviewChosen } = chosen;
 
   const render = () => {
@@ -512,5 +553,6 @@ export function buildExecutionSummaryBlock(
     projects: rendered.projectStats,
     complete: rendered.complete,
     aggregate,
+    intent,
   };
 }
