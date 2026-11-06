@@ -1,4 +1,5 @@
 import { buildExecutionSummaryBlock } from './stage4Projection';
+import { STAGE4_SCALE_FIXTURES, makeFixtureDepts } from '../../eval/quality/stage4ScaleFixture';
 
 const SALES_PROJECT = {
   title: '新規顧客開拓',
@@ -106,15 +107,104 @@ describe('質問に関連する部門を先に出す', () => {
   });
 });
 
-describe('上限を超えたら省略を明示する', () => {
-  it('上限の中に収め、省略の件数を書く', () => {
-    const many = Array.from({ length: 30 }, (_, i) => ({
-      title: `プロジェクト${i}`,
-      okrsV2: [{ label: `KR${i}`, target: i, unit: '件', owner: '担当', due: '2027-01' }],
-    }));
-    const { text, omitted } = buildExecutionSummaryBlock([{ name: '営業部', projects: many }], '', 400);
-    expect(omitted).toBeGreaterThan(0);
-    expect(text).toContain(`（上限のため${omitted}行を省略）`);
+function makeDepts(nDept: number, nProj: number, nKr: number) {
+  return Array.from({ length: nDept }, (_, i) => ({
+    name: `部門${String(i).padStart(2, '0')}`,
+    mission: `部門${i}のミッション`,
+    projects: Array.from({ length: nProj }, (_, j) => ({
+      title: `施策${i}-${j}`,
+      ownerName: `担当${i}-${j}`,
+      planStatus: 'approved',
+      valueDriverLinks: ['売上成長'],
+      okrsV2: Array.from({ length: nKr }, (_, k) => ({ label: `KPI${i}-${j}-${k}`, target: 100, unit: '件', owner: `担当${i}`, due: '2027-06' })),
+    })),
+  }));
+}
+
+function deptLineCount(text: string): number {
+  return text.split('\n').filter((l) => l.startsWith('■ 部門: ')).length;
+}
+
+function assertKrNeverOrphaned(text: string) {
+  let inProject = false;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('■ 部門: ')) inProject = false;
+    if (line.startsWith('  - プロジェクト: ')) inProject = true;
+    if (line.startsWith('    - ')) expect(inProject).toBe(true);
+  }
+}
+
+describe('充足状況を明示する（件数は省略前の元データから数える）', () => {
+  it('全件のときは、全件だと書く', () => {
+    const { text, complete, projects, departments } = buildExecutionSummaryBlock(DEPARTMENTS, '');
+    expect(complete).toBe(true);
+    expect(text).toContain('（充足状況: 部門2件すべて、施策2件すべてを参照。全件）');
+    expect(projects).toEqual({ total: 2, shown: 2, withKr: 2 });
+    expect(departments).toEqual({ total: 2, shown: 2, detailed: 2 });
+  });
+
+  it('小規模（3部門15施策）は、従来どおり全施策の名前を出す', () => {
+    const { text, complete } = buildExecutionSummaryBlock(makeDepts(3, 5, 2), '');
+    expect(complete).toBe(true);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 5; j++) expect(text).toContain(`プロジェクト: 施策${i}-${j}｜`);
+  });
+
+  it('10部門80施策は、全部門の概要を出し、一部のみだと明示する', () => {
+    const r = buildExecutionSummaryBlock(makeDepts(10, 8, 3), '全社の部門別の実行状況を教えて');
+    expect(r.complete).toBe(false);
+    expect(deptLineCount(r.text)).toBe(10);
+    expect(r.text).toContain('部門 全10件中10件を参照');
+    expect(r.text).toContain('施策 全80件中10件を参照');
+    expect(r.text).toContain('施策の詳細は一部のみです');
+    expect(r.text).toContain('この制約を結論より前に適用すること');
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+  });
+
+  it('40部門600施策は、概要の数と部分的な参照数を正しく書く', () => {
+    const r = buildExecutionSummaryBlock(makeDepts(40, 15, 4), '');
+    expect(deptLineCount(r.text)).toBe(40);
+    expect(r.projects.total).toBe(600);
+    expect(r.projects.shown).toBeLessThan(600);
+    expect(r.text).toContain('施策 全600件中');
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+  });
+
+  it('概要まで収まらないときは、省略された部門の名前を例示し、残りは件数で示す', () => {
+    const r = buildExecutionSummaryBlock(makeDepts(200, 1, 1), '');
+    expect(deptLineCount(r.text)).toBeLessThan(200);
+    expect(r.text).toContain('概要も省略された部門:');
+    expect(r.text).toMatch(/ほか\d+部門/);
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+  });
+});
+
+describe('先頭部門への偏りを減らし、言及された部門を優先する', () => {
+  it('全部門に施策の詳細（KR付き）を1つずつ先に配る', () => {
+    const r = buildExecutionSummaryBlock(makeDepts(10, 8, 3), '');
+    for (let i = 0; i < 10; i++) expect(r.text).toContain(`プロジェクト: 施策${i}-0｜`);
+  });
+
+  it('質問に部門名があれば、その部門の施策が出る', () => {
+    const r = buildExecutionSummaryBlock(makeDepts(40, 15, 4), '部門39の施策は進んでいるか？');
+    expect(r.text).toContain('プロジェクト: 施策39-0｜');
+    expect(r.text.indexOf('■ 部門: 部門39')).toBeGreaterThan(-1);
+  });
+});
+
+describe('部門・施策・KRの対応関係を壊さない', () => {
+  it('省略で施策名が消えても、KRだけが残ることはない', () => {
+    for (const [nd, np] of [[3, 15], [10, 8], [40, 15]] as const) {
+      const { text } = buildExecutionSummaryBlock(makeDepts(nd, np, 4), '');
+      assertKrNeverOrphaned(text);
+    }
+  });
+
+  it('KRを一部だけ表示したときは、施策名と表示件数を書く', () => {
+    const many = [{ title: '大きい施策', okrsV2: Array.from({ length: 20 }, (_, i) => ({ label: `KR${i}`, target: i, unit: '件' })) }];
+    const { text } = buildExecutionSummaryBlock([{ name: '営業部', projects: many }], '', 600);
+    expect(text).toContain('プロジェクト: 大きい施策');
+    expect(text).toMatch(/KR20件のうち\d+件を表示/);
+    assertKrNeverOrphaned(text);
   });
 });
 
@@ -138,5 +228,54 @@ describe('空・旧形式', () => {
   it('ミッションは120字までに切る', () => {
     const { text } = buildExecutionSummaryBlock([{ name: '営業部', mission: 'あ'.repeat(300), projects: [] }], '');
     expect(text).toContain(`（ミッション: ${'あ'.repeat(120)}）`);
+  });
+});
+
+describe('評価フィクスチャの件数・対応関係・単位（規模別）', () => {
+  it.each(Object.keys(STAGE4_SCALE_FIXTURES) as Array<keyof typeof STAGE4_SCALE_FIXTURES>)('%s: 充足状況の数字は表示行数と一致する', (scale) => {
+    const depts = STAGE4_SCALE_FIXTURES[scale]();
+    const r = buildExecutionSummaryBlock(depts, '全社の状況を教えて');
+    const deptTotal = depts.length;
+    const projTotal = depts.reduce((n, d) => n + d.projects.length, 0);
+    const shownDeptLines = r.text.split('\n').filter((l) => l.startsWith('■ 部門: ')).length;
+    const shownProjHeaders = r.text.split('\n').filter((l) => l.startsWith('  - プロジェクト: ')).length;
+    expect(r.departments.total).toBe(deptTotal);
+    expect(r.projects.total).toBe(projTotal);
+    expect(shownDeptLines).toBe(r.departments.shown);
+    expect(shownProjHeaders).toBe(r.projects.shown);
+    expect(r.text).toContain(`部門 全${deptTotal}件中${r.departments.shown}件を参照`);
+    expect(r.text).toContain(`施策 全${projTotal}件中${r.projects.shown}件を参照`);
+    assertKrNeverOrphaned(r.text);
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+  });
+
+  it('一部だけ参照したときは、全社の順位を断定しない制約を結論より前に書く。全件のときは書かない', () => {
+    const partial = buildExecutionSummaryBlock(STAGE4_SCALE_FIXTURES['40部門・600施策'](), '全社で重要な施策は？').text;
+    expect(partial.split('\n')[1]).toContain('この制約を結論より前に適用すること');
+    expect(partial.split('\n')[1]).toContain('全社で最も重要・全社第1位');
+    const full = buildExecutionSummaryBlock(makeFixtureDepts(2, 3, 2), '').text;
+    expect(full).toContain('全件）');
+    expect(full).not.toContain('結論より前に適用');
+  });
+
+  it('KRの単位は、同じラベルなら全施策で一定（数値KRに一律の単位を付けない）', () => {
+    const unitByLabel = new Map<string, Set<string>>();
+    for (const scale of Object.keys(STAGE4_SCALE_FIXTURES) as Array<keyof typeof STAGE4_SCALE_FIXTURES>) {
+      for (const d of STAGE4_SCALE_FIXTURES[scale]()) {
+        for (const p of d.projects) {
+          for (const kr of p.okrsV2) {
+            const base = kr.label.replace(/（補助\d+）$/, '');
+            if (!unitByLabel.has(base)) unitByLabel.set(base, new Set());
+            unitByLabel.get(base)!.add(kr.unit);
+          }
+        }
+      }
+    }
+    expect(unitByLabel.size).toBeGreaterThan(20);
+    for (const [, units] of unitByLabel) expect(units.size).toBe(1);
+    expect(unitByLabel.get('新規商談数')).toEqual(new Set(['件']));
+    expect(unitByLabel.get('新規受注率')).toEqual(new Set(['%']));
+    expect(unitByLabel.get('初回提案までの日数')).toEqual(new Set(['日']));
+    expect(unitByLabel.get('稼働率')).toEqual(new Set(['%']));
   });
 });
