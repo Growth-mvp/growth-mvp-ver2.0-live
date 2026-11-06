@@ -118,13 +118,24 @@ function describeRow(row: TargetRow): string {
   return `- ${parts.join('｜')}`;
 }
 
-export function buildStage2TargetBlock(args: { companyTargets: unknown; actual: Stage2Actual | null }): string {
+/** 正規化前の保存値が空（未設定または空配列）のときだけ、業績目標の未登録と断定できる */
+export function isStage2TargetsAbsent(rawCompanyTargets: unknown): boolean {
+  return rawCompanyTargets == null || (Array.isArray(rawCompanyTargets) && rawCompanyTargets.length === 0);
+}
+
+export function buildStage2TargetBlock(args: {
+  companyTargets: unknown;
+  actual: Stage2Actual | null;
+  absenceConfirmed?: boolean;
+}): string {
   const { rows, total } = normalizeStage2Targets(args.companyTargets);
   const lines: string[] = ['【STAGE2 業績目標（経営者が STAGE2 で登録した目標）】'];
 
   if (rows.length === 0) {
     lines.push(
-      '- 未登録です（STAGE2で業績目標が登録されていません）。目標値を推測せず、「STAGE2で業績目標が登録されていません」と答え、STAGE2での登録を案内してください。'
+      args.absenceConfirmed
+        ? '- 未登録です（STAGE2で業績目標が登録されていません）。目標値を推測せず、「STAGE2で業績目標が登録されていません」と答え、STAGE2での登録を案内してください。'
+        : '- 今回参照した情報では業績目標を確認できません。目標値を推測せず、「今回の情報では業績目標を確認できません」と答え、STAGE2の画面で登録状況を確認するよう案内してください。'
     );
     return lines.join('\n');
   }

@@ -115,11 +115,19 @@ describe('回答用ブロック', () => {
     expect(line).toContain('重要度 副KPI');
   });
 
-  it('未登録の場合は数値を出さず、推測しないよう指示する', () => {
-    const block = buildStage2TargetBlock({ companyTargets: [], actual: null });
+  it('正常取得で未登録と確認できる場合は、未登録と書き、数値を出さず推測しないよう指示する', () => {
+    const block = buildStage2TargetBlock({ companyTargets: [], actual: null, absenceConfirmed: true });
     expect(block).toContain('未登録です');
     expect(block).toContain('目標値を推測せず');
     expect(block.replace(/STAGE\d/g, '')).not.toMatch(/\d/);
+  });
+
+  it('未登録と確認できない場合は、未登録と断定せず確認できないと書く', () => {
+    const block = buildStage2TargetBlock({ companyTargets: [], actual: null, absenceConfirmed: false });
+    expect(block).not.toContain('未登録です');
+    expect(block).not.toContain('登録されていません');
+    expect(block).toContain('今回参照した情報では業績目標を確認できません');
+    expect(block).toContain('目標値を推測せず');
   });
 
   it('目標年度と実績年度が同じなら差額を計算する', () => {

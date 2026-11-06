@@ -93,6 +93,11 @@ export type Stage3BridgeBlock = {
  * 許可項目（strategicCore・keyThemes・departmentIssues・commonBehaviorChanges・departmentTranslationRules）
  * 以外、特に kpiCriteria は含めない。
  */
+/** 正規化後の値で判定する。オブジェクト以外の保存値も正規化で未設定になり、ここでは区別できない */
+export function isStage3BridgeAbsent(strategy: AnyRecord | null | undefined): boolean {
+  return strategy?.stage3_strategy_bridge == null;
+}
+
 export function buildStage3BridgeBlock(
   strategy: AnyRecord | null | undefined,
   opts: { budget?: number } = {}
@@ -110,7 +115,13 @@ export function buildStage3BridgeBlock(
     omitted: 0,
   });
 
-  if (!b) return absent('STAGE3の戦略展開ブリッジは登録されていません');
+  if (!b) {
+    return absent(
+      isStage3BridgeAbsent(strategy)
+        ? 'STAGE3の戦略展開ブリッジは登録されていません'
+        : 'STAGE3の戦略展開ブリッジは今回参照した情報では確認できません'
+    );
+  }
 
   const included: string[] = [];
   const core: AnyRecord = b.strategicCore && typeof b.strategicCore === 'object' ? b.strategicCore : {};

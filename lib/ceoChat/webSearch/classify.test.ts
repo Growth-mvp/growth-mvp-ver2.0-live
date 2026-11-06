@@ -39,6 +39,25 @@ describe('外部検索の判定（C：社内情報と外部情報の照合 → �
   });
 });
 
+describe('外部検索の判定（成長・競争の語で検索ON）', () => {
+  it.each([
+    '当社の成長機会は何か',
+    '当社の事業機会を整理して',
+    '当社が新規事業に参入する余地はあるか',
+    '当社のライバルに対して何で勝てるか',
+  ])('%s', (q) => {
+    expect(classifySearchNeed(q).searchNeeded).toBe(true);
+  });
+
+  it.each([
+    '当社の施策の進捗は',
+    '社内のKPIを確認したい',
+    '当社の事業計画の進捗を教えて',
+  ])('社内のみの質問は検索OFF: %s', (q) => {
+    expect(classifySearchNeed(q)).toEqual({ category: 'A', searchNeeded: false });
+  });
+});
+
 describe('外部検索の判定（語の誤一致の防止）', () => {
   it('英字の AI は、単語の一部（maintain など）に一致しない', () => {
     expect(classifySearchNeed('当社の人員を maintain する計画を見て').category).toBe('A');

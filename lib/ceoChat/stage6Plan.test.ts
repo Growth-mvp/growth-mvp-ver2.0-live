@@ -101,12 +101,19 @@ describe('実績・目標・予測の区分（Q2・Q5の誤りの再現と防止
 });
 
 describe('保存済みの前提が使えないとき', () => {
-  it('保存なし：目標を出さず、実績と予測未算出だけ', () => {
-    const text = block({ csvFinanceData: {} });
+  it('保存なし（他の項目を含む保存データで、前提が無いと確認できる）：未保存と書き、目標を出さない', () => {
+    const text = block({ csvFinanceData: { financeBS: [] } });
     expect(text).toContain('保存済みの資金計画はありません');
     expect(text).not.toContain('目標（経営者が登録）');
     expect(text).toContain('予測未算出');
     expect(text).toContain('実績（STAGE1登録、2025年度）');
+  });
+
+  it('保存なしと確認できない（保存データが空）：未保存と断定せず、目標を出さない', () => {
+    const text = block({ csvFinanceData: {} });
+    expect(text).not.toContain('保存済みの資金計画はありません');
+    expect(text).toContain('保存済みの資金計画は今回参照した情報では確認できません');
+    expect(text).not.toContain('目標（経営者が登録）');
   });
 
   it('別の会社の前提は使わない', () => {
@@ -198,9 +205,20 @@ describe('現預金の区分（資金の相談で単独に使う）', () => {
     expect(text).not.toMatch(/年度（予測）/);
   });
 
-  it('最低現預金が無ければ未登録と書く', () => {
-    const text = buildCashPositionBlock({ csvFinanceData: {}, companyId: COMPANY_A, financePL: PL, financeBS: BS });
+  it('最低現預金が未登録と確認できれば未登録と書く', () => {
+    const text = buildCashPositionBlock({
+      csvFinanceData: { financeBS: [] },
+      companyId: COMPANY_A,
+      financePL: PL,
+      financeBS: BS,
+    });
     expect(text).toContain('最低現預金：未登録です');
+  });
+
+  it('保存データが空で未登録と確認できなければ、未登録と断定しない', () => {
+    const text = buildCashPositionBlock({ csvFinanceData: {}, companyId: COMPANY_A, financePL: PL, financeBS: BS });
+    expect(text).not.toContain('最低現預金：未登録です');
+    expect(text).toContain('最低現預金：保存済みの資金計画は今回参照した情報では確認できません');
   });
 });
 

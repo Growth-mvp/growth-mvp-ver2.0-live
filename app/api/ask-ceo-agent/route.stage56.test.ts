@@ -277,10 +277,16 @@ describe('評価の7問：必要な STAGE5・6 の情報が届く（モック）
 });
 
 describe('未登録・他社・古い前提の扱い', () => {
-  it('保存済みの資金計画がなければ、数値を作らない', async () => {
-    const p = await ask('来年度の資金繰りは大丈夫か？', strategyRow({ csvFinanceData: {} }));
+  it('保存データに他の項目があり前提が無い場合は未保存と書き、数値を作らない', async () => {
+    const p = await ask('来年度の資金繰りは大丈夫か？', strategyRow({ csvFinanceData: { financeBS: [] } }));
     expect(p).toContain('保存済みの資金計画はありません');
     expect(p).not.toMatch(/\d{4}年度（予測）/);
+  });
+
+  it('保存データが空で未保存と確認できない場合は、未保存と断定しない', async () => {
+    const p = await ask('来年度の資金繰りは大丈夫か？', strategyRow({ csvFinanceData: {} }));
+    expect(p).not.toContain('保存済みの資金計画はありません');
+    expect(p).toContain('保存済みの資金計画は今回参照した情報では確認できません');
   });
 
   it('別の会社の資金計画は使わない', async () => {

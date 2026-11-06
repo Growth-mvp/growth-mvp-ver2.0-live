@@ -309,10 +309,16 @@ function coverageText(
   return `（充足状況: 部門 全${depts.total}件中${depts.shown}件を参照（うち施策の詳細あり${depts.detailed}件）、施策 全${projects.total}件中${projects.visible}件を名称・概要で参照（うち詳細あり${projects.shown}件、KRまで表示${projects.withKr}件）${projectNote}。施策の詳細は一部のみ（結論より前に適用）: 全社順位（最重要・第1位など）は断定せず、参照できた施策の中の重要候補として限定する。全社の戦略課題からの議論は可能。${deptNote}）`;
 }
 
+/** 正規化前の保存値が未設定・空配列のときだけ、部門の未登録と断定できる */
+export function isDepartmentsAbsent(rawDepartments: unknown): boolean {
+  return rawDepartments == null || (Array.isArray(rawDepartments) && rawDepartments.length === 0);
+}
+
 export function buildExecutionSummaryBlock(
   departments: unknown,
   question: string,
-  budget: number = EXECUTION_CHAR_BUDGET
+  budget: number = EXECUTION_CHAR_BUDGET,
+  absenceConfirmed: boolean = false
 ): ExecutionSummary {
   const q = question ?? '';
   const intent = detectProjectionIntent(q, departments);
@@ -320,7 +326,11 @@ export function buildExecutionSummaryBlock(
   const depts = byMentionFirst(records(departments), q, (d) => text(d.name));
   if (depts.length === 0) {
     return {
-      text: `${HEADER}\n（部門・プロジェクトなし）`,
+      text: `${HEADER}\n${
+        absenceConfirmed
+          ? '（部門・プロジェクトなし）'
+          : '（部門・プロジェクトは今回参照した情報では確認できません）'
+      }`,
       omitted: 0,
       departments: { total: 0, shown: 0, detailed: 0 },
       projects: { total: 0, shown: 0, withKr: 0, visible: 0 },

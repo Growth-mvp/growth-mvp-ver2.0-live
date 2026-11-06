@@ -63,11 +63,16 @@ describe('ラベルの指示混入対策（参照データとして扱う）', (
     expect(label.endsWith('…')).toBe(true);
   });
 
-  it('除去すると空になるラベルは項目として扱わない（未登録として扱う）', () => {
+  it('除去すると空になるラベルは項目として扱わず、未登録とは断定しない（保存値は空ではない）', () => {
     const { rows } = normalizeStage2Targets([{ label: '\n  【】', unit: '百万円', base: 1 }]);
     expect(rows).toHaveLength(0);
-    const block = buildStage2TargetBlock({ companyTargets: [{ label: '\n', unit: '百万円', base: 1 }], actual: null });
-    expect(block).toContain('未登録です');
+    const block = buildStage2TargetBlock({
+      companyTargets: [{ label: '\n', unit: '百万円', base: 1 }],
+      actual: null,
+      absenceConfirmed: false,
+    });
+    expect(block).not.toContain('未登録です');
+    expect(block).toContain('今回参照した情報では業績目標を確認できません');
   });
 });
 

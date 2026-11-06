@@ -44,8 +44,22 @@ export function latestActual(financePL: unknown, financeBS: unknown): Actual | n
   };
 }
 
-function actualLine(a: Actual | null): string {
-  if (!a) return '- 実績（STAGE1登録）：損益データが未登録です。';
+/** 正規化後の損益配列が空のときだけ、損益データの未登録と断定できる（正規化は保存値を空にしないため） */
+export function isStage6FinanceAbsent(financePL: unknown): boolean {
+  return Array.isArray(financePL) && financePL.length === 0;
+}
+
+/** 他の項目を含む保存データがあり、前提キーだけが無いときだけ、保存済み資金計画の未保存と断定できる */
+export function isStage6StoreNoneConfirmed(csvFinanceData: unknown): boolean {
+  return isRecord(csvFinanceData) && Object.keys(csvFinanceData).length > 0 && csvFinanceData.financePlanAssumptions == null;
+}
+
+function actualLine(a: Actual | null, financeAbsent: boolean): string {
+  if (!a) {
+    return financeAbsent
+      ? '- 実績（STAGE1登録）：損益データが未登録です。'
+      : '- 実績（STAGE1登録）：今回参照した情報では確認できません。';
+  }
   return `- 実績（STAGE1登録、${a.year}年度）：売上 ${money(a.revenue)}｜営業利益 ${money(a.operatingIncome)}｜期末現預金 ${money(a.cash)}`;
 }
 
@@ -56,10 +70,12 @@ function storedOf(csvFinanceData: unknown, companyId: string | null): Stored {
   return readStoredFinancePlan(csv.financePlanAssumptions, companyId);
 }
 
-function storedStatusLine(stored: Stored): string | null {
+function storedStatusLine(stored: Stored, noneConfirmed: boolean): string | null {
   switch (stored.kind) {
     case 'NONE':
-      return '- 保存済みの資金計画はありません。目標と借入・返済の数値は出しません。';
+      return noneConfirmed
+        ? '- 保存済みの資金計画はありません。目標と借入・返済の数値は出しません。'
+        : '- 保存済みの資金計画は今回参照した情報では確認できません。目標と借入・返済の数値は出しません。';
     case 'DIFFERENT_COMPANY':
       return '- 保存済みの資金計画は、この会社のものとして確認できませんでした。目標と借入・返済の数値は出しません。';
     case 'INVALID':
@@ -81,8 +97,8 @@ export function buildStage6PlanBlock(args: {
 }): string {
   const lines: string[] = [HEADER, CATEGORY_NOTE];
   const stored = storedOf(args.csvFinanceData, args.companyId);
-  const status = storedStatusLine(stored);
-  lines.push(actualLine(latestActual(args.financePL, args.financeBS)));
+  const status = storedStatusLine(stored, isStage6StoreNoneConfirmed(args.csvFinanceData));
+  lines.push(actualLine(latestActual(args.financePL, args.financeBS), isStage6FinanceAbsent(args.financePL)));
 
   if (stored.kind === 'OK') {
     const a = stored.domain.assumptions;
@@ -150,12 +166,18 @@ export function buildCashPositionBlock(args: {
   financePL: unknown;
   financeBS: unknown;
 }): string {
-  const lines = ['# 現預金（区分ごとに表示）', CATEGORY_NOTE, actualLine(latestActual(args.financePL, args.financeBS))];
+  const lines = [
+    '# 現預金（区分ごとに表示）',
+    CATEGORY_NOTE,
+    actualLine(latestActual(args.financePL, args.financeBS), isStage6FinanceAbsent(args.financePL)),
+  ];
   const stored = storedOf(args.csvFinanceData, args.companyId);
   if (stored.kind === 'OK' && stored.domain.assumptions.minCashYen !== null) {
     lines.push(`- 最低現預金（登録前提）：${money(stored.domain.assumptions.minCashYen)}`);
-  } else {
+  } else if (stored.kind === 'OK' || (stored.kind === 'NONE' && isStage6StoreNoneConfirmed(args.csvFinanceData))) {
     lines.push('- 最低現預金：未登録です。');
+  } else {
+    lines.push('- 最低現預金：保存済みの資金計画は今回参照した情報では確認できません。');
   }
   lines.push(CASH_FORECAST_NOTE);
   return lines.join('\n');

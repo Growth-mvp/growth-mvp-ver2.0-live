@@ -41,14 +41,32 @@ import {
   hasCompanyReference,
   isGeneralKnowledgeQuestion,
 } from '@/lib/ceoChat/contextSelection';
-import { buildExecutionSummaryBlock } from '@/lib/ceoChat/stage4Projection';
+import { buildExecutionSummaryBlock, isDepartmentsAbsent } from '@/lib/ceoChat/stage4Projection';
 import {
   buildStage5ProgressBlock,
   formatOwnProgressLines,
   CHECKIN_LOOKBACK_DAYS,
 } from '@/lib/ceoChat/stage5Progress';
-import { buildStage6PlanBlock, buildCashPositionBlock, latestActual } from '@/lib/ceoChat/stage6Plan';
-import { buildStage2TargetBlock, isStage2TargetQuestion } from '@/lib/ceoChat/stage2Targets';
+import {
+  buildStage6PlanBlock,
+  buildCashPositionBlock,
+  isStage6FinanceAbsent,
+  latestActual,
+} from '@/lib/ceoChat/stage6Plan';
+import {
+  buildStage2TargetBlock,
+  isStage2TargetQuestion,
+  isStage2TargetsAbsent,
+  normalizeStage2Targets,
+} from '@/lib/ceoChat/stage2Targets';
+import { buildStage3BridgeBlock, isStage3BridgeAbsent } from '@/lib/ceoChat/stage3Context';
+import {
+  buildReferenceStatusBlock,
+  buildReferenceStatusLines,
+  classifyStage6Text,
+  TRUNCATION_MARK,
+  type ReferenceFacts,
+} from '@/lib/ceoChat/referenceStatus';
 import { buildFocusAnswersBlock } from '@/lib/ceoChat/supplementBlocks';
 import {
   buildStatClaimNotice,
@@ -87,6 +105,14 @@ import {
 /* ========= 型 ========= */
 type Role = 'system' | 'user' | 'assistant';
 type Message = { role: Role; content: string };
+type FetchRefFacts = {
+  stage1MetricsFailed: boolean;
+  companyTargetsAbsent: boolean;
+  progressLogsFailed: boolean;
+  progressLogCount: number;
+  execution: { departmentsTotal: number; shownDepartments: number; complete: boolean; absenceConfirmed: boolean };
+};
+const PROGRESS_LOG_LIMIT = 200;
 type RequestBody = {
   messages: Message[];
   userId: string;
@@ -175,6 +201,9 @@ async function fetchStrategyContext(args: {
 
   // strategyId + companyId で直接取得（データ混在防止）
   let strategy: StrategyData | null = null;
+  let stage1MetricsFailed = false;
+  let companyTargetsAbsent = false;
+  let departmentsAbsent = false;
   try {
     // ★ アプローチ1: server-side admin client を明示的に渡す
     const { data: sRow, error } = await getFullStrategyDataByStrategyId(strategyId, companyId, supabaseAdmin);
@@ -189,7 +218,13 @@ async function fetchStrategyContext(args: {
         financePL_count: Array.isArray((sRow as any)?.financePL) ? (sRow as any).financePL.length : 0,
       };
 
+      companyTargetsAbsent = isStage2TargetsAbsent((sRow as any).companyTargets);
+      departmentsAbsent = isDepartmentsAbsent((sRow as any).departments);
       strategy = normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData;
+      const rawStage3Bridge = (sRow as any).stage3_strategy_bridge;
+      if (rawStage3Bridge != null && (strategy as any).stage3_strategy_bridge == null) {
+        (strategy as any).stage3_strategy_bridge = rawStage3Bridge;
+      }
 
       try {
         const stage1 = computeStage1ValueAnalysis({
@@ -202,6 +237,7 @@ async function fetchStrategyContext(args: {
         });
         strategy.valueAnalysis = stage1.company;
       } catch (e: any) {
+        stage1MetricsFailed = true;
         console.warn('[ask-ceo-agent] stage1 value analysis error:', e?.message || e);
       }
 
@@ -226,6 +262,7 @@ async function fetchStrategyContext(args: {
 
   // 進捗ログ（本人の最近分） - Service Role Admin で取得（RLS回避）
   let progressLogs: any[] = [];
+  let progressLogsFailed = false;
   try {
     const adminClient = supabaseAdmin ?? getSupabaseAdmin();
     const { data: logs, error: plErr } = await adminClient
@@ -234,8 +271,11 @@ async function fetchStrategyContext(args: {
       .eq('user_id', userId)
       .eq('company_id', companyId)  // ★ company_id でフィルタ（RLS準拠）
       .order('created_at', { ascending: false })
-      .limit(200);
-    if (plErr) console.warn('[ask-ceo-agent] progress_logs select error:', plErr?.message || plErr);
+      .limit(PROGRESS_LOG_LIMIT);
+    if (plErr) {
+      progressLogsFailed = true;
+      console.warn('[ask-ceo-agent] progress_logs select error:', plErr?.message || plErr);
+    }
     progressLogs = safeArray<any>(logs);
     console.log('[ask-ceo-agent] progress_logs fetched', {
       userId: userId.substring(0, 8),
@@ -243,6 +283,7 @@ async function fetchStrategyContext(args: {
       count: progressLogs.length,
     });
   } catch (e: any) {
+    progressLogsFailed = true;
     console.error('[ask-ceo-agent] progress_logs select exception:', {
       errorMessage: e?.message || String(e),
       errorName: e?.name,
@@ -252,7 +293,8 @@ async function fetchStrategyContext(args: {
   }
 
   const departments = safeArray<any>(strategy?.departments ?? (strategy as any)?.editableCascadeResult);
-  const executionText = buildExecutionSummaryBlock(departments, question).text;
+  const execSummary = buildExecutionSummaryBlock(departments, question, undefined, departmentsAbsent);
+  const executionText = execSummary.text;
   const progressSummaryText = buildProgressSummary(progressLogs);
   const extraBlockFromFull =
     `\n\n---\n${executionText}\n` +
@@ -260,12 +302,24 @@ async function fetchStrategyContext(args: {
 
   // フルが取れない場合（strategyId が無効または削除されている場合）
   if (!strategy || Object.keys(strategy).length === 0) {
-    return { strategy: null, answers2: [], finalStory: [], extraBlock: '' };
+    return { strategy: null, answers2: [], finalStory: [], extraBlock: '', refFacts: null };
   }
 
   const answers2 = safeArray<any>((strategy as any)?.answers2);
   const finalStory = safeArray<any>(selectCanonicalStory(strategy as any).chapters);
-  return { strategy, answers2, finalStory, extraBlock: extraBlockFromFull };
+  const refFacts: FetchRefFacts = {
+    stage1MetricsFailed,
+    companyTargetsAbsent,
+    progressLogsFailed,
+    progressLogCount: progressLogs.length,
+    execution: {
+      departmentsTotal: execSummary.departments.total,
+      shownDepartments: execSummary.departments.shown,
+      complete: execSummary.complete,
+      absenceConfirmed: departmentsAbsent,
+    },
+  };
+  return { strategy, answers2, finalStory, extraBlock: extraBlockFromFull, refFacts };
 }
 
 /* ========= route ========= */
@@ -364,7 +418,7 @@ export async function POST(req: Request) {
     const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
     // ★ アプローチ1: server-side admin client を fetchStrategyContext に渡す
-    const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext({
+    const { strategy, answers2, finalStory, extraBlock, refFacts } = await fetchStrategyContext({
       companyId,
       strategyId,
       userId,
@@ -605,53 +659,74 @@ export async function POST(req: Request) {
 
       if (shouldUseAgentPrompt) {
         const stageSources = selectStage56Sources(lastUser);
+        let stage5Facts: ReferenceFacts['stage5'] = null;
+        let stage6Facts: ReferenceFacts['stage6'] = null;
+        let stage2TargetFacts: ReferenceFacts['stage2Targets'] = null;
+        let stage3Facts: ReferenceFacts['stage3Bridge'] = null;
         if (stageSources.progress) {
           const now = new Date();
           const company = await fetchStage5Company(admin, companyId, now);
-          systemBase +=
-            '\n\n' +
-            buildStage5ProgressBlock({
-              departments: (strategy as any)?.departments,
-              okrs: company.okrs,
-              companyLogs: company.companyLogs,
-              companyLogsFailed: company.companyLogsFailed,
-              now,
-            });
+          const stage5Text = buildStage5ProgressBlock({
+            departments: (strategy as any)?.departments,
+            okrs: company.okrs,
+            companyLogs: company.companyLogs,
+            companyLogsFailed: company.companyLogsFailed,
+            now,
+          });
+          stage5Facts = {
+            failed: company.companyLogsFailed,
+            truncated: stage5Text.includes(TRUNCATION_MARK),
+          };
+          systemBase += '\n\n' + stage5Text;
         }
+        const csvFinance = (strategy as any)?.csvFinanceData;
+        const financeAbsent = isStage6FinanceAbsent((strategy as any)?.financePL);
         if (stageSources.plan) {
-          systemBase +=
-            '\n\n' +
-            buildStage6PlanBlock({
-              csvFinanceData: (strategy as any)?.csvFinanceData,
-              companyId,
-              financePL: (strategy as any)?.financePL,
-              financeBS: (strategy as any)?.financeBS,
-              departments: (strategy as any)?.departments,
-              fiscalYearEnd: (strategy as any)?.fiscalYearEnd,
-              currentYear: new Date().getFullYear(),
-              simulationResults: (strategy as any)?.simulationResults,
-            });
+          const planText = buildStage6PlanBlock({
+            csvFinanceData: csvFinance,
+            companyId,
+            financePL: (strategy as any)?.financePL,
+            financeBS: (strategy as any)?.financeBS,
+            departments: (strategy as any)?.departments,
+            fiscalYearEnd: (strategy as any)?.fiscalYearEnd,
+            currentYear: new Date().getFullYear(),
+            simulationResults: (strategy as any)?.simulationResults,
+          });
+          stage6Facts = { scope: 'plan', financeEmpty: financeAbsent, ...classifyStage6Text(planText) };
+          systemBase += '\n\n' + planText;
         }
         const supplement = selectSupplementSources(lastUser);
         if (supplement.cash && !stageSources.plan) {
-          systemBase +=
-            '\n\n' +
-            buildCashPositionBlock({
-              csvFinanceData: (strategy as any)?.csvFinanceData,
-              companyId,
-              financePL: (strategy as any)?.financePL,
-              financeBS: (strategy as any)?.financeBS,
-            });
+          const cashText = buildCashPositionBlock({
+            csvFinanceData: csvFinance,
+            companyId,
+            financePL: (strategy as any)?.financePL,
+            financeBS: (strategy as any)?.financeBS,
+          });
+          stage6Facts = { scope: 'cash', financeEmpty: financeAbsent, ...classifyStage6Text(cashText) };
+          systemBase += '\n\n' + cashText;
         }
         if (supplement.talent) {
           const focus = buildFocusAnswersBlock(strategy as any, lastUser);
           if (focus) systemBase += '\n\n' + focus;
         }
         if (isStage2TargetQuestion(lastUser)) {
+          const targets = normalizeStage2Targets((strategy as any)?.companyTargets);
+          const absenceConfirmed = refFacts?.companyTargetsAbsent ?? false;
+          stage2TargetFacts = { rows: targets.rows.length, total: targets.total, absenceConfirmed };
           systemBase += '\n\n' + buildStage2TargetBlock({
             companyTargets: (strategy as any)?.companyTargets,
             actual: latestActual((strategy as any)?.financePL, (strategy as any)?.financeBS),
+            absenceConfirmed,
           });
+        }
+        if (contextSelection.alignment && !contextSelection.operation) {
+          const bridge = buildStage3BridgeBlock(strategy as any);
+          stage3Facts = {
+            state: bridge.state,
+            absenceConfirmed: isStage3BridgeAbsent(strategy as any),
+            omitted: bridge.omitted,
+          };
         }
         const webSearch = await resolveCeoWebSearch({
           enabled: isCeoWebSearchEnabled(process.env.CEO_CHAT_WEB_SEARCH_ENABLED),
@@ -686,6 +761,33 @@ export async function POST(req: Request) {
           shownInPrompt: reviewBlock.shown.length,
           relevantOutsideShown: reviewBlock.relevantOutsideShown,
         };
+        if (refFacts) {
+          const referenceFacts: ReferenceFacts = {
+            stage1: { financeSummaryCount, metricsFailed: refFacts.stage1MetricsFailed },
+            stage2Qa: {
+              chapterSteps: safeArray<any>(answers2)
+                .map((c) => (Array.isArray(c?.steps) ? c.steps.length : 0))
+                .filter((n) => n > 0),
+            },
+            stage2Story: { chapterCount: finalStory.length },
+            stage2Targets: stage2TargetFacts,
+            stage3Bridge: stage3Facts,
+            stage4: {
+              departmentsTotal: refFacts.execution.departmentsTotal,
+              shownDepartments: refFacts.execution.shownDepartments,
+              complete: refFacts.execution.complete,
+              absenceConfirmed: refFacts.execution.absenceConfirmed,
+            },
+            progressLog: {
+              failed: refFacts.progressLogsFailed,
+              count: refFacts.progressLogCount,
+              limit: PROGRESS_LOG_LIMIT,
+            },
+            stage5: stage5Facts,
+            stage6: stage6Facts,
+          };
+          systemBase += '\n\n' + buildReferenceStatusBlock(buildReferenceStatusLines(referenceFacts));
+        }
       }
       console.log('[ask-ceo-agent]', requestId, 'context_selection', {
         ...contextSelection,

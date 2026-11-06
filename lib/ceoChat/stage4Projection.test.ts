@@ -1,4 +1,9 @@
-import { aggregateExecution, buildExecutionSummaryBlock, detectProjectionIntent } from './stage4Projection';
+import {
+  aggregateExecution,
+  buildExecutionSummaryBlock,
+  detectProjectionIntent,
+  isDepartmentsAbsent,
+} from './stage4Projection';
 import { STAGE4_SCALE_FIXTURES, makeFixtureDepts } from '../../eval/quality/stage4ScaleFixture';
 
 const SALES_PROJECT = {
@@ -227,8 +232,17 @@ describe('部門・施策・KRの対応関係を壊さない', () => {
 });
 
 describe('空・旧形式', () => {
-  it('部門が無いとき', () => {
-    expect(buildExecutionSummaryBlock([], '').text).toContain('（部門・プロジェクトなし）');
+  it('正常取得で部門が無いと確認できるとき', () => {
+    expect(buildExecutionSummaryBlock([], '', undefined, true).text).toContain('（部門・プロジェクトなし）');
+  });
+
+  it('部門が無いと確認できないとき（不正な保存値を含む）は、無いと断定しない', () => {
+    const text = buildExecutionSummaryBlock([], '').text;
+    expect(text).not.toContain('（部門・プロジェクトなし）');
+    expect(text).toContain('（部門・プロジェクトは今回参照した情報では確認できません）');
+    expect(isDepartmentsAbsent('not-an-array')).toBe(false);
+    expect(isDepartmentsAbsent([])).toBe(true);
+    expect(isDepartmentsAbsent(undefined)).toBe(true);
   });
 
   it('プロジェクトが無い部門', () => {
