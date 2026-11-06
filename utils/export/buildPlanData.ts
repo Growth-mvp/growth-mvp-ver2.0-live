@@ -12,6 +12,26 @@ import { isRevenueLabel } from '@/utils/stage6/compute';
 
 export type AudienceType = 'bank' | 'shareholder' | 'employee';
 
+export type ProjectImpactRow = {
+  title: string;
+  impactRevenue?: string;
+  impactOpIncome?: string;
+  impactInvestment?: string;
+  confidence?: number;
+};
+
+export type ConfirmedStage2 = {
+  storySource: 'FINAL' | 'EDITED' | 'DRAFT' | 'LEGACY' | 'NONE';
+  chapters: Array<{ title: string; body: string }>;
+  conclusion?: string;
+  customerValue?: string;
+  primaryShift?: string;
+  growthStrategy?: string;
+  profitStrategy?: string;
+  managementIssues?: string[];
+  decisionCriteria?: string[];
+};
+
 /**
  * ステークホルダー別計画書データの共通型
  * （MidtermPlanData を拡張し、audience別フィールドを追加）
@@ -68,16 +88,19 @@ export type PlanData = {
     portfolioPolicy?: string;
     managementIssues?: string[];
     companyTargets?: Array<{ label: string; value: string }>;
+    confirmed?: ConfirmedStage2;
   };
 
   // STAGE3：事業・部門別戦略
   stage3: {
+    totalDepartmentCount?: number;
     departments: Array<{
       name: string;
       currentPosition?: string;
       strategicRole?: string;
       keyIssues?: string[];
       projects?: string[];
+      projectCount?: number;
       okrs?: string[];
       interDeptCollab?: string[];
       riskNotes?: string[];
@@ -89,13 +112,9 @@ export type PlanData = {
   stage4: {
     companyThemes?: string[];
     companyDecisionCriteria?: string[];
-    projectImpacts?: Array<{
-      title: string;
-      impactRevenue?: string;
-      impactOpIncome?: string;
-      impactInvestment?: string;
-      confidence?: number;
-    }>;
+    totalProjectCount?: number;
+    allProjectImpacts?: ProjectImpactRow[];
+    projectImpacts?: ProjectImpactRow[];
     departmentKpis?: Array<{
       departmentName: string;
       kpis?: string[];
@@ -204,6 +223,7 @@ export function buildPlanData(
     portfolioPolicy: midtermStrategy?.portfolioPolicy,
     managementIssues: midtermStrategy?.managementMeetingIssues?.slice(0, 5),
     companyTargets,
+    confirmed: buildConfirmedStage2(state, midtermStrategy),
   };
 
   // ===== STAGE3 データ抽出 =====
@@ -214,6 +234,7 @@ export function buildPlanData(
       currentPosition: dept?.currentPosition,
       strategicRole: dept?.strategicRole,
       keyIssues: Array.isArray(dept?.keyIssues) ? dept.keyIssues.slice(0, 3) : [],
+      projectCount: Array.isArray(dept?.projects) ? dept.projects.length : 0,
       projects:
         Array.isArray(dept?.projects) && dept.projects.length > 0
           ? dept.projects
@@ -232,6 +253,7 @@ export function buildPlanData(
     }));
 
   const stage3 = {
+    totalDepartmentCount: departments.length,
     departments: stage3Depts,
   };
 
@@ -259,6 +281,8 @@ export function buildPlanData(
 
   const stage4 = {
     companyThemes: stage2.priorityThemes,
+    totalProjectCount: projectImpacts.length,
+    allProjectImpacts: projectImpacts,
     projectImpacts: projectImpacts.slice(0, 20), // 最大20プロジェクト
   };
 
@@ -305,6 +329,43 @@ export function buildPlanData(
 }
 
 // ===== ユーティリティ関数 =====
+
+/** 版の優先順位は STAGE2 レポート（buildStage2ReportData）と同じ：確定版 > 編集版 > ドラフト > 旧互換 */
+function buildConfirmedStage2(state: any, midtermStrategy: any): ConfirmedStage2 {
+  const edits = state?.stage2FinalDocumentEdits;
+  const editedMts = edits?.midtermStrategy;
+  const mts = midtermStrategy ?? editedMts;
+  const core = mts?.strategicCore ?? editedMts?.strategicCore;
+  const pickText = (...values: unknown[]): string | undefined =>
+    values.find((v): v is string => typeof v === 'string' && v.trim() !== '')?.trim();
+  const pickList = (...values: unknown[][]): string[] | undefined => {
+    const found = values.find((v) => Array.isArray(v) && v.length > 0);
+    return found ? found.filter((v): v is string => typeof v === 'string' && v.trim() !== '') : undefined;
+  };
+
+  const sources: Array<[ConfirmedStage2['storySource'], unknown]> = [
+    ['FINAL', state?.finalStoryFinal],
+    ['EDITED', state?.finalStoryEdited],
+    ['DRAFT', state?.finalStoryDraft],
+    ['LEGACY', state?.finalStory],
+  ];
+  const picked = sources.find(([, chapters]) => Array.isArray(chapters) && chapters.length > 0);
+  const chapters = picked && Array.isArray(picked[1])
+    ? picked[1].map((ch: any) => ({ title: ch?.title ?? '', body: ch?.body ?? '' }))
+    : [];
+
+  return {
+    storySource: picked ? picked[0] : 'NONE',
+    chapters,
+    conclusion: pickText(edits?.conclusion, state?.stage2FinalGeneratedConclusion),
+    customerValue: pickText(core?.customerValue),
+    primaryShift: pickText(core?.primaryShift),
+    growthStrategy: pickText(mts?.growthStrategy, editedMts?.growthStrategy),
+    profitStrategy: pickText(mts?.profitImprovementStrategy, editedMts?.profitImprovementStrategy),
+    managementIssues: pickList(mts?.managementMeetingIssues, editedMts?.managementMeetingIssues),
+    decisionCriteria: pickList(mts?.companyWideDecisionCriteria, editedMts?.companyWideDecisionCriteria),
+  };
+}
 
 /**
  * ★ Phase 1 追加修正：financePL から過去年度別財務実績を抽出

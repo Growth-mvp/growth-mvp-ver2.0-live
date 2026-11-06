@@ -25,7 +25,8 @@ const FORBIDDEN_TERMS = [
   'UNAVAILABLE',
   'incomplete',
 ];
-const FIGURE_TOKEN = /(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)\s*(百万円|億円|円|%|％|倍)/g;
+const FIGURE_TOKEN = /([¥￥]\s*)?((?<![\d.])[-−▲△])?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(百万円|億円|円|%|％|倍|M)?/g;
+const NUMBERED_HEADING = /^(?:#{1,6}\s*)?(\d+)[\.．]\s/;
 const MILLION_YEN = 1_000_000;
 const OKU_YEN = 100_000_000;
 
@@ -40,15 +41,24 @@ export type BankFinanceCheck = {
 
 type Region = { start: number; end: number };
 
-const isBoundary = (line: string) =>
-  /^#{1,6}\s/.test(line) || /^第[0-9一二三四五六七八九十]+章/.test(line) || /^【/.test(line) || /^\d+[\.．]\s/.test(line);
+const isHeadingLine = (line: string) =>
+  /^#{1,6}\s/.test(line) || /^第[0-9一二三四五六七八九十]+章/.test(line) || /^【/.test(line);
 
 function findFinanceRegion(lines: string[]): Region | null {
-  const start = lines.findIndex((l) => isBoundary(l.trim()) && FINANCE_HEADING.test(l));
+  const start = lines.findIndex((l) => {
+    const t = l.trim();
+    return (isHeadingLine(t) || NUMBERED_HEADING.test(t)) && FINANCE_HEADING.test(l);
+  });
   if (start < 0) return null;
+  const startNumber = lines[start].trim().match(NUMBERED_HEADING)?.[1];
+  const chapterNumber = startNumber === undefined ? null : Number(startNumber);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
-    if (isBoundary(lines[i].trim())) {
+    const t = lines[i].trim();
+    const number = t.match(NUMBERED_HEADING)?.[1];
+    const isNextChapter =
+      number !== undefined && (chapterNumber === null || Number(number) === chapterNumber + 1);
+    if (isHeadingLine(t) || isNextChapter) {
       end = i;
       break;
     }
@@ -76,11 +86,14 @@ export function financialProseIssues(prose: string, allowed: AllowedFigures): st
     if (prose.includes(term)) issues.push(`使用してはいけない表現を含みます：${term}`);
   }
   for (const m of prose.matchAll(FIGURE_TOKEN)) {
-    const raw = m[1].replace(/,/g, '');
-    const value = Number(raw);
+    const [token, yenPrefix, sign, numberText, unitText] = m;
+    if (!yenPrefix && !unitText) continue;
+    const raw = numberText.replace(/,/g, '');
+    const value = (sign ? -1 : 1) * Number(raw);
     const decimals = raw.includes('.') ? raw.split('.')[1].length : 0;
-    if (!figureMatches(value, m[2], decimals, allowed)) {
-      issues.push(`計算結果にない数値があります：${m[0]}`);
+    const unit = unitText === 'M' ? '百万円' : (unitText ?? '円');
+    if (!figureMatches(value, unit, decimals, allowed)) {
+      issues.push(`計算結果にない数値があります：${token.trim()}`);
     }
   }
   return issues;
@@ -92,7 +105,7 @@ export function fallbackFinancialProse(facts: BankFinancialFacts): string {
   }
   return [
     '本章の財務数値は、STAGE6で作成した財務計画（下表）に基づきます。',
-    '売上高と営業利益は、表Aの実績と推計のとおりです。推計は利用者が設定した前提によるもので、STAGE2の登録目標との差額を併記しています。',
+    '売上高と営業利益は、表Aの実績と計画経路のとおりです。計画経路は利用者が設定した目標値への直線補間であり、独立した業績予測ではありません。STAGE2の登録目標との差額を併記しています。',
     '投資は表Bのとおりです。分類未確定・時期未設定・重複確認中の金額は合計に含めず、別に示しています。',
     '資金の流れと返済可能性は、表C・表Dのとおりです。前提が変わると、資金不足の発生時期や返済可能性の判定は変わります。',
     '未確認事項は表Eの確認事項に示しています。',

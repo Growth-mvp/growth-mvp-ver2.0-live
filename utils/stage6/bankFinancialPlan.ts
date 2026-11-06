@@ -1,5 +1,5 @@
 import type { Department } from '@/types/strategy';
-import type { CashFlowPlan, CfBasis, CfValue, CfYear } from './cashflow';
+import type { CashFlowPlan, CfBasis, CfValue, CfYear, WorkingCapitalBreakdown } from './cashflow';
 import type { DebtSchedule } from './debt';
 import {
   FINANCE_PLAN_CALC_VERSION,
@@ -137,6 +137,8 @@ export type BankFinancialPlanSections = {
       year: number;
       kind: 'ACTUAL' | 'FORECAST';
       operatingCf: CfValue;
+      workingCapitalChange?: CfValue;
+      workingCapitalBreakdown?: WorkingCapitalBreakdown;
       capex: CfValue;
       investingCf: CfValue;
       fcf: CfValue;
@@ -262,7 +264,7 @@ function stage4Contributions(departments: Department[]) {
 
 function gapFor(target: RegisteredTarget | null, plan: CashFlowPlan, pick: (y: CfYear) => CfValue): GapEntry {
   const base = { explanation: NO_EXPLANATION };
-  if (!target) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: 'STAGE2に正式目標が登録されていません' };
+  if (!target) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: 'STAGE2に目標が登録されていません' };
   if (target.dueYear === null) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: '目標年度が未登録のため比較できません' };
   if (target.valueYen === null) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: target.note };
   const year = plan.years.find((y) => y.year === target.dueYear && y.kind === 'FORECAST');
@@ -482,6 +484,8 @@ export function buildBankFinancialPlanBlock(args: {
         year: y.year,
         kind: y.kind,
         operatingCf: y.operatingCf,
+        workingCapitalChange: y.workingCapitalChange,
+        ...(y.workingCapitalBreakdown ? { workingCapitalBreakdown: y.workingCapitalBreakdown } : {}),
         capex: y.capex,
         investingCf: y.investingCf,
         fcf: y.fcf,

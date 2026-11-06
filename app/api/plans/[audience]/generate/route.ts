@@ -14,6 +14,8 @@ import { checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { canGeneratePlan } from '@/lib/plans/planDocumentState';
+import { getIndustryLabel } from '@/utils/industryTemplates';
+import { bankStage2Block, bankStage34Block } from '@/lib/plans/bankStrategyPrompt';
 import { savePlanWithRetry } from '@/utils/supabase/generated-plans';
 import { isTimeoutError, isTransientError } from '@/lib/stage2/draftBudget';
 import {
@@ -559,6 +561,12 @@ function dbRowToStrategyData(row: any): Record<string, any> | null {
 
     // STAGE2：全社戦略
     finalStory: Array.isArray(row.final_story) ? row.final_story : [],
+    finalStoryFinal: Array.isArray(row.final_story_final) ? row.final_story_final : undefined,
+    finalStoryEdited: Array.isArray(row.final_story_edited) ? row.final_story_edited : undefined,
+    finalStoryDraft: Array.isArray(row.final_story_draft) ? row.final_story_draft : undefined,
+    stage2FinalDocumentEdits: row.stage2_final_document_edits ?? undefined,
+    stage2FinalGeneratedConclusion:
+      typeof row.final_story_conclusion?.conclusion === 'string' ? row.final_story_conclusion.conclusion : undefined,
 
     // ★ STAGE2：正式目標（Phase 1 追加）
     companyTargets: Array.isArray(row.company_targets)
@@ -654,7 +662,7 @@ CRITICAL INSTRUCTIONS FOR FINANCIAL DATA HANDLING:
    - 例：「利益率が低い理由はコスト構造」→ コスト内訳が無ければ推測でも良いが、「高い」「低い」の判断は提供データを基準に。
 
 5. 目標値の扱い：
-   - STAGE2で設定された「正式な全社目標」とSTAGE4の「施策効果合計」を混同しない。
+   - STAGE2で登録された全社目標（承認状態は未確認）とSTAGE4の「施策効果合計」を混同しない。
    - 両者が異なる場合、その理由（施策だけでは不十分 / 施策が目標を超える など）を分析する。
 
 TONE: Professional, conservative, fact-based. Emphasize realistic assessment and risk management.`,
@@ -729,30 +737,10 @@ ${planData.stage1.historicalFinances
       : '【過去年度別財務実績】データなし\n';
 
   const bankFinanceActive = audience === 'bank' && !!planData.bankFinancialPlan;
-  const baseData = `
-会社名: ${planData.companyName}
-業種: ${planData.stage1.industry}
-
-【STAGE1: 現状分析】
-${planData.stage1.keyIssues?.length > 0 ? `経営課題: ${planData.stage1.keyIssues.join('、')}` : '経営課題: 未入力'}
-
-${historicalFinancesTable}
-
-【STAGE2: 全社戦略】
-ミッション: ${planData.companyMission || '未定義'}
-ビジョン: ${planData.companyVision || '未定義'}
-${planData.stage2.midtermConcept ? `中計コンセプト: ${planData.stage2.midtermConcept}` : ''}
-${planData.stage2.priorityThemes?.length > 0 ? `重点テーマ: ${planData.stage2.priorityThemes.join('、')}` : ''}
-
-${
-  planData.stage2.companyTargets && planData.stage2.companyTargets.length > 0
-    ? `【STAGE2: 正式な全社目標】
-${planData.stage2.companyTargets.map((t: any) => `- ${t.label}: ${t.value}`).join('\n')}
-`
-    : ''
-}
-
-【STAGE3: 部門別戦略】
+  const stage34Block =
+    audience === 'bank'
+      ? `${bankStage2Block(planData.stage2)}${bankStage34Block(planData)}`
+      : `【STAGE3: 部門別戦略】
 ${planData.stage3.departments
   .slice(0, 5)
   .map(
@@ -774,12 +762,36 @@ ${planData.stage4.projectImpacts
 営業利益寄与: ${p.impactOpIncome || '未定'}
 投資額: ${p.impactInvestment || '未定'}`
   )
-  .join('\n')}
+  .join('\n')}`;
+  const baseData = `
+会社名: ${planData.companyName}
+業種: ${getIndustryLabel(planData.stage1.industry, { full: true })}
+
+【STAGE1: 現状分析】
+${planData.stage1.keyIssues?.length > 0 ? `経営課題: ${planData.stage1.keyIssues.join('、')}` : '経営課題: 未入力'}
+
+${historicalFinancesTable}
+
+【STAGE2: 全社戦略】
+ミッション: ${planData.companyMission || '未定義'}
+ビジョン: ${planData.companyVision || '未定義'}
+${planData.stage2.midtermConcept ? `中計コンセプト: ${planData.stage2.midtermConcept}` : ''}
+${planData.stage2.priorityThemes?.length > 0 ? `重点テーマ: ${planData.stage2.priorityThemes.join('、')}` : ''}
+
+${
+  planData.stage2.companyTargets && planData.stage2.companyTargets.length > 0
+    ? `【STAGE2: 登録された全社目標（承認状態は未確認）】
+${planData.stage2.companyTargets.map((t: any) => `- ${t.label}: ${t.value}`).join('\n')}
+`
+    : ''
+}
+
+${stage34Block}
 
 【STAGE5/6: 財務目標】
 ☆ STAGE2登録売上目標: ${planData.stage56.companyTargetRevenue || '未設定'}
 参考：STAGE4施策別期待効果合計: ${planData.stage56.projectImpactSum || 'なし'}
-推奨目標: ${planData.stage56.northStarRevenue || '未設定'}
+売上目標の表示（STAGE2登録目標・承認未確認）: ${planData.stage56.northStarRevenue || '未設定'}
 ${bankFinanceActive ? '' : `財務シミュレーション状況: ${planData.stage56.projectionStatus || '未実施'}`}
 ${planData.stage56.northStarMetrics?.length ? `重要指標: ${planData.stage56.northStarMetrics.map((m: any) => `${m.label}=${m.value}`).join(', ')}` : '重要指標: 未定義'}
 ${!bankFinanceActive && planData.stage56.projectionNote ? `備考: ${planData.stage56.projectionNote}` : ''}

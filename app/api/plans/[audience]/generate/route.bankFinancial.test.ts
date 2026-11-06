@@ -146,11 +146,15 @@ function snapshotFor(opts: {
 function strategyRow(opts: {
   csv?: Record<string, unknown> | null;
   fiscalYearEnd?: string | null;
+  industry?: string;
+  extra?: Record<string, unknown>;
 }) {
   return {
+    ...(opts.extra ?? {}),
     id: STRATEGY,
     company_id: COMPANY,
     company_name: 'テスト株式会社',
+    industry: opts.industry,
     departments,
     final_story: [],
     finance_pl: financePL,
@@ -336,7 +340,7 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(json.bankFinancialPlan.status).toBe('CURRENT');
     expect(json.generatedText).toContain('既存借入：明細未入力（0件とはしていません）');
     expect(json.generatedText).toContain('**新規借入の返済計画（計算可能な部分）**');
-    expect(json.generatedText).toContain('STAGE1の財務実績の単位：未確認');
+    expect(json.generatedText).toContain('STAGE1の財務実績の単位は未確認です');
     expect(promptSent()).toMatch(/過去年度別財務実績[\s\S]*未確認/);
   });
 
@@ -350,6 +354,48 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(tables.length).toBeGreaterThanOrEqual(4);
     const headers = tables.map((t) => (t.type === 'table' ? t.header.map((h) => h.map((r) => r.text).join('')).join('|') : ''));
     expect(headers.some((h) => h.includes('売上高') && h.includes('営業利益'))).toBe(true);
+  });
+
+  it('STAGE2の確定戦略と全件数の施策を銀行向けプロンプトに渡し、株主向けには渡さない', async () => {
+    const { persisted } = snapshotFor();
+    const extra = {
+      final_story_final: [{ title: '確定章', body: '確定した戦略本文' }],
+      final_story_conclusion: { conclusion: '全社戦略の結論X' },
+      swot_suggestions: {
+        midtermStrategy: {
+          growthStrategy: '成長戦略A',
+          strategicCore: { customerValue: '顧客が選ぶ理由C' },
+        },
+      },
+    };
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted }, extra }));
+    await generate('bank');
+
+    const bankPrompt = promptSent();
+    expect(bankPrompt).toContain('【STAGE2: 全社戦略（入力された内容のみ）】');
+    expect(bankPrompt).toContain('戦略ストーリーの版：確定版');
+    expect(bankPrompt).toContain('全社戦略の結論：全社戦略の結論X');
+    expect(bankPrompt).toContain('成長戦略：成長戦略A');
+    expect(bankPrompt).toContain('顧客が当社を選ぶ理由・提供価値：顧客が選ぶ理由C');
+    expect(bankPrompt).toContain('確定した戦略本文');
+
+    mockCreate.mockClear();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted }, extra }));
+    await generate('shareholder');
+    const shareholderPrompt = promptSent();
+    expect(shareholderPrompt).not.toContain('【STAGE2: 全社戦略（入力された内容のみ）】');
+    expect(shareholderPrompt).not.toContain('確定した戦略本文');
+    expect(shareholderPrompt).toContain('【STAGE3: 部門別戦略】\n');
+    expect(shareholderPrompt).not.toContain('件を掲載');
+  });
+
+  it('業種は内部コードではなく日本語の業種名で渡す', async () => {
+    const { persisted } = snapshotFor();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted }, industry: 'service' }));
+    await generate();
+
+    expect(promptSent()).toContain('業種: その他サービス業');
+    expect(promptSent()).not.toContain('業種: service');
   });
 
   it('銀行向け以外の計画書：財務ブロックもプロンプトの財務データも含めず、本文を変えない', async () => {

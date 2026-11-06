@@ -239,7 +239,7 @@ describe('5. STAGE1とSTAGE6の基準年度金額一致', () => {
     const stage1 = buildPlanData(state, 'bank').stage1.historicalFinances!.find((f) => f.year === BASE_YEAR)!;
     expect(stage1.unit).toBe('未確認');
     const facts = buildBankFinancialFacts(blockFor(withNewOnly))!;
-    expect(facts.markdown).toContain('STAGE1の財務実績の単位：未確認');
+    expect(facts.markdown).toContain('STAGE1の財務実績の単位は未確認です');
   });
 });
 

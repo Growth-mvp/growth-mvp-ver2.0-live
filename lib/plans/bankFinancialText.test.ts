@@ -59,14 +59,14 @@ const domain: FinancePlanDomain = {
 };
 const companyTargets = [{ id: 't1', label: '売上高', unit: '百万円', dueYear: 2028, base: 1500, priority: 1 }];
 
-function departments(paymentYm = '2027-03'): Department[] {
+function departments(paymentYm = '2027-03', planStatus: string | null = 'approved'): Department[] {
   return [
     {
       name: '営業部',
       projects: [
         {
           title: 'A社開拓',
-          planStatus: 'approved',
+          planStatus,
           skillPlans: [
             { id: 'sk1', skillName: '設備', cost: 30_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm } },
           ],
@@ -353,5 +353,175 @@ describe('許容集合', () => {
     const allowed = collectAllowedFigures({ a: 1_000_000, b: 0.25, year: 2027, label: 'x' });
     expect(allowed.yen).toEqual([1_000_000]);
     expect(allowed.fractions).toEqual([0.25]);
+  });
+});
+
+describe('16. 数値検査の章境界と¥M表記', () => {
+  it('第4章内の番号付き行の後にある数値も検査する', () => {
+    const out = finalizeBankPlanText(generatedText('1. 前提を確認します。\n2. 売上は3,000百万円に達する見込みです。'), CURRENT());
+    expect(out.check.proseReplaced).toBe(true);
+    expect(out.check.issues.some((i) => i.includes('3,000百万円'))).toBe(true);
+  });
+
+  it('第5章の本文は第4章の検査対象に含めない', () => {
+    const text = generatedText(`財務計画は次のとおりです。\n\n${BANK_TABLE_PLACEHOLDER}`).replace(
+      '月次で進捗を確認します。',
+      '売上は3,000百万円を目指します。',
+    );
+    const out = finalizeBankPlanText(text, CURRENT());
+    expect(out.check.proseReplaced).toBe(false);
+    expect(out.text).toContain('売上は3,000百万円を目指します。');
+  });
+
+  it('¥488M と 488百万円 を同じ金額として照合し、誤った値は不一致とする', () => {
+    const allowed = { yen: [488_000_000], fractions: [] };
+    expect(financialProseIssues('施策の期待効果は¥488Mです。', allowed)).toEqual([]);
+    expect(financialProseIssues('施策の期待効果は488百万円です。', allowed)).toEqual([]);
+    expect(financialProseIssues('施策の期待効果は¥999Mです。', allowed).length).toBe(1);
+  });
+
+  it('¥付きの円表記も照合する', () => {
+    expect(financialProseIssues('返済額は¥1,234,000です。', { yen: [1_234_000], fractions: [] })).toEqual([]);
+    expect(financialProseIssues('返済額は¥1,235,000です。', { yen: [1_234_000], fractions: [] }).length).toBe(1);
+  });
+
+  it('単位のない年や件数は数値として扱わない', () => {
+    expect(financialProseIssues('2027年に20件の施策を実施します。', { yen: [], fractions: [] })).toEqual([]);
+  });
+});
+
+describe('17. 投資額の承認状態', () => {
+  it('承認済みと承認未確認を分けて示し、承認未確認の金額も算入として残す', () => {
+    const md = buildBankFinancialFacts(blockOf(inputs({ departments: departments('2027-03', 'draft') })))!.markdown;
+    expect(md).toContain('承認済み 0.0百万円、承認未確認（計画段階） 30.0百万円');
+    expect(md).toContain('算入（承認未確認）');
+    expect(md).not.toContain('算入（承認済み）');
+  });
+
+  it('承認済みの金額は承認済みとして示す', () => {
+    const md = buildBankFinancialFacts(CURRENT())!.markdown;
+    expect(md).toContain('承認済み 30.0百万円、承認未確認（計画段階） 0.0百万円');
+    expect(md).toContain('算入（承認済み）');
+  });
+
+  it('承認状態が未設定の金額は承認済みとして扱わない', () => {
+    const md = buildBankFinancialFacts(blockOf(inputs({ departments: departments('2027-03', null) })))!.markdown;
+    expect(md).toContain('承認未確認（計画段階） 30.0百万円');
+  });
+});
+
+describe('18. 計画経路の表現', () => {
+  it('STAGE6の値を独立した業績予測として示さない', () => {
+    const md = buildBankFinancialFacts(CURRENT())!.markdown;
+    expect(md).toContain('計画経路（STAGE6）');
+    expect(md).toContain('独立した業績予測ではなく');
+    expect(md).not.toContain('推計（STAGE6）');
+  });
+
+  it('目標年度の計画経路が登録目標と同額のときは、達成の検証ではないと明示する', () => {
+    const src = inputs();
+    const withTarget = { ...domain, assumptions: { ...assumptions, targetRevenueYen: 1_500_000_000, targetYear: 2028 } };
+    const md = buildBankFinancialFacts(blockOf(src, savedFrom(src, COMPANY, COMPANY, withTarget)))!.markdown;
+    expect(md).toContain('差額が0になっています');
+    expect(md).toContain('目標の実現可能性を検証した結果ではありません');
+  });
+});
+
+describe('19. 営業CFと運転資金の内訳', () => {
+  const noDebtBlock = (src: Stage6SourceInputs = inputs(), d: FinancePlanDomain = noDebtDomain) =>
+    blockOf(src, savedFrom(src, COMPANY, COMPANY, d));
+
+  it('営業CFは既存の式（税引後利益＋減価償却−運転資金増減）と一致する', () => {
+    const block = noDebtBlock();
+    const sections = block.sections!;
+    const fc = sections.cashFlow.years.find((y) => y.kind === 'FORECAST')!;
+    const oi = sections.revenuePlan.years.find((y) => y.year === fc.year && y.kind === 'FORECAST')!.operatingIncome.value!;
+    const interest = sections.cashFlow.interest.value!;
+    const tax = sections.cashFlow.taxRate.value!;
+    const dep = sections.cashFlow.depreciation.value!;
+    const wc = fc.workingCapitalChange!.value!;
+    expect(fc.operatingCf.value).toBeCloseTo((oi - interest) * (1 - tax) + dep - wc, 0);
+  });
+
+  it('運転資金増減の内訳は合計と一致し、比率を変えていなければ比率差の影響はゼロ', () => {
+    const fc = noDebtBlock().sections!.cashFlow.years.find((y) => y.kind === 'FORECAST')!;
+    expect(fc.workingCapitalBreakdown!.totalYen).toBeCloseTo(fc.workingCapitalChange!.value!, 0);
+    expect(fc.workingCapitalBreakdown!.ratioChanged).toBe(false);
+    expect(fc.workingCapitalBreakdown!.ratioEffectYen).toBeCloseTo(0, 0);
+  });
+
+  it('比率を変えた場合は比率差の影響を分けて示し、営業CFがマイナスなら前提確認を明示する', () => {
+    const d = { ...noDebtDomain, assumptions: { ...assumptions, arRatio: 0.3 } };
+    const block = noDebtBlock(inputs(), d);
+    const fc = block.sections!.cashFlow.years.find((y) => y.kind === 'FORECAST')!;
+    expect(fc.workingCapitalBreakdown!.ratioChanged).toBe(true);
+    expect(fc.workingCapitalBreakdown!.ratioEffectYen).toBeCloseTo(150_000_000, -3);
+    expect(fc.operatingCf.value!).toBeLessThan(0);
+    const md = buildBankFinancialFacts(block)!.markdown;
+    expect(md).toContain('比率の差による増減 150.0百万円');
+    expect(md).toContain('営業CFは、この運転資金の増加を控除して計算しています');
+  });
+});
+
+describe('21. 数値表記の抽出（指定6表記）', () => {
+  const allowed = {
+    yen: [1_234_000, 130_000_000_000, 107_222_000_000, 488_000_000, -4_055_200_000],
+    fractions: [],
+  };
+
+  it.each([
+    ['¥1,234,000円'],
+    ['130,000.0百万円'],
+    ['107,222.0百万円'],
+    ['¥488M'],
+    ['-4,055.2百万円'],
+    ['▲4,055.2百万円'],
+  ])('正しい値 %s を誤拒否しない', (text) => {
+    expect(financialProseIssues(`金額は${text}です。`, allowed)).toEqual([]);
+  });
+
+  it('0.0百万円は金額の主張として検査しない（ゼロは常に通す）', () => {
+    expect(financialProseIssues('差額は0.0百万円です。', { yen: [], fractions: [] })).toEqual([]);
+  });
+
+  it.each([
+    ['¥1,234,001円'],
+    ['130,000.1百万円'],
+    ['¥489M'],
+    ['4,055.2百万円'],
+  ])('誤った値 %s は不一致として検出する', (text) => {
+    expect(financialProseIssues(`金額は${text}です。`, allowed).length).toBe(1);
+  });
+});
+
+describe('22. 範囲表記と負数の判定', () => {
+  it('範囲表記の下限・上限を負数と誤判定しない', () => {
+    expect(financialProseIssues('投資は3-5百万円です。', { yen: [3_000_000, 5_000_000], fractions: [] })).toEqual([]);
+    expect(financialProseIssues('投資は3-5百万円です。', { yen: [5_000_000], fractions: [] })).toEqual([]);
+  });
+
+  it('範囲表記で本来の値が一致しない場合は、負数ではなく正の値として不一致を示す', () => {
+    const issues = financialProseIssues('投資は3-5百万円です。', { yen: [], fractions: [] });
+    expect(issues.length).toBe(1);
+    expect(issues[0]).toContain('5百万円');
+    expect(issues[0]).not.toContain('-5');
+  });
+
+  it('本来の負数（-、▲、括弧内）は負数として照合する', () => {
+    const negative = { yen: [-4_055_200_000], fractions: [] };
+    const positive = { yen: [4_055_200_000], fractions: [] };
+    expect(financialProseIssues('営業CFは-4,055.2百万円です。', negative)).toEqual([]);
+    expect(financialProseIssues('営業CFは▲4,055.2百万円です。', negative)).toEqual([]);
+    expect(financialProseIssues('営業CFは(-4,055.2百万円)です。', negative)).toEqual([]);
+    expect(financialProseIssues('営業CFは-4,055.2百万円です。', positive).length).toBe(1);
+  });
+});
+
+describe('20. 表示単位と計算単位の説明', () => {
+  it('表示単位と、STAGE1金額を円として計算している旨を区別して示す', () => {
+    const md = buildBankFinancialFacts(CURRENT())!.markdown;
+    expect(md).toContain('表示単位：百万円');
+    expect(md).toContain('STAGE1の金額を円として計算');
+    expect(md).not.toContain('金額の単位：百万円');
   });
 });
