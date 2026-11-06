@@ -100,7 +100,7 @@ export default function Home() {
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
                 <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 xl:dark:text-white">
-                  経営戦略をつくる
+                  戦略をつくる
                 </h3>
               </div>
 
@@ -120,7 +120,7 @@ export default function Home() {
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
                 <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 xl:dark:text-white">
-                  経営戦略を動かす
+                  戦略を動かす
                 </h3>
               </div>
 
