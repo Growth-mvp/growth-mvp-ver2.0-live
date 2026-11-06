@@ -474,7 +474,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             } />
             <div className="leading-tight min-w-0 break-words">
               <div className="text-[16px] font-semibold tracking-[-0.01em]">AI経営コンサルタント</div>
-              <div className="mt-0.5 text-[12px] font-normal text-zinc-500">あなたの成長と挑戦を支える戦略パートナー</div>
+              <div className="mt-0.5 text-[12px] font-normal text-zinc-500">あなたの挑戦と成長を支える戦略パートナー</div>
             </div>
           </div>
           {ctxUpdated && (
