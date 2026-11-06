@@ -2832,7 +2832,7 @@ krsRaw.forEach((krItem: any) => {
     kind: 'ACQ',
     label: '',
     target: '',
-    unit: '件',
+    unit: '' as Draft['unit'],
     scope: 'project',
     baseKey: 'acq',
     owner: '',
@@ -2912,7 +2912,7 @@ const startEditKr = (kr: any, _fallbackId: string) => {
   setEditingKrDraft({
     label: String(kr?.label ?? ''),
     target: String(kr?.target ?? ''),
-    unit: (String(kr?.unit ?? '件') as Draft['unit']) ?? '件',
+    unit: String(kr?.unit ?? '') as Draft['unit'],
     due: String(kr?.due ?? ''),
     owner: String(kr?.owner ?? ''),
     milestones: kr?.milestones,
@@ -2929,7 +2929,7 @@ const cancelEditKr = () => {
 const saveEditKr = async (dIdx: number, pIdx: number, krId: string) => {
   if (!editingKrDraft) return;
   const t = Number(editingKrDraft.target);
-  if (!Number.isFinite(t)) {
+  if (!editingKrDraft.target.trim() || !Number.isFinite(t)) {
     alert('目標値は数値で入力してください。');
     return;
   }
@@ -2962,7 +2962,7 @@ const saveEditKr = async (dIdx: number, pIdx: number, krId: string) => {
       ...before,
       label: nextLabel,
       target: t,
-      unit: editingKrDraft.unit,
+      unit: (editingKrDraft.unit || undefined) as any,
       due: editingKrDraft.due?.trim() || undefined,
       owner: editingKrDraft.owner?.trim() || undefined,
       milestones: editingKrDraft.milestones,
@@ -3203,8 +3203,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     const draft = draftMap[k] ?? emptyDraft;
 
     const t = Number(draft.target);
-    if (!Number.isFinite(t)) {
-      alert('目標値は数値で入力してください。');
+    if (!draft.unit || !draft.target.trim() || !Number.isFinite(t)) {
+      alert('目標値（数値）と単位を入力してください。');
       return;
     }
     if (!draft.label.trim()) {
@@ -3289,7 +3289,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
         kind: (kr as any).kind ?? 'ACQ',
         label: String((kr as any).label ?? ''),
         target: String((kr as any).target ?? ''),
-        unit: ((kr as any).unit ?? '件') as any,
+        unit: ((kr as any).unit ?? '') as any,
         scope: ((kr as any).scope ?? 'project') as any,
         baseKey: ((kr as any).baseKey ?? 'acq') as any,
         owner: (kr as any).owner ?? '',
@@ -4303,7 +4303,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   }
                   className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-2 text-[13px]"
                 >
-                  <option value="件">件</option>
+                  <option value="">未設定</option><option value="件">件</option>
                   <option value="%">%</option>
                   <option value="¥">¥</option>
                   <option value="人">人</option>

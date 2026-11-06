@@ -2001,7 +2001,7 @@ const stringToKRStructured = (label: string, owner?: string) => {
     label: label.trim(),
     kind: 'SUCCESS_RATE' as any,
     target: 0,
-    unit: '%' as any,
+    unit: undefined as any,
     scope: 'project' as any,
     baseKey: 'success_rate' as any,
     ...(owner ? { owner } : {}),

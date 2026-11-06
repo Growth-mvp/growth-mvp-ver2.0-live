@@ -621,3 +621,47 @@ describe('質問の種類に応じた情報選択（Phase 2-B2）', () => {
     assertKrNeverOrphaned(r.text);
   });
 });
+
+describe('KR目標の表示：明示的な0と単位未設定・目標未設定', () => {
+  it('目標0は0として出し、単位がなければ単位未設定と書く（既定の単位は補わない）', () => {
+    const { text } = buildExecutionSummaryBlock(
+      [{ name: '営業部', projects: [{ title: 'P', okrsV2: [{ label: 'KR0', target: 0 }, { label: 'KR1', target: 75, unit: '%' }] }] }],
+      ''
+    );
+    expect(lineOf(text, 'KR: KR0')).toContain('登録目標 0（単位未設定）（設定内容の確認を推奨）');
+    expect(lineOf(text, 'KR: KR0')).not.toContain('目標 0%');
+    expect(lineOf(text, 'KR: KR1')).toContain('目標 75%');
+    expect(lineOf(text, 'KR: KR1')).not.toContain('登録目標');
+  });
+
+  it('0%・0件・0円は、登録された単位をそのまま維持して確認を促す', () => {
+    const { text } = buildExecutionSummaryBlock(
+      [{ name: '営業部', projects: [{ title: 'P', okrsV2: [
+        { label: 'KRp', target: 0, unit: '%' },
+        { label: 'KRn', target: 0, unit: '件' },
+        { label: 'KRy', target: 0, unit: '円' },
+      ] }] }],
+      ''
+    );
+    expect(lineOf(text, 'KR: KRp')).toContain('登録目標 0%（設定内容の確認を推奨）');
+    expect(lineOf(text, 'KR: KRn')).toContain('登録目標 0件（設定内容の確認を推奨）');
+    expect(lineOf(text, 'KR: KRy')).toContain('登録目標 0円（設定内容の確認を推奨）');
+  });
+
+  it('単位がない0は、単位を補完せず確認を促す', () => {
+    const { text } = buildExecutionSummaryBlock(
+      [{ name: '営業部', projects: [{ title: 'P', okrsV2: [{ label: 'KRs', target: 0 }] }] }],
+      ''
+    );
+    expect(lineOf(text, 'KR: KRs')).toContain('登録目標 0（単位未設定）');
+  });
+
+  it('目標が無いKRは目標未設定と書き、0と書かない', () => {
+    const { text } = buildExecutionSummaryBlock(
+      [{ name: '営業部', projects: [{ title: 'P', okrsV2: [{ label: 'KRX', unit: '件' }] }] }],
+      ''
+    );
+    expect(lineOf(text, 'KR: KRX')).toContain('目標未設定');
+    expect(lineOf(text, 'KR: KRX')).not.toContain('目標 0');
+  });
+});

@@ -74,6 +74,14 @@ function text(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
+/** KR目標の表示。0は誤入力と断定せず、設定内容の確認を促す。単位は登録済みのものだけを使う。 */
+export function krTargetLabel(target: unknown, unit: unknown): string {
+  if (typeof target !== 'number' || !Number.isFinite(target)) return '目標未設定';
+  const u = text(unit) || '（単位未設定）';
+  if (target === 0) return `登録目標 0${u}（設定内容の確認を推奨）`;
+  return `目標 ${target}${u}`;
+}
+
 function isMissing(v: unknown): boolean {
   return v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
 }
@@ -184,8 +192,6 @@ function aggregateLine(a: ExecutionAggregate): string {
 }
 
 function formatKr(kr: AnyRecord): string {
-  const target = typeof kr.target === 'number' && Number.isFinite(kr.target) ? String(kr.target) : MISSING;
-  const unit = text(kr.unit);
   const milestones = records(kr.milestones)
     .map((m) => {
       const title = text(m.title);
@@ -196,7 +202,7 @@ function formatKr(kr: AnyRecord): string {
     .filter(Boolean);
   const parts = [
     `KR: ${orMissing(kr.label)}`,
-    `目標 ${target}${target === MISSING ? '' : unit}`,
+    krTargetLabel(kr.target, kr.unit),
     `担当 ${isMissing(kr.owner) ? 'KR担当未入力' : text(kr.owner)}`,
     `期限 ${orMissing(kr.due)}`,
   ];

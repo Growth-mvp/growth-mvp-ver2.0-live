@@ -1,4 +1,5 @@
 import { normalizeStrategyData } from './normalize';
+import { buildExecutionSummaryBlock } from '../../lib/ceoChat/stage4Projection';
 
 const krBase = {
   id: 'kr-1',
@@ -102,5 +103,62 @@ describe('正規化でのデータ保全', () => {
     const out: any = normalizeStrategyData({ companyTargets: targets, projectTargetImpacts: rows } as any);
     expect(out.companyTargets).toEqual(targets);
     expect(out.projectTargetImpacts).toEqual(rows);
+  });
+});
+
+describe('KR目標値の正規化（明示的な0と未入力を区別する）', () => {
+  const targetOf = (target: unknown) => {
+    const out: any = normalizeStrategyData({
+      departments: [{ id: 'd1', name: '営業部', projects: [{ id: 'p1', title: 'P', okrsV2: [{ ...krBase, target }] }] }],
+    } as any);
+    return out.departments[0].projects[0].okrsV2[0].target;
+  };
+
+  it('明示的な0・文字列の0・75は、そのまま数値として保つ', () => {
+    expect(targetOf(0)).toBe(0);
+    expect(targetOf('0')).toBe(0);
+    expect(targetOf(75)).toBe(75);
+    expect(targetOf('75')).toBe(75);
+  });
+
+  it.todo('未入力（null・undefined・空文字）の目標は、0ではなく未設定として保つ（Phase 3-A1 の後続課題：財務・シミュレーションの数値利用箇所の対応が前提）');
+  it.todo('不正な数値文字列の目標は、未設定とは区別して不正値として扱う（後続課題）');
+});
+
+describe('KRの保存・再読込で、単位・目標を補わない（Phase 3-A2）', () => {
+  const loadKr = (kr: unknown): any => {
+    const out: any = normalizeStrategyData({
+      departments: [{ id: 'd1', name: '営業部', projects: [{ id: 'p1', title: 'P', okrsV2: [kr] }] }],
+    } as any);
+    return out.departments[0].projects[0].okrsV2[0];
+  };
+  const saveAndReload = (kr: unknown) => loadKr(JSON.parse(JSON.stringify(kr)));
+
+  it('単位が未設定のKRは、保存・再読込後も単位を補わない', () => {
+    const back = saveAndReload(loadKr({ ...krBase, unit: undefined, target: 75 }));
+    expect(back.unit).toBeUndefined();
+    expect(back.target).toBe(75);
+  });
+
+  it('KR名称だけを変えても、目標と単位は変わらない', () => {
+    const kr = { ...loadKr({ ...krBase, target: 75, unit: '%' }), label: '新しい名称' };
+    const back = saveAndReload(kr);
+    expect(back.label).toBe('新しい名称');
+    expect(back.target).toBe(75);
+    expect(back.unit).toBe('%');
+  });
+
+  it('明示的な0は、保存・再読込後も0のまま残る', () => {
+    expect(saveAndReload({ ...krBase, target: 0, unit: '%' }).target).toBe(0);
+  });
+
+  it('明示的な0で単位がないKRは、AIへの投影で「登録目標 0（単位未設定）」と書き、%を補わない', () => {
+    const out: any = normalizeStrategyData({
+      departments: [{ id: 'd1', name: '営業部', projects: [{ id: 'p1', title: 'P', okrsV2: [{ ...krBase, label: 'KR0', target: 0, unit: undefined }] }] }],
+    } as any);
+    const text = buildExecutionSummaryBlock(out.departments, '').text;
+    const line = text.split('\n').find((l) => l.includes('KR: KR0')) ?? '';
+    expect(line).toContain('登録目標 0（単位未設定）（設定内容の確認を推奨）');
+    expect(line).not.toContain('目標 0%');
   });
 });

@@ -1,3 +1,5 @@
+import { krTargetLabel } from './stage4Projection';
+
 export type ReviewKpi = { krId: string | null; label: string; target: number | null; unit: string | null };
 
 export type ReviewCandidate = {
@@ -143,8 +145,7 @@ function relevance(candidate: ReviewCandidate, questionGrams: Set<string>): numb
 }
 
 const kpiLine = (k: ReviewKpi): string => {
-  const target = k.target === null ? '目標未登録' : `目標 ${k.target}${k.unit ?? ''}`;
-  return `${k.label}（${target}）`;
+  return `${k.label}（${krTargetLabel(k.target, k.unit)}）`;
 };
 
 const candidateLine = (c: ReviewCandidate): string => {

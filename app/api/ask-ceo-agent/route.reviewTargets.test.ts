@@ -199,7 +199,7 @@ describe('STAGE4の見直し案内（外部検索OFF）', () => {
     const r = await ask(QUESTION, strategy('strategy-1', [SALES_DEPT]), MARKER_R1);
     expect(r.system).toContain('【見直し候補（STAGE4・登録済みの実在データ）】');
     expect(r.system).toContain('- r1｜部門: 営業部｜プロジェクト: 新規開拓');
-    expect(r.system).toContain('量産後の案件別粗利額（目標未登録）');
+    expect(r.system).toContain('量産後の案件別粗利額（目標未設定）');
     expect(r.system).not.toContain('987654');
   });
 

@@ -5,6 +5,7 @@ import {
   extractReviewMarkers,
   parseReviewTargets,
 } from './reviewTargets';
+import { buildExecutionSummaryBlock, krTargetLabel } from './stage4Projection';
 
 const STRATEGY = 'strategy-1';
 
@@ -397,5 +398,61 @@ describe('画面に渡す前の検証', () => {
   it('配列でない値は空配列', () => {
     expect(parseReviewTargets(undefined)).toEqual([]);
     expect(parseReviewTargets('x')).toEqual([]);
+  });
+});
+
+describe('KR目標の表示（明示的な0は残し、単位未設定を既定の単位で補わない）', () => {
+  const depts = [
+    {
+      id: 'd1',
+      name: '営業部',
+      projects: [
+        {
+          id: 'p1',
+          title: '粗利改善',
+          okrsV2: [
+            { id: 'k1', label: '粗利率', target: 0 },
+            { id: 'k2', label: '受注件数', target: 75, unit: '件' },
+          ],
+        },
+      ],
+    },
+  ];
+
+  it('目標0は「登録目標 0」と書き、単位がなければ単位未設定と書く（補完しない）', () => {
+    const { candidates } = buildStage4ReviewCandidates(depts, STRATEGY);
+    const { text } = buildReviewPromptBlock({ candidates, unlinkableProjects: 0 }, '粗利率と受注件数');
+    expect(text).toContain('粗利率（登録目標 0（単位未設定）（設定内容の確認を推奨））');
+    expect(text).toContain('受注件数（目標 75件）');
+    expect(text).not.toContain('目標 0%');
+  });
+
+  it('0%・0件・0円は単位を維持し、AIの2つのブロックで同じ表記になる', () => {
+    const zeroDepts = [
+      {
+        id: 'd2',
+        name: '営業部',
+        projects: [
+          {
+            id: 'p2',
+            title: '単位つき施策',
+            okrsV2: [
+              { id: 'z1', label: '受注率', target: 0, unit: '%' },
+              { id: 'z2', label: '新規件数', target: 0, unit: '件' },
+              { id: 'z3', label: '受注単価', target: 0, unit: '円' },
+            ],
+          },
+        ],
+      },
+    ];
+    const { candidates } = buildStage4ReviewCandidates(zeroDepts, STRATEGY);
+    const { text } = buildReviewPromptBlock({ candidates, unlinkableProjects: 0 }, '受注率と新規件数と受注単価');
+    const projection = buildExecutionSummaryBlock(zeroDepts, '').text;
+    for (const [label, unit] of [['受注率', '%'], ['新規件数', '件'], ['受注単価', '円']] as const) {
+      const expected = krTargetLabel(0, unit);
+      expect(expected).toBe(`登録目標 0${unit}（設定内容の確認を推奨）`);
+      expect(text).toContain(`${label}（${expected}）`);
+      expect(projection).toContain(`KR: ${label}｜${expected}`);
+    }
   });
 });
