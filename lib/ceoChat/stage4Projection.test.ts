@@ -1,4 +1,4 @@
-import { buildExecutionSummaryBlock } from './stage4Projection';
+import { aggregateExecution, buildExecutionSummaryBlock } from './stage4Projection';
 import { STAGE4_SCALE_FIXTURES, makeFixtureDepts } from '../../eval/quality/stage4ScaleFixture';
 
 const SALES_PROJECT = {
@@ -61,9 +61,10 @@ describe('値が無い場合は推測せず「未登録」と書く', () => {
     expect(text).toContain('プロジェクト: P｜担当 未登録｜計画 未登録｜価値指標との対応（登録）: 未登録');
   });
 
-  it('未知の計画状態は、そのまま出さず未登録にする', () => {
+  it('未知の計画状態は、未登録とは別に「その他」と表示する', () => {
     const { text } = buildExecutionSummaryBlock([{ name: '営業部', projects: [{ title: 'P', planStatus: 'weird' }] }], '');
-    expect(text).toContain('計画 未登録');
+    expect(text).toContain('計画 その他');
+    expect(text).not.toContain('計画 未登録');
   });
 });
 
@@ -139,14 +140,15 @@ describe('充足状況を明示する（件数は省略前の元データから�
     const { text, complete, projects, departments } = buildExecutionSummaryBlock(DEPARTMENTS, '');
     expect(complete).toBe(true);
     expect(text).toContain('（充足状況: 部門2件すべて、施策2件すべてを参照。全件）');
-    expect(projects).toEqual({ total: 2, shown: 2, withKr: 2 });
+    expect(projects).toEqual({ total: 2, shown: 2, withKr: 2, visible: 2 });
     expect(departments).toEqual({ total: 2, shown: 2, detailed: 2 });
   });
 
   it('小規模（3部門15施策）は、従来どおり全施策の名前を出す', () => {
-    const { text, complete } = buildExecutionSummaryBlock(makeDepts(3, 5, 2), '');
-    expect(complete).toBe(true);
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 5; j++) expect(text).toContain(`プロジェクト: 施策${i}-${j}｜`);
+    const { text, projects } = buildExecutionSummaryBlock(makeDepts(3, 5, 2), '');
+    expect(projects.visible).toBe(15);
+    expect(projects.shown).toBeGreaterThanOrEqual(14);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 5; j++) expect(text).toContain(`施策${i}-${j}`);
   });
 
   it('10部門80施策は、全部門の概要を出し、一部のみだと明示する', () => {
@@ -154,7 +156,7 @@ describe('充足状況を明示する（件数は省略前の元データから�
     expect(r.complete).toBe(false);
     expect(deptLineCount(r.text)).toBe(10);
     expect(r.text).toContain('部門 全10件中10件を参照');
-    expect(r.text).toContain('施策 全80件中10件を参照');
+    expect(r.text).toMatch(/施策 全80件中\d+件を名称・概要で参照/);
     expect(r.text).toContain('施策の詳細は一部のみです');
     expect(r.text).toContain('この制約を結論より前に適用すること');
     expect(r.text.length).toBeLessThanOrEqual(2400);
@@ -244,7 +246,9 @@ describe('評価フィクスチャの件数・対応関係・単位（規模別�
     expect(shownDeptLines).toBe(r.departments.shown);
     expect(shownProjHeaders).toBe(r.projects.shown);
     expect(r.text).toContain(`部門 全${deptTotal}件中${r.departments.shown}件を参照`);
-    expect(r.text).toContain(`施策 全${projTotal}件中${r.projects.shown}件を参照`);
+    expect(r.text).toContain(`施策 全${projTotal}件中${r.projects.visible}件を名称・概要で参照`);
+    const overviewLines = r.text.split('\n').filter((l) => l.startsWith('    ・')).length;
+    expect(overviewLines).toBe(r.projects.visible - r.projects.shown);
     assertKrNeverOrphaned(r.text);
     expect(r.text.length).toBeLessThanOrEqual(2400);
   });
@@ -277,5 +281,212 @@ describe('評価フィクスチャの件数・対応関係・単位（規模別�
     expect(unitByLabel.get('新規受注率')).toEqual(new Set(['%']));
     expect(unitByLabel.get('初回提案までの日数')).toEqual(new Set(['日']));
     expect(unitByLabel.get('稼働率')).toEqual(new Set(['%']));
+  });
+});
+
+describe('全件集計は元データ全体から数え、未登録・0・空文字を区別する', () => {
+  const MIXED = [
+    {
+      name: '営業部',
+      projects: [
+        { title: 'A', planStatus: 'approved', ownerName: '佐藤', okrsV2: [{ label: 'k1', target: 1, unit: '件', due: '2027-01' }, { label: 'k2', target: 2, unit: '%' }] },
+        { title: 'B', planStatus: '', ownerName: '  ', okrsV2: [] },
+        { title: 'C', planStatus: 'weird', okrsV2: [{ label: 'k3', target: 3, unit: '日', due: '' }] },
+        { title: 'D', planStatus: undefined, ownerName: null, okrs: [{ objective: '旧', keyResults: ['旧KR'] }] },
+      ],
+    },
+    { name: '製造部', projects: [] },
+  ];
+
+  it('件数は、未登録・その他・0を別々に数える', () => {
+    expect(aggregateExecution(MIXED)).toEqual({
+      departments: 2,
+      projects: 4,
+      byPlanStatus: { 承認済み: 1, 確認中: 0, 下書き: 0, その他: 1, 未登録: 2 },
+      ownerMissing: 3,
+      projectsDueMissing: 2,
+      projectsEither: 4,
+      projectsBoth: 1,
+      krTotal: 4,
+      krDueMissing: 2,
+      krLegacy: 1,
+    });
+  });
+
+  it('集計は表示の選択に影響されない（40部門・600施策は全件で数える）', () => {
+    const depts = STAGE4_SCALE_FIXTURES['40部門・600施策']();
+    const agg = aggregateExecution(depts);
+    expect(agg.projects).toBe(600);
+    expect(agg.byPlanStatus.承認済み + agg.byPlanStatus.確認中 + agg.byPlanStatus.下書き).toBe(600);
+    expect(agg.krTotal).toBe(2400);
+    for (const budget of [2400, 3000]) {
+      const r = buildExecutionSummaryBlock(depts, '全社の状況を教えて', budget);
+      expect(r.aggregate).toEqual(agg);
+      expect(r.text).toContain('【全件集計】部門40件・施策600件');
+    }
+  });
+
+  it('旧形式の okrs しかない施策は、表示と同じく keyResults を KR として数え、期限は未登録とする', () => {
+    const agg = aggregateExecution([{ name: '営業部', projects: [{ title: 'D', okrs: [{ objective: '旧', keyResults: ['旧KR1', '旧KR2'] }] }] }]);
+    expect(agg.krTotal).toBe(2);
+    expect(agg.krDueMissing).toBe(0);
+    expect(agg.krLegacy).toBe(2);
+    expect(agg.projectsDueMissing).toBe(0);
+  });
+
+  it('okrsV2 と旧 okrs が両方ある施策は、okrsV2 だけを数える（二重計上しない）', () => {
+    const agg = aggregateExecution([{ name: '営業部', projects: [{ title: 'E', okrs: [{ objective: '旧', keyResults: ['旧KR'] }], okrsV2: [{ label: 'k', target: 1, unit: '件', due: '2027-01' }] }] }]);
+    expect(agg.krTotal).toBe(1);
+    expect(agg.krDueMissing).toBe(0);
+    expect(agg.krLegacy).toBe(0);
+  });
+});
+
+describe('概要のみの施策は、詳細として数えず「詳細未確認」と示す', () => {
+  const groupOf = (text: string) => {
+    const lines = text.split('\n');
+    const out: string[][] = [];
+    let cur: string[] | null = null;
+    for (const l of lines) {
+      if (l.startsWith('■ 部門: ')) cur = null;
+      if (l.startsWith('  概要のみ（詳細未確認）:')) { cur = []; out.push(cur); continue; }
+      if (cur && l.startsWith('    ・')) cur.push(l);
+      else if (l.startsWith('    ・')) throw new Error('概要の行が、詳細未確認の見出しの外にある');
+    }
+    return out;
+  };
+
+  it('4部門・20施策（丹青社相当）は、既定の2,400字で20施策すべての名称と計画状態を出す', () => {
+    const r = buildExecutionSummaryBlock(makeFixtureDepts(4, 5, 3), '全社の状況を教えて');
+    expect(r.projects.total).toBe(20);
+    expect(r.projects.visible).toBe(20);
+    expect(r.omitted).toBe(0);
+    expect(r.projects.shown).toBeGreaterThanOrEqual(9);
+    expect(r.text.length).toBeLessThanOrEqual(2400);
+    const names = groupOf(r.text).flat();
+    expect(names.length).toBe(20 - r.projects.shown);
+    expect(names.every((l) => /（計画 (承認済み|確認中|下書き|未登録)）$/.test(l))).toBe(true);
+  });
+
+  it('4部門・20施策は、4,000字で従来の詳細件数（19件）から集計行の分を除き、1件以内の減少に収まる', () => {
+    const r = buildExecutionSummaryBlock(makeFixtureDepts(4, 5, 3), '全社の状況を教えて', 4000);
+    expect(r.projects.visible).toBe(20);
+    expect(r.projects.shown).toBeGreaterThanOrEqual(18);
+  });
+
+  it('10部門・80施策は、3,000字で従来の詳細件数（13件）を下回らない', () => {
+    const r = buildExecutionSummaryBlock(makeFixtureDepts(10, 8, 3), '全社の状況を教えて', 3000);
+    expect(r.projects.shown).toBeGreaterThanOrEqual(13);
+    expect(r.text.length).toBeLessThanOrEqual(3000);
+  });
+
+  it('全件が詳細で見えるときは、概要の見出しを出さない（小規模の対照）', () => {
+    const r = buildExecutionSummaryBlock(makeFixtureDepts(2, 3, 2), '');
+    expect(r.complete).toBe(true);
+    expect(r.text).not.toContain('概要のみ（詳細未確認）');
+  });
+
+  it('概要の行は、直前の部門の見出しの下にだけ出る', () => {
+    const r = buildExecutionSummaryBlock(makeFixtureDepts(4, 5, 3), '全社の状況を教えて');
+    expect(() => groupOf(r.text)).not.toThrow();
+  });
+});
+
+describe('4部門・20施策（未登録データ入り）の集計は、独立に数えた正解と一致する', () => {
+  const withMissingValues = (depts: any[]) => {
+    const d = JSON.parse(JSON.stringify(depts));
+    delete d[0].projects[0].ownerName;
+    d[2].projects[1].ownerName = '';
+    d[1].projects[3].planStatus = 'pending_review';
+    delete d[0].projects[0].okrsV2[1].due;
+    d[3].projects[4].okrsV2[0].due = '';
+    return d;
+  };
+
+  it('担当者または期限が未登録の施策は重複を除いて3件、両方に該当するのは1件', () => {
+    const depts = withMissingValues(makeFixtureDepts(4, 5, 3));
+    const agg = aggregateExecution(depts);
+    const owner = new Set<unknown>();
+    const due = new Set<unknown>();
+    depts.forEach((d: any, di: number) => d.projects.forEach((p: any, pi: number) => {
+      if (!p.ownerName || String(p.ownerName).trim() === '') owner.add(`${di}-${pi}`);
+      (p.okrsV2 ?? []).forEach((k: any) => {
+        if (!k.due || String(k.due).trim() === '') due.add(`${di}-${pi}`);
+      });
+    }));
+    const either = new Set([...owner, ...due]);
+    const both = [...owner].filter((x) => due.has(x));
+    expect(agg.ownerMissing).toBe(owner.size);
+    expect(agg.projectsDueMissing).toBe(due.size);
+    expect(agg.projectsEither).toBe(either.size);
+    expect(agg.projectsBoth).toBe(both.length);
+    expect(agg.projectsEither).toBe(3);
+    expect(agg.projectsBoth).toBe(1);
+    expect(agg.ownerMissing).toBe(2);
+    expect(agg.krDueMissing).toBe(2);
+    expect(agg.krTotal).toBe(60);
+    expect(agg.krLegacy).toBe(0);
+  });
+
+  it('集計行は施策単位とKR単位を分け、異なる単位の件数を足さない', () => {
+    const text = buildExecutionSummaryBlock(withMissingValues(makeFixtureDepts(4, 5, 3)), '全社の状況を教えて').text;
+    const line = text.split('\n').find((l) => l.startsWith('【全件集計'))!;
+    expect(line).toContain('施策単位: 担当者未登録2・期限未登録KRあり2・いずれか3（両方1）');
+    expect(line).toContain('KR単位: 全60件・期限未登録2・旧形式0');
+  });
+});
+
+describe('KRの表示規則と集計規則の一致（6ケース、架空データ）', () => {
+  const one = (project: Record<string, unknown>) => [{ name: '営業部', projects: [{ title: 'P', ownerName: '担当A', ...project }] }];
+  const countDisplayedKr = (text: string) =>
+    text.split('\n').reduce((n, l) => {
+      if (l.startsWith('    - KR: ')) return n + 1;
+      const m = l.match(/^    - O: .*? \/ KR: (.+)$/);
+      if (m) return n + m[1].split('、').filter(Boolean).length;
+      return n;
+    }, 0);
+  const BIG = 6000;
+
+  it('1. okrsV2だけ: 期限の値で数え、旧形式は数えない', () => {
+    const depts = one({ okrsV2: [{ label: 'a', target: 1, unit: '件', due: '2027-01' }, { label: 'b', target: 2, unit: '件', due: '2027-02' }] });
+    const agg = aggregateExecution(depts);
+    expect(agg).toMatchObject({ krTotal: 2, krDueMissing: 0, krLegacy: 0, projectsDueMissing: 0 });
+    expect(countDisplayedKr(buildExecutionSummaryBlock(depts, '', BIG).text)).toBe(agg.krTotal);
+  });
+
+  it('2. 旧okrsだけ: KRとして数えるが、期限は確認できないため未登録にはしない', () => {
+    const depts = one({ okrs: [{ objective: '旧', keyResults: ['x', 'y'] }] });
+    const agg = aggregateExecution(depts);
+    expect(agg).toMatchObject({ krTotal: 2, krLegacy: 2, krDueMissing: 0, projectsDueMissing: 0 });
+    expect(countDisplayedKr(buildExecutionSummaryBlock(depts, '', BIG).text)).toBe(agg.krTotal);
+  });
+
+  it('3. 両方ある: okrsV2だけを数える（旧形式は同じKRの写しなので加算しない）', () => {
+    const depts = one({
+      okrsV2: [{ label: 'a', target: 1, unit: '件', due: '2027-01' }],
+      okrs: [{ objective: '旧', keyResults: ['a'] }],
+    });
+    const agg = aggregateExecution(depts);
+    expect(agg).toMatchObject({ krTotal: 1, krLegacy: 0 });
+    expect(countDisplayedKr(buildExecutionSummaryBlock(depts, '', BIG).text)).toBe(1);
+  });
+
+  it('4. KRが登録されていない施策: KR0件。担当者が無ければ施策単位で未登録に数える', () => {
+    const agg = aggregateExecution([{ name: '営業部', projects: [{ title: 'P', okrsV2: [], okrs: [] }] }]);
+    expect(agg).toMatchObject({ krTotal: 0, krDueMissing: 0, krLegacy: 0, ownerMissing: 1, projectsEither: 1, projectsBoth: 0 });
+  });
+
+  it('5. 担当者・期限の一方または両方が未登録: 施策単位で、いずれか・両方を重複なく数える', () => {
+    const owner = { ownerName: '', okrsV2: [{ label: 'a', target: 1, unit: '件', due: '2027-01' }] };
+    const due = { ownerName: '担当A', okrsV2: [{ label: 'b', target: 1, unit: '件' }] };
+    const both = { ownerName: null, okrsV2: [{ label: 'c', target: 1, unit: '件', due: '' }, { label: 'd', target: 1, unit: '件' }] };
+    const agg = aggregateExecution([{ name: '営業部', projects: [{ title: 'O', ...owner }, { title: 'D', ...due }, { title: 'B', ...both }] }]);
+    expect(agg).toMatchObject({ ownerMissing: 2, projectsDueMissing: 2, projectsEither: 3, projectsBoth: 1, krTotal: 4, krDueMissing: 3 });
+  });
+
+  it('6. 旧形式のため期限を確認できない施策: 期限未登録として数えず、旧形式として別に数える', () => {
+    const agg = aggregateExecution([{ name: '営業部', projects: [{ title: 'L', ownerName: '担当A', okrs: [{ objective: '旧', keyResults: ['x'] }] }] }]);
+    expect(agg).toMatchObject({ krTotal: 1, krLegacy: 1, krDueMissing: 0, projectsDueMissing: 0, projectsEither: 0 });
+    expect(agg.krLegacy).toBe(1);
   });
 });
