@@ -38,6 +38,17 @@ describe('質問の分類（操作・経営・複合）', () => {
     expect(detectOperationIntent(q)).toBe(true);
   });
 
+  it('妥当性を尋ねる人事・組織の相談は操作にせず、操作ガイドも出さない', () => {
+    const q = '人事部として、各部門の社員に必要なスキルを洗い出し、研修計画を作ろうと考えています。この進め方でよいでしょうか？';
+    expect(classifyQuestion(q)).toBe('none');
+    expect(detectOperationIntent(q)).toBe(false);
+    expect(buildOperationGuidance({ screenId: null, query: q, role: 'admin' }).text).toBe('');
+  });
+
+  it('画面・STAGEの語がある「でよいか」は、操作の確認として扱う', () => {
+    expect(classifyQuestion('STAGE4の入力の進め方はこれでよいか？')).toBe('operation');
+  });
+
   it('対象のない、どうすれば は操作にしない（経営の悩みとして扱う）', () => {
     expect(classifyQuestion('どうすればいい？')).toBe('none');
   });

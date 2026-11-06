@@ -7,7 +7,9 @@ const FINANCE_CUE = /業績|財務|売上|利益|収益|損益|キャッシュ|�
 const RATIONALE_CUE = /なぜ|理由|選ん|選択|狙い|意図|重視|考え|課題|解決|困り|顧客|お客|勝ち筋|根拠|戦略|ストーリー|社長|経営者|優先|事業|深掘り|12問|強み|危機|参入|撤退|採用|対立|解消|原因|調整/;
 const ALIGNMENT_CUE = /橋渡し|戦略展開|展開|部門|全社|現場|行動|役割|整合|落とし込|落と|営業|製造|生産|販売|対立|調整/;
 const COMPANY_REFERENCE = /当社|弊社|わが社|我が社|自社|御社|うちの|うちは|この会社|社長|経営者|経営陣/;
-const GENERAL_KNOWLEDGE_CUE = /とは|って何|意味|定義|一般的|一般論|違い|種類|仕組み|手法|フレームワーク|基礎/;
+const DEFINITION_CUE = /とは|って何|意味|定義|一般的|一般論|フレームワーク/;
+const CONCEPT_CUE = /違い|種類|仕組み|手法|基礎/;
+const ADVICE_CUE = /改善|べきか|べきですか|すべき|よいか|どうか|どう思|考えて|しよう|したい|設計|作り|導入|見直|効果|妥当|できるか|必要か|でよい/;
 
 export function hasCompanyReference(query: string): boolean {
   return COMPANY_REFERENCE.test(query ?? '');
@@ -15,7 +17,9 @@ export function hasCompanyReference(query: string): boolean {
 
 export function isGeneralKnowledgeQuestion(query: string): boolean {
   const q = query ?? '';
-  return GENERAL_KNOWLEDGE_CUE.test(q) && !COMPANY_REFERENCE.test(q);
+  if (COMPANY_REFERENCE.test(q)) return false;
+  if (DEFINITION_CUE.test(q)) return true;
+  return CONCEPT_CUE.test(q) && !ADVICE_CUE.test(q);
 }
 
 export type ContextSelection = {

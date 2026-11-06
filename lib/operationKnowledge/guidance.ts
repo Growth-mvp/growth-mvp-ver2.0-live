@@ -27,6 +27,8 @@ const ELEMENT_WORD = /(ボタン|タブ|項目|欄|リンク)/;
 const APP_TERM = /(財務効果|財務換算|算定根拠|KR(の)?実績|実績を記録|条件付きPL|条件付きCF|統一PL|参考判定|未算定|確認済み|この案を金額に反映|効果の種類|旧北極星|金額が分からない|金額の入力)/;
 const APP_TERM_OPERATION_CUE = /(入力|入れ|何を|どこ|種類|単位|開始|記録|確認|反映|違い|見方|読み方|意味|どう考|どうすれば|どうしたら|書けば|例|って何|とは|何ですか|何です|何？)/;
 const APP_TERM_IN_CONSULT_CHECK = /(財務効果|算定根拠|KR(の)?実績|条件付きPL|条件付きCF|統一PL|参考判定|未算定|確認済み|旧北極星)/g;
+const VALIDITY_ASK = /でよい|でいい|よいか|よいでしょうか|妥当|どうか/;
+const APP_LOCATION_CUE = /STAGE|ステージ|画面|欄|ボタン|タブ|アプリ|GROWTH|どこ|開く|クリック|入力|登録|保存/i;
 
 const STAGE_SCREEN_BY_NUMBER: Record<number, string> = {
   1: 'stage1',
@@ -52,10 +54,11 @@ export function classifyQuestion(text: string): QuestionKind {
   const mentioned = detectMentionedScreenIds(text).length > 0;
   const object = mentioned || APP_OBJECT.test(text);
   const appTerm = APP_TERM.test(text);
+  const validityAsk = VALIDITY_ASK.test(text) && !APP_LOCATION_CUE.test(text);
   const operation =
     ONBOARDING_CUE.test(text) ||
     STRONG_OPERATION_CUE.test(text) ||
-    (WEAK_OPERATION_CUE.test(text) && object) ||
+    (WEAK_OPERATION_CUE.test(text) && object && !validityAsk) ||
     (appTerm && APP_TERM_OPERATION_CUE.test(text));
   const consult = CONSULT_CUE.test(text.replace(APP_TERM_IN_CONSULT_CHECK, ''));
   if (operation && consult) return 'compound';
