@@ -135,7 +135,7 @@ describe('銀行向け計画書の単位の警告', () => {
     expect(facts?.markdown).toContain('減価償却費');
     expect(facts?.markdown).toContain('計算や計画書の作成を止めるものではありません');
     expect(facts?.markdown).not.toContain('単位不一致');
-    expect(facts?.statusLines[0]).toContain('STAGE6の財務計画による計算結果です');
+    expect(facts?.statusLines[0]).toContain('財務計画の計算結果です');
   });
 
   it('警告は本文の引用（Word・PDF・プレビューと同じ形式）として出力される', () => {

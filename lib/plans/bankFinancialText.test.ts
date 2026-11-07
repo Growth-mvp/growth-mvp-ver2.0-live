@@ -274,7 +274,7 @@ describe('10. 欠損値と0の区別', () => {
 describe('11. 財務目標と推計の差額', () => {
   it('登録目標との差額を符号付きで示す（推計は横ばい1,000.0、目標1,500.0）', () => {
     const facts = buildBankFinancialFacts(CURRENT())!;
-    expect(facts.markdown).toContain('登録目標（STAGE2）');
+    expect(facts.markdown).toContain('登録目標');
     expect(facts.markdown).toContain('1,500.0');
     expect(facts.markdown).toContain('-500.0');
   });
@@ -413,9 +413,10 @@ describe('17. 投資額の承認状態', () => {
 describe('18. 計画経路の表現', () => {
   it('STAGE6の値を独立した業績予測として示さない', () => {
     const md = buildBankFinancialFacts(CURRENT())!.markdown;
-    expect(md).toContain('計画経路（STAGE6）');
+    expect(md).toContain('計画経路');
     expect(md).toContain('独立した業績予測ではなく');
     expect(md).not.toContain('推計（STAGE6）');
+    expect(md).not.toMatch(/STAGE\d/);
   });
 
   it('目標年度の計画経路が登録目標と同額のときは、達成の検証ではないと明示する', () => {
@@ -517,11 +518,44 @@ describe('22. 範囲表記と負数の判定', () => {
   });
 });
 
+describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', () => {
+  it('投資の登録がなく期待効果のみの施策も一覧に含める', () => {
+    const departmentsWithOnlyEffect = [
+      {
+        name: '営業部',
+        projects: [
+          {
+            title: 'A社開拓',
+            planStatus: 'approved',
+            skillPlans: [
+              { id: 'sk1', skillName: '設備', cost: 30_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: '2027-03' } },
+            ],
+          },
+          { title: '文化施設事業の知見を商業・ホテル施設へ展開', planStatus: 'draft', impactRevenueMJPY: 120 },
+        ],
+      },
+    ] as unknown as Department[];
+    const md = buildBankFinancialFacts(blockOf(inputs({ departments: departmentsWithOnlyEffect })))!.markdown;
+    expect(md).toContain('**実行施策の一覧**');
+    expect(md).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 未登録 | 承認未確認 |');
+    expect(md).toContain('登録されている実行施策は全2件で、すべて掲載しています。');
+    expect(md).not.toMatch(/STAGE\d/);
+  });
+
+  it('掲載数が上限を超える場合は全件数と掲載範囲を明示する', () => {
+    const projects = Array.from({ length: 42 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: 1 }));
+    const md = buildBankFinancialFacts(
+      blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })),
+    )!.markdown;
+    expect(md).toContain('登録されている実行施策は全42件です。このうち40件を掲載しており、掲載されていない施策があります。');
+  });
+});
+
 describe('20. 表示単位と計算単位の説明', () => {
   it('表示単位と、STAGE1金額を円として計算している旨を区別して示す', () => {
     const md = buildBankFinancialFacts(CURRENT())!.markdown;
     expect(md).toContain('表示単位：百万円');
-    expect(md).toContain('STAGE1の金額を円として計算');
+    expect(md).toContain('財務計画の計算では、この金額を円として計算');
     expect(md).not.toContain('金額の単位：百万円');
   });
 });

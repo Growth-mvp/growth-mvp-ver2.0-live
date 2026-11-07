@@ -102,7 +102,7 @@ describe('POST /api/plans/[audience]/generate', () => {
     expect(res.status).toBe(200);
     expect(json.status).toBe('saved');
     expect(json.version).toBe(1);
-    expect(json.generatedText).toBe(LONG_TEXT);
+    expect(json.generatedText).toContain(LONG_TEXT);
     expect(Array.isArray(json.sections)).toBe(true);
     expect(typeof json.generatedAt).toBe('string');
     expect(mockCreate).toHaveBeenCalledTimes(1);
@@ -188,8 +188,8 @@ describe('POST /api/plans/[audience]/generate', () => {
     );
     const json = await res.json();
 
-    expect(json.generatedText).toBe(LONG_TEXT);
-    expect(db.rows.generated_plans[0].generated_text).toBe(LONG_TEXT);
+    expect(json.generatedText).toContain(LONG_TEXT);
+    expect(db.rows.generated_plans[0].generated_text).toContain(LONG_TEXT);
   });
 
   it('retries once after a transient save failure and reports saved', async () => {
@@ -213,7 +213,7 @@ describe('POST /api/plans/[audience]/generate', () => {
     expect(json.status).toBe('unsaved');
     expect(json.saveReason).toBe('error');
     expect(json.version).toBeNull();
-    expect(json.generatedText).toBe(LONG_TEXT);
+    expect(json.generatedText).toContain(LONG_TEXT);
     expect(mockCreate).toHaveBeenCalledTimes(1);
     expect(db.rows.generated_plans).toHaveLength(0);
   });
@@ -265,7 +265,7 @@ describe.each(['bank', 'shareholder', 'employee'] as const)('time budget for aud
     const json = await res.json();
 
     expect(json).toEqual(expect.objectContaining({ status: 'saved', version: 1, audience }));
-    expect(db.rows.generated_plans).toEqual([expect.objectContaining({ audience, generated_text: LONG_TEXT })]);
+    expect(db.rows.generated_plans).toEqual([expect.objectContaining({ audience, generated_text: expect.stringContaining(LONG_TEXT) })]);
     const options = mockCreate.mock.calls[0][1];
     expect(options.maxRetries).toBe(0);
     expect(options.timeout).toBeGreaterThan(0);
@@ -297,7 +297,7 @@ describe.each(['bank', 'shareholder', 'employee'] as const)('time budget for aud
 
     expect((await res.json()).status).toBe('saved');
     expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(db.rows.generated_plans).toEqual([expect.objectContaining({ audience, generated_text: LONG_TEXT })]);
+    expect(db.rows.generated_plans).toEqual([expect.objectContaining({ audience, generated_text: expect.stringContaining(LONG_TEXT) })]);
   });
 
   it('does not retry a non-transient provider error and keeps the existing plan', async () => {

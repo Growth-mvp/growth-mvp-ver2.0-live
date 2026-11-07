@@ -65,13 +65,21 @@ describe('STAGE2 確定戦略の取り込み', () => {
     expect(block).toContain('- 全社の判断基準F');
   });
 
-  it('入力のない項目は未入力と書き、内容を補わない', () => {
+  it('確定ストーリーはあるが個別項目が空の場合は、個別項目の未入力として区別する', () => {
     const plan = buildPlanData(base({ finalStoryFinal: [chapter('章', '本文')] }), 'bank');
     const block = bankStage2Block(plan.stage2);
-    expect(block).toContain('全社戦略の結論：未入力');
-    expect(block).toContain('顧客が当社を選ぶ理由・提供価値：未入力');
-    expect(block).toContain('成長戦略：未入力');
-    expect(block).toContain('利益戦略：未入力');
+    expect(block).toContain('全社戦略の結論：個別項目は未入力（確定ストーリー本文を参照）');
+    expect(block).toContain('顧客が当社を選ぶ理由・提供価値：個別項目は未入力（確定ストーリー本文を参照）');
+    expect(block).toContain('成長戦略：個別項目は未入力（確定ストーリー本文を参照）');
+    expect(block).toContain('利益戦略：個別項目は未入力（確定ストーリー本文を参照）');
+    expect(block).toContain('本文にも無い内容は記載しないこと');
+  });
+
+  it('確定版ストーリーも無い場合は、項目が未入力かつストーリー未作成であることを示す', () => {
+    const plan = buildPlanData(base(), 'bank');
+    const block = bankStage2Block(plan.stage2);
+    expect(block).toContain('成長戦略：未入力（確定版の戦略ストーリーも未作成）');
+    expect(block).toContain('戦略ストーリーが未作成のため、戦略の内容は確認できません');
   });
 
   it('戦略ストーリーが無い場合は未作成と示し、ストーリーを創作しない', () => {

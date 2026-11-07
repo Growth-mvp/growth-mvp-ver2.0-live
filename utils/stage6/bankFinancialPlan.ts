@@ -94,6 +94,7 @@ export type BankFinancialPlanSections = {
     fiscalYearEndMonth: number | null;
     fiscalYearBucketing: 'CONFIRMED' | 'ASSUMED_DECEMBER';
     byFiscalYear: { fiscalYear: number; capexYen: number; opexReferenceYen: number; otherYen: number }[];
+    projects: { totalCount: number; rows: StrategyProjectRow[] };
     readyYen: number;
     approvedReadyYen: number;
     unapprovedReadyYen: number;
@@ -225,8 +226,38 @@ function parseRegisteredTarget(targets: unknown[], keyword: '売上' | '営業�
     valueYen: rawBase * factor,
     dueYear,
     approval: 'REGISTERED_NOT_APPROVED',
-    note: 'STAGE2に登録された目標です。承認状態は確認されていません',
+    note: '全社目標として登録された値です。承認状態は確認されていません',
   };
+}
+
+export type StrategyProjectRow = {
+  departmentName: string;
+  title: string;
+  planStatus: string | null;
+  revenueYen: number | null;
+  operatingIncomeYen: number | null;
+  investmentRecordCount: number;
+};
+
+function strategyProjectRows(departments: Department[], items: InvestmentItem[]): StrategyProjectRow[] {
+  const rows: StrategyProjectRow[] = [];
+  for (const dept of departments) {
+    const deptName = dept?.name ?? '（未名）';
+    for (const p of dept?.projects ?? []) {
+      const title = p?.title ?? '（未名）';
+      const r = (p as { impactRevenueMJPY?: unknown }).impactRevenueMJPY;
+      const o = (p as { impactOpIncomeMJPY?: unknown }).impactOpIncomeMJPY;
+      rows.push({
+        departmentName: deptName,
+        title,
+        planStatus: p?.planStatus ?? null,
+        revenueYen: typeof r === 'number' && Number.isFinite(r) ? r * 1_000_000 : null,
+        operatingIncomeYen: typeof o === 'number' && Number.isFinite(o) ? o * 1_000_000 : null,
+        investmentRecordCount: items.filter((it) => it.deptName === deptName && it.projectTitle === title).length,
+      });
+    }
+  }
+  return rows;
 }
 
 function stage4Contributions(departments: Department[]) {
@@ -264,11 +295,11 @@ function stage4Contributions(departments: Department[]) {
 
 function gapFor(target: RegisteredTarget | null, plan: CashFlowPlan, pick: (y: CfYear) => CfValue): GapEntry {
   const base = { explanation: NO_EXPLANATION };
-  if (!target) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: 'STAGE2に目標が登録されていません' };
+  if (!target) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: '全社目標が登録されていません' };
   if (target.dueYear === null) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: '目標年度が未登録のため比較できません' };
   if (target.valueYen === null) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: target.note };
   const year = plan.years.find((y) => y.year === target.dueYear && y.kind === 'FORECAST');
-  if (!year) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: `STAGE6の推計期間に目標年度（${target.dueYear}年）が含まれません` };
+  if (!year) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: `計画期間に目標年度（${target.dueYear}年）が含まれません` };
   const projected = pick(year).value;
   if (projected === null) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: '推計値を算出できないため比較を保留します' };
   return { ...base, targetYen: target.valueYen, projectedYen: projected, differenceYen: projected - target.valueYen, reason: null };
@@ -324,7 +355,7 @@ export function buildBankFinancialPlanBlock(args: {
 
   const stored = readStoredFinancePlan(args.storedFinancePlan, companyId);
   if (stored.kind === 'NONE') {
-    return withoutNumbers('NOT_SAVED', ['STAGE6の財務計画が保存されていないため、財務数値は生成しません'], common);
+    return withoutNumbers('NOT_SAVED', ['財務計画が保存されていないため、財務数値は生成しません'], common);
   }
   if (stored.kind === 'DIFFERENT_COMPANY') {
     return withoutNumbers('DIFFERENT_COMPANY', ['保存された財務計画の会社IDが一致しないため使用しません'], common);
@@ -375,7 +406,7 @@ export function buildBankFinancialPlanBlock(args: {
   const reasons: string[] = [];
   if (meta.baseYear !== computed.basePlan.baseYear) reasons.push('基準年度（PL）が保存時点と異なります');
   if (meta.bsBaseYear !== computed.basePlan.bsBaseYear) reasons.push('基準年度（BS）が保存時点と異なります');
-  if (meta.sourceHash !== computed.sourceHash) reasons.push('STAGE1またはSTAGE4の元データが保存時点から変わっています');
+  if (meta.sourceHash !== computed.sourceHash) reasons.push('財務実績または実行施策の元データが保存時点から変わっています');
   const status: BankFinancialPlanStatus = reasons.length > 0 ? 'STALE' : 'CURRENT';
 
   const plan = computed.plan;
@@ -441,6 +472,10 @@ export function buildBankFinancialPlanBlock(args: {
         opexReferenceYen: b.OPEX,
         otherYen: b.OTHER,
       })),
+      projects: {
+        totalCount: contributions.projectCount,
+        rows: strategyProjectRows(inputs.departments, investment.items),
+      },
       readyYen: investment.readyYen,
       approvedReadyYen: investment.approvedReadyYen,
       unapprovedReadyYen: investment.unapprovedReadyYen,

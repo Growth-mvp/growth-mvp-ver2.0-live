@@ -348,7 +348,7 @@ describe('8. STAGE2目標との整合確認', () => {
     const alt = inputsWith({ companyTargets: [] });
     const b = blockFor({ ...alt, storedFinancePlan: savedFor(domain, alt) });
     expect(b.sections!.financialTargets.stage2Registered.revenue).toBeNull();
-    expect(b.sections!.financialTargets.gaps.revenue.reason).toBe('STAGE2に目標が登録されていません');
+    expect(b.sections!.financialTargets.gaps.revenue.reason).toBe('全社目標が登録されていません');
   });
 });
 

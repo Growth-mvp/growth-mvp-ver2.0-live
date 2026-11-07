@@ -16,6 +16,9 @@ import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { canGeneratePlan } from '@/lib/plans/planDocumentState';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { bankStage2Block, bankStage34Block } from '@/lib/plans/bankStrategyPrompt';
+import { toBusinessWording } from '@/lib/plans/businessWording';
+import { correctHistoricalClaims } from '@/lib/plans/historicalClaims';
+import { buildBankPlanSummary } from '@/lib/plans/bankPlanSummary';
 import { savePlanWithRetry } from '@/utils/supabase/generated-plans';
 import { isTimeoutError, isTransientError } from '@/lib/stage2/draftBudget';
 import {
@@ -337,9 +340,18 @@ export async function POST(
         );
       }
 
+      const historicalClaims = correctHistoricalClaims(generatedText, planData.stage1.historicalFinances ?? []);
+      generatedText = toBusinessWording(historicalClaims.text);
+      if (historicalClaims.corrected.length > 0) {
+        console.warn('[Plan Gen] Historical claims corrected', {
+          companyId: body.companyId,
+          count: historicalClaims.corrected.length,
+        });
+      }
+
       if (audience === 'bank') {
         const finance = finalizeBankPlanText(generatedText, bankFinancialPlan);
-        generatedText = finance.text;
+        generatedText = toBusinessWording(finance.text);
         bankFinanceCheck = finance.check;
         if (finance.check.issues.length > 0) {
           console.warn('[Plan Gen] Bank financial text issues', {
@@ -348,6 +360,7 @@ export async function POST(
             issueCount: finance.check.issues.length,
           });
         }
+        generatedText = `${buildBankPlanSummary(planData, bankFinancialPlan)}\n${generatedText}`;
       }
 
       const sections = parseSections(generatedText, audience);
@@ -615,11 +628,12 @@ IMPORTANT RULES:
 5. Focus on connecting existing data with clear, logical narratives
 6. Write in Japanese
 7. Use the exact data provided - no extrapolation or creative numbers
-8. CRITICAL: Do NOT double-count figures from STAGE4 and STAGE6
-   - If both STAGE4 project impacts and STAGE6 projections exist, clarify which is the official target
+8. CRITICAL: Do NOT double-count figures from 実行施策 and 財務計画
+   - If both 実行施策 project impacts and 財務計画 projections exist, clarify which is the official target
    - Do NOT sum them together
    - If data contradicts, mark as "要確認" (pending confirmation)
-9. Be explicit about data confidence levels and missing assumptions`;
+9. Be explicit about data confidence levels and missing assumptions
+10. Never write internal system names in the document: no "STAGE" numbers (STAGE1-6), no product or feature names, no data field names. Use business terms instead: 現状分析, 全社戦略, 部門別戦略, 実行施策, 業績管理, 財務計画 (and plain Japanese for everything else).`;
 
   const audienceSpecific = {
     bank: `AUDIENCE: Banking/Financial Institutions
@@ -662,7 +676,7 @@ CRITICAL INSTRUCTIONS FOR FINANCIAL DATA HANDLING:
    - 例：「利益率が低い理由はコスト構造」→ コスト内訳が無ければ推測でも良いが、「高い」「低い」の判断は提供データを基準に。
 
 5. 目標値の扱い：
-   - STAGE2で登録された全社目標（承認状態は未確認）とSTAGE4の「施策効果合計」を混同しない。
+   - 登録された全社目標（承認状態は未確認）と実行施策の「施策効果合計」を混同しない。
    - 両者が異なる場合、その理由（施策だけでは不十分 / 施策が目標を超える など）を分析する。
 
 TONE: Professional, conservative, fact-based. Emphasize realistic assessment and risk management.`,
@@ -740,7 +754,7 @@ ${planData.stage1.historicalFinances
   const stage34Block =
     audience === 'bank'
       ? `${bankStage2Block(planData.stage2)}${bankStage34Block(planData)}`
-      : `【STAGE3: 部門別戦略】
+      : `【部門別戦略】
 ${planData.stage3.departments
   .slice(0, 5)
   .map(
@@ -752,7 +766,7 @@ ${planData.stage3.departments
   )
   .join('\n')}
 
-【STAGE4: 実行計画・期待効果】
+【実行施策・期待効果】
 ${planData.stage4.projectImpacts
   ?.slice(0, 5)
   .map(
@@ -767,12 +781,12 @@ ${planData.stage4.projectImpacts
 会社名: ${planData.companyName}
 業種: ${getIndustryLabel(planData.stage1.industry, { full: true })}
 
-【STAGE1: 現状分析】
+【現状分析】
 ${planData.stage1.keyIssues?.length > 0 ? `経営課題: ${planData.stage1.keyIssues.join('、')}` : '経営課題: 未入力'}
 
 ${historicalFinancesTable}
 
-【STAGE2: 全社戦略】
+【全社戦略】
 ミッション: ${planData.companyMission || '未定義'}
 ビジョン: ${planData.companyVision || '未定義'}
 ${planData.stage2.midtermConcept ? `中計コンセプト: ${planData.stage2.midtermConcept}` : ''}
@@ -780,7 +794,7 @@ ${planData.stage2.priorityThemes?.length > 0 ? `重点テーマ: ${planData.stag
 
 ${
   planData.stage2.companyTargets && planData.stage2.companyTargets.length > 0
-    ? `【STAGE2: 登録された全社目標（承認状態は未確認）】
+    ? `【登録された全社目標（承認状態は未確認）】
 ${planData.stage2.companyTargets.map((t: any) => `- ${t.label}: ${t.value}`).join('\n')}
 `
     : ''
@@ -788,9 +802,9 @@ ${planData.stage2.companyTargets.map((t: any) => `- ${t.label}: ${t.value}`).joi
 
 ${stage34Block}
 
-【STAGE5/6: 財務目標】
-☆ STAGE2登録売上目標: ${planData.stage56.companyTargetRevenue || '未設定'}
-参考：STAGE4施策別期待効果合計: ${planData.stage56.projectImpactSum || 'なし'}
+【財務目標】
+☆ 登録された売上目標: ${planData.stage56.companyTargetRevenue || '未設定'}
+参考：実行施策の期待効果合計: ${planData.stage56.projectImpactSum || 'なし'}
 売上目標の表示（STAGE2登録目標・承認未確認）: ${planData.stage56.northStarRevenue || '未設定'}
 ${bankFinanceActive ? '' : `財務シミュレーション状況: ${planData.stage56.projectionStatus || '未実施'}`}
 ${planData.stage56.northStarMetrics?.length ? `重要指標: ${planData.stage56.northStarMetrics.map((m: any) => `${m.label}=${m.value}`).join(', ')}` : '重要指標: 未定義'}
@@ -808,7 +822,7 @@ ${!bankFinanceActive && planData.stage56.projectionNote ? `備考: ${planData.st
 4. 返済可能性の根拠（CFやキャッシュの裏付け）
 5. 銀行員目線でのリスク評価と対応策
 
-数値計画がSTAGE6で確認できない場合は「要確認」と記載してください。
+数値計画が財務計画で確認できない場合は「要確認」と記載してください。
 `,
 
     shareholder: `

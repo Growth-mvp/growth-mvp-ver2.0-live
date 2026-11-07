@@ -34,7 +34,7 @@ import {
 } from '@/utils/stage6/financePlanSnapshot';
 import type { CfAssumptions } from '@/utils/stage6/cashflow';
 import { formatMillionYen } from '@/lib/plans/bankFinancialFormat';
-import { buildPlanExportDocument } from '@/lib/plans/export/planExportDocument';
+import { buildPlanExportDocument, planDocumentPlainText } from '@/lib/plans/export/planExportDocument';
 
 const YEAR = new Date().getFullYear();
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -340,7 +340,8 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(json.bankFinancialPlan.status).toBe('CURRENT');
     expect(json.generatedText).toContain('既存借入：明細未入力（0件とはしていません）');
     expect(json.generatedText).toContain('**新規借入の返済計画（計算可能な部分）**');
-    expect(json.generatedText).toContain('STAGE1の財務実績の単位は未確認です');
+    expect(json.generatedText).toContain('過去の財務実績の金額の単位は未確認です');
+    expect(json.generatedText).not.toMatch(/STAGE\d|GROWTH SHIFT/);
     expect(promptSent()).toMatch(/過去年度別財務実績[\s\S]*未確認/);
   });
 
@@ -354,6 +355,36 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(tables.length).toBeGreaterThanOrEqual(4);
     const headers = tables.map((t) => (t.type === 'table' ? t.header.map((h) => h.map((r) => r.text).join('')).join('|') : ''));
     expect(headers.some((h) => h.includes('売上高') && h.includes('営業利益'))).toBe(true);
+
+    const plainText = planDocumentPlainText(doc);
+    expect(plainText).not.toMatch(/STAGE\d|GROWTH SHIFT/);
+    expect(plainText).toContain('経営計画の要約');
+  });
+
+  it('銀行向けの本文は冒頭に要約を置き、内部用語を残さない', async () => {
+    const { persisted } = snapshotFor();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted } }));
+    const { json } = await generate();
+
+    expect(json.generatedText.startsWith('## 経営計画の要約')).toBe(true);
+    expect(json.generatedText).not.toMatch(/STAGE\d|GROWTH SHIFT/);
+  });
+
+  it('株主向けの本文は内部用語を経営用語に置き換え、冒頭要約は付けない', async () => {
+    const { persisted } = snapshotFor();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted } }));
+    mockCreate.mockResolvedValue(
+      openAiReply(
+        `## 1. 経営方針\nSTAGE2の全社戦略に基づき、STAGE4の実行施策を進めます。売上高は2023年を底として増加しています。\n${'本文'.repeat(60)}`,
+      ),
+    );
+    const { json } = await generate('shareholder');
+
+    expect(json.generatedText).toContain('全社戦略に基づき、実行施策を進めます。');
+    expect(json.generatedText).toContain('売上高の過去実績の推移は、実績表のとおりです。');
+    expect(json.generatedText).not.toContain('2023年を底として');
+    expect(json.generatedText).not.toMatch(/STAGE\d/);
+    expect(json.generatedText).not.toContain('経営計画の要約');
   });
 
   it('STAGE2の確定戦略と全件数の施策を銀行向けプロンプトに渡し、株主向けには渡さない', async () => {
@@ -372,7 +403,7 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     await generate('bank');
 
     const bankPrompt = promptSent();
-    expect(bankPrompt).toContain('【STAGE2: 全社戦略（入力された内容のみ）】');
+    expect(bankPrompt).toContain('【全社戦略（入力された内容のみ）】');
     expect(bankPrompt).toContain('戦略ストーリーの版：確定版');
     expect(bankPrompt).toContain('全社戦略の結論：全社戦略の結論X');
     expect(bankPrompt).toContain('成長戦略：成長戦略A');
@@ -383,9 +414,9 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted }, extra }));
     await generate('shareholder');
     const shareholderPrompt = promptSent();
-    expect(shareholderPrompt).not.toContain('【STAGE2: 全社戦略（入力された内容のみ）】');
+    expect(shareholderPrompt).not.toContain('【全社戦略（入力された内容のみ）】');
     expect(shareholderPrompt).not.toContain('確定した戦略本文');
-    expect(shareholderPrompt).toContain('【STAGE3: 部門別戦略】\n');
+    expect(shareholderPrompt).toContain('【部門別戦略】\n');
     expect(shareholderPrompt).not.toContain('件を掲載');
   });
 

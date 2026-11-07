@@ -239,7 +239,7 @@ describe('5. STAGE1とSTAGE6の基準年度金額一致', () => {
     const stage1 = buildPlanData(state, 'bank').stage1.historicalFinances!.find((f) => f.year === BASE_YEAR)!;
     expect(stage1.unit).toBe('未確認');
     const facts = buildBankFinancialFacts(blockFor(withNewOnly))!;
-    expect(facts.markdown).toContain('STAGE1の財務実績の単位は未確認です');
+    expect(facts.markdown).toContain('過去の財務実績の金額の単位は未確認です');
   });
 });
 
@@ -252,7 +252,7 @@ describe('6・7. 未入力と0の区別、既存借入0件・明細未入力', (
 
   it('STAGE1の有利子負債は計画書に示すが、内訳が無いため既存借入の残高は未確定とする', () => {
     const facts = buildBankFinancialFacts(blockFor(withNewOnly))!;
-    expect(facts.markdown).toContain('STAGE1に登録された2026年末の有利子負債の合計は415.0百万円');
+    expect(facts.markdown).toContain('財務実績の貸借対照表に登録された2026年末の有利子負債の合計は415.0百万円');
     expect(facts.markdown).toContain('既存借入の残高・利息・元利返済は未確定');
   });
 

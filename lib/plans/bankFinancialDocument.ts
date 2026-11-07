@@ -1,5 +1,6 @@
 import type { BankFinancialPlanBlock } from '@/utils/stage6/bankFinancialPlan';
 import type { CfValue } from '@/utils/stage6/cashflow';
+import { toBusinessWording } from './businessWording';
 import {
   UNCONFIRMED_TEXT,
   collectAllowedFigures,
@@ -56,7 +57,7 @@ function statusLinesFor(block: BankFinancialPlanBlock): string[] {
     case 'CURRENT':
       if (block.numbersConfirmed) {
         return [
-          'STAGE6の財務計画による計算結果です。会社の取締役会等の承認や、金融機関の承認を得たものではありません。',
+          '財務計画の計算結果です。会社の取締役会等の承認や、金融機関の承認を得たものではありません。',
         ];
       }
       return [
@@ -67,7 +68,7 @@ function statusLinesFor(block: BankFinancialPlanBlock): string[] {
         `元データが保存時点から変わったため、以下は参考値です。再計算と再確認が必要です（${block.statusReasons.join('、')}）。`,
       ];
     case 'NOT_SAVED':
-      return ['STAGE6で財務計画が保存されていないため、財務数値は記載していません。'];
+      return ['財務計画が保存されていないため、財務数値は記載していません。'];
     case 'INVALID':
       return ['保存された財務計画を確認できないため、財務数値は記載していません。'];
     case 'DIFFERENT_COMPANY':
@@ -150,8 +151,8 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
       gap.reason ?? '登録目標との差額（承認状態は未確認）',
     ];
   });
-  parts.push('**STAGE2の登録目標と、STAGE6の計画経路の比較**');
-  parts.push(mdTable(['項目', '登録目標（STAGE2）', '計画経路（STAGE6）', '差額', '備考'], targetRows));
+  parts.push('**登録目標と計画経路の比較**');
+  parts.push(mdTable(['項目', '登録目標', '計画経路', '差額', '備考'], targetRows));
   const sc = t.stage6Scenario;
   parts.push(
     `計画経路の前提（利用者が設定した目標値への直線補間。独立した業績予測ではなく、正式な目標でもありません）：目標年度 ${sc.targetYear ?? UNCONFIRMED_TEXT}、売上高 ${formatMillionYenText(sc.revenueYen)}、営業利益 ${formatMillionYenText(sc.operatingIncomeYen)}。`,
@@ -165,7 +166,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   if (s4.revenueYen !== null) derived.yen.push(s4.revenueYen);
   if (s4.operatingIncomeYen !== null) derived.yen.push(s4.operatingIncomeYen);
   parts.push(
-    `施策別の期待効果（STAGE4）の単純合計：売上高 ${formatMillionYenText(s4.revenueYen)}、営業利益 ${formatMillionYenText(s4.operatingIncomeYen)}（対象 ${s4.projectCount}件、金額未入力 ${s4.missingValueCount}件）。${s4.note}`,
+    `実行施策の期待効果の単純合計：売上高 ${formatMillionYenText(s4.revenueYen)}、営業利益 ${formatMillionYenText(s4.operatingIncomeYen)}（対象 ${s4.projectCount}件、金額未入力 ${s4.missingValueCount}件）。${s4.note}`,
   );
 
   // B. 投資・資金需要
@@ -178,7 +179,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   if (invRows.length > 0) {
     parts.push(mdTable(['年度', 'CAPEX（投資CFに計上）', 'OPEX（参考・営業CFに含む）', 'その他支出（参考）'], invRows));
   } else {
-    parts.push('年度別の投資・費用はSTAGE4に登録されていません。');
+    parts.push('年度別の投資・費用は実行施策に登録されていません。');
   }
   const u = inv.unresolved;
   derived.yen.push(u.unclassifiedYen, u.unscheduledYen, u.candidateYen, u.basisPendingYen);
@@ -209,11 +210,31 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     return [s.projectTitle, s.label, s.category === 'UNCLASSIFIED' ? '分類未確定' : s.category, formatMillionYen(s.totalYen ?? s.amountYen), handling];
   });
   if (sourceRows.length > 0) {
-    parts.push('**投資・費用の内訳（STAGE4）**');
+    parts.push('**投資・費用の内訳（実行施策）**');
     parts.push(mdTable(['施策', '項目', '区分', '金額', '扱い'], sourceRows));
     if (inv.sources.length > SOURCE_ROW_LIMIT) {
       parts.push(`ほか${inv.sources.length - SOURCE_ROW_LIMIT}件は省略しています。`);
     }
+  }
+  const projectTotal = inv.projects.totalCount;
+  const projectRows = inv.projects.rows.slice(0, SOURCE_ROW_LIMIT).map((p) => [
+    p.title,
+    p.departmentName,
+    formatMillionYen(p.revenueYen),
+    formatMillionYen(p.operatingIncomeYen),
+    p.investmentRecordCount > 0 ? `${p.investmentRecordCount}件` : '未登録',
+    p.planStatus === 'approved' ? '承認済み' : '承認未確認',
+  ]);
+  if (projectRows.length > 0) {
+    parts.push('**実行施策の一覧**');
+    parts.push(
+      mdTable(['施策', '担当部門', '売上寄与（期待効果）', '営業利益寄与（期待効果）', '投資・費用の登録', '承認状態'], projectRows),
+    );
+    parts.push(
+      projectTotal > projectRows.length
+        ? `登録されている実行施策は全${projectTotal}件です。このうち${projectRows.length}件を掲載しており、掲載されていない施策があります。`
+        : `登録されている実行施策は全${projectTotal}件で、すべて掲載しています。`,
+    );
   }
   parts.push(inv.note);
 
@@ -314,7 +335,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
       if (stage1Debt !== null) {
         derived.yen.push(stage1Debt);
         parts.push(
-          `既存借入の明細は未入力です。STAGE1に登録された${sections.basisAndConstraints.bsBaseYear ?? UNCONFIRMED_TEXT}年末の有利子負債の合計は${formatMillionYenText(stage1Debt)}ですが、年度別の内訳と返済条件が未確認のため、既存借入の残高・利息・元利返済は未確定です。`,
+          `既存借入の明細は未入力です。財務実績の貸借対照表に登録された${sections.basisAndConstraints.bsBaseYear ?? UNCONFIRMED_TEXT}年末の有利子負債の合計は${formatMillionYenText(stage1Debt)}ですが、年度別の内訳と返済条件が未確認のため、既存借入の残高・利息・元利返済は未確定です。`,
         );
       } else {
         parts.push('既存借入の明細は未入力です。件数0として扱っていないため、既存借入の残高・利息・元利返済は未確定です。');
@@ -361,7 +382,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
       ? `既存借入：${a.existingLoanCount}件`
       : '既存借入：明細未入力（0件とはしていません）',
     `新規借入（想定）：${a.newLoanCount}件`,
-    'STAGE1の財務実績の単位は未確認です。STAGE6の計算では、STAGE1の金額を円として計算し、表示のみ百万円に換算しています。入力単位が異なる場合は計算結果も変わるため、単位の確認が必要です。',
+    '過去の財務実績の金額の単位は未確認です。財務計画の計算では、この金額を円として計算し、表示のみ百万円に換算しています。入力単位が異なる場合は計算結果も変わるため、単位の確認が必要です。',
   ];
   if (minCashLooksMisscaled) {
     assumptionLines.push(
@@ -379,10 +400,10 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   const promptLines = [
     '【財務計画（計算済み・変更禁止）】',
     ...statusLines,
-    '表示単位：百万円（小数第1位）。計算はSTAGE1の金額を円として実施（STAGE1の単位は未確認）。年度はSTAGE6の年度（決算期の終了年）。',
+    '表示単位：百万円（小数第1位）。計算は過去の財務実績の金額を円として実施（単位は未確認）。年度は計画の年度（決算期の終了年）。',
     ...revRows.map((r) => `${r[0]}（${r[1]}）：売上高 ${r[2]}、営業利益 ${r[3]}、営業利益率 ${r[4]}`),
     ...(s4.revenueYen !== null
-      ? [`施策別期待効果（STAGE4・単純合計・重複未検証）：売上高 ${formatMillionYen(s4.revenueYen)}、営業利益 ${formatMillionYen(s4.operatingIncomeYen)}`]
+      ? [`実行施策の期待効果（単純合計・重複未検証）：売上高 ${formatMillionYen(s4.revenueYen)}、営業利益 ${formatMillionYen(s4.operatingIncomeYen)}`]
       : []),
     ...invRows.map((r) => `${r[0]}の投資（CAPEX）：${r[1]}、OPEX参考：${r[2]}`),
     `準備済みの投資・費用（合計に算入）：承認済み ${formatMillionYenText(inv.approvedReadyYen)}、承認未確認 ${formatMillionYenText(inv.unapprovedReadyYen)}`,
@@ -398,7 +419,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
 
   return {
     statusLines,
-    markdown: parts.join('\n\n'),
+    markdown: toBusinessWording(parts.join('\n\n')),
     promptLines,
     allowed: derived,
     issues,

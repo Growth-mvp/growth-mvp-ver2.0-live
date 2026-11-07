@@ -28,23 +28,38 @@ function storyText(chapters: ConfirmedStage2['chapters']): string {
   return `${full.slice(0, STAGE2_STORY_CHAR_LIMIT)}\n（ここから先は省略しています）`;
 }
 
+const FIELD_NOT_ENTERED_WITH_STORY = '個別項目は未入力（確定ストーリー本文を参照）';
+const FIELD_NOT_ENTERED_WITHOUT_STORY = '未入力（確定版の戦略ストーリーも未作成）';
+
 export function bankStage2Block(stage2: PlanData['stage2']): string {
   const c = stage2.confirmed;
   if (!c) return '';
-  return `【STAGE2: 全社戦略（入力された内容のみ）】
+  const hasStory = c.storySource !== 'NONE';
+  const field = (value: string | undefined) =>
+    value && value.trim() !== '' ? value : hasStory ? FIELD_NOT_ENTERED_WITH_STORY : FIELD_NOT_ENTERED_WITHOUT_STORY;
+  const list = (values: string[] | undefined) =>
+    values && values.length > 0
+      ? values.map((v) => `- ${v}`).join('\n')
+      : hasStory
+        ? FIELD_NOT_ENTERED_WITH_STORY
+        : FIELD_NOT_ENTERED_WITHOUT_STORY;
+  const guidance = hasStory
+    ? '※個別項目が未入力のときは、確定ストーリー本文に該当する内容があればその本文に基づいて記載し、本文にも無い内容は記載しないこと。確定版でない場合は、確定した戦略として書かないこと。'
+    : '※戦略ストーリーが未作成のため、戦略の内容は確認できません。戦略の内容を創作せず、確認が必要な事項として記載すること。';
+  return `【全社戦略（入力された内容のみ）】
 戦略ストーリーの版：${STORY_SOURCE_LABEL[c.storySource]}
-全社戦略の結論：${orNotEntered(c.conclusion)}
-顧客が当社を選ぶ理由・提供価値：${orNotEntered(c.customerValue)}
-既存事業からの転換の方向：${orNotEntered(c.primaryShift)}
-成長戦略：${orNotEntered(c.growthStrategy)}
-利益戦略：${orNotEntered(c.profitStrategy)}
+全社戦略の結論：${field(c.conclusion)}
+顧客が当社を選ぶ理由・提供価値：${field(c.customerValue)}
+既存事業からの転換の方向：${field(c.primaryShift)}
+成長戦略：${field(c.growthStrategy)}
+利益戦略：${field(c.profitStrategy)}
 経営会議で確認すべき論点：
-${listOrNotEntered(c.managementIssues)}
+${list(c.managementIssues)}
 全社共通の判断基準：
-${listOrNotEntered(c.decisionCriteria)}
+${list(c.decisionCriteria)}
 最終ストーリー：
 ${storyText(c.chapters)}
-※「未入力」の項目は未入力として記載し、内容を補わないこと。確定版でない場合は、確定した戦略として書かないこと。
+${guidance}
 
 `;
 }
@@ -95,10 +110,10 @@ export function bankStage34Block(planData: PlanData): string {
           )
           .join('\n');
 
-  return `【STAGE3: 部門別戦略】（部門：${coverageNote(totalDepartments, shownDepartments.length)}）
+  return `【部門別戦略】（部門：${coverageNote(totalDepartments, shownDepartments.length)}）
 ${departmentLines}
 
-【STAGE4: 実行計画・期待効果】（施策：${coverageNote(totalProjects, shownProjects.length)}。売上寄与の大きい順）
+【実行施策・期待効果】（施策：${coverageNote(totalProjects, shownProjects.length)}。売上寄与の大きい順）
 ${projectLines}
 ※掲載範囲外の部門・施策があります。計画書で全件が反映されたように書かず、掲載件数と全件数を明記すること。`;
 }
