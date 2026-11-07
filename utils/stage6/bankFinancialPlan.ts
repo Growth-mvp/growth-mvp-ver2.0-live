@@ -237,6 +237,7 @@ export type StrategyProjectRow = {
   revenueYen: number | null;
   operatingIncomeYen: number | null;
   investmentRecordCount: number;
+  investmentYen: number;
 };
 
 function strategyProjectRows(departments: Department[], items: InvestmentItem[]): StrategyProjectRow[] {
@@ -247,13 +248,15 @@ function strategyProjectRows(departments: Department[], items: InvestmentItem[])
       const title = p?.title ?? '（未名）';
       const r = (p as { impactRevenueMJPY?: unknown }).impactRevenueMJPY;
       const o = (p as { impactOpIncomeMJPY?: unknown }).impactOpIncomeMJPY;
+      const own = items.filter((it) => it.deptName === deptName && it.projectTitle === title);
       rows.push({
         departmentName: deptName,
         title,
         planStatus: p?.planStatus ?? null,
         revenueYen: typeof r === 'number' && Number.isFinite(r) ? r * 1_000_000 : null,
         operatingIncomeYen: typeof o === 'number' && Number.isFinite(o) ? o * 1_000_000 : null,
-        investmentRecordCount: items.filter((it) => it.deptName === deptName && it.projectTitle === title).length,
+        investmentRecordCount: own.length,
+        investmentYen: own.reduce((sum, it) => sum + (it.duplicateStatus === 'CANDIDATE' ? 0 : it.totalYen ?? 0), 0),
       });
     }
   }

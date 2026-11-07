@@ -1,4 +1,7 @@
 import type { ConfirmedStage2, PlanData, ProjectImpactRow } from '@/utils/export/buildPlanData';
+import type { BankFinancialPlanBlock } from '@/utils/stage6/bankFinancialPlan';
+import { formatMillionYenText } from './bankFinancialFormat';
+import { selectMainProjects } from './projectSelection';
 
 export const STAGE2_STORY_CHAR_LIMIT = 4000;
 export const STAGE3_DEPARTMENT_DISPLAY_LIMIT = 10;
@@ -82,7 +85,7 @@ function coverageNote(total: number, shown: number): string {
   return total > shown ? `全${total}件のうち${shown}件を掲載` : `全${total}件を掲載`;
 }
 
-export function bankStage34Block(planData: PlanData): string {
+export function bankStage34Block(planData: PlanData & { bankFinancialPlan?: BankFinancialPlanBlock }): string {
   const departments = planData.stage3.departments;
   const totalDepartments = planData.stage3.totalDepartmentCount ?? departments.length;
   const shownDepartments = departments.slice(0, STAGE3_DEPARTMENT_DISPLAY_LIMIT);
@@ -95,6 +98,23 @@ export function bankStage34Block(planData: PlanData): string {
               `- ${d.name}：役割 ${orNotEntered(d.strategicRole)} ／ 主な課題 ${d.keyIssues?.join('、') || NOT_ENTERED} ／ 施策 ${d.projectCount ?? 0}件`,
           )
           .join('\n');
+
+  const bankProjects = planData.bankFinancialPlan?.sections?.investmentPlan.projects;
+  if (bankProjects && bankProjects.rows.length > 0) {
+    const main = selectMainProjects(bankProjects.rows);
+    const mainLines = main
+      .map(
+        (p) =>
+          `- ${p.title}（${p.departmentName}）：売上寄与 ${formatMillionYenText(p.revenueYen)} ／ 営業利益寄与 ${formatMillionYenText(p.operatingIncomeYen)} ／ 承認状態 ${p.planStatus === 'approved' ? '承認済み' : '承認未確認'}`,
+      )
+      .join('\n');
+    return `【部門別戦略】（部門：${coverageNote(totalDepartments, shownDepartments.length)}）
+${departmentLines}
+
+【主要な実行施策・期待効果】（施策：${coverageNote(bankProjects.totalCount, main.length)}。主要施策は売上寄与と投資額の大きい施策から選定）
+${mainLines}
+※本文では主要な施策のみ取り上げ、全件を列挙しないこと。掲載外の施策があることを前提に、全件が反映されたように書かないこと。全件は参考資料に掲載される。`;
+  }
 
   const allProjects = [...(planData.stage4.allProjectImpacts ?? planData.stage4.projectImpacts ?? [])];
   const totalProjects = planData.stage4.totalProjectCount ?? allProjects.length;

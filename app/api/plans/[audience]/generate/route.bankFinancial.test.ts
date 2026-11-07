@@ -338,7 +338,7 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     const { json } = await generate();
 
     expect(json.bankFinancialPlan.status).toBe('CURRENT');
-    expect(json.generatedText).toContain('既存借入：明細未入力（0件とはしていません）');
+    expect(json.generatedText).toContain('既存借入の明細は未入力です');
     expect(json.generatedText).toContain('**新規借入の返済計画（計算可能な部分）**');
     expect(json.generatedText).toContain('過去の財務実績の金額の単位は未確認です');
     expect(json.generatedText).not.toMatch(/STAGE\d|GROWTH SHIFT/);

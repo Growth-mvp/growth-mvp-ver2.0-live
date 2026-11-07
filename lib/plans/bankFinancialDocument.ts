@@ -1,6 +1,7 @@
 import type { BankFinancialPlanBlock } from '@/utils/stage6/bankFinancialPlan';
 import type { CfValue } from '@/utils/stage6/cashflow';
 import { toBusinessWording } from './businessWording';
+import { selectMainProjects } from './projectSelection';
 import {
   UNCONFIRMED_TEXT,
   collectAllowedFigures,
@@ -14,6 +15,7 @@ import {
 export type BankFinancialFacts = {
   statusLines: string[];
   markdown: string;
+  appendixMarkdown: string;
   promptLines: string[];
   allowed: AllowedFigures;
   issues: string[];
@@ -21,9 +23,11 @@ export type BankFinancialFacts = {
 };
 
 const CASH_TOLERANCE_YEN = 1;
-const SOURCE_ROW_LIMIT = 40;
+const APPENDIX_ROW_LIMIT = 60;
 
 const val = (cf: CfValue | undefined): number | null => cf?.value ?? null;
+
+const approvalLabel = (planStatus: string | null) => (planStatus === 'approved' ? '承認済み' : '承認未確認');
 
 function escapeCell(text: string): string {
   return text.replace(/\|/g, '｜').replace(/\r?\n/g, ' ');
@@ -88,6 +92,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     return {
       statusLines,
       markdown: statusLines.map((l) => `> ${l}`).join('\n'),
+      appendixMarkdown: '',
       promptLines: [
         '【財務計画】',
         ...statusLines,
@@ -134,7 +139,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     ];
   });
   parts.push(`**A. 財務目標と収益計画${caption}**`);
-  parts.push(mdTable(['年度', '区分', '売上高', '営業利益', '営業利益率', '前年度比（売上高）'], revRows));
+  parts.push(mdTable(['年度', '区分', '売上高', '営業利益', '営業利益率', '売上高の前年比'], revRows));
 
   const t = sections.financialTargets;
   const gapRows = [
@@ -177,7 +182,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   });
   parts.push(`**B. 投資・資金需要${caption}**（決算月：${inv.fiscalYearEndMonth ? `${inv.fiscalYearEndMonth}月` : '未設定'}${inv.fiscalYearBucketing === 'CONFIRMED' ? '' : '、暦年仮定のため年度別の額は確定値ではありません'}）`);
   if (invRows.length > 0) {
-    parts.push(mdTable(['年度', 'CAPEX（投資CFに計上）', 'OPEX（参考・営業CFに含む）', 'その他支出（参考）'], invRows));
+    parts.push(mdTable(['年度', 'CAPEX', 'OPEX（参考）', 'その他（参考）'], invRows));
   } else {
     parts.push('年度別の投資・費用は実行施策に登録されていません。');
   }
@@ -185,55 +190,38 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   derived.yen.push(u.unclassifiedYen, u.unscheduledYen, u.candidateYen, u.basisPendingYen);
   parts.push(
     mdTable(
-      ['未確定の区分', '金額', '件数', '扱い'],
+      ['未確定の区分', '金額', '件数'],
       [
-        ['分類未確定', formatMillionYen(u.unclassifiedYen), String(u.unclassifiedCount), '資金計画に含めていません'],
-        ['時期未設定', formatMillionYen(u.unscheduledYen), '-', '資金計画に含めていません'],
-        ['重複確認中（候補）', formatMillionYen(u.candidateYen), String(u.candidateCount), '合計に含めていません'],
-        ['金額基準未確認', formatMillionYen(u.basisPendingYen), String(u.basisPendingCount), '合計に含めていません'],
+        ['分類未確定', formatMillionYen(u.unclassifiedYen), String(u.unclassifiedCount)],
+        ['時期未設定', formatMillionYen(u.unscheduledYen), '-'],
+        ['重複確認中（候補）', formatMillionYen(u.candidateYen), String(u.candidateCount)],
+        ['金額基準未確認', formatMillionYen(u.basisPendingYen), String(u.basisPendingCount)],
       ],
     ),
   );
   parts.push(
     `準備済みの投資・費用（合計に算入）：承認済み ${formatMillionYenText(inv.approvedReadyYen)}、承認未確認（計画段階） ${formatMillionYenText(inv.unapprovedReadyYen)}。承認状態が確認できないものは承認済みとして扱っていません。`,
   );
-  const sourceRows = inv.sources.slice(0, SOURCE_ROW_LIMIT).map((s) => {
-    for (const v of [s.amountYen, s.totalYen]) if (v !== null) derived.yen.push(v);
-    const handling =
-      s.duplicateStatus === 'CANDIDATE'
-        ? '重複確認中（合計に含めていません）'
-        : s.ready
-          ? s.planStatus === 'approved'
-            ? '算入（承認済み）'
-            : '算入（承認未確認）'
-          : '未確定（合計に含めていません）';
-    return [s.projectTitle, s.label, s.category === 'UNCLASSIFIED' ? '分類未確定' : s.category, formatMillionYen(s.totalYen ?? s.amountYen), handling];
-  });
-  if (sourceRows.length > 0) {
-    parts.push('**投資・費用の内訳（実行施策）**');
-    parts.push(mdTable(['施策', '項目', '区分', '金額', '扱い'], sourceRows));
-    if (inv.sources.length > SOURCE_ROW_LIMIT) {
-      parts.push(`ほか${inv.sources.length - SOURCE_ROW_LIMIT}件は省略しています。`);
-    }
-  }
   const projectTotal = inv.projects.totalCount;
-  const projectRows = inv.projects.rows.slice(0, SOURCE_ROW_LIMIT).map((p) => [
-    p.title,
-    p.departmentName,
-    formatMillionYen(p.revenueYen),
-    formatMillionYen(p.operatingIncomeYen),
-    p.investmentRecordCount > 0 ? `${p.investmentRecordCount}件` : '未登録',
-    p.planStatus === 'approved' ? '承認済み' : '承認未確認',
-  ]);
-  if (projectRows.length > 0) {
-    parts.push('**実行施策の一覧**');
+  const mainProjects = selectMainProjects(inv.projects.rows);
+  if (mainProjects.length > 0) {
+    parts.push('**主要な実行施策**');
     parts.push(
-      mdTable(['施策', '担当部門', '売上寄与（期待効果）', '営業利益寄与（期待効果）', '投資・費用の登録', '承認状態'], projectRows),
+      mdTable(
+        ['施策', '担当部門', '売上寄与（期待効果）', '営業利益寄与（期待効果）', '承認状態'],
+        mainProjects.map((p) => [
+          p.title,
+          p.departmentName,
+          formatMillionYen(p.revenueYen),
+          formatMillionYen(p.operatingIncomeYen),
+          approvalLabel(p.planStatus),
+        ]),
+      ),
     );
     parts.push(
-      projectTotal > projectRows.length
-        ? `登録されている実行施策は全${projectTotal}件です。このうち${projectRows.length}件を掲載しており、掲載されていない施策があります。`
-        : `登録されている実行施策は全${projectTotal}件で、すべて掲載しています。`,
+      projectTotal > mainProjects.length
+        ? `主要な施策${mainProjects.length}件を掲載しています。登録されている実行施策は全${projectTotal}件で、残りの施策と投資・費用の明細は参考資料に掲載しています。`
+        : `登録されている実行施策は全${projectTotal}件で、すべて本文に掲載しています。`,
     );
   }
   parts.push(inv.note);
@@ -273,7 +261,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   parts.push(`**C. キャッシュフロー${caption}**`);
   parts.push(
     mdTable(
-      ['年度', '営業CF', '投資CF', 'フリーCF', '財務CF', '期首現預金', '期末現預金', '最低必要現預金', '資金不足額（借入反映後）'],
+      ['年度', '営業CF', '投資CF', 'フリーCF', '財務CF', '期首現預金', '期末現預金', '最低必要現預金', '資金不足額'],
       cfRows,
     ),
   );
@@ -326,7 +314,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     parts.push(`**D. 借入・返済計画${caption}**`);
     parts.push(
       mdTable(
-        ['年度', '期末借入残高', '新規借入（想定額）', '元本返済', '支払利息', '元利返済', '配当', 'DSCR（参考指標）', '返済可能性の判定'],
+        ['年度', '借入残高', '新規借入', '元本返済', '支払利息', '元利返済', '配当', 'DSCR', '返済可能性'],
         debtRows,
       ),
     );
@@ -353,11 +341,11 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
       parts.push('**新規借入の返済計画（計算可能な部分）**');
       parts.push(mdTable(['年度', '期末残高', '元本返済', '支払利息', '元利返済'], newRows));
       parts.push(
-        '新規借入の返済計画は、入力された金額・金利・期間・据置・返済方式から計算しています。融資の承認を得た金額ではありません。',
+        '新規借入の返済計画は、入力された金額・金利・期間・据置・返済方式から計算した想定です。融資の承認を得たものではありません。',
       );
     }
     parts.push(
-      'DSCRは「（営業CF＋支払利息）÷（元本返済＋支払利息）」の簡易指標であり、金融機関の審査指標とは異なります。新規借入の額は利用者が想定した額であり、融資の承認を得た金額ではありません。',
+      'DSCR（参考指標）は「（営業CF＋支払利息）÷（元本返済＋支払利息）」の簡易指標であり、金融機関の審査指標とは異なります。',
     );
   } else {
     parts.push('**D. 借入・返済計画**');
@@ -378,9 +366,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     `税率：${formatPercent(sections.cashFlow.taxRate.value)}`,
     `減価償却費（年額）：${formatMillionYenText(val(sections.cashFlow.depreciation))}`,
     `最低必要現預金：${formatMillionYenText(minCash)}`,
-    debt.existingLoansEntered
-      ? `既存借入：${a.existingLoanCount}件`
-      : '既存借入：明細未入力（0件とはしていません）',
+    ...(debt.existingLoansEntered ? [`既存借入：${a.existingLoanCount}件`] : []),
     `新規借入（想定）：${a.newLoanCount}件`,
     '過去の財務実績の金額の単位は未確認です。財務計画の計算では、この金額を円として計算し、表示のみ百万円に換算しています。入力単位が異なる場合は計算結果も変わるため、単位の確認が必要です。',
   ];
@@ -391,11 +377,56 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   }
   parts.push('**E. 計算の前提**');
   parts.push(assumptionLines.map((l) => `- ${l}`).join('\n'));
-  const holds = a.holds.slice(0, 10);
+  const holds = [...new Set(a.holds)].slice(0, 10);
   if (holds.length > 0) parts.push(`確認事項：\n${holds.map((h) => `- ${h}`).join('\n')}`);
 
   // 参照値の集合（表示・引用されうる数値）
   collectAllowedFigures(sections, derived);
+
+  const appendixParts: string[] = ['<!-- pagebreak -->', '## 参考資料A：実行施策の全件一覧'];
+  const allProjectRows = inv.projects.rows.slice(0, APPENDIX_ROW_LIMIT).map((p) => [
+    p.title,
+    p.departmentName,
+    formatMillionYen(p.revenueYen),
+    formatMillionYen(p.operatingIncomeYen),
+    p.investmentRecordCount > 0 ? `${p.investmentRecordCount}件` : '未登録',
+    formatMillionYen(p.investmentYen),
+    approvalLabel(p.planStatus),
+  ]);
+  appendixParts.push(
+    allProjectRows.length > 0
+      ? mdTable(
+          ['施策', '担当部門', '売上寄与（期待効果）', '営業利益寄与（期待効果）', '投資・費用の登録', '投資・費用の合計', '承認状態'],
+          allProjectRows,
+        )
+      : '登録されている実行施策はありません。',
+  );
+  appendixParts.push(
+    projectTotal > allProjectRows.length
+      ? `全${projectTotal}件のうち${allProjectRows.length}件を掲載しています。`
+      : `全${projectTotal}件を掲載しています。`,
+  );
+  const sourceRows = inv.sources.slice(0, APPENDIX_ROW_LIMIT).map((s) => {
+    const handling =
+      s.duplicateStatus === 'CANDIDATE'
+        ? '重複確認中（合計に含めていません）'
+        : s.ready
+          ? s.planStatus === 'approved'
+            ? '算入（承認済み）'
+            : '算入（承認未確認）'
+          : '未確定（合計に含めていません）';
+    return [s.projectTitle, s.label, s.category === 'UNCLASSIFIED' ? '分類未確定' : s.category, formatMillionYen(s.totalYen ?? s.amountYen), handling];
+  });
+  if (sourceRows.length > 0) {
+    appendixParts.push('## 参考資料B：投資・費用の明細');
+    appendixParts.push(mdTable(['施策', '項目', '区分', '金額', '扱い'], sourceRows));
+    appendixParts.push(
+      inv.sources.length > APPENDIX_ROW_LIMIT
+        ? `全${inv.sources.length}件のうち${APPENDIX_ROW_LIMIT}件を掲載しています。`
+        : `全${inv.sources.length}件を掲載しています。`,
+    );
+  }
+  const appendixMarkdown = toBusinessWording(appendixParts.join('\n\n'));
 
   const promptLines = [
     '【財務計画（計算済み・変更禁止）】',
@@ -420,6 +451,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   return {
     statusLines,
     markdown: toBusinessWording(parts.join('\n\n')),
+    appendixMarkdown,
     promptLines,
     allowed: derived,
     issues,

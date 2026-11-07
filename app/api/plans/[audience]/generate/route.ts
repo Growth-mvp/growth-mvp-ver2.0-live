@@ -19,6 +19,7 @@ import { bankStage2Block, bankStage34Block } from '@/lib/plans/bankStrategyPromp
 import { toBusinessWording } from '@/lib/plans/businessWording';
 import { correctHistoricalClaims } from '@/lib/plans/historicalClaims';
 import { buildBankPlanSummary } from '@/lib/plans/bankPlanSummary';
+import { buildBankFinancialFacts } from '@/lib/plans/bankFinancialDocument';
 import { savePlanWithRetry } from '@/utils/supabase/generated-plans';
 import { isTimeoutError, isTransientError } from '@/lib/stage2/draftBudget';
 import {
@@ -360,7 +361,8 @@ export async function POST(
             issueCount: finance.check.issues.length,
           });
         }
-        generatedText = `${buildBankPlanSummary(planData, bankFinancialPlan)}\n${generatedText}`;
+        const appendix = buildBankFinancialFacts(bankFinancialPlan)?.appendixMarkdown ?? '';
+        generatedText = `${buildBankPlanSummary(planData, bankFinancialPlan)}\n${generatedText}${appendix ? `\n\n${appendix}` : ''}`;
       }
 
       const sections = parseSections(generatedText, audience);

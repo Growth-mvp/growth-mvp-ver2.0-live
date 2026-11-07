@@ -77,10 +77,11 @@ describe('銀行向け冒頭サマリー', () => {
     const plan = buildPlanData(base(), 'bank');
     const summary = buildBankPlanSummary(plan, undefined);
     expect(summary).toContain('## 経営計画の要約');
-    expect(summary).toContain('- 目指す企業像：未入力');
-    expect(summary).toContain('- 最も重要な経営課題：未入力');
-    expect(summary).toContain('成長戦略は未入力');
-    expect(summary).toContain('計画期間は未確定');
+    expect(summary).toContain('- 結論：未入力（確定版の戦略ストーリーも未作成）');
+    expect(summary).toContain('成長戦略：未入力（確定版の戦略ストーリーも未作成）');
+    expect(summary).toContain('計画期間：未確定');
+    expect(summary).toContain('**事業・部門別の重点戦略**\n- 未入力');
+    expect(summary).not.toContain('先頭');
     expect(summary).not.toMatch(/STAGE\d/);
   });
 
@@ -88,19 +89,30 @@ describe('銀行向け冒頭サマリー', () => {
     const plan = buildPlanData(
       base({
         vision: '地域で選ばれる会社',
-        stage1Issues: [{ title: '売上の伸び悩み' }, { title: '人材の不足' }],
         departments: [{ name: '営業部', strategicRole: '既存顧客の深耕', projects: [] }],
         companyTargets: [{ label: '売上高', base: 1500, unit: '百万円', dueYear: 2028 }],
-        finalStoryFinal: [{ title: '章', body: '本文' }],
+        finalStoryFinal: [{ title: '章', body: '当社は地域で選ばれる存在を目指します。利益の改善を進めます。' }],
+        stage2FinalDocumentEdits: { conclusion: '既存事業の深耕を進めます。' },
         midtermStrategy: { growthStrategy: '成長A', profitImprovementStrategy: '利益B' },
       }),
       'bank',
     );
     const summary = buildBankPlanSummary(plan, undefined);
-    expect(summary).toContain('目指す企業像：地域で選ばれる会社');
-    expect(summary).toContain('売上の伸び悩み、人材の不足');
-    expect(summary).toContain('成長戦略は成長A。利益戦略は利益B');
-    expect(summary).toContain('営業部（既存顧客の深耕）');
-    expect(summary).toContain('売上高：1500百万円（2028年）（登録値・承認未確認）');
+    expect(summary).toContain('目指す姿：地域で選ばれる会社');
+    expect(summary).toContain('- 結論：既存事業の深耕を進めます。');
+    expect(summary).toContain('成長戦略：成長A');
+    expect(summary).toContain('利益戦略：利益B');
+    expect(summary).toContain('- 営業部：既存顧客の深耕');
+    expect(summary).toContain('売上高 1500百万円（2028年）（承認状態は未確認）');
+  });
+
+  it('個別項目が空でも確定ストーリーに該当文があれば、その文を原文のまま示す', () => {
+    const plan = buildPlanData(
+      base({ finalStoryFinal: [{ title: '章', body: '当社は地域で選ばれる存在を目指します。' }] }),
+      'bank',
+    );
+    const summary = buildBankPlanSummary(plan, undefined);
+    expect(summary).toContain('顧客が当社を選ぶ理由：確定版の戦略ストーリーには次のように記載されています。「当社は地域で選ばれる存在を目指します。」');
+    expect(summary).toContain('成長戦略は、確定版の戦略ストーリー本文を参照してください');
   });
 });

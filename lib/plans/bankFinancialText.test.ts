@@ -344,7 +344,7 @@ describe('15. Word/PDF出力との整合性', () => {
     expect(tables.length).toBeGreaterThanOrEqual(4);
     const headers = tables.map((t) => (t.type === 'table' ? t.header.map((h) => h.map((r) => r.text).join('')).join('|') : ''));
     expect(headers.some((h) => h.includes('売上高') && h.includes('営業利益'))).toBe(true);
-    expect(headers.some((h) => h.includes('返済可能性の判定'))).toBe(true);
+    expect(headers.some((h) => h.includes('返済可能性'))).toBe(true);
   });
 });
 
@@ -394,14 +394,14 @@ describe('17. 投資額の承認状態', () => {
   it('承認済みと承認未確認を分けて示し、承認未確認の金額も算入として残す', () => {
     const md = buildBankFinancialFacts(blockOf(inputs({ departments: departments('2027-03', 'draft') })))!.markdown;
     expect(md).toContain('承認済み 0.0百万円、承認未確認（計画段階） 30.0百万円');
-    expect(md).toContain('算入（承認未確認）');
-    expect(md).not.toContain('算入（承認済み）');
+    expect(md).not.toContain('算入（承認未確認）');
+    expect(buildBankFinancialFacts(blockOf(inputs({ departments: departments('2027-03', 'draft') })))!.appendixMarkdown).toContain('算入（承認未確認）');
   });
 
   it('承認済みの金額は承認済みとして示す', () => {
     const md = buildBankFinancialFacts(CURRENT())!.markdown;
     expect(md).toContain('承認済み 30.0百万円、承認未確認（計画段階） 0.0百万円');
-    expect(md).toContain('算入（承認済み）');
+    expect(buildBankFinancialFacts(CURRENT())!.appendixMarkdown).toContain('算入（承認済み）');
   });
 
   it('承認状態が未設定の金額は承認済みとして扱わない', () => {
@@ -535,11 +535,29 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
         ],
       },
     ] as unknown as Department[];
-    const md = buildBankFinancialFacts(blockOf(inputs({ departments: departmentsWithOnlyEffect })))!.markdown;
-    expect(md).toContain('**実行施策の一覧**');
-    expect(md).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 未登録 | 承認未確認 |');
-    expect(md).toContain('登録されている実行施策は全2件で、すべて掲載しています。');
+    const facts = buildBankFinancialFacts(blockOf(inputs({ departments: departmentsWithOnlyEffect })))!;
+    const md = facts.markdown;
+    expect(md).toContain('**主要な実行施策**');
+    expect(md).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 承認未確認 |');
+    expect(md).toContain('登録されている実行施策は全2件で、すべて本文に掲載しています。');
+    expect(facts.appendixMarkdown).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 未登録 | 0.0 | 承認未確認 |');
+    expect(facts.appendixMarkdown).toContain('全2件を掲載しています。');
     expect(md).not.toMatch(/STAGE\d/);
+  });
+
+  it('売上寄与が無くても投資額の大きい施策は主要施策に含める', () => {
+    const projects = [
+      ...[10, 20, 30, 40, 50, 60].map((v, i) => ({ title: `売上施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: v })),
+      {
+        title: '設備投資施策',
+        planStatus: 'approved',
+        skillPlans: [
+          { id: 'sk9', skillName: '設備', cost: 80_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: '2027-03' } },
+        ],
+      },
+    ];
+    const md = buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '製造部', projects }] as unknown as Department[] })))!.markdown;
+    expect(md).toContain('| 設備投資施策 | 製造部 |');
   });
 
   it('掲載数が上限を超える場合は全件数と掲載範囲を明示する', () => {
@@ -547,7 +565,31 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
     const md = buildBankFinancialFacts(
       blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })),
     )!.markdown;
-    expect(md).toContain('登録されている実行施策は全42件です。このうち40件を掲載しており、掲載されていない施策があります。');
+    expect(md).toContain('主要な施策4件を掲載しています。登録されている実行施策は全42件で、残りの施策と投資・費用の明細は参考資料に掲載しています。');
+    expect(md).not.toContain('| 施策40 |');
+    expect(buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })))!.appendixMarkdown).toContain('全42件を掲載しています。');
+    const many = Array.from({ length: 61 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: 1 }));
+    expect(buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects: many }] as unknown as Department[] })))!.appendixMarkdown).toContain('全61件のうち60件を掲載しています。');
+  });
+});
+
+describe('24. 本文と参考資料の分離・注意事項の重複', () => {
+  const projects = Array.from({ length: 12 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: i + 1 }));
+  const facts = () => buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })))!;
+
+  it('全件の施策一覧と投資明細は本文に含めず、参考資料に分けて出力する', () => {
+    const f = facts();
+    expect(f.markdown).not.toContain('参考資料A');
+    expect(f.markdown).not.toContain('投資・費用の内訳（実行施策）');
+    expect(f.appendixMarkdown.startsWith('<!-- pagebreak -->')).toBe(true);
+    expect(f.appendixMarkdown).toContain('## 参考資料A：実行施策の全件一覧');
+    expect(f.appendixMarkdown).toContain('| 施策12 | 営業部 |');
+  });
+
+  it('同じ注意事項を複数箇所で繰り返さない', () => {
+    const md = facts().markdown;
+    expect(md.split('DSCR（参考指標）は').length - 1).toBe(1);
+    expect(md.split('融資の承認を得たものではありません').length - 1).toBeLessThanOrEqual(1);
   });
 });
 

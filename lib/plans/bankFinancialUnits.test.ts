@@ -246,7 +246,7 @@ describe('5. STAGE1とSTAGE6の基準年度金額一致', () => {
 describe('6・7. 未入力と0の区別、既存借入0件・明細未入力', () => {
   it('既存借入の明細が無い場合は「0件」ではなく「明細未入力」と表示する', () => {
     const facts = buildBankFinancialFacts(blockFor(withNewOnly))!;
-    expect(facts.markdown).toContain('既存借入：明細未入力（0件とはしていません）');
+    expect(facts.markdown).toContain('既存借入の明細は未入力です');
     expect(facts.markdown).not.toContain('既存借入：0件');
   });
 
