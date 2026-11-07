@@ -20,6 +20,7 @@ import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { getStage2QuestionById } from '@/lib/stage2/questions12';
 import { swotBullets } from '@/lib/stage2/swotPrompt';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
+import { isValidFinalStoryDraft } from '@/lib/stage2/finalStoryDraft';
 
 /* =========================
  * モデル設定
@@ -2398,52 +2399,12 @@ ${stripPeopleRelatedNoise(answersRich, TRAINING_PROGRAM_KEYWORDS) || '—'}
       });
     }
 
-    // ★ CRITICAL FIX: リロード復元元である strategy_data.final_story_draft にも必ず保存する。
-    // これが入らないと、生成直後は画面stateに表示されても、リロード時に古い story が復活する。
-    // 保存後に select で再取得し、更新0件・保存失敗をログで検出できるようにする。
-    if (requestedCompanyId && requestedStrategyDataId) {
-      try {
-        const finalStoryDraftPayload = safeSerialize(finalStory);
-        const updatePayload = {
-          final_story_draft: finalStoryDraftPayload,
-          updated_at: new Date().toISOString(),
-        };
-
-        // ★ strategyDataId + companyId の両方で絞る
-        const { data: savedRows, error: saveDraftError } = await admin
-          .from('strategy_data')
-          .update(updatePayload)
-          .eq('id', requestedStrategyDataId)
-          .eq('company_id', requestedCompanyId)
-          .select('id, company_id, final_story_draft, updated_at');
-
-        if (saveDraftError) {
-          console.error('[stage2/generate-final] strategy_data.final_story_draft save failed:', {
-            companyId: requestedCompanyId || null,
-            strategyDataId: requestedStrategyDataId || null,
-            error: saveDraftError.message,
-          });
-        } else if (!Array.isArray(savedRows) || savedRows.length === 0) {
-          console.error('[stage2/generate-final] strategy_data.final_story_draft save updated 0 rows:', {
-            companyId: requestedCompanyId || null,
-            strategyDataId: requestedStrategyDataId || null,
-            finalStoryLen: Array.isArray(finalStory) ? finalStory.length : null,
-          });
-        } else {
-          const saved = savedRows[0] as Record<string, unknown>;
-          console.log('[stage2/generate-final] strategy_data.final_story_draft saved:', {
-            strategyDataId: saved.id,
-            companyId: saved.company_id,
-            finalStoryLen: Array.isArray(finalStory) ? finalStory.length : null,
-            savedDraftLen: Array.isArray(saved.final_story_draft) ? saved.final_story_draft.length : null,
-          });
-        }
-      } catch (e: any) {
-        console.error('[stage2/generate-final] strategy_data.final_story_draft save error:', e?.message || e);
-      }
-    } else {
-      console.warn('[stage2/generate-final] strategy_data.final_story_draft save skipped: companyId/strategyDataId missing');
+    if (!isValidFinalStoryDraft(finalStory)) {
+      console.warn('[stage2/generate-final] 不正な最終ストーリーを拒否しました', { requestId });
+      return NextResponse.json({ error: 'invalid_final_story' }, { status: 422 });
     }
+
+    // 下書きの保存は画面側の保存処理（revision 判定付き）に一本化する。ここでは DB に書き込まない。
 
     // ★ 監査ログ記録
     if (typeof requestedCompanyId === 'string' && typeof userId === 'string') {

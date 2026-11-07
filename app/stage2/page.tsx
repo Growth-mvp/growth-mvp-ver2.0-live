@@ -32,6 +32,7 @@ import {
 } from '@/lib/strategy/saveScope';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, Stage2FinalDocumentEdits, Stage2DeepDive } from '@/types/strategy';
+import { commitFinalStoryDraft, FINAL_STORY_INVALID_MESSAGE, FINAL_STORY_SAVE_FAILED_MESSAGE } from '@/lib/stage2/finalStoryDraft';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { SwotOpportunityPanel } from '@/components/stage2/SwotOpportunityPanel';
@@ -3495,6 +3496,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   );
 
   // Final generation（※こちらも timeout が絡むなら同じ問題が出るので対策を入れる）
+  const finalGenRunRef = useRef(0);
+
   const handleGenerateFinal = useCallback(async () => {
     if (generatingFinal) return;
 
@@ -3525,6 +3528,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
     setGeneratingFinal(true);
     setGenerateFinalError(null);
+    const runId = ++finalGenRunRef.current;
 
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -3609,222 +3613,127 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           : e instanceof AuthFetchError
           ? e.status === 401
             ? 'セッションが切れています。ログインし直してください。'
+            : e.status === 422
+            ? FINAL_STORY_INVALID_MESSAGE
             : e.bodyText || e.message
           : e?.message || 'API error';
         throw new Error(msg);
       }
-      const newFinalStory: StoryChapter[] = Array.isArray(data.finalStory) ? data.finalStory : [];
+      const outcome = await commitFinalStoryDraft({
+        chapters: data?.finalStory,
+        runId,
+        latestRunId: () => finalGenRunRef.current,
+        isScopeCurrent: () => !scopeAtStart || isSaveScopeCurrent(scopeAtStart),
+        save: async () => {
+          if (!scopeAtStart) return null;
+          const GENERATION_SAVE_FLAG_KEY = '__generation_save_in_progress__';
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem(GENERATION_SAVE_FLAG_KEY, JSON.stringify({
+                expiresAt: Date.now() + 15000,
+                operationId: `gen_${Date.now()}`,
+              }));
+            }
+          } catch (e) {
+            console.warn('[Stage2] Failed to set generation save flag:', e);
+          }
+          try {
+            const storeState = useStrategyStore.getState() as any;
+            const savePayload = {
+              ...storeState,
+              finalStory: [], // 旧ストーリーは保存成功時のみ消去する
+              finalStoryEdited: [], // 新しい下書きに合わせ、編集内容も保存成功時のみ消去する
+              finalStoryDraft: data.finalStory,
+              stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
+            };
+            const result = await runInSaveScope(scopeAtStart, () =>
+              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, stage2SaveRevision(storeState), {}, 'stage2:generateFinal'),
+            );
+            return result === SAVE_SCOPE_CHANGED ? null : result;
+          } finally {
+            try {
+              if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(GENERATION_SAVE_FLAG_KEY);
+              }
+            } catch (e) {
+              console.warn('[Stage2] Failed to clear generation save flag:', e);
+            }
+          }
+        },
+        onSaved: (revision) => {
+          if (revision !== undefined) {
+            useStrategyStore.getState().setRevision(revision);
+          }
+        },
+        apply: (chapters) => {
+          const store = useStrategyStore.getState() as any;
+          store.applyGeneratedDraft(chapters);
+          store.setFinalStory([]);
 
-      // ★ Step 3: APIレスポンス内容ログ
-      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-        console.log('[diag][regenerate][api-response]', {
-          chaptersLen: newFinalStory.length,
-          chapters: newFinalStory.map((ch) => ({
-            title: ch.title,
-            bodyStart: ch.body.slice(0, 80) + '...',
-            bodyLen: ch.body.length,
-          })),
-        });
+          if (
+            data?.midtermStrategy &&
+            typeof data.midtermStrategy === 'object' &&
+            !Array.isArray(data.midtermStrategy)
+          ) {
+            try {
+              store.setMidtermStrategy?.(data.midtermStrategy);
+            } catch {}
+          }
+
+          // ★ TASK A-2: 再生成成功直後は draft を表示
+          setStoryViewMode('draft');
+          // Auto navigate to Final tab
+          setActiveTab('final');
+
+          const stage2State: Stage2State = {
+            ceoIntent,
+            mvv: { thought, mission, vision, value },
+            swot: { strength, weakness, opportunity, threat },
+            storyDraft,
+            winPatternsCandidate,
+            answers12,
+            finalStory: chapters, // ★ 後方互換性のため保持
+          };
+          // ★ Stage2State型の後方互換性を保ちつつ、復元用の本命フィールドもlocalStorageに保持
+          (stage2State as any).finalStoryDraft = chapters;
+          saveStage2SnapshotToLocalStorage(stage2State, scopeAtStart?.companyId ?? companyId ?? undefined);
+        },
+      });
+
+      if (outcome.status === 'invalid') {
+        throw new Error(FINAL_STORY_INVALID_MESSAGE);
       }
-
-      // ★ STAGE2 最終ストーリー：draft に設定（確定版 finalStoryFinal は消さない）
-      if (scopeAtStart && !isSaveScopeCurrent(scopeAtStart)) {
-        console.warn('[Stage2] 会社・戦略が切り替わったため、最終ストーリーの生成結果を破棄しました');
+      if (outcome.status === 'save_failed' || outcome.status === 'not_persisted') {
+        setGenerateFinalError(
+          (outcome.status === 'save_failed' ? stage2ConflictMessage(outcome.error) : null) ??
+            FINAL_STORY_SAVE_FAILED_MESSAGE,
+        );
+        return;
+      }
+      if (outcome.status !== 'applied') {
+        console.warn('[Stage2] 最終ストーリーの生成結果を反映しませんでした（古い生成結果、または会社・戦略の切替）', outcome.status);
         return;
       }
 
-      const store = useStrategyStore.getState();
-      (store as any).applyGeneratedDraft(newFinalStory);
-      (store as any).setFinalStory([]);
-
-      // ★中計設計（midtermStrategy）がAPIから返ってきた場合のみ store へ反映
-      if (
-        data?.midtermStrategy &&
-        typeof data.midtermStrategy === 'object' &&
-        !Array.isArray(data.midtermStrategy)
-      ) {
-        try {
-          (useStrategyStore.getState() as any).setMidtermStrategy?.(data.midtermStrategy);
-        } catch {}
-      }
-
-      // ★ TASK A-2: 再生成成功直後は draft を表示
-      setStoryViewMode('draft');
-
-      // ★ Step 3: setter 実行直後のログ（即時と setTimeout(0)）
-      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-        // 即時
-        console.log('[diag][regenerate][after-setter-sync]', {
-          draftLenAfter: finalStoryDraftRaw?.length ?? 0,
-          editedLen: finalStoryEditedRaw?.length ?? 0,
-          finalLen: finalStoryFinalRaw?.length ?? 0,
-        });
-        // 非同期（reaction 待ち）
-        setTimeout(() => {
-          const storeState = (useStrategyStore.getState() as any);
-          console.log('[diag][regenerate][after-setter-async]', {
-            storeDraftLen: Array.isArray(storeState.finalStoryDraft) ? storeState.finalStoryDraft.length : null,
-            storeEditedLen: Array.isArray(storeState.finalStoryEdited) ? storeState.finalStoryEdited.length : null,
-            storeFinalLen: Array.isArray(storeState.finalStoryFinal) ? storeState.finalStoryFinal.length : null,
-          });
-        }, 0);
-      }
-
-      // Auto navigate to Final tab
-      setActiveTab('final');
-
-      const stage2State: Stage2State = {
-        ceoIntent,
-        mvv: { thought, mission, vision, value },
-        swot: { strength, weakness, opportunity, threat },
-        storyDraft,
-        winPatternsCandidate,
-        answers12,
-        finalStory: newFinalStory, // ★ 後方互換性のため保持
-      };
-      // ★ Stage2State型の後方互換性を保ちつつ、復元用の本命フィールドもlocalStorageに保持
-      (stage2State as any).finalStoryDraft = newFinalStory;
-      saveStage2SnapshotToLocalStorage(stage2State, scopeAtStart?.companyId ?? companyId ?? undefined);
-
-      // ★ CRITICAL FIX: 生成直後に DB に保存（finalStoryDraft をリロード後も復元するため）
+      // ★ 4章生成・保存成功後、generate-conclusion を別リクエストで呼び出し（非ブロッキング）
       try {
-        // ★ FIX: Set a flag to block autosave during post-generation save
-        const GENERATION_SAVE_FLAG_KEY = '__generation_save_in_progress__';
-        const flagExpires = Date.now() + 15000; // 15 second timeout for post-generation save
-        try {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem(GENERATION_SAVE_FLAG_KEY, JSON.stringify({
-              expiresAt: flagExpires,
-              operationId: `gen_${Date.now()}`,
-            }));
-          }
-        } catch (e) {
-          console.warn('[Stage2] Failed to set generation save flag:', e);
-        }
-
-        console.log('[Stage2][generate-final] DB save start after generation');
-        const storeState = useStrategyStore.getState() as any;
-
-        // ★ DIAG: verify finalStoryDraft is in store before saving
-        console.log('[diag][generate-final:pre-save] Store state check', {
-          storeFinalStoryDraftLen: Array.isArray(storeState.finalStoryDraft) ? storeState.finalStoryDraft.length : 'missing',
-          newFinalStoryLen: Array.isArray(newFinalStory) ? newFinalStory.length : 0,
-          timestamp: new Date().toISOString(),
+        const conclusionRes = await authFetchJson<any>('/api/stage2/generate-conclusion', {
+          method: 'POST',
+          json: { strategyDataId: strategyId },
         });
 
-        const savePayload = {
-          ...storeState,
-          finalStoryDraft: newFinalStory, // 生成されたばかりの最新ストーリーを確実に保存
-          stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
-        };
-
-        const saveResult = scopeAtStart
-          ? await runInSaveScope(scopeAtStart, () =>
-              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, stage2SaveRevision(storeState), {}, 'stage2:generateFinal'),
-            )
-          : SAVE_SCOPE_CHANGED;
-
-        if (
-          saveResult !== SAVE_SCOPE_CHANGED &&
-          scopeAtStart &&
-          isSaveScopeCurrent(scopeAtStart) &&
-          saveResult.error
-        ) {
-          setSaveWarning(stage2ConflictMessage(saveResult.error) ?? 'DB保存に失敗しました。編集内容は画面に残っています。もう一度保存してください。');
-        }
-
-        if (
-          saveResult !== SAVE_SCOPE_CHANGED &&
-          scopeAtStart &&
-          isSaveScopeCurrent(scopeAtStart) &&
-          saveResult.error === null
-        ) {
-          console.log('[Stage2][generate-final] ✅ DB save SUCCESS - finalStoryDraft saved', {
-            finalStoryDraftLen: Array.isArray(newFinalStory) ? newFinalStory.length : 0,
-            revision: saveResult.data?.revision,
-          });
-
-          // ★ DIAG: verify data was persisted (check returned data)
-          if (saveResult.data) {
-            console.log('[diag][generate-final:post-save] DB response check', {
-              dbResponseHasFinalStoryDraft: Array.isArray((saveResult.data as any).finalStoryDraft),
-              dbResponseFinalStoryDraftLen: Array.isArray((saveResult.data as any).finalStoryDraft) ? (saveResult.data as any).finalStoryDraft.length : 0,
-              timestamp: new Date().toISOString(),
-            });
-          }
-
-          if (saveResult.data?.revision !== undefined) {
-            useStrategyStore.getState().setRevision(saveResult.data.revision);
-          }
-
-          // ★ 4章生成・保存成功後、generate-conclusion を別リクエストで呼び出し（非ブロッキング）
-          try {
-            console.log('[Stage2] generate-conclusion: calling...');
-            const conclusionRes = await authFetchJson<any>('/api/stage2/generate-conclusion', {
-              method: 'POST',
-              json: { strategyDataId: strategyId },
-            });
-
-            console.log('[CONCLUSION DEBUG] API Response:', {
-              apiCalled: true,
-              responseConclusion: conclusionRes?.conclusion?.substring(0, 50) + '...',
-              responseFingerprint: conclusionRes?.story_fingerprint?.slice(0, 8),
-              fullResponse: conclusionRes,
-            });
-
-            if (conclusionRes && typeof conclusionRes.conclusion === 'string') {
-              console.log('[Stage2] generate-conclusion: SUCCESS', {
-                conclusionLen: conclusionRes.conclusion.length,
-                fingerprint: conclusionRes.story_fingerprint?.slice(0, 8),
-              });
-
-              // ★ store に Conclusion と fingerprint を反映
-              const store = useStrategyStore.getState() as any;
-              console.log('[CONCLUSION DEBUG] Before store update:', {
-                storeConclusion: store.stage2FinalGeneratedConclusion?.substring(0, 50),
-                storeFingerprint: store.stage2FinalGeneratedConclusionFingerprint?.slice(0, 8),
-              });
-
-              const conclusionInScope = !scopeAtStart || isSaveScopeCurrent(scopeAtStart);
-              if (conclusionInScope && typeof store.setStage2FinalGeneratedConclusion === 'function') {
-                store.setStage2FinalGeneratedConclusion?.(
-                  conclusionRes.conclusion
-                );
-              }
-            } else {
-              console.warn('[Stage2] generate-conclusion: unexpected response format', conclusionRes);
-            }
-          } catch (conclusionErr) {
-            // ★ Conclusion生成失敗は非ブロッキング（4章は既に保存済み）
-            console.warn('[Stage2] generate-conclusion: FAILED (non-blocking)', conclusionErr);
-            console.log('[CONCLUSION DEBUG] API Call Failed:', {
-              apiCalled: false,
-              error: conclusionErr,
-            });
+        if (conclusionRes && typeof conclusionRes.conclusion === 'string') {
+          const store = useStrategyStore.getState() as any;
+          const conclusionInScope = !scopeAtStart || isSaveScopeCurrent(scopeAtStart);
+          if (conclusionInScope && typeof store.setStage2FinalGeneratedConclusion === 'function') {
+            store.setStage2FinalGeneratedConclusion?.(conclusionRes.conclusion);
           }
         } else {
-          console.warn('[Stage2][generate-final] ⚠️ DB save FAILED but generation succeeded', {
-            error: (saveResult as any)?.error?.message ?? (saveResult as any)?.error,
-          });
+          console.warn('[Stage2] generate-conclusion: unexpected response format', conclusionRes);
         }
-
-
-        // ★ FIX: Clear the generation save flag after completion
-        try {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(GENERATION_SAVE_FLAG_KEY);
-          }
-        } catch (e) {
-          console.warn('[Stage2] Failed to clear generation save flag:', e);
-        }
-      } catch (saveErr) {
-        console.error('[Stage2][generate-final] 🚨 DB save error (non-fatal):', saveErr);
-        // ★ FIX: Still clear the flag even on error
-        try {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem('__generation_save_in_progress__');
-          }
-        } catch (e) {}
+      } catch (conclusionErr) {
+        // ★ Conclusion生成失敗は非ブロッキング（4章は既に保存済み）
+        console.warn('[Stage2] generate-conclusion: FAILED (non-blocking)', conclusionErr);
       }
     } catch (e: any) {
       console.error('[Stage2] GenerateFinal error:', e);

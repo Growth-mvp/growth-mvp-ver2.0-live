@@ -43,7 +43,8 @@ describe('STAGE2 の 3 つの保存経路（画面の配線・静的確認）', 
   });
 
   it('2 つ目の経路は、失敗（競合を含む）を通知する', () => {
-    expect(page).toContain("setSaveWarning(stage2ConflictMessage(saveResult.error) ?? 'DB保存に失敗しました。");
+    expect(page).toContain('stage2ConflictMessage(outcome.error) : null) ??');
+    expect(page).toContain('FINAL_STORY_SAVE_FAILED_MESSAGE');
   });
 
   it('3 つ目の経路は、失敗を無通知で戻さない', () => {
