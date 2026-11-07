@@ -10,6 +10,8 @@ export type Stage6SourceInputs = {
   fiscalYearEnd: string | undefined;
   companyTargets: unknown[];
   storedFinancePlan: unknown;
+  /** 利用者が円で確認した会社PLの年度（表示の注記にのみ使い、計算には使わない） */
+  financeUnitConfirmedPl?: number[];
 };
 
 type AnyRecord = Record<string, any>;
@@ -107,5 +109,8 @@ export function stage6SourceInputsFromRow(row: AnyRecord): Stage6SourceInputs {
     fiscalYearEnd: normalizeFiscalYearEnd(row.fiscal_year_end) || undefined,
     companyTargets: ensureArray(row.company_targets),
     storedFinancePlan: csvRaw.financePlanAssumptions,
+    financeUnitConfirmedPl: ensureArray<unknown>(csv.financeUnitConfirmed?.pl).filter(
+      (y): y is number => Number.isInteger(y),
+    ),
   };
 }

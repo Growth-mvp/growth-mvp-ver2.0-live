@@ -63,7 +63,36 @@ describe('過去実績の増減・底の記述の事実検査', () => {
     const out = correctHistoricalClaims(text, rows).text.split('\n');
     expect(out[0]).toBe('## 2. 改善戦略');
     expect(out[1]).toBe('| 売上高 | 2023年を底 |');
-    expect(out[2]).toBe('- 売上高の過去実績の推移は、実績表のとおりです。');
+    expect(out[2]).toBe('- 2023年から2025年にかけて売上高は増加しました。');
+  });
+
+  describe('2022年度との比較（社員向けの実例）', () => {
+    const rowsWith2022: HistoricalFinanceRow[] = [
+      { year: 2022, revenue: 95, grossProfit: 40, operatingIncome: 12, netIncome: 6 },
+      { year: 2023, revenue: 100, grossProfit: 35, operatingIncome: 10, netIncome: 4 },
+    ];
+
+    it('売上高が増加しているのに「2022年度より減少」と書かれた文を、実績どおりの文に直す', () => {
+      const out = correctHistoricalClaims('2023年度は売上高も2022年度より減少しています。', rowsWith2022);
+      expect(out.corrected.length).toBe(1);
+      expect(out.text).toBe('2023年度の売上高は2022年度より増加しました。');
+    });
+
+    it('売上高・売上総利益・営業利益・当期純利益の向きを指標ごとに照合する', () => {
+      const text = '2023年度は売上高は増加し、売上総利益・営業利益・当期純利益は2022年度より減少しました。';
+      expect(correctHistoricalClaims(text, rowsWith2022).corrected).toEqual([]);
+    });
+
+    it('向きが実績と合っている比較は変えない', () => {
+      const text = '2023年度の営業利益は2022年度より減少しました。';
+      expect(correctHistoricalClaims(text, rowsWith2022)).toEqual({ text, corrected: [] });
+    });
+
+    it('売上総利益を売上高と取り違えない', () => {
+      const text = '2023年度の売上総利益は2022年度より増加しました。';
+      const out = correctHistoricalClaims(text, rowsWith2022);
+      expect(out.text).toBe('2023年度の売上総利益は2022年度より減少しました。');
+    });
   });
 
   it('過去実績が無い場合は文章を変えない', () => {

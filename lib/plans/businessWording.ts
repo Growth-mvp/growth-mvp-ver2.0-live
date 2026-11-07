@@ -7,6 +7,7 @@ const STAGE_TERMS: Array<[RegExp, string]> = [
   [/STAGE\s?5/gi, '業績管理'],
   [/STAGE\s?6/gi, '財務計画'],
   [/GROWTH\s?SHIFT/gi, ''],
+  [/\bestimates?\b/gi, '見込み'],
   [/STAGE/gi, '経営計画'],
 ];
 

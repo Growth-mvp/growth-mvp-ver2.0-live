@@ -351,7 +351,9 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     `最低必要現預金：${formatMillionYenText(minCash)}`,
     ...(debt.existingLoansEntered ? [`既存借入：${a.existingLoanCount}件`] : []),
     `新規借入（想定）：${a.newLoanCount}件`,
-    '過去の財務実績の金額の単位は未確認です。財務計画の計算では、この金額を円として計算し、表示のみ百万円に換算しています。入力単位が異なる場合は計算結果も変わるため、単位の確認が必要です。',
+    a.financeUnitConfirmed
+      ? '過去の財務実績の金額は、利用者が円で確認しています。財務計画の計算では、この金額を円として計算し、表示のみ百万円に換算しています。'
+      : '過去の財務実績の金額の単位は未確認です。財務計画の計算では、この金額を円として計算し、表示のみ百万円に換算しています。入力単位が異なる場合は計算結果も変わるため、単位の確認が必要です。',
   ];
   if (minCashLooksMisscaled) {
     assumptionLines.push(

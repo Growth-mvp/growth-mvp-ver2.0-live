@@ -157,6 +157,13 @@ function listNodes(nodes: PlanListNode[]): unknown[] {
   });
 }
 
+const AMOUNT_CELL = /^[-−▲△]?\d[\d,]*(\.\d+)?\s?(百万円|億円|円|%|倍)?$/;
+
+/** 金額・比率だけのセルは途中で折り返さない（「120百万円」が「120百万」と「円」に分かれないようにする） */
+function isAmountCell(runs: PlanInline[]): boolean {
+  return AMOUNT_CELL.test(runs.map((run) => run.text).join('').trim());
+}
+
 function tableNode(block: Extract<PlanBlock, { type: 'table' }>): Record<string, unknown> {
   const weights = tableColumnWeights(block);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
@@ -171,7 +178,12 @@ function tableNode(block: Extract<PlanBlock, { type: 'table' }>): Record<string,
     fillColor: '#e2e8f0',
   }));
   const body = block.rows.map((row) =>
-    row.map((runs, i) => ({ text: toPdfText(runs), style: 'td', alignment: block.align[i] ?? 'left' }))
+    row.map((runs, i) => ({
+      text: toPdfText(runs),
+      style: 'td',
+      alignment: block.align[i] ?? 'left',
+      ...(isAmountCell(runs) ? { noWrap: true } : {}),
+    }))
   );
 
   return {

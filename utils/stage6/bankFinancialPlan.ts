@@ -182,6 +182,8 @@ export type BankFinancialPlanSections = {
     baseYear: number | null;
     bsBaseYear: number | null;
     forecastWindow: number[];
+    /** 基準年度の会社PLを利用者が円で確認しているか（表示の注記にのみ使う） */
+    financeUnitConfirmed: boolean;
     assumptions: FinancePlanDomain['assumptions'];
     existingLoanCount: number;
     newLoanCount: number;
@@ -583,6 +585,7 @@ export function buildBankFinancialPlanBlock(args: {
       baseYear: plan.baseYear,
       bsBaseYear: plan.bsBaseYear,
       forecastWindow: computed.forecastYears,
+      financeUnitConfirmed: plan.baseYear !== null && (inputs.financeUnitConfirmedPl ?? []).includes(plan.baseYear),
       assumptions: stored.domain.assumptions,
       existingLoanCount: stored.domain.existingLoans.length,
       newLoanCount: stored.domain.newLoans.length,

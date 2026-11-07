@@ -11,6 +11,7 @@ import { buildFinancialIndicatorBlock } from '@/lib/plans/financialIndicators';
 import { findNumericNotationIssues, normalizeNumericNotation } from '@/lib/plans/numericNotation';
 import { normalizeApprovalWording } from '@/lib/plans/approvalWording';
 import { investmentInputMismatches, projectInvestmentLabels } from '@/lib/plans/projectInvestment';
+import { formatHistoricalAmount, historicalUnitLabel } from '@/lib/plans/historicalDisplay';
 import { bankFinancialPlanForRow, withBankFinancialPlan } from '@/utils/stage6/bankFinancialPlan';
 import { bankFinancialPromptText, finalizeBankPlanText, type BankFinanceCheck } from '@/lib/plans/bankFinancialText';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
@@ -601,6 +602,11 @@ function dbRowToStrategyData(row: any): Record<string, any> | null {
 
     // ★ 株主向け財務指標の計算入力（現状分析の保存値）
     financeBS: Array.isArray(csvFinance.financeBS) ? csvFinance.financeBS : undefined,
+    financeUnitConfirmed: {
+      pl: Array.isArray(csvFinance.financeUnitConfirmed?.pl)
+        ? csvFinance.financeUnitConfirmed.pl.filter((y: unknown) => Number.isInteger(y))
+        : [],
+    },
     segmentPL: csvFinance.segmentPL,
     segmentBS: csvFinance.segmentBS,
     isListed: row.is_listed ?? undefined,
@@ -740,7 +746,7 @@ AUDIENCE RULES (shareholders):
 - Open with the confirmed company-wide strategy conclusion, then the growth direction and the enterprise-value approach, using only what the input states.
 - Use the financial indicator block only as given. Write 未算出 for any indicator that is not calculated; do not fill in numbers.
 - Mention PBR or any share-price metric only when 上場区分 is 上場 and a value is given. Never present them for a non-listed company.
-- Present registered targets as 登録目標 with 承認状態は未確認, and expected effects as estimates. Never present unconfirmed numbers or unapproved investments as settled.
+- Present registered targets as 登録目標 with 承認状態は未確認, and expected effects as 見込み. Never present unconfirmed numbers or unapproved investments as settled.
 - Do not describe the status of the system, development stages, pending data, or how data was processed.
 
 TONE: Investor-focused, growth-oriented, emphasizing strategic opportunities and financial returns.`,
@@ -779,12 +785,6 @@ TONE: Inspiring yet practical, emphasizing clarity on roles, concrete actions, a
   return basePrompt + '\n' + audienceSpecific[audience];
 }
 
-function formatTableAmount(value: unknown): string {
-  if (value === undefined) return '-';
-  if (typeof value === 'number' && Number.isInteger(value)) return value.toLocaleString('ja-JP');
-  return String(value);
-}
-
 function buildAudiencePrompt(
   audience: AudienceType,
   planData: any,
@@ -801,11 +801,13 @@ function buildAudiencePrompt(
 ${planData.stage1.historicalFinances
   .map(
     (f: any) =>
-      `| ${f.year} | ${formatTableAmount(f.revenue)} | ${formatTableAmount(f.grossProfit)} | ${formatTableAmount(f.operatingIncome)} | ${formatTableAmount(f.netIncome)} | ${f.unit || '未確認'} |`
+      `| ${f.year} | ${formatHistoricalAmount(f.revenue, f.unit)} | ${formatHistoricalAmount(f.grossProfit, f.unit)} | ${formatHistoricalAmount(f.operatingIncome, f.unit)} | ${formatHistoricalAmount(f.netIncome, f.unit)} | ${historicalUnitLabel(f.unit)} |`
   )
   .join('\n')}
 
-※注意: 上記は過去実績です。将来予測ではありません。数値の単位が確認できない場合は「単位未確認」と表示されています。
+※注意: 上記は過去実績です。将来予測ではありません。単位が「未確認」の年度は、元の数値のまま表示しています。
+${planData.stage1.historicalFinances.some((f: any) => f.unit === '円') ? '※単位が「百万円」の年度は、円で確認済みの金額を百万円に換算して表示しています（表示のみの換算で、元の数値は変更していません）。' : ''}
+${planData.stage1.historicalFinances.some((f: any) => f.unit !== '円') ? '※単位が「未確認」の年度は、円や百万円への換算をしていません。' : ''}
 ※分析時は実績値の傾向分析に留め、数値を変更しないでください。
 `
       : '【過去年度別財務実績】データなし\n';

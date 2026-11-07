@@ -390,20 +390,26 @@ function extractHistoricalFinances(state: Partial<StrategyData>): Array<{
     return [];
   }
 
-  // financePL は FinancePLRow[] の形式
-  // ⚠️ 注意：DB保存時の単位が type 定義に明示されていない
+  // financePL は円で入力・保存される（取込時に円以外の単位は受け付けない）。
+  // 利用者が円で確認した年度だけを円として扱い、それ以外は単位未確認のまま参考情報に留める
+  const confirmedYears = new Set<number>((state as any)?.financeUnitConfirmed?.pl ?? []);
   return financePL
     .filter((row: any) => row && typeof row.year === 'number')
-    .map((row: any) => ({
-      year: row.year,
-      revenue: typeof row.revenue === 'number' ? row.revenue : undefined,
-      grossProfit: typeof row.grossProfit === 'number' ? row.grossProfit : undefined,
-      operatingIncome: typeof row.operatingIncome === 'number' ? row.operatingIncome : undefined,
-      netIncome: typeof row.netIncome === 'number' ? row.netIncome : undefined,
-      unit: '未確認', // DB保存単位が不明
-      source: 'STAGE1 入力',
-      warning: '⚠️ 保存単位が確定されていません。参考情報に留め、重要な数値判断には使用しないでください。',
-    }))
+    .map((row: any) => {
+      const confirmed = confirmedYears.has(row.year);
+      return {
+        year: row.year,
+        revenue: typeof row.revenue === 'number' ? row.revenue : undefined,
+        grossProfit: typeof row.grossProfit === 'number' ? row.grossProfit : undefined,
+        operatingIncome: typeof row.operatingIncome === 'number' ? row.operatingIncome : undefined,
+        netIncome: typeof row.netIncome === 'number' ? row.netIncome : undefined,
+        unit: confirmed ? '円' : '未確認',
+        source: confirmed ? 'STAGE1 入力（円で確認済み）' : 'STAGE1 入力',
+        warning: confirmed
+          ? undefined
+          : '⚠️ 保存単位が確定されていません。参考情報に留め、重要な数値判断には使用しないでください。',
+      };
+    })
     .sort((a, b) => a.year - b.year);
 }
 

@@ -538,6 +538,22 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(shareholderPrompt).not.toContain('件を掲載');
   });
 
+  it('過去実績の表は、円で確認済みの年度だけ百万円に換算し、未確認の年度は換算しない', async () => {
+    const { persisted } = snapshotFor();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted, financeUnitConfirmed: { pl: [YEAR - 1] } } }));
+    await generate('shareholder');
+    const confirmedPrompt = promptSent();
+    expect(confirmedPrompt).toContain(`| ${YEAR - 1} | 1,000.0 | - | 50.0 | 30.0 | 百万円 |`);
+    expect(confirmedPrompt).not.toContain('1,000,000,000');
+
+    mockCreate.mockClear();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted } }));
+    await generate('shareholder');
+    const unconfirmedPrompt = promptSent();
+    expect(unconfirmedPrompt).toContain(`| ${YEAR - 1} | 1,000,000,000 | - | 50,000,000 | 30,000,000 | 未確認 |`);
+    expect(unconfirmedPrompt).not.toContain('| 百万円 |');
+  });
+
   it('株主向けは財務指標を計算値として渡し、上場区分が未入力のときPBRを出さない', async () => {
     const { persisted } = snapshotFor();
     useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted } }));

@@ -594,6 +594,19 @@ describe('24. 本文と参考資料の分離・注意事項の重複', () => {
   });
 });
 
+describe('25. 過去実績の単位の注記は確認状況に従う', () => {
+  it('利用者が円で確認した年度では、単位が未確認だという注記を出さない', () => {
+    const md = buildBankFinancialFacts(blockOf(inputs({ financeUnitConfirmedPl: [2025] })))!.markdown;
+    expect(md).toContain('過去の財務実績の金額は、利用者が円で確認しています');
+    expect(md).not.toContain('過去の財務実績の金額の単位は未確認です');
+  });
+
+  it('確認記録がなければ、単位は未確認のままとする', () => {
+    const md = buildBankFinancialFacts(blockOf(inputs()))!.markdown;
+    expect(md).toContain('過去の財務実績の金額の単位は未確認です');
+  });
+});
+
 describe('20. 表示単位と計算単位の説明', () => {
   it('表示単位と、STAGE1金額を円として計算している旨を区別して示す', () => {
     const md = buildBankFinancialFacts(CURRENT())!.markdown;
