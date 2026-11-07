@@ -7,7 +7,8 @@ const UNCALCULATED = '未算定';
 type Target = PlTarget;
 
 function mil(v: number) {
-  return (v / MILLION).toLocaleString('ja-JP', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  const text = (v / MILLION).toLocaleString('ja-JP', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  return /^-0(\.0+)?$/.test(text) ? text.slice(1) : text;
 }
 
 function valueOrUncalculated(v: number | null) {
@@ -144,7 +145,7 @@ export function UnifiedPlPanel({
               ))}
             </tbody>
           </table>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-xs text-slate-500">
             単位：百万円。費用の欄は営業費用への増減（費用削減は減少、追加費用は増加）。「未算定」は計算していない欄で、0ではありません。
           </p>
         </div>
@@ -175,12 +176,12 @@ export function UnifiedPlPanel({
       )}
 
       {trial.legacyReferenced.length > 0 && (
-        <p className="text-[11px] text-slate-500">
+        <p className="text-xs text-slate-500">
           従来の北極星の金額（施策の影響額）は削除せず参考情報として保持しており、この統一PLには加算していません（{trial.legacyReferenced.map((t) => t.projectTitle).join('、')}）。
         </p>
       )}
 
-      {trial.notSetCount > 0 && <p className="text-[11px] text-slate-500">財務効果が未設定の施策：{trial.notSetCount}件</p>}
+      {trial.notSetCount > 0 && <p className="text-xs text-slate-500">財務効果が未設定の施策：{trial.notSetCount}件</p>}
     </section>
   );
 }

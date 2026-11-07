@@ -83,6 +83,26 @@ describe('統一PLの表示', () => {
     expect(html).toContain('削除せず参考情報として保持しており、この統一PLには加算していません（新規開拓）');
   });
 
+  it('差額がちょうど0のとき「-0.0」と書かず、目標を達成と表示する', () => {
+    const t = { revenueYen: 1_000 * M, revenueDueYear: 2028, operatingIncomeYen: null, operatingIncomeDueYear: null };
+    const plan = buildUnifiedPl({ baseline, effects: [], target: t });
+    const html = renderToStaticMarkup(<UnifiedPlPanel plan={plan} trial={trialWith([])} target={t} />);
+    expect(html).toContain('売上（2028年度）：目標を達成（0.0 百万円超過）');
+    expect(html).not.toContain('-0.0');
+    expect(html).not.toContain('−0.0');
+  });
+
+  it('わずかに負の値（四捨五入で0.0）を「-0.0」と書かない', () => {
+    const negligible = [{ fiscalYear: 2028, revenueYen: 0, operatingIncomeYen: -40_000 }];
+    const plan = buildUnifiedPl({ baseline: negligible, effects: [], target: null });
+    const html = renderToStaticMarkup(
+      <UnifiedPlPanel plan={plan} trial={trialWith([])} target={{ revenueYen: null, revenueDueYear: null, operatingIncomeYen: null, operatingIncomeDueYear: null }} />,
+    );
+    expect(plan.years[0].plan.operatingIncomeYen).toBe(-40_000);
+    expect(html).not.toContain('-0.0');
+    expect(cells(html)).toContain('0.0');
+  });
+
   it('売上と営業利益の目標年度が異なるとき、指標ごとの年度と差額を表示する', () => {
     const target = { revenueYen: 1_200 * M, revenueDueYear: 2028, operatingIncomeYen: 80 * M, operatingIncomeDueYear: 2027 };
     const plan = buildUnifiedPl({ baseline, effects: [], target });
