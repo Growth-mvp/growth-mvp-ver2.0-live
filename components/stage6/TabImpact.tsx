@@ -50,7 +50,7 @@ function StatBox({
 }) {
   return (
     <div className={`rounded-xl border px-4 py-3 ${emphasis ? 'border-slate-300 bg-slate-100' : 'border-slate-200 bg-white'}`}>
-      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      <div className="text-xs font-medium text-slate-500">{label}</div>
       <div className={`mt-1 text-xl font-semibold ${emphasis ? 'text-slate-900' : 'text-slate-800'}`}>{value}</div>
     </div>
   );
@@ -144,13 +144,13 @@ export function TabImpact({
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-            <div className="text-[11px] font-medium text-amber-700">売上不足額</div>
+            <div className="text-xs font-medium text-amber-700">売上不足額</div>
             <div className="mt-1 text-2xl font-bold text-amber-900">
               {revenueGapMJPY > 0 ? `+${fmtMJPY(revenueGapMJPY)}` : '達成済み'}
             </div>
           </div>
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-            <div className="text-[11px] font-medium text-amber-700">営業利益不足額</div>
+            <div className="text-xs font-medium text-amber-700">営業利益不足額</div>
             <div className="mt-1 text-2xl font-bold text-amber-900">
               {opGapMJPY > 0 ? `+${fmtMJPY(opGapMJPY)}` : '達成済み'}
             </div>
@@ -166,7 +166,7 @@ export function TabImpact({
             <StatBox label="選択中 売上寄与合計" value={fmtMJPY(selectedSummary.deltaRev)} emphasis />
             <StatBox label="選択中 営業利益寄与合計" value={fmtMJPY(selectedSummary.deltaOp)} emphasis />
           </div>
-          <div className="mt-3 text-[11px] text-slate-500">投資合計：{fmtJPY(selectedSummary.invest)}</div>
+          <div className="mt-3 text-xs text-slate-500">投資合計：{fmtJPY(selectedSummary.invest)}</div>
         </div>
       </div>
 
@@ -175,8 +175,9 @@ export function TabImpact({
           該当するプロジェクトがありません。
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200">
-          <div className="grid grid-cols-[40px_1.5fr_repeat(4,minmax(110px,1fr))] gap-3 bg-slate-50 px-4 py-3 text-[11px] font-semibold text-slate-600">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <div className="min-w-[46rem]">
+          <div className="grid grid-cols-[40px_1.5fr_repeat(4,minmax(110px,1fr))] gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
             <div></div>
             <div>プロジェクト</div>
             <div>目標売上額</div>
@@ -214,6 +215,7 @@ export function TabImpact({
                 </div>
               );
             })}
+          </div>
           </div>
         </div>
       )}

@@ -11,7 +11,7 @@ import { buildFinanceEffectTrial, withoutTargetPath } from '@/utils/stage6/finan
 import { UnifiedPlPanel } from './UnifiedPlPanel';
 import { ConditionalCfPanel } from './ConditionalCfPanel';
 import { buildConditionalCashFlow } from '@/utils/stage6/conditionalCf';
-import { buildUnifiedPl, type PlTarget, type UnifiedPlMetricGap } from '@/utils/stage6/unifiedPl';
+import { buildUnifiedPl, type PlTarget } from '@/utils/stage6/unifiedPl';
 import { isOperatingIncomeLabel, isRevenueLabel, northStarValueToMJPY } from '@/utils/stage6/compute';
 import {
   FINANCE_PLAN_CALC_VERSION,
@@ -29,21 +29,21 @@ import {
   type CalcSnapshotMeta,
   type FinancePlanDomain,
 } from '@/utils/stage6/financePlanSnapshot';
-import { CashFlowPanel, EMPTY_CASHFLOW_FORM, fmtMil, type CashFlowForm } from './CashFlowSection';
+import { CashFlowPanel, EMPTY_CASHFLOW_FORM, type CashFlowForm } from './CashFlowSection';
 import { DebtPanel, EMPTY_DEBT_FORM, fundingNeedOf, isDebtEntered, type DebtForm } from './DebtPanel';
-import { FinanceVerdictPanel, KpiCard } from './FinanceVerdictPanel';
+import { FinanceVerdictPanel } from './FinanceVerdictPanel';
+import { FinanceSummary } from './FinanceSummary';
 import { FundingDemandSection } from './FundingDemandSection';
 import {
   FINANCE_TABS,
   SAVE_STATUS_LABEL,
   buildUnconfirmedItems,
   deriveSaveStatus,
-  moveLabelOf,
   repaymentOutlook,
-  tabLabelOf,
   type FinanceTab,
   type SaveStatus,
 } from './financePlanStatus';
+import { buildCashSummary, buildFundingStatus, buildTargetSummary } from './financeSummaryModel';
 import {
   cashFlowFormFrom,
   debtFormFrom,
@@ -78,25 +78,6 @@ const SAVE_STATUS_CLASS: Record<SaveStatus, string> = {
   SAVED: 'bg-emerald-100 text-emerald-800',
   NOT_SAVED: 'bg-slate-200 text-slate-700',
 };
-
-function fmtMJPY(v: number) {
-  return `${Math.round(v).toLocaleString('ja-JP')} 百万円`;
-}
-
-type UnifiedGapView = { value: string; note: string; warn: boolean };
-
-function unifiedGapView(args: { gap: UnifiedPlMetricGap | undefined; targetYen: number | null; planYen: number | null }): UnifiedGapView {
-  const gap = args.gap;
-  if (!gap || gap.valueYen === null || gap.fiscalYear === null) {
-    return { value: '未算定', note: gap?.reason ?? '経営目標が未設定のため差額は算出していません', warn: false };
-  }
-  const diff = gap.valueYen / 1_000_000;
-  return {
-    value: diff > 0 ? `不足 ${fmtMJPY(diff)}` : '目標を達成',
-    note: `${gap.fiscalYear}年度：経営目標 ${fmtMJPY((args.targetYen ?? 0) / 1_000_000)} ／ 条件付きPL試算 ${fmtMJPY((args.planYen ?? 0) / 1_000_000)}`,
-    warn: diff > 0,
-  };
-}
 
 function TabHeader({ tab }: { tab: FinanceTab }) {
   const entry = FINANCE_TABS.find((t) => t.key === tab);
@@ -378,12 +359,12 @@ function FinancePlanContent({
         ok?: boolean;
         skipped?: boolean;
         reason?: string;
+        code?: string;
       };
-      if (res?.ok) {
-        setSaveMessage(`保存しました（${new Date(savedAt).toLocaleTimeString('ja-JP')}）。`);
-      } else if (res?.skipped && res.reason === 'same_hash') {
-        setSaveMessage('保存済みの内容と同じため、変更はありません。');
-      } else if (res?.skipped && res.reason === 'company_switching') {
+      if (res?.ok || (res?.skipped && res.reason === 'same_hash')) {
+        return;
+      }
+      if (res?.skipped && res.reason === 'company_switching') {
         setSaveFailed(true);
         setSaveMessage(COMPANY_SWITCH_SAVE_MESSAGE);
       } else if (res?.skipped) {
@@ -391,7 +372,7 @@ function FinancePlanContent({
         setSaveMessage(`保存されませんでした（${res.reason ?? '理由不明'}）。もう一度お試しください。`);
       } else {
         setSaveFailed(true);
-        setSaveMessage(describeSaveError({ message: res?.reason }));
+        setSaveMessage(describeSaveError({ code: res?.code, message: res?.reason }));
       }
     } catch (e) {
       setSaveFailed(true);
@@ -403,155 +384,77 @@ function FinancePlanContent({
 
   const refreshComputedAt = () => setComputedAt(new Date().toISOString());
 
+  const saveNeedsAction = saveStatus === 'FAILED' || saveStatus === 'STALE';
   const saveDetail =
-    saveStatus === 'SAVING'
-      ? '保存しています…'
-      : saveStatus === 'FAILED'
-        ? '入力内容は画面に残っています。もう一度保存してください。'
-        : saveStatus === 'UNSAVED'
-          ? '入力内容は画面に保持されています（全体保存でも保存されます）。'
-          : freshnessLabel(freshness);
+    saveStatus === 'FAILED' ? '入力内容は画面に残っています。もう一度保存してください。' : freshnessLabel(freshness);
 
-  const revenueGap = unifiedGapView({
-    gap: unifiedPl.gap?.revenue,
-    targetYen: unifiedTarget.revenueYen,
-    planYen: unifiedPl.years.find((y) => y.fiscalYear === unifiedPl.gap?.revenue.fiscalYear)?.plan.revenueYen ?? null,
-  });
-  const opGap = unifiedGapView({
-    gap: unifiedPl.gap?.operatingIncome,
-    targetYen: unifiedTarget.operatingIncomeYen,
-    planYen: unifiedPl.years.find((y) => y.fiscalYear === unifiedPl.gap?.operatingIncome.fiscalYear)?.plan.operatingIncomeYen ?? null,
-  });
-  const top3 = unconfirmed.slice(0, 3);
+  const targetSummary = buildTargetSummary({ unifiedPl, target: unifiedTarget });
+  const cashSummary = buildCashSummary(conditionalCf);
+  const fundingStatus = buildFundingStatus({ targetPathInUse, outlook });
+  const firstRequired = unconfirmed.find((i) => i.required);
+  const requiredItem = requiredCount > 0 && firstRequired ? { count: requiredCount, tab: firstRequired.tab } : null;
+  const hasStatusNote =
+    saveNeedsAction || !!saveMessage || stored.kind === 'DIFFERENT_COMPANY' || stored.kind === 'INVALID';
 
   return (
-    <section className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div>
-        <h2 className="text-lg font-bold text-slate-900">キャッシュフロー・資金計画</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          STAGE1の財務実績とSTAGE4の投資計画から、年度別キャッシュフローを推計します。
-          借入の入力後は、借入・返済を反映した資金繰りを表示します。
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-slate-600">財務計画の保存状態</span>
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${SAVE_STATUS_CLASS[saveStatus]}`}>
-              {SAVE_STATUS_LABEL[saveStatus]}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-slate-600">{saveDetail}</p>
-          {saveMessage && (
-            <p className={`mt-1 text-xs ${saveFailed ? 'text-rose-700' : 'text-slate-800'}`}>{saveMessage}</p>
-          )}
-          {stored.kind === 'DIFFERENT_COMPANY' && (
-            <p className="mt-1 text-xs text-amber-800">別の会社の保存データは表示しません。</p>
-          )}
-          {stored.kind === 'INVALID' && (
-            <p className="mt-1 text-xs text-amber-800">保存された前提を読み込めませんでした：{stored.error}</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving || !companyId}
-          className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
-        >
-          {saving ? '保存中…' : '財務計画を保存'}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <KpiCard
-          label="条件付きPL試算と売上目標の差"
-          value={revenueGap.value}
-          note={revenueGap.note}
-          tone={revenueGap.warn ? 'warn' : 'neutral'}
-          onClick={() => setTab('target')}
-          actionLabel={`${tabLabelOf('target')}で確認`}
-        />
-        <KpiCard
-          label="条件付きPL試算と営業利益目標の差"
-          value={opGap.value}
-          note={opGap.note}
-          tone={opGap.warn ? 'warn' : 'neutral'}
-          onClick={() => setTab('target')}
-          actionLabel={`${tabLabelOf('target')}で確認`}
-        />
-        <KpiCard
-          label="確認済みの投資・費用"
-          term="資金計画に反映される金額"
-          value={`${fmtMil(investment.readyYen)} 百万円`}
-          note={`${investment.readyCount}件が資金計画に反映可能`}
-        />
-        <KpiCard
-          label="返済の見通し"
-          term="簡易判定"
-          value={outlook.label}
-          note={outlook.detail}
-          tone={outlook.tone === 'warn' ? 'warn' : outlook.tone === 'ok' ? 'ok' : 'hold'}
-        />
-        <KpiCard
-          label="未確認事項"
-          value={`${unconfirmed.length}件`}
-          note={requiredCount > 0 ? `判定に影響 ${requiredCount}件` : '判定を妨げる事項はありません'}
-          tone={requiredCount > 0 ? 'warn' : 'ok'}
-        />
-      </div>
-
-      {top3.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-          <div className="text-xs font-semibold text-slate-700">主要な未確認事項（上位{top3.length}件）</div>
-          <ul className="mt-2 space-y-2">
-            {top3.map((item) => (
-              <li
-                key={item.key}
-                className="flex flex-col gap-2 text-sm text-slate-800 md:flex-row md:items-center md:justify-between"
-              >
-                <span>
-                  <span
-                    className={`mr-2 inline-flex rounded px-1.5 py-0.5 text-[11px] font-semibold ${
-                      item.required ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {item.required ? '判定に影響' : '参考'}
-                  </span>
-                  {item.label}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTab(item.tab)}
-                  className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 md:self-auto"
-                >
-                  {moveLabelOf(item.tab)}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {unconfirmed.length > top3.length && (
-            <p className="mt-2 text-xs text-slate-600">
-              ほか {unconfirmed.length - top3.length} 件は「{tabLabelOf('verdict')}」タブで確認できます。
-            </p>
-          )}
-        </div>
-      )}
-
-      {reviewCandidateCount > 0 && (
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm md:flex-row md:items-center md:justify-between">
-          <span className="text-slate-800">目標に対して見直すべきプロジェクトが {reviewCandidateCount}件 あります。</span>
+    <div className="space-y-6">
+      <section
+        aria-labelledby="finance-outlook-title"
+        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 id="finance-outlook-title" className="text-lg font-bold text-slate-900">
+            経営計画の実現見通し
+          </h2>
           <button
             type="button"
-            onClick={() => setTab('target')}
-            className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 md:self-auto"
+            onClick={save}
+            disabled={saving || !companyId}
+            className="shrink-0 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
           >
-            {tabLabelOf('target')}で確認
+            {saving ? '保存中…' : '財務計画を保存'}
           </button>
         </div>
-      )}
 
-      <div role="tablist" aria-label="財務計画の作業タブ" className="flex gap-1 overflow-x-auto border-b border-slate-200">
+        {hasStatusNote && (
+          <div className="min-w-0 text-xs text-slate-700">
+            {saveNeedsAction && (
+              <p>
+                <span className={`rounded-full px-2 py-0.5 font-semibold ${SAVE_STATUS_CLASS[saveStatus]}`}>
+                  {SAVE_STATUS_LABEL[saveStatus]}
+                </span>
+                <span className="ml-2 text-slate-600">{saveDetail}</span>
+              </p>
+            )}
+            {saveMessage && (
+              <p className={`mt-1 ${saveFailed ? 'text-rose-700' : 'text-slate-800'}`}>{saveMessage}</p>
+            )}
+            {stored.kind === 'DIFFERENT_COMPANY' && (
+              <p className="mt-1 text-amber-800">別の会社の保存データは表示しません。</p>
+            )}
+            {stored.kind === 'INVALID' && (
+              <p className="mt-1 text-amber-800">保存された前提を読み込めませんでした：{stored.error}</p>
+            )}
+          </div>
+        )}
+
+        <FinanceSummary
+          target={targetSummary}
+          cash={cashSummary}
+          funding={fundingStatus}
+          requiredItem={requiredItem}
+          onNavigate={setTab}
+        />
+      </section>
+
+      <section
+        aria-labelledby="finance-detail-title"
+        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <h2 id="finance-detail-title" className="text-lg font-bold text-slate-900">
+          詳しく確認する
+        </h2>
+        <div role="tablist" aria-label="財務計画の作業タブ" className="flex flex-wrap gap-2">
         {FINANCE_TABS.map((t) => {
           const active = tab === t.key;
           const count = t.key === 'target' || t.key === 'verdict' ? 0 : tabCount(t.key);
@@ -562,20 +465,22 @@ function FinancePlanContent({
               role="tab"
               aria-selected={active}
               onClick={() => setTab(t.key)}
-              className={`shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold ${
-                active ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'
+              className={`inline-flex min-h-[44px] items-center rounded-lg border px-3 py-2 text-sm leading-snug break-keep ${
+                active
+                  ? 'border-slate-900 bg-slate-900 font-semibold text-white'
+                  : 'border-slate-400 bg-slate-100 font-medium text-slate-700 hover:bg-slate-200'
               }`}
             >
               {t.label}
               {count > 0 && (
-                <span className="ml-2 rounded-full bg-amber-100 px-1.5 text-[11px] text-amber-800">{count}</span>
+                <span className="ml-2 rounded-full bg-amber-100 px-1.5 text-xs text-amber-800">{count}</span>
               )}
             </button>
           );
         })}
       </div>
 
-      <div role="tabpanel" className="min-w-0">
+      <div role="tabpanel" className="min-w-0 border-t border-slate-200 pt-5">
         {tab === 'target' && (
           <div className="space-y-6">
             <TabHeader tab="target" />
@@ -623,6 +528,9 @@ function FinancePlanContent({
         {tab === 'verdict' && (
           <div className="space-y-4">
             <TabHeader tab="verdict" />
+            <p className="text-xs leading-relaxed text-slate-600 break-keep">
+              計算の前提：STAGE1の財務実績とSTAGE4の投資計画から推計した年度別キャッシュフローです。借入を入力すると、借入・返済を反映した資金繰りを表示します。確定予測ではありません。
+            </p>
             <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 break-keep">
               {targetPathInUse
                 ? 'この判定は、経営目標へ到達する仮想的な経路（目標補間）に基づく参考判定です。施策効果は含まず、施策による業績達成可能性を判定したものではありません。'
@@ -671,6 +579,7 @@ function FinancePlanContent({
         </div>
       </details>
       )}
-    </section>
+      </section>
+    </div>
   );
 }

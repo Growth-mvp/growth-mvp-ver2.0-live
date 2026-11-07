@@ -6,7 +6,6 @@ import { AlertCircle } from 'lucide-react';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 
-import { FinancialExclusionNotice } from '@/components/stage6/FinancialExclusionNotice';
 import { TabImpact } from '@/components/stage6/TabImpact';
 import { TargetOverview } from '@/components/stage6/TargetOverview';
 import { useProjectFilters } from '@/components/stage6/hooks/useProjectFilters';
@@ -144,7 +143,7 @@ function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: Revi
 
                   <div className="flex flex-col items-center justify-center gap-2">
                     <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
                         reviewStage === 'stage3'
                           ? 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200'
                           : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200'
@@ -218,24 +217,12 @@ function Stage6PageContent() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10 space-y-6">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 pb-12 pt-5 md:px-6 md:pt-6">
         <header>
-          <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-                STAGE6｜成果を確かめる
-              </h1>
-              <div className="mt-1 text-sm font-medium text-gray-700">
-                経営計画の実現可能性を検証
-              </div>
-              <p className="mt-4 text-base font-semibold leading-relaxed text-gray-900 break-keep">
-                経営目標は、現場の取り組みによって実現できるのか。
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-gray-600 break-keep">
-                経営目標と施策・投資計画をつなぎ、売上・利益への貢献、資金繰り、返済可能性を確認します。目標とのギャップを明らかにし、必要に応じて実行計画を見直します。
-              </p>
-            </div>
-          </div>
+          <h1 className="text-xl font-bold tracking-tight text-gray-900">STAGE6｜成果を確かめる</h1>
+          <p className="mt-1 text-sm text-gray-600 break-keep">
+            経営目標に対して、施策効果を反映した試算と資金の状況を確認します。
+          </p>
         </header>
 
         {stage6.core.error && (
@@ -244,8 +231,6 @@ function Stage6PageContent() {
             <div className="text-sm text-amber-800">{stage6.core.error}</div>
           </div>
         )}
-
-        <FinancialExclusionNotice items={stage6.financialExclusions} />
 
         <FinancePlanSection
           dashboardSummary={stage6.dashboardSummary}

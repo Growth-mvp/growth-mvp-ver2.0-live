@@ -255,10 +255,12 @@ const storeProject = (page) =>
   });
 
   await check('STAGE6 表示の優先順位：条件付きCFが先、目標補間は後の参考情報、上段は統一PLと目標の差', async () => {
-    const card = await page.locator('text=条件付きPL試算と売上目標の差').count();
-    if (card === 0) throw new Error('上段に統一PLと売上目標の差のカードがない');
-    const cardNote = await page.locator('body').innerText();
-    if (!cardNote.includes('2028年度：経営目標')) throw new Error('差額カードの年度・目標・試算の表示がない');
+    const summaryCards = page.locator('[aria-label="経営計画のサマリー"] div.rounded-xl');
+    const revCardNote = await summaryCards.filter({ hasText: '売上高' }).first().innerText().catch(() => '');
+    if (!revCardNote) throw new Error('上段に売上高の達成状況カードがない');
+    if (!revCardNote.includes('2028年度') || !revCardNote.includes('目標 1,000.0') || !revCardNote.includes('試算 930.0')) {
+      throw new Error('売上カードの年度・目標・試算の表示がない: ' + revCardNote.split('\n').join(' / '));
+    }
     await page.getByRole('tab', { name: /3. お金は足りるか/ }).click();
     await page.waitForTimeout(150);
     const order = await page.evaluate(() => {
@@ -277,22 +279,13 @@ const storeProject = (page) =>
   });
 
   await check('上段カード：売上と営業利益はそれぞれの目標年度で比較する（売上2028年度・営業利益2026年度）', async () => {
-    const cardText = (label) =>
-      page.evaluate((l) => {
-        const el = [...document.querySelectorAll('div,span,p,h3,dt,strong,dd')].find((e) => e.childElementCount === 0 && e.textContent.trim() === l);
-        let c = el;
-        for (let i = 0; i < 5 && c; i++) {
-          if (c.innerText && c.innerText.length > l.length + 12) return c.innerText;
-          c = c.parentElement;
-        }
-        return null;
-      }, label);
-    const rev = await cardText('条件付きPL試算と売上目標の差');
-    const op = await cardText('条件付きPL試算と営業利益目標の差');
-    if (!rev || !op) throw new Error('上段の差額カードが見つからない');
+    const summaryCards = page.locator('[aria-label="経営計画のサマリー"] div.rounded-xl');
+    const rev = await summaryCards.filter({ hasText: '売上高' }).first().innerText().catch(() => '');
+    const op = await summaryCards.filter({ hasText: '営業利益' }).first().innerText().catch(() => '');
+    if (!rev || !op) throw new Error('上段の達成状況カードが見つからない');
     // 手計算：売上 2028年度 経営目標 1,000 − 条件付きPL 930 = 70。営業利益 2026年度 経営目標 70 − 条件付きPL 52 = 18
-    if (!rev.includes('2028年度') || !rev.includes('不足 70 百万円')) throw new Error('売上カードが2028年度・70.0で比較されていない: ' + rev.split('\n').join(' / ').slice(0, 200));
-    if (!op.includes('2026年度') || !op.includes('不足 18 百万円')) throw new Error('営業利益カードが2026年度・18.0で比較されていない: ' + op.split('\n').join(' / ').slice(0, 200));
+    if (!rev.includes('2028年度') || !rev.includes('不足 70.0 百万円')) throw new Error('売上カードが2028年度・70.0で比較されていない: ' + rev.split('\n').join(' / ').slice(0, 200));
+    if (!op.includes('2026年度') || !op.includes('不足 18.0 百万円')) throw new Error('営業利益カードが2026年度・18.0で比較されていない: ' + op.split('\n').join(' / ').slice(0, 200));
     return '売上：2028年度 不足70.0（1,000−930）／営業利益：2026年度 不足18.0（70−52）';
   });
 

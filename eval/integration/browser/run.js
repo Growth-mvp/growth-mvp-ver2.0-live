@@ -175,11 +175,14 @@ const check = async (name, fn) => {
 
   await check('S6 資金計画（実コンポーネント）：条件付き試算と目標を分け、補間は通過点で独立した予測ではないと明示する', async () => {
     const fp = page.locator('#s-finance-plan');
-    const top = await fp.innerText();
-    if (!top.includes('条件付きPL試算と売上目標の差')) throw new Error('上段に統一PLと目標の差額カードがない');
-    if (!top.includes('目標年度が未設定のため、差額は算出していません')) throw new Error('目標年度未設定の理由が出ていない');
-    if (top.includes('北極星の参考計算と売上目標の差')) throw new Error('上段に旧北極星の差額が残っている');
-    if (!top.includes('1. 目標に届くかで確認')) throw new Error('上段の判定文言がない');
+    const top = await fp.locator('[aria-label="経営計画のサマリー"]').innerText();
+    if (!top.includes('① 目標達成の状況') || !top.includes('売上高') || !top.includes('営業利益')) throw new Error('上段に目標達成の状況がない');
+    if (!top.includes('目標年度が未設定です')) throw new Error('目標年度未設定の理由が出ていない');
+    if (top.includes('北極星の参考計算と売上目標の差') || top.includes('条件付きPL試算と売上目標の差')) throw new Error('上段に旧KPIカードが残っている');
+    if (!top.includes('② 資金の状況') || !top.includes('借入・返済の見通し')) throw new Error('上段に資金の状況がない');
+    const sumBox = fp.locator('[aria-label="経営計画のサマリー"]');
+    const overflow = await sumBox.evaluate((el) => el.scrollWidth - el.clientWidth);
+    if (overflow > 0) throw new Error('上段が横にはみ出している: ' + overflow + 'px');
     const tabs = fp.locator('[role=tab]');
     await tabs.nth(2).click();
     await page.waitForTimeout(150);
@@ -189,7 +192,7 @@ const check = async (name, fn) => {
     if (!t3.includes('横ばいの推計')) throw new Error('推計の表示がない');
     if (!t3.includes('2025年（実績）')) throw new Error('実績の表示がない');
     await fp.screenshot({ path: path.join(outDir, 'shots', 's7-finance-plan.png') });
-    return '上段は統一PLと目標の差（年度未設定の理由つき）／補間＝通過点・独立予測ではない／推計と実績を別表示';
+    return '上段は目標達成と資金の2項目（年度未設定の理由つき・はみ出しなし）／補間＝通過点・独立予測ではない／推計と実績を別表示';
   });
 
   await check('ブラウザ実行中に例外・コンソールエラーが出ていない', async () => {

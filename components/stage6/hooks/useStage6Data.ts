@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { YearlyPL } from '@/utils/financeSimulation';
-import { listFinancialExclusions, type BridgeKR } from '@/utils/simulationBridge';
+import type { BridgeKR } from '@/utils/simulationBridge';
 import type { KRStructured, Department } from '@/types/strategy';
 import type {
   ProjectContribution,
@@ -1875,16 +1875,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     console.groupEnd();
   }
 
-  const financialExclusions = useMemo(() => {
-    const all: BridgeKR[] = [];
-    core.projectKrsMap?.forEach((krs: BridgeKR[]) => all.push(...krs));
-    return listFinancialExclusions(all);
-  }, [core.projectKrsMap]);
-
   return {
     // Status
     hydrated,
-    financialExclusions,
     isHydrating,
     isReady,
     companyName: core.companyName,
