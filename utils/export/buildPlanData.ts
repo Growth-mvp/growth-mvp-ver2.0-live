@@ -421,12 +421,12 @@ function formatFinancialSummary(state: Partial<StrategyData>): string {
   if ((state as any)?.revenue) finances.push(`売上: ${(state as any).revenue}`);
   if ((state as any)?.valueAnalysis?.operatingMarginPctLatest !== undefined) {
     finances.push(
-      `営業利益率: ${((state as any).valueAnalysis.operatingMarginPctLatest * 100).toFixed(1)}%`
+      `営業利益率: ${Number((state as any).valueAnalysis.operatingMarginPctLatest).toFixed(1)}%`
     );
   }
   if ((state as any)?.valueAnalysis?.roic !== undefined) {
     finances.push(
-      `ROIC: ${((state as any).valueAnalysis.roic * 100).toFixed(1)}%`
+      `ROIC: ${Number((state as any).valueAnalysis.roic).toFixed(1)}%`
     );
   }
   return finances.join(' | ') || 'データなし';

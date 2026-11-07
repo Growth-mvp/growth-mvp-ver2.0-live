@@ -387,7 +387,7 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(json.generatedText).not.toContain('経営計画の要約');
   });
 
-  it('STAGE2の確定戦略と全件数の施策を銀行向けプロンプトに渡し、株主向けには渡さない', async () => {
+  it('STAGE2の確定戦略と全件数の施策を銀行向けに渡し、株主向けには確定戦略だけを渡す', async () => {
     const { persisted } = snapshotFor();
     const extra = {
       final_story_final: [{ title: '確定章', body: '確定した戦略本文' }],
@@ -414,10 +414,34 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted }, extra }));
     await generate('shareholder');
     const shareholderPrompt = promptSent();
-    expect(shareholderPrompt).not.toContain('【全社戦略（入力された内容のみ）】');
-    expect(shareholderPrompt).not.toContain('確定した戦略本文');
+    expect(shareholderPrompt).toContain('【全社戦略（入力された内容のみ）】');
+    expect(shareholderPrompt).toContain('確定した戦略本文');
     expect(shareholderPrompt).toContain('【部門別戦略】\n');
     expect(shareholderPrompt).not.toContain('件を掲載');
+  });
+
+  it('株主向けは財務指標を計算値として渡し、上場区分が未入力のときPBRを出さない', async () => {
+    const { persisted } = snapshotFor();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted } }));
+    await generate('shareholder');
+
+    const prompt = promptSent();
+    expect(prompt).toContain('【財務指標（現状分析の計算値）】');
+    expect(prompt).toContain('上場区分：未入力');
+    expect(prompt).toContain('未算出');
+    expect(prompt).not.toContain('PBR（株価純資産倍率）');
+  });
+
+  it('社員向けは財務指標を渡さず、担当者の協議による決定を断定しない', async () => {
+    const { persisted } = snapshotFor();
+    useRow(strategyRow({ csv: { financeBS, financePlanAssumptions: persisted } }));
+    await generate('employee');
+
+    const prompt = promptSent();
+    expect(prompt).not.toContain('【財務指標（現状分析の計算値）】');
+    expect(prompt).not.toContain('マネージャーとの協議で確定');
+    expect(prompt).toContain('部門別OKRが未入力の場合は「未設定」');
+    expect(prompt).not.toContain('基本実装段階');
   });
 
   it('業種は内部コードではなく日本語の業種名で渡す', async () => {
@@ -440,6 +464,8 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(json).not.toHaveProperty('bankFinanceCheck');
     expect(json.generatedText).toBe(PLAIN_TEXT);
     expect(promptSent()).not.toContain('【財務計画（計算済み・変更禁止）】');
-    expect(promptSent()).toContain('財務シミュレーション状況');
+    expect(promptSent()).not.toContain('財務シミュレーション状況');
+    expect(promptSent()).not.toContain('基本実装段階');
+    expect(promptSent()).not.toContain('準備中');
   });
 });

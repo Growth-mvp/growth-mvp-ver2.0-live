@@ -6,6 +6,8 @@ import { z } from 'zod';
 
 import type { AudienceType } from '@/utils/export/buildPlanData';
 import { buildPlanData } from '@/utils/export/buildPlanData';
+import { unwrapCsvFinanceData } from '@/utils/supabase/strategy';
+import { buildFinancialIndicatorBlock } from '@/lib/plans/financialIndicators';
 import { bankFinancialPlanForRow, withBankFinancialPlan } from '@/utils/stage6/bankFinancialPlan';
 import { bankFinancialPromptText, finalizeBankPlanText, type BankFinanceCheck } from '@/lib/plans/bankFinancialText';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
@@ -205,7 +207,11 @@ export async function POST(
     // ===== Step 6: プロンプト構築 =====
     let prompt;
     try {
-      prompt = buildAudiencePrompt(audience, planData);    } catch (err) {
+      prompt = buildAudiencePrompt(
+        audience,
+        planData,
+        audience === 'shareholder' && strategyState ? buildFinancialIndicatorBlock(strategyState as any) : ''
+      );    } catch (err) {
       console.error('[Plan Gen Step 6] buildAudiencePrompt failed', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -539,6 +545,7 @@ async function createPlanCompletion(
  */
 function dbRowToStrategyData(row: any): Record<string, any> | null {
   if (!row) return null;
+  const csvFinance = unwrapCsvFinanceData(row.csv_finance_data ?? {});
 
   return {
     // 識別情報
@@ -573,6 +580,14 @@ function dbRowToStrategyData(row: any): Record<string, any> | null {
     businessSegments: Array.isArray(row.business_segments)
       ? row.business_segments
       : undefined,
+
+    // ★ 株主向け財務指標の計算入力（現状分析の保存値）
+    financeBS: Array.isArray(csvFinance.financeBS) ? csvFinance.financeBS : undefined,
+    segmentPL: csvFinance.segmentPL,
+    segmentBS: csvFinance.segmentBS,
+    isListed: row.is_listed ?? undefined,
+    pbrManual: row.pbr_manual ?? undefined,
+    stage1Benchmarks: row.stage1_benchmarks ?? undefined,
 
     // STAGE2：全社戦略
     finalStory: Array.isArray(row.final_story) ? row.final_story : [],
@@ -702,6 +717,14 @@ STRUCTURE:
 4. 財務目標と資本効率 (Financial Targets & Capital Efficiency)
 5. 企業価値向上への取り組み (Value Creation Initiatives)
 
+AUDIENCE RULES (shareholders):
+- Write as the company's own plan and use 「当社」 consistently; never describe the company from outside.
+- Open with the confirmed company-wide strategy conclusion, then the growth direction and the enterprise-value approach, using only what the input states.
+- Use the financial indicator block only as given. Write 未算出 for any indicator that is not calculated; do not fill in numbers.
+- Mention PBR or any share-price metric only when 上場区分 is 上場 and a value is given. Never present them for a non-listed company.
+- Present registered targets as 登録目標 with 承認状態は未確認, and expected effects as estimates. Never present unconfirmed numbers or unapproved investments as settled.
+- Do not describe the status of the system, development stages, pending data, or how data was processed.
+
 TONE: Investor-focused, growth-oriented, emphasizing strategic opportunities and financial returns.`,
 
     employee: `AUDIENCE: Employees/Internal Staff
@@ -723,6 +746,15 @@ STRUCTURE:
 4. 具体的な行動計画とKPI (Concrete Action Plans & KPIs)
 5. 実行スケジュール (Implementation Schedule)
 
+AUDIENCE RULES (employees):
+- Write as the company's own plan and use 「当社」 consistently.
+- Open with the company-wide strategy conclusion and why this strategy was chosen, using only reasons stated in the confirmed strategy text. Do not invent reasons.
+- Explain how each department's role connects to the strategy. Contributions differ by job and department, so do not require one uniform action from everyone.
+- Include a short set of reflection questions that help each person connect their work with company growth, customer contribution, and personal growth.
+- KPIs or personal goals that are not entered must be written as 未設定. Never decide KPI values, owners, or deadlines.
+- Do not state how targets or KPIs are decided (for example by a manager's agreement) unless the input records an actual agreement.
+- Communication, training, and KPI setting are means to execute the strategy, not goals in themselves.
+
 TONE: Inspiring yet practical, emphasizing clarity on roles, concrete actions, and individual contribution.`,
   };
 
@@ -731,7 +763,8 @@ TONE: Inspiring yet practical, emphasizing clarity on roles, concrete actions, a
 
 function buildAudiencePrompt(
   audience: AudienceType,
-  planData: any
+  planData: any,
+  indicatorBlock = ''
 ): string {
   // ★ Phase 1 追加：STAGE1の年度別財務実績を表形式で構築
   const historicalFinancesTable =
@@ -753,10 +786,12 @@ ${planData.stage1.historicalFinances
       : '【過去年度別財務実績】データなし\n';
 
   const bankFinanceActive = audience === 'bank' && !!planData.bankFinancialPlan;
+  const confirmedStrategyBlock =
+    audience === 'shareholder' || audience === 'employee' ? bankStage2Block(planData.stage2) : '';
   const stage34Block =
     audience === 'bank'
       ? `${bankStage2Block(planData.stage2)}${bankStage34Block(planData)}`
-      : `【部門別戦略】
+      : `${confirmedStrategyBlock}【部門別戦略】
 ${planData.stage3.departments
   .slice(0, 5)
   .map(
@@ -804,13 +839,13 @@ ${planData.stage2.companyTargets.map((t: any) => `- ${t.label}: ${t.value}`).joi
 
 ${stage34Block}
 
-【財務目標】
+${indicatorBlock}【財務目標】
 ☆ 登録された売上目標: ${planData.stage56.companyTargetRevenue || '未設定'}
 参考：実行施策の期待効果合計: ${planData.stage56.projectImpactSum || 'なし'}
 売上目標の表示（STAGE2登録目標・承認未確認）: ${planData.stage56.northStarRevenue || '未設定'}
-${bankFinanceActive ? '' : `財務シミュレーション状況: ${planData.stage56.projectionStatus || '未実施'}`}
+${audience === 'bank' && !bankFinanceActive ? `財務シミュレーション状況: ${planData.stage56.projectionStatus || '未実施'}` : ''}
 ${planData.stage56.northStarMetrics?.length ? `重要指標: ${planData.stage56.northStarMetrics.map((m: any) => `${m.label}=${m.value}`).join(', ')}` : '重要指標: 未定義'}
-${!bankFinanceActive && planData.stage56.projectionNote ? `備考: ${planData.stage56.projectionNote}` : ''}
+${audience === 'bank' && !bankFinanceActive && planData.stage56.projectionNote ? `備考: ${planData.stage56.projectionNote}` : ''}
 `;
 
   const audienceSpecificPrompt = {
@@ -850,7 +885,7 @@ ${!bankFinanceActive && planData.stage56.projectionNote ? `備考: ${planData.st
 4. 何をいつまでに達成するのかを明確化
 5. KPIを通じた進捗の可視化
 
-部門別OKRが未確定の場合は「マネージャーとの協議で確定」と記載してください。
+部門別OKRが未入力の場合は「未設定」と記載し、決定方法や期限を推測しないでください。
 `,
   };
 

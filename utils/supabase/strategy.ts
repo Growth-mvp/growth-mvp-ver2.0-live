@@ -374,7 +374,7 @@ function toUiFinanceSummary(dbValue: any): any[] {
 /* ============================================================
  * csv_finance_data 多重ネスト修正（恒久化）
  * ========================================================== */
-function unwrapCsvFinanceData(value: any): Record<string, any> {
+export function unwrapCsvFinanceData(value: any): Record<string, any> {
   let current = value;
   let maxIterations = 100; // 無限ループ防止
 
