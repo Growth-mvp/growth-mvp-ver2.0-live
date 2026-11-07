@@ -11,7 +11,7 @@ export const FINANCE_TABS: readonly { key: FinanceTab; label: string; descriptio
     key: 'target',
     label: '1. 目標に届くか',
     description:
-      '確認済みの施策効果による条件付きPL試算を先に確認し、経営目標との差を見ます。目標に至る補間の経路は参考情報です。',
+      '現在の業績を基にした試算と、確認済みの施策効果による試算を先に確認します。目標に至る補間の経路は参考情報です。',
   },
   {
     key: 'investment',
@@ -25,7 +25,7 @@ export const FINANCE_TABS: readonly { key: FinanceTab; label: string; descriptio
   },
   {
     key: 'debt',
-    label: '4. 借入・返済を考える',
+    label: '4. 借入・返済',
     description: '現在の借入と今後の借入予定を整理し、毎年いくら返済する必要があるかを確認します。',
   },
   {

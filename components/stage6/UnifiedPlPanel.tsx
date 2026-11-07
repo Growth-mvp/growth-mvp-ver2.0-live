@@ -1,10 +1,8 @@
 import type { FinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
-import type { PlTarget, UnifiedPl, UnifiedPlMetricGap, UnifiedPlYear } from '@/utils/stage6/unifiedPl';
+import type { UnifiedPl, UnifiedPlYear } from '@/utils/stage6/unifiedPl';
 
 const MILLION = 1_000_000;
 const UNCALCULATED = '未算定';
-
-type Target = PlTarget;
 
 function mil(v: number) {
   const text = (v / MILLION).toLocaleString('ja-JP', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
@@ -28,64 +26,28 @@ function costIncreaseText(v: number) {
   return v > 0 ? `+${mil(v)}` : '0.0';
 }
 
-function targetText(v: number | null) {
-  return v === null ? '未設定' : `${mil(v)} 百万円`;
+function uniqueReasons(years: UnifiedPlYear[]) {
+  return Array.from(new Set(years.flatMap((y) => y.unknownReasons)));
 }
 
-function gapText(v: number | null) {
-  if (v === null) return UNCALCULATED;
-  if (v > 0) return `不足 ${mil(v)} 百万円`;
-  return `目標を達成（${mil(-v)} 百万円超過）`;
-}
-
-function yearLabel(year: number | null | undefined) {
-  return year === null || year === undefined ? '年度未設定' : `${year}年度`;
-}
-
-function metricGapText(gap: UnifiedPlMetricGap | undefined) {
-  return gap && gap.valueYen !== null ? gapText(gap.valueYen) : UNCALCULATED;
-}
-
-function uniqueReasons(years: UnifiedPlYear[], gapReasons: string[]) {
-  return Array.from(new Set([...years.flatMap((y) => y.unknownReasons), ...gapReasons]));
-}
-
-export function UnifiedPlPanel({
-  plan,
-  trial,
-  target,
-}: {
-  plan: UnifiedPl;
-  trial: FinanceEffectTrial;
-  target: Target;
-}) {
+export function UnifiedPlPanel({ plan, trial }: { plan: UnifiedPl; trial: FinanceEffectTrial }) {
   const included = trial.included.length;
   const excluded = trial.excluded.length;
-  const reasons = uniqueReasons(
-    plan.years,
-    [plan.gap?.revenue.reason, plan.gap?.operatingIncome.reason].filter((r): r is string => r !== null && r !== undefined),
-  );
+  const reasons = uniqueReasons(plan.years);
   const firstBaseline = plan.years.find((y) => y.baseline.revenueYen !== null) ?? plan.years[0];
 
   return (
-    <section aria-label="条件付きPL試算（統一PL）" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+    <section aria-label="施策効果を反映した試算" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       <div>
-        <h4 className="text-sm font-bold text-slate-900">条件付きPL試算（統一PL）</h4>
+        <h4 className="text-sm font-bold text-slate-900">施策効果を反映した試算</h4>
         <p className="mt-1 text-xs leading-relaxed text-slate-600 break-keep">
-          ベースラインに、STAGE4で利用者が確認済みにした施策効果だけを年度ごとに反映したPLです。施策効果は実績ではなく、利用者が確認済みにした仮説です。経営目標・北極星の参考計算とは別の値で、キャッシュフローは含みません。
+          現在の業績を基にした試算に、STAGE4で利用者が確認済みにした施策効果だけを年度ごとに反映したPLです。施策効果は実績ではなく、利用者が確認済みにした仮説です。キャッシュフローは含みません。
         </p>
       </div>
 
       <dl className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
         <div className="rounded border border-slate-200 p-2">
-          <dt className="font-semibold">経営目標（STAGE2・予測に加算しない）</dt>
-          <dd className="mt-1">
-            売上 {targetText(target.revenueYen)}（目標年度 {yearLabel(target.revenueDueYear)}）
-            ／ 営業利益 {targetText(target.operatingIncomeYen)}（目標年度 {yearLabel(target.operatingIncomeDueYear)}）
-          </dd>
-        </div>
-        <div className="rounded border border-slate-200 p-2">
-          <dt className="font-semibold">ベースライン（直近実績を横ばいに置いた暫定仮定）</dt>
+          <dt className="font-semibold">現在の業績を基にした試算（直近実績を横ばいに置いた暫定仮定）</dt>
           <dd className="mt-1">
             売上 {valueOrUncalculated(firstBaseline?.baseline.revenueYen ?? null)} 百万円 ／ 営業利益{' '}
             {valueOrUncalculated(firstBaseline?.baseline.operatingIncomeYen ?? null)} 百万円（成長予測ではありません）
@@ -98,13 +60,6 @@ export function UnifiedPlPanel({
             {excluded > 0 ? `（${excluded}件は試算に含めていません）` : ''}
           </dd>
         </div>
-        <div className="rounded border border-slate-200 p-2">
-          <dt className="font-semibold">目標との差額（経営目標 − 条件付きPL試算）</dt>
-          <dd className="mt-1">
-            <div>売上（{yearLabel(plan.gap?.revenue.fiscalYear)}）：{metricGapText(plan.gap?.revenue)}</div>
-            <div>営業利益（{yearLabel(plan.gap?.operatingIncome.fiscalYear)}）：{metricGapText(plan.gap?.operatingIncome)}</div>
-          </dd>
-        </div>
       </dl>
 
       {!trial.ready && (
@@ -112,7 +67,9 @@ export function UnifiedPlPanel({
       )}
 
       {trial.ready && (
-        <div className="overflow-x-auto">
+        <details className="rounded border border-slate-200 p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-700">年度別の試算結果（計算内訳を表示）</summary>
+          <div className="mt-3 overflow-x-auto">
           <table className="min-w-full text-right text-xs">
             <thead>
               <tr className="border-b border-slate-200 text-slate-600">
@@ -148,7 +105,8 @@ export function UnifiedPlPanel({
           <p className="mt-1 text-xs text-slate-500">
             単位：百万円。費用の欄は営業費用への増減（費用削減は減少、追加費用は増加）。「未算定」は計算していない欄で、0ではありません。
           </p>
-        </div>
+          </div>
+        </details>
       )}
 
       {reasons.length > 0 && (
@@ -177,7 +135,7 @@ export function UnifiedPlPanel({
 
       {trial.legacyReferenced.length > 0 && (
         <p className="text-xs text-slate-500">
-          従来の北極星の金額（施策の影響額）は削除せず参考情報として保持しており、この統一PLには加算していません（{trial.legacyReferenced.map((t) => t.projectTitle).join('、')}）。
+          以前の方法で登録された施策の影響額は削除せず参考情報として保持しており、この試算には加算していません（{trial.legacyReferenced.map((t) => t.projectTitle).join('、')}）。
         </p>
       )}
 

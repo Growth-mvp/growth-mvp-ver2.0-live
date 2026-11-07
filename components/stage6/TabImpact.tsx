@@ -30,8 +30,6 @@ interface TabImpactProps {
   toggleProject: (key: string) => void;
   selectAllFiltered: () => void;
   clearAllFiltered: () => void;
-  revenueGapMJPY?: number;
-  opGapMJPY?: number;
 }
 
 function fmtMJPY(value?: number) {
@@ -67,8 +65,6 @@ export function TabImpact({
   toggleProject,
   selectAllFiltered,
   clearAllFiltered,
-  revenueGapMJPY = 0,
-  opGapMJPY = 0,
 }: TabImpactProps) {
   const filtered = projectContrib
     .filter((p) => (deptFilter === 'all' ? true : p.dept === deptFilter))
@@ -139,21 +135,6 @@ export function TabImpact({
             <StatBox label="目標営業利益合計" value={fmtMJPY(filteredTargetOp)} />
             <StatBox label="売上寄与合計" value={fmtMJPY(filteredContribRevenue)} emphasis />
             <StatBox label="営業利益寄与合計" value={fmtMJPY(filteredContribOp)} emphasis />
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-            <div className="text-xs font-medium text-amber-700">売上不足額</div>
-            <div className="mt-1 text-2xl font-bold text-amber-900">
-              {revenueGapMJPY > 0 ? `+${fmtMJPY(revenueGapMJPY)}` : '達成済み'}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-            <div className="text-xs font-medium text-amber-700">営業利益不足額</div>
-            <div className="mt-1 text-2xl font-bold text-amber-900">
-              {opGapMJPY > 0 ? `+${fmtMJPY(opGapMJPY)}` : '達成済み'}
-            </div>
           </div>
         </div>
 

@@ -3,7 +3,6 @@ import type { ConditionalCf } from '@/utils/stage6/conditionalCf';
 import type { FinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
 import { buildUnifiedPl, type PlTarget } from '@/utils/stage6/unifiedPl';
 import { FinanceSummary } from './FinanceSummary';
-import { UnifiedPlPanel } from './UnifiedPlPanel';
 import {
   buildCashSummary,
   buildFundingStatus,
@@ -52,13 +51,9 @@ function render(args: { target: PlTarget; cash?: CashSummary; funding?: FundingS
 }
 
 describe('STAGE6 トップサマリー', () => {
-  it('達成率・目標・試算・差額が、詳細の統一PLと一致する', () => {
-    const unifiedPl = buildUnifiedPl({ baseline, effects: [], target });
-    const detail = renderToStaticMarkup(<UnifiedPlPanel plan={unifiedPl} trial={trial} target={target} />);
+  it('達成率・目標・試算・差額を、トップで1か所だけ表示する', () => {
     const html = render({ target });
 
-    expect(detail).toContain('売上（2028年度）：不足 200.0 百万円');
-    expect(detail).toContain('営業利益（2028年度）：不足 10.0 百万円');
     expect(html).toContain(`${formatPct((1_000 / 1_200) * 100)}`);
     expect(html).toContain('83.3%');
     expect(html).toContain(`目標 <span class="font-semibold">${formatMil(1_200 * M)}</span>`);
@@ -120,7 +115,7 @@ describe('STAGE6 トップサマリー', () => {
   it('資金：判定に影響する未確認事項があれば件数と移動先を示す', () => {
     const html = render({ target, requiredItem: { count: 2, tab: 'debt' } });
     expect(html).toContain('判定に影響する未確認 2件');
-    expect(html).toContain('「4. 借入・返済を考える」へ移動');
+    expect(html).toContain('「4. 借入・返済」へ移動');
   });
 
   it('資金：施策反映後の営業CFが一部未算定なら比較表示し、未算定年度を列挙する（理由は詳細へ）', () => {

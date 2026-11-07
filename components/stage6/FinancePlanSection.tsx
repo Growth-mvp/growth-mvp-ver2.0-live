@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } from '@/store/strategyStore';
-import { useAccess } from '@/utils/access';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
@@ -22,7 +21,6 @@ import {
   hashOf,
   judgeFreshness,
   readStoredFinancePlan,
-  saveAvailability,
   sourceHashOf,
   toSavedFinancePlan,
   workingHashOf,
@@ -115,8 +113,6 @@ function FinancePlanContent({
   const saveStrategyData = useStrategyStore((s: StrategyState) => s.saveStrategyData);
 
   const stored = useMemo(() => readStoredFinancePlan(storedRaw, companyId), [storedRaw, companyId]);
-  const access = useAccess();
-  const showTechnicalDetails = access.isAdmin || process.env.NODE_ENV === 'development';
 
   const [tab, setTab] = useState<FinanceTab>('target');
   const [cfForm, setCfForm] = useState<CashFlowForm>(() =>
@@ -139,7 +135,7 @@ function FinancePlanContent({
   };
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [computedAt, setComputedAt] = useState(() => new Date().toISOString());
+  const [computedAt] = useState(() => new Date().toISOString());
 
   const investment = useMemo(
     () => buildInvestmentDemandSummary(departments, fiscalYearEnd),
@@ -317,7 +313,6 @@ function FinancePlanContent({
     workingHash: workingHashOf(csvFinanceData),
     hasInput,
   });
-  const availability = saveAvailability();
   const saveStatus = deriveSaveStatus({ saving, failed: saveFailed, unsaved, freshness });
 
   const fundingNeed = fundingNeedOf(plan.years.filter((y) => y.kind === 'FORECAST')).need;
@@ -381,8 +376,6 @@ function FinancePlanContent({
       setSaving(false);
     }
   };
-
-  const refreshComputedAt = () => setComputedAt(new Date().toISOString());
 
   const saveNeedsAction = saveStatus === 'FAILED' || saveStatus === 'STALE';
   const saveDetail =
@@ -454,7 +447,7 @@ function FinancePlanContent({
         <h2 id="finance-detail-title" className="text-lg font-bold text-slate-900">
           詳しく確認する
         </h2>
-        <div role="tablist" aria-label="財務計画の作業タブ" className="flex flex-wrap gap-2">
+        <div role="tablist" aria-label="財務計画の作業タブ" className="grid grid-cols-2 gap-2 md:grid-cols-5">
         {FINANCE_TABS.map((t) => {
           const active = tab === t.key;
           const count = t.key === 'target' || t.key === 'verdict' ? 0 : tabCount(t.key);
@@ -465,16 +458,18 @@ function FinancePlanContent({
               role="tab"
               aria-selected={active}
               onClick={() => setTab(t.key)}
-              className={`inline-flex min-h-[44px] items-center rounded-lg border px-3 py-2 text-sm leading-snug break-keep ${
+              className={`flex min-h-[3.25rem] min-w-0 items-center justify-center rounded-lg border px-1.5 py-2 text-center text-xs leading-snug break-keep 2xl:text-sm ${
                 active
                   ? 'border-slate-900 bg-slate-900 font-semibold text-white'
                   : 'border-slate-400 bg-slate-100 font-medium text-slate-700 hover:bg-slate-200'
               }`}
             >
-              {t.label}
-              {count > 0 && (
-                <span className="ml-2 rounded-full bg-amber-100 px-1.5 text-xs text-amber-800">{count}</span>
-              )}
+              <span className="min-w-0">
+                {t.label}
+                {count > 0 && (
+                  <span className="ml-1 inline-block rounded-full bg-amber-100 px-1.5 text-xs text-amber-800">{count}</span>
+                )}
+              </span>
             </button>
           );
         })}
@@ -484,9 +479,9 @@ function FinancePlanContent({
         {tab === 'target' && (
           <div className="space-y-6">
             <TabHeader tab="target" />
-            <UnifiedPlPanel plan={unifiedPl} trial={effectTrial} target={unifiedTarget} />
+            <UnifiedPlPanel plan={unifiedPl} trial={effectTrial} />
             <p className="text-xs leading-relaxed text-slate-600 break-keep">
-              目標に至る補間の経路は「3. お金は足りるか」の参考情報にあります。旧北極星の手動金額による参考計算は、下の折りたたみにあります。
+              目標に至る補間の経路は「3. お金は足りるか」の参考情報にあります。
             </p>
             {targetContent}
           </div>
@@ -550,35 +545,6 @@ function FinancePlanContent({
         )}
       </div>
 
-      {showTechnicalDetails && (
-      <details className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700">
-        <summary className="cursor-pointer font-semibold text-slate-700">計算の詳細（管理者・開発用）</summary>
-        <p className="mt-2 text-slate-500">通常の画面には表示しません。計算・保存の内部情報のため、業務上の判断には使用しないでください。</p>
-        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-          <div>計算基準年度：PL {plan.baseYear ?? '未確認'} ／ BS {plan.bsBaseYear ?? '未確認'}</div>
-          <div>対象会社ID：{companyId ?? '未取得'}</div>
-          <div>計算ロジック版：{FINANCE_PLAN_CALC_VERSION}</div>
-          <div>計算日時：{computedAt}</div>
-          <div>入力前提の識別子：{currentMeta.assumptionsHash}</div>
-          <div>元データ（STAGE1・STAGE4）の識別子：{currentMeta.sourceHash}</div>
-        </div>
-        <button
-          type="button"
-          onClick={refreshComputedAt}
-          className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          計算日時を更新
-        </button>
-        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700">
-          <div className="font-semibold">保存の注意</div>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5">
-            {availability.residualRisks.map((b) => (
-              <li key={b}>{b}</li>
-            ))}
-          </ul>
-        </div>
-      </details>
-      )}
       </section>
     </div>
   );

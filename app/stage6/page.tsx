@@ -1,172 +1,15 @@
 'use client';
 
-import Link from 'next/link';
 import StrategyGuard from '@/app/StrategyGuard';
 import { AlertCircle } from 'lucide-react';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 
 import { TabImpact } from '@/components/stage6/TabImpact';
-import { TargetOverview } from '@/components/stage6/TargetOverview';
+import { ProjectContributionCompact } from '@/components/stage6/ProjectContributionCompact';
 import { useProjectFilters } from '@/components/stage6/hooks/useProjectFilters';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
 import { FinancePlanSection } from '@/components/stage6/FinancePlanSection';
-
-type ReviewCandidate = {
-  key: string;
-  dept: string;
-  proj: string;
-  reason: string;
-  reviewStage?: 'stage3' | 'stage4';
-  reviewReasonType?: string;
-  targetRevenueMJPY?: number;
-  targetOpMJPY?: number;
-  revenueContributionMJPY?: number;
-  opContributionMJPY?: number;
-  deltaRevenueMJPY?: number;
-  deltaOpMJPY?: number;
-  revenueAchievementRate?: number | null;
-  opAchievementRate?: number | null;
-  deptId?: string;
-  projectId?: string;
-};
-
-function fmtMJPY(value?: number | null) {
-  if (!Number.isFinite(value as any)) return '-';
-  return `${Math.round(value as number).toLocaleString()} 百万円`;
-}
-
-function fmtPct(value?: number | null) {
-  if (!Number.isFinite(value as any)) return '-';
-  return `${Math.round(value as number)}%`;
-}
-
-function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: ReviewCandidate[] }) {
-  const rows = Array.isArray(reviewCandidates) ? reviewCandidates.slice(0, 5) : [];
-
-  if (rows.length === 0) {
-    return (
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-2">
-          <h2 className="text-lg font-bold text-slate-900">優先的に見直すプロジェクト</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            目標額と寄与額の差、未入力項目、達成率から見直し候補を表示します。
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-          現時点で優先的な見直し候補はありません。
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-slate-900">優先的に見直すプロジェクト</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          目標額に対して寄与が不足している案件や、入力が不足している案件を優先表示します。
-        </p>
-      </div>
-
-      <div className="overflow-x-auto">
-        <div>
-          <div className="grid grid-cols-1 md:grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 sm:px-4 text-xs font-semibold text-slate-600">
-            <div>プロジェクト</div>
-            <div className="hidden md:block">見直し理由</div>
-            <div className="hidden md:block text-right">売上 目標/寄与</div>
-            <div className="hidden md:block text-right">営業利益 目標/寄与</div>
-            <div className="hidden md:block text-right">達成率</div>
-            <div className="hidden md:block text-center">操作</div>
-          </div>
-
-          <div className="mt-2 space-y-2">
-            {rows.map((row) => {
-              const revenueValue = row.revenueContributionMJPY ?? row.deltaRevenueMJPY;
-              const opValue = row.opContributionMJPY ?? row.deltaOpMJPY;
-              const reviewStage = row.reviewStage === 'stage3' ? 'stage3' : 'stage4';
-              const href = reviewStage === 'stage3'
-                ? row.projectId
-                  ? `/cascade?projectId=${encodeURIComponent(String(row.projectId))}${row.deptId ? `&deptId=${encodeURIComponent(String(row.deptId))}` : ''}`
-                  : `/cascade?dept=${encodeURIComponent(row.dept)}&project=${encodeURIComponent(row.proj)}`
-                : row.projectId
-                  ? `/okr?projectId=${encodeURIComponent(String(row.projectId))}${row.deptId ? `&deptId=${encodeURIComponent(String(row.deptId))}` : ''}`
-                  : `/okr?dept=${encodeURIComponent(row.dept)}&project=${encodeURIComponent(row.proj)}`;
-              const buttonLabel = reviewStage === 'stage3' ? 'STAGE3で見直す' : 'STAGE4で見直す';
-              const badgeLabel = reviewStage === 'stage3' ? '戦略見直し' : 'OKR見直し';
-
-              return (
-                <div
-                  key={row.key}
-                  className="grid grid-cols-1 md:grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-4 text-sm text-slate-800"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-semibold text-slate-900">{row.proj}</div>
-                    <div className="mt-1 text-xs text-slate-500">{row.dept}</div>
-                    {/* Mobile only: Show key metrics below title */}
-                    <div className="md:hidden mt-3 space-y-2 text-xs">
-                      <div>
-                        <span className="font-semibold text-slate-900">売上:</span>{' '}
-                        {fmtMJPY(row.targetRevenueMJPY)} / {fmtMJPY(revenueValue)}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-slate-900">利益:</span>{' '}
-                        {fmtMJPY(row.targetOpMJPY)} / {fmtMJPY(opValue)}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-slate-900">達成率:</span> 売上{' '}
-                        {fmtPct(row.revenueAchievementRate)} / 利益 {fmtPct(row.opAchievementRate)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="hidden md:block text-sm text-slate-700">{row.reason}</div>
-
-                  <div className="hidden md:block text-right">
-                    <div className="font-medium text-slate-900">
-                      {fmtMJPY(row.targetRevenueMJPY)} / {fmtMJPY(revenueValue)}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">売上</div>
-                  </div>
-
-                  <div className="hidden md:block text-right">
-                    <div className="font-medium text-slate-900">
-                      {fmtMJPY(row.targetOpMJPY)} / {fmtMJPY(opValue)}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">営業利益</div>
-                  </div>
-
-                  <div className="hidden md:block text-right">
-                    <div className="font-medium text-slate-900">売上 {fmtPct(row.revenueAchievementRate)}</div>
-                    <div className="mt-1 text-xs text-slate-500">利益 {fmtPct(row.opAchievementRate)}</div>
-                  </div>
-
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        reviewStage === 'stage3'
-                          ? 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200'
-                          : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200'
-                      }`}
-                    >
-                      {badgeLabel}
-                    </span>
-                    <Link
-                      href={href}
-                      className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-2 py-2 sm:px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 active:scale-95"
-                    >
-                      {buttonLabel}
-                    </Link>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 function Stage6PageContent() {
   const stage6 = useStage6Data('base') as any;
@@ -237,14 +80,28 @@ function Stage6PageContent() {
           reviewCandidateCount={stage6.reviewCandidates?.length ?? 0}
           targetContent={
             <>
-              <TargetOverview
-                northStarRows={stage6.northStarRows}
-                dashboardSummary={stage6.dashboardSummary}
-                excludedImpacts={stage6.excludedImpactRows}
-              />
+              {(stage6.excludedImpactRows ?? []).length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <div className="font-semibold">
+                    施策を特定できないため、金額が一部の集計に含まれていない項目があります（{stage6.excludedImpactRows.length}件）
+                  </div>
+                  <ul className="mt-1 list-disc pl-5 text-xs">
+                    {stage6.excludedImpactRows.map((e: { targetId: string; valueMJPY: number | null; reason: string }, i: number) => (
+                      <li key={`${e.targetId}-${i}`}>
+                        登録額 {e.valueMJPY === null ? '不明' : `${e.valueMJPY} 百万円`}：{e.reason}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-xs">元データは保持されていますが、今回の試算には反映されていません。STAGE4で施策の名称や登録内容を確認してください。</p>
+                </div>
+              )}
+
+              <ProjectContributionCompact projectContrib={stage6.projectContrib} />
 
               <details className="rounded-xl border border-slate-200 bg-white p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-slate-700">旧北極星の施策別寄与（参考情報・折りたたみ）</summary>
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                  プロジェクト寄与の詳細（部門で絞り込み・選択して集計）
+                </summary>
                 <div className="mt-4">
                   <TabImpact
                     projectContrib={stage6.projectContrib as any}
@@ -257,13 +114,9 @@ function Stage6PageContent() {
                     toggleProject={projectFilters.toggleProject}
                     selectAllFiltered={projectFilters.selectAllFiltered}
                     clearAllFiltered={projectFilters.clearAllFiltered}
-                    revenueGapMJPY={stage6.dashboardSummary?.revenue.gap}
-                    opGapMJPY={stage6.dashboardSummary?.op.gap}
                   />
                 </div>
               </details>
-
-              <ReviewCandidatesSection reviewCandidates={stage6.reviewCandidates} />
             </>
           }
         />
