@@ -25,6 +25,7 @@ import {
   CEO_PANEL_WIDTH_STORAGE_KEY,
   displayedCeoPanelWidth,
   parseStoredCeoPanelWidth,
+  restoredCeoPanelOpen,
 } from '@/lib/layout/ceoPanelWidth';
 
 /* ================================
@@ -212,14 +213,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!mounted) return;
 
-    // 初回時（保存なし）は1280px以上で開いた状態にする。以後は利用者の開閉操作を保持する
     try {
-      const stored = localStorage.getItem(CEO_PANEL_OPEN_STORAGE_KEY);
-      if (stored !== null) {
-        setCeoPanelOpen(JSON.parse(stored));
-      } else {
-        setCeoPanelOpen(window.innerWidth >= CEO_PANEL_DOCK_MIN_VIEWPORT);
-      }
+      setCeoPanelOpen(restoredCeoPanelOpen(localStorage.getItem(CEO_PANEL_OPEN_STORAGE_KEY), window.innerWidth));
     } catch {
       setCeoPanelOpen(false);
     }
@@ -235,16 +230,16 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('resize', handleResize);
   }, [mounted]);
 
-  // ★ CEO panel 状態が変わったら localStorage に保存
+  // ★ 狭い画面の開閉状態のみ保存する（1280px以上は常設のため保存しない）
   useEffect(() => {
-    if (mounted) {
+    if (mounted && !isDocked) {
       try {
         localStorage.setItem(CEO_PANEL_OPEN_STORAGE_KEY, JSON.stringify(ceoPanelOpen));
       } catch {
         // localStorage 利用不可の場合は無視
       }
     }
-  }, [ceoPanelOpen, mounted]);
+  }, [ceoPanelOpen, isDocked, mounted]);
 
   // ★ 右パネル幅の復元（画面遷移はこのレイアウトが保持するため、遷移後も維持される）
   useEffect(() => {
@@ -267,8 +262,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // ★ 右パネルの表示判定（開閉状態のみで決める。表示幅は中央画面の最低幅に応じて制限する）
-  const showCeoPanel = mounted && ceoPanelOpen;
+  // ★ 1280px以上は右パネルを常設する（開閉操作は持たない）。表示幅は中央画面の最低幅に応じて制限する
+  const ceoPanelDocked = mounted && isDocked;
   const panelWidthPx =
     isDocked && viewportWidth > 0 ? displayedCeoPanelWidth(ceoPanelWidth, viewportWidth) : ceoPanelWidth;
 
@@ -922,8 +917,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      {/* 右AIドック（1280px以上は常設。閉じるボタンで開閉する） */}
-      {!hideSidebar && showCeoPanel && (
+      {/* 右AIドック（1280px以上は常設） */}
+      {!hideSidebar && ceoPanelDocked && (
         <aside
           className={[
             'hidden xl:flex fixed top-0 right-0 z-20 h-dvh',
@@ -940,16 +935,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             onCommit={commitCeoPanelWidth}
             onDraggingChange={setCeoPanelResizing}
           />
-          <div className="flex shrink-0 justify-end px-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setCeoPanelOpen(false)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              aria-label="AI経営コンサルタントを閉じる"
-            >
-              閉じる
-            </button>
-          </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="ml-auto w-full h-full max-w-[var(--right-w)] [&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
               <CEOChatPanel />
@@ -1004,8 +989,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         ].join(' ')}
         style={{
           marginLeft: !hideSidebar ? 'var(--left-w)' : undefined,
-          // 1280px以上: 常設パネルの分だけ中央画面を狭める（パネルを閉じたときは解除）
-          marginRight: !hideSidebar && isDocked && ceoPanelOpen ? 'var(--right-w)' : undefined,
+          // 1280px以上: 常設パネルの分だけ中央画面を狭める
+          marginRight: !hideSidebar && ceoPanelDocked ? 'var(--right-w)' : undefined,
           // 2xl で margin-right が変わる時の smooth transition（幅のドラッグ中は追従のため無効）
           transition: ceoPanelResizing ? 'none' : 'margin-right 0.2s ease-in-out',
         }}
@@ -1027,25 +1012,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               </button>
             </div>
           </div>
-        )}
-
-        {/* 1280px以上で右パネルが閉じているときの再表示ボタン（閉じる操作はパネル内のボタン） */}
-        {!hideSidebar && mounted && isDocked && !ceoPanelOpen && (
-          <button
-            onClick={() => setCeoPanelOpen(true)}
-            className="hidden xl:flex fixed bottom-6 right-6 z-30 h-10 items-center justify-center gap-2.5 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-md transition-all duration-200 hover:bg-gray-50 hover:shadow-lg hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 active:scale-95"
-            aria-label="CEOChat を開く"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.25}
-                d="M8 12a4 4 0 018 0m0 0a4 4 0 11-8 0m0 0a4 4 0 018 0M3 20h18a2 2 0 002-2V6a2 2 0 00-2-2H3a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
-            </svg>
-            <span>CEOChat</span>
-          </button>
         )}
 
         <MfaGate skip={isAuthPath(pathname)} pathname={pathname ?? ''} />

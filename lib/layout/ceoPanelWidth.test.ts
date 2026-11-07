@@ -9,6 +9,7 @@ import {
   displayedCeoPanelWidth,
   maxCeoPanelWidth,
   parseStoredCeoPanelWidth,
+  restoredCeoPanelOpen,
 } from './ceoPanelWidth';
 
 describe('ceoPanelWidth', () => {
@@ -60,5 +61,17 @@ describe('ceoPanelWidth', () => {
     // 既定幅・最小幅はそのまま
     expect(displayedCeoPanelWidth(CEO_PANEL_WIDTH_DEFAULT, 1280)).toBe(320);
     expect(displayedCeoPanelWidth(10, 1280)).toBe(CEO_PANEL_WIDTH_MIN);
+  });
+
+  it('1280px以上は保存された閉じた状態を復元しない（常設表示）', () => {
+    expect(restoredCeoPanelOpen('false', 1280)).toBe(false);
+    expect(restoredCeoPanelOpen('true', 1920)).toBe(false);
+    expect(restoredCeoPanelOpen(null, 1536)).toBe(false);
+  });
+
+  it('1280px未満は保存された開閉状態を復元する', () => {
+    expect(restoredCeoPanelOpen('true', 768)).toBe(true);
+    expect(restoredCeoPanelOpen('false', 768)).toBe(false);
+    expect(restoredCeoPanelOpen(null, 768)).toBe(false);
   });
 });

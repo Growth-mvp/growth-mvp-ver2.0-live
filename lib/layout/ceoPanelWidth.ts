@@ -23,6 +23,12 @@ export function parseStoredCeoPanelWidth(raw: string | null, viewportWidth: numb
   return clampCeoPanelWidth(Number.isFinite(parsed) ? parsed : CEO_PANEL_WIDTH_DEFAULT, viewportWidth);
 }
 
+/* 1280px以上は常設表示のため開閉状態を持たない。未満のみ保存された開閉状態（JSON文字列）を復元する。 */
+export function restoredCeoPanelOpen(raw: string | null, viewportWidth: number): boolean {
+  if (viewportWidth >= CEO_PANEL_DOCK_MIN_VIEWPORT) return false;
+  return raw === 'true';
+}
+
 /* 表示幅だけを、中央画面の最低幅に応じて制限する。保存されている幅は変更しない。 */
 export function displayedCeoPanelWidth(width: number, viewportWidth: number): number {
   const byCenter = Math.floor(viewportWidth - ceoPanelLeftWidth(viewportWidth) - CENTER_MIN_WIDTH);
