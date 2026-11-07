@@ -60,6 +60,8 @@ interface StrategyStoryPreviewProps {
 
   // ★ AI生成Conclusion関連
   aiGeneratedConclusion?: string;
+  currentStoryFingerprint?: string;
+  generatedConclusionFingerprint?: string;
 }
 
 /**
@@ -865,6 +867,8 @@ function ConclusionBox({
   value?: string;
   onChange?: (value: string) => void;
   aiGeneratedConclusion?: string;
+  currentStoryFingerprint?: string;
+  generatedConclusionFingerprint?: string;
 } = {}) {
   const defaultText = `当社は、既存市場・既存事業の延長だけでは、今後の成長機会を十分に取り切ることが難しい局面にある。今後は、環境変化によって生まれる新たな成長領域へ経営資源を重点配分し、既存事業依存からの脱却と収益構造の転換を進める。
 
