@@ -73,14 +73,13 @@ describe('過去実績の増減・底の記述の事実検査', () => {
 });
 
 describe('銀行向け冒頭サマリー', () => {
-  it('入力済みの内容だけを使い、未入力の項目は未入力と書く', () => {
+  it('構造化された登録値がない項目は省略し、補完しない', () => {
     const plan = buildPlanData(base(), 'bank');
     const summary = buildBankPlanSummary(plan, undefined);
     expect(summary).toContain('## 経営計画の要約');
-    expect(summary).toContain('- 結論：未入力（確定版の戦略ストーリーも未作成）');
-    expect(summary).toContain('成長戦略：未入力（確定版の戦略ストーリーも未作成）');
-    expect(summary).toContain('計画期間：未確定');
-    expect(summary).toContain('**事業・部門別の重点戦略**\n- 未入力');
+    expect(summary).not.toContain('全社戦略');
+    expect(summary).not.toContain('事業・部門別の重点戦略');
+    expect(summary).not.toContain('未入力');
     expect(summary).not.toContain('先頭');
     expect(summary).not.toMatch(/STAGE\d/);
   });
@@ -99,20 +98,40 @@ describe('銀行向け冒頭サマリー', () => {
     );
     const summary = buildBankPlanSummary(plan, undefined);
     expect(summary).toContain('目指す姿：地域で選ばれる会社');
-    expect(summary).toContain('- 結論：既存事業の深耕を進めます。');
+    expect(summary.indexOf('全社戦略の結論：既存事業の深耕を進めます。')).toBeLessThan(summary.indexOf('目指す姿'));
     expect(summary).toContain('成長戦略：成長A');
     expect(summary).toContain('利益戦略：利益B');
     expect(summary).toContain('- 営業部：既存顧客の深耕');
     expect(summary).toContain('売上高 1500百万円（2028年）（承認状態は未確認）');
   });
 
-  it('個別項目が空でも確定ストーリーに該当文があれば、その文を原文のまま示す', () => {
+  it('個別項目が空のとき、確定ストーリー本文から文章を引用しない', () => {
     const plan = buildPlanData(
-      base({ finalStoryFinal: [{ title: '章', body: '当社は地域で選ばれる存在を目指します。' }] }),
+      base({
+        finalStoryFinal: [
+          { title: '章', body: '当社は地域で選ばれる存在を目指します。文化施設事業の業績が悪化しています。資材費が上昇しています。' },
+        ],
+      }),
       'bank',
     );
     const summary = buildBankPlanSummary(plan, undefined);
-    expect(summary).toContain('顧客が当社を選ぶ理由：確定版の戦略ストーリーには次のように記載されています。「当社は地域で選ばれる存在を目指します。」');
-    expect(summary).toContain('成長戦略は、確定版の戦略ストーリー本文を参照してください');
+    expect(summary).not.toContain('「');
+    expect(summary).not.toContain('文化施設事業の業績');
+    expect(summary).not.toContain('顧客が当社を選ぶ理由');
+    expect(summary).not.toContain('成長戦略');
+  });
+
+  it('構造化フィールドに値がある項目は、その値をそのまま示す', () => {
+    const plan = buildPlanData(
+      base({
+        midtermStrategy: { growthStrategy: '既存顧客の深耕による成長', profitImprovementStrategy: '価格・納期の改善' },
+        finalStoryFinal: [{ title: '章', body: '本文' }],
+      }),
+      'bank',
+    );
+    const summary = buildBankPlanSummary(plan, undefined);
+    expect(summary).toContain('成長戦略：既存顧客の深耕による成長');
+    expect(summary).toContain('利益戦略：価格・納期の改善');
+    expect(summary).not.toContain('顧客が当社を選ぶ理由');
   });
 });

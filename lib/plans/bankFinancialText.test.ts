@@ -537,9 +537,9 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
     ] as unknown as Department[];
     const facts = buildBankFinancialFacts(blockOf(inputs({ departments: departmentsWithOnlyEffect })))!;
     const md = facts.markdown;
-    expect(md).toContain('**主要な実行施策**');
-    expect(md).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 承認未確認 |');
-    expect(md).toContain('登録されている実行施策は全2件で、すべて本文に掲載しています。');
+    expect(md).not.toContain('**主要な実行施策**');
+    expect(md).not.toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 |');
+    expect(md).toContain('個々の施策の内容は第3章の主要施策と、参考資料Aの全件一覧を参照してください');
     expect(facts.appendixMarkdown).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 未登録 | 0.0 | 承認未確認 |');
     expect(facts.appendixMarkdown).toContain('全2件を掲載しています。');
     expect(md).not.toMatch(/STAGE\d/);
@@ -556,8 +556,9 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
         ],
       },
     ];
-    const md = buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '製造部', projects }] as unknown as Department[] })))!.markdown;
-    expect(md).toContain('| 設備投資施策 | 製造部 |');
+    const facts = buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '製造部', projects }] as unknown as Department[] })))!;
+    expect(facts.markdown).not.toContain('| 設備投資施策 | 製造部 |');
+    expect(facts.appendixMarkdown).toContain('| 設備投資施策 | 製造部 |');
   });
 
   it('掲載数が上限を超える場合は全件数と掲載範囲を明示する', () => {
@@ -565,7 +566,7 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
     const md = buildBankFinancialFacts(
       blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })),
     )!.markdown;
-    expect(md).toContain('主要な施策4件を掲載しています。登録されている実行施策は全42件で、残りの施策と投資・費用の明細は参考資料に掲載しています。');
+    expect(md).not.toContain('主要な施策4件を掲載');
     expect(md).not.toContain('| 施策40 |');
     expect(buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })))!.appendixMarkdown).toContain('全42件を掲載しています。');
     const many = Array.from({ length: 61 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: 1 }));
@@ -579,7 +580,7 @@ describe('24. 本文と参考資料の分離・注意事項の重複', () => {
 
   it('全件の施策一覧と投資明細は本文に含めず、参考資料に分けて出力する', () => {
     const f = facts();
-    expect(f.markdown).not.toContain('参考資料A');
+    expect(f.markdown).not.toContain('## 参考資料A');
     expect(f.markdown).not.toContain('投資・費用の内訳（実行施策）');
     expect(f.appendixMarkdown.startsWith('<!-- pagebreak -->')).toBe(true);
     expect(f.appendixMarkdown).toContain('## 参考資料A：実行施策の全件一覧');

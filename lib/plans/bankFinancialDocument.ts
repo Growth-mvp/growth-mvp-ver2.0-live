@@ -1,7 +1,6 @@
 import type { BankFinancialPlanBlock } from '@/utils/stage6/bankFinancialPlan';
 import type { CfValue } from '@/utils/stage6/cashflow';
 import { toBusinessWording } from './businessWording';
-import { selectMainProjects } from './projectSelection';
 import {
   UNCONFIRMED_TEXT,
   collectAllowedFigures,
@@ -203,25 +202,9 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     `準備済みの投資・費用（合計に算入）：承認済み ${formatMillionYenText(inv.approvedReadyYen)}、承認未確認（計画段階） ${formatMillionYenText(inv.unapprovedReadyYen)}。承認状態が確認できないものは承認済みとして扱っていません。`,
   );
   const projectTotal = inv.projects.totalCount;
-  const mainProjects = selectMainProjects(inv.projects.rows);
-  if (mainProjects.length > 0) {
-    parts.push('**主要な実行施策**');
+  if (projectTotal > 0) {
     parts.push(
-      mdTable(
-        ['施策', '担当部門', '売上寄与（期待効果）', '営業利益寄与（期待効果）', '承認状態'],
-        mainProjects.map((p) => [
-          p.title,
-          p.departmentName,
-          formatMillionYen(p.revenueYen),
-          formatMillionYen(p.operatingIncomeYen),
-          approvalLabel(p.planStatus),
-        ]),
-      ),
-    );
-    parts.push(
-      projectTotal > mainProjects.length
-        ? `主要な施策${mainProjects.length}件を掲載しています。登録されている実行施策は全${projectTotal}件で、残りの施策と投資・費用の明細は参考資料に掲載しています。`
-        : `登録されている実行施策は全${projectTotal}件で、すべて本文に掲載しています。`,
+      '個々の施策の内容は第3章の主要施策と、参考資料Aの全件一覧を参照してください。この章では、施策全体の金額と財務数値の関係を説明しています。',
     );
   }
   parts.push(inv.note);

@@ -49,6 +49,15 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
 const parser = unified().use(remarkParse).use(remarkGfm);
 
+// 社名の文字そのものは変えず、見えない文字と表示上の問題になる空白だけを処理する
+const DISPLAY_INVISIBLE_CHARS = /[\u00AD\u200B-\u200D\u2060\uFEFF]/g;
+const EXOTIC_SPACES = /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g;
+
+/** 表示用の会社名。見えない文字と特殊な空白だけを通常の表記にそろえる */
+export function normalizeDisplayName(name: string): string {
+  return name.replace(DISPLAY_INVISIBLE_CHARS, '').replace(EXOTIC_SPACES, ' ').trim();
+}
+
 export function buildPlanExportDocument(input: {
   audience: PlanAudience;
   companyName?: string | null;
@@ -56,7 +65,7 @@ export function buildPlanExportDocument(input: {
   markdown: string;
 }): PlanExportDocument {
   const meta = AUDIENCE_META[input.audience];
-  const name = input.companyName?.trim();
+  const name = input.companyName ? normalizeDisplayName(input.companyName) : '';
   return {
     title: name ? `${name} ${meta.heading}` : meta.heading,
     subtitle: [meta.label, `生成日時: ${formatGeneratedAt(input.generatedAt)}`],
