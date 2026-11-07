@@ -8,6 +8,9 @@ import type { AudienceType } from '@/utils/export/buildPlanData';
 import { buildPlanData } from '@/utils/export/buildPlanData';
 import { unwrapCsvFinanceData } from '@/utils/supabase/strategy';
 import { buildFinancialIndicatorBlock } from '@/lib/plans/financialIndicators';
+import { findNumericNotationIssues, normalizeNumericNotation } from '@/lib/plans/numericNotation';
+import { normalizeApprovalWording } from '@/lib/plans/approvalWording';
+import { investmentInputMismatches, projectInvestmentLabels } from '@/lib/plans/projectInvestment';
 import { bankFinancialPlanForRow, withBankFinancialPlan } from '@/utils/stage6/bankFinancialPlan';
 import { bankFinancialPromptText, finalizeBankPlanText, type BankFinanceCheck } from '@/lib/plans/bankFinancialText';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
@@ -207,10 +210,18 @@ export async function POST(
     // ===== Step 6: プロンプト構築 =====
     let prompt;
     try {
+      const investmentMismatches = investmentInputMismatches(strategyState?.departments);
+      if (investmentMismatches.length > 0) {
+        console.warn('[Plan Gen] Investment input differs from spend records (not merged)', {
+          companyId: body.companyId,
+          titles: investmentMismatches.map((m) => m.title),
+        });
+      }
       prompt = buildAudiencePrompt(
         audience,
         planData,
-        audience === 'shareholder' && strategyState ? buildFinancialIndicatorBlock(strategyState as any) : ''
+        audience === 'shareholder' && strategyState ? buildFinancialIndicatorBlock(strategyState as any) : '',
+        audience === 'bank' ? new Map<string, string>() : projectInvestmentLabels(strategyState?.departments)
       );    } catch (err) {
       console.error('[Plan Gen Step 6] buildAudiencePrompt failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -348,7 +359,14 @@ export async function POST(
       }
 
       const historicalClaims = correctHistoricalClaims(generatedText, planData.stage1.historicalFinances ?? []);
-      generatedText = toBusinessWording(historicalClaims.text);
+      generatedText = normalizeApprovalWording(normalizeNumericNotation(toBusinessWording(historicalClaims.text)));
+      const notationIssues = findNumericNotationIssues(generatedText);
+      if (notationIssues.length > 0) {
+        console.warn('[Plan Gen] Numeric notation issues remain', {
+          companyId: body.companyId,
+          count: notationIssues.length,
+        });
+      }
       if (historicalClaims.corrected.length > 0) {
         console.warn('[Plan Gen] Historical claims corrected', {
           companyId: body.companyId,
@@ -761,10 +779,17 @@ TONE: Inspiring yet practical, emphasizing clarity on roles, concrete actions, a
   return basePrompt + '\n' + audienceSpecific[audience];
 }
 
+function formatTableAmount(value: unknown): string {
+  if (value === undefined) return '-';
+  if (typeof value === 'number' && Number.isInteger(value)) return value.toLocaleString('ja-JP');
+  return String(value);
+}
+
 function buildAudiencePrompt(
   audience: AudienceType,
   planData: any,
-  indicatorBlock = ''
+  indicatorBlock = '',
+  investmentLabels: Map<string, string> = new Map()
 ): string {
   // ★ Phase 1 追加：STAGE1の年度別財務実績を表形式で構築
   const historicalFinancesTable =
@@ -776,7 +801,7 @@ function buildAudiencePrompt(
 ${planData.stage1.historicalFinances
   .map(
     (f: any) =>
-      `| ${f.year} | ${f.revenue !== undefined ? f.revenue : '-'} | ${f.grossProfit !== undefined ? f.grossProfit : '-'} | ${f.operatingIncome !== undefined ? f.operatingIncome : '-'} | ${f.netIncome !== undefined ? f.netIncome : '-'} | ${f.unit || '未確認'} |`
+      `| ${f.year} | ${formatTableAmount(f.revenue)} | ${formatTableAmount(f.grossProfit)} | ${formatTableAmount(f.operatingIncome)} | ${formatTableAmount(f.netIncome)} | ${f.unit || '未確認'} |`
   )
   .join('\n')}
 
@@ -811,7 +836,7 @@ ${planData.stage4.projectImpacts
       `施策: ${p.title}
 売上寄与: ${p.impactRevenue || '未定'}
 営業利益寄与: ${p.impactOpIncome || '未定'}
-投資額: ${p.impactInvestment || '未定'}`
+投資額: ${investmentLabels.get(p.title) ?? '未定'}`
   )
   .join('\n')}`;
   const baseData = `

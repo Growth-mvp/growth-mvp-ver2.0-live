@@ -237,8 +237,16 @@ export type StrategyProjectRow = {
   revenueYen: number | null;
   operatingIncomeYen: number | null;
   investmentRecordCount: number;
-  investmentYen: number;
+  investmentYen: number | null;
 };
+
+/** 金額が確定している支出の合計。確定した金額がなければ null（0円とは扱わない） */
+function knownTotal(items: InvestmentItem[]): number | null {
+  const known = items
+    .filter((it) => it.duplicateStatus !== 'CANDIDATE' && it.totalYen !== null)
+    .map((it) => it.totalYen as number);
+  return known.length > 0 ? known.reduce((sum, v) => sum + v, 0) : null;
+}
 
 function strategyProjectRows(departments: Department[], items: InvestmentItem[]): StrategyProjectRow[] {
   const rows: StrategyProjectRow[] = [];
@@ -255,8 +263,8 @@ function strategyProjectRows(departments: Department[], items: InvestmentItem[])
         planStatus: p?.planStatus ?? null,
         revenueYen: typeof r === 'number' && Number.isFinite(r) ? r * 1_000_000 : null,
         operatingIncomeYen: typeof o === 'number' && Number.isFinite(o) ? o * 1_000_000 : null,
-        investmentRecordCount: own.length,
-        investmentYen: own.reduce((sum, it) => sum + (it.duplicateStatus === 'CANDIDATE' ? 0 : it.totalYen ?? 0), 0),
+        investmentRecordCount: own.filter((it) => it.duplicateStatus !== 'CANDIDATE').length,
+        investmentYen: knownTotal(own),
       });
     }
   }

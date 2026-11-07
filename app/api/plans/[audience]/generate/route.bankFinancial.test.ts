@@ -34,6 +34,7 @@ import {
 } from '@/utils/stage6/financePlanSnapshot';
 import type { CfAssumptions } from '@/utils/stage6/cashflow';
 import { formatMillionYen } from '@/lib/plans/bankFinancialFormat';
+import { investmentInputMismatches } from '@/lib/plans/projectInvestment';
 import { buildPlanExportDocument, planDocumentPlainText } from '@/lib/plans/export/planExportDocument';
 
 const YEAR = new Date().getFullYear();
@@ -106,13 +107,14 @@ function snapshotFor(opts: {
   fiscalYearEnd?: string;
   financeBSOverride?: typeof financeBS;
   domainOverride?: FinancePlanDomain;
+  departmentsOverride?: typeof departments;
 } = {}) {
   const bs = opts.financeBSOverride ?? financeBS;
   const useDomain = opts.domainOverride ?? domain;
   const c = computeStage6FinancePlan({
     financePL,
     financeBS: bs,
-    departments: departments as never,
+    departments: (opts.departmentsOverride ?? departments) as never,
     fiscalYearEnd: opts.fiscalYearEnd ?? '3',
     domain: useDomain,
     currentYear: YEAR,
@@ -148,6 +150,8 @@ function strategyRow(opts: {
   fiscalYearEnd?: string | null;
   industry?: string;
   extra?: Record<string, unknown>;
+  departments?: typeof departments;
+  companyTargets?: unknown[];
 }) {
   return {
     ...(opts.extra ?? {}),
@@ -155,10 +159,10 @@ function strategyRow(opts: {
     company_id: COMPANY,
     company_name: 'テスト株式会社',
     industry: opts.industry,
-    departments,
+    departments: opts.departments ?? departments,
     final_story: [],
     finance_pl: financePL,
-    company_targets: [],
+    company_targets: opts.companyTargets ?? [],
     fiscal_year_end: opts.fiscalYearEnd === undefined ? '3' : opts.fiscalYearEnd,
     csv_finance_data: opts.csv === undefined ? { financeBS } : opts.csv,
   };
@@ -228,6 +232,120 @@ async function generate(audience = 'bank') {
   const res = await POST(makeRequest({ companyId: COMPANY, strategyId: STRATEGY }), context(audience));
   return { res, json: await res.json() };
 }
+
+const CONSISTENCY_DEPARTMENTS = [
+  {
+    name: '営業部',
+    projects: [
+      {
+        title: 'A社開拓',
+        planStatus: 'approved',
+        impactRevenueMJPY: 120,
+        skillPlans: [
+          { id: 'c1', skillName: '設備', cost: 30_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: `${YEAR + 1}-03` } },
+        ],
+      },
+      {
+        title: 'B社開拓',
+        planStatus: 'draft',
+        impactRevenueMJPY: 50,
+        impactInvestmentMJPY: 80,
+        skillPlans: [
+          { id: 'c2', skillName: '採用', cost: 100_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: `${YEAR + 1}-03` } },
+        ],
+      },
+      { title: '文化施設の知見展開', planStatus: 'draft', impactRevenueMJPY: 40 },
+    ],
+  },
+];
+
+const CONSISTENCY_TARGETS = [
+  { id: 't1', label: '売上高', unit: '百万円', base: 130000, dueYear: YEAR + 1, priority: 1 },
+  { id: 't2', label: '営業利益', unit: '百万円', base: 11700, dueYear: YEAR + 1, priority: 2 },
+];
+
+const SHARED_AI_TEXT = `## 1. 経営方針\n${YEAR + 1}年の売上高は130000百万円、営業利益は11700百万円を目指します。売上目標は公式な全社売上目標として登録されています。A社開拓の期待売上寄与は¥120Mです。\n${'本文'.repeat(60)}`;
+
+describe('同一のモック企業データで銀行・株主・社員の3種類を生成して照合する', () => {
+  async function generateAll() {
+    const { persisted } = snapshotFor({ departmentsOverride: CONSISTENCY_DEPARTMENTS as never });
+    const results: Record<'bank' | 'shareholder' | 'employee', { text: string; prompt: string }> = {} as never;
+    for (const audience of ['bank', 'shareholder', 'employee'] as const) {
+      mockCreate.mockClear();
+      mockCreate.mockResolvedValue(openAiReply(SHARED_AI_TEXT));
+      useRow(
+        strategyRow({
+          csv: { financeBS, financePlanAssumptions: persisted },
+          departments: CONSISTENCY_DEPARTMENTS as never,
+          companyTargets: CONSISTENCY_TARGETS,
+        }),
+      );
+      const { res, json } = await generate(audience);
+      expect(res.status).toBe(200);
+      results[audience] = { text: json.generatedText, prompt: promptSent() };
+    }
+    return results;
+  }
+
+  it('登録目標の金額と承認状態が3種類で一致する', async () => {
+    const r = await generateAll();
+    for (const audience of ['bank', 'shareholder', 'employee'] as const) {
+      expect(r[audience].prompt).toContain(`130000百万円（${YEAR + 1}年）`);
+      expect(r[audience].prompt).toContain('承認未確認');
+      expect(r[audience].text).toContain('130,000百万円');
+      expect(r[audience].text).toContain('11,700百万円');
+      expect(r[audience].text).not.toContain('公式');
+    }
+  });
+
+  it('同一施策の投資額と承認状態が矛盾しない', async () => {
+    const r = await generateAll();
+    expect(r.bank.prompt).toContain('承認未確認 100.0百万円');
+    expect(r.shareholder.prompt).toContain('投資額: 100.0百万円（承認未確認）');
+    expect(r.employee.prompt).toContain('投資額: 100.0百万円（承認未確認）');
+    expect(r.bank.text).toContain('| B社開拓 | 営業部 | 50.0 | 未確定 | 1件 | 100.0 | 承認未確認 |');
+    expect(r.bank.text).toContain('| A社開拓 | 営業部 | 120.0 | 未確定 | 1件 | 30.0 | 承認済み |');
+    expect(r.bank.text).toContain('必要投資額（プロジェクト総額）');
+    expect(r.bank.text).toContain('重複確認中（合計に含めていません）');
+    expect(r.shareholder.prompt).not.toContain('80.0百万円');
+  });
+
+  it('期待売上寄与が3種類で一致する', async () => {
+    const r = await generateAll();
+    expect(r.shareholder.prompt).toContain('売上寄与: ¥120M');
+    expect(r.employee.prompt).toContain('売上寄与: ¥120M');
+    expect(r.bank.text).toContain('| A社開拓 | 営業部 | 120.0 |');
+    expect(r.shareholder.text).toContain('120百万円');
+  });
+
+  it('支出の登録がない施策を0円と表示しない', async () => {
+    const r = await generateAll();
+    expect(r.shareholder.prompt).toMatch(/文化施設の知見展開[\s\S]*?投資額: 未定/);
+    expect(r.employee.prompt).toMatch(/文化施設の知見展開[\s\S]*?投資額: 未定/);
+    expect(r.bank.text).toContain('| 文化施設の知見展開 | 営業部 | 40.0 | 未確定 | 未登録 | 未登録 | 承認未確認 |');
+    expect(r.bank.text).not.toContain('| 文化施設の知見展開 | 営業部 | 40.0 | 未確定 | 未登録 | 0.0 |');
+  });
+
+  it('共通する財務指標（営業利益率）が矛盾しない', async () => {
+    const r = await generateAll();
+    expect(r.shareholder.prompt).toContain(`営業利益率（${YEAR - 1}年度）：5.0%`);
+    expect(r.bank.text).toMatch(new RegExp(`\\|\\s*${YEAR - 1}年\\s*\\|\\s*実績\\s*\\|[^\\n]*5\\.0%`));
+  });
+
+  it('投資額の入力欄と支出の登録の不一致を統合せず報告する', () => {
+    expect(investmentInputMismatches(CONSISTENCY_DEPARTMENTS as never)).toEqual([
+      { departmentName: '営業部', title: 'B社開拓', spendYen: 100_000_000, inputYen: 80_000_000 },
+    ]);
+  });
+
+  it('金額の表示はいずれの出力も同じ正規化規則に従う', async () => {
+    const r = await generateAll();
+    for (const audience of ['bank', 'shareholder', 'employee'] as const) {
+      expect(r[audience].text).not.toMatch(/[¥￥]\s*\d+(\.\d+)?\s*M(?![A-Za-z])/);
+      expect(r[audience].text).not.toMatch(/\d％/);
+    }
+  });
+});
 
 describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Markdownまでの結合', () => {
   it('CURRENT：財務表A〜Eが第4章に入り、保存本文と返却本文が一致する', async () => {
@@ -430,6 +548,22 @@ describe('銀行向け計画書：保存済みSTAGE6財務前提から最終Mark
     expect(prompt).toContain('上場区分：未入力');
     expect(prompt).toContain('未算出');
     expect(prompt).not.toContain('PBR（株価純資産倍率）');
+  });
+
+  it('生成された本文の金額・単位・承認状態の表現を統一し、年度は変えない', async () => {
+    mockCreate.mockResolvedValue(
+      openAiReply(
+        `## 1. 経営方針\n2029年の売上高は¥130000M、営業利益は11700百万円を目指します。公式な全社売上目標として登録されています。営業利益率は-3.01％です。\n${'本文'.repeat(60)}`,
+      ),
+    );
+    const { json } = await generate('shareholder');
+
+    expect(json.generatedText).toContain('2029年の売上高は130,000百万円');
+    expect(json.generatedText).toContain('11,700百万円');
+    expect(json.generatedText).toContain('登録された全社売上目標');
+    expect(json.generatedText).toContain('-3.01%');
+    expect(json.generatedText).not.toMatch(/[¥￥]\s*\d+\s*M/);
+    expect(json.generatedText).not.toContain('公式な');
   });
 
   it('社員向けは財務指標を渡さず、担当者の協議による決定を断定しない', async () => {

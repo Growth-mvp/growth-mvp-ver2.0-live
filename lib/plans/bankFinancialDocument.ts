@@ -373,7 +373,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     formatMillionYen(p.revenueYen),
     formatMillionYen(p.operatingIncomeYen),
     p.investmentRecordCount > 0 ? `${p.investmentRecordCount}件` : '未登録',
-    formatMillionYen(p.investmentYen),
+    p.investmentRecordCount === 0 ? '未登録' : formatMillionYen(p.investmentYen),
     approvalLabel(p.planStatus),
   ]);
   appendixParts.push(

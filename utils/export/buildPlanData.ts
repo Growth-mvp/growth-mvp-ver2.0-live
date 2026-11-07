@@ -498,7 +498,7 @@ function extractNorthStarRevenue(
     recommendedTarget = companyTarget;
   } else if (projectImpact) {
     // STAGE2目標がなく、STAGE4効果がある場合、明確に「参考値」と明記
-    recommendedTarget = '未設定（STAGE2に正式な売上目標の登録がありません）';
+    recommendedTarget = '未設定（全社売上目標の登録がありません）';
   } else {
     recommendedTarget = '未設定';
   }

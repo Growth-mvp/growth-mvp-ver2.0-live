@@ -540,7 +540,7 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
     expect(md).not.toContain('**主要な実行施策**');
     expect(md).not.toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 |');
     expect(md).toContain('個々の施策の内容は第3章の主要施策と、参考資料Aの全件一覧を参照してください');
-    expect(facts.appendixMarkdown).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 未登録 | 0.0 | 承認未確認 |');
+    expect(facts.appendixMarkdown).toContain('| 文化施設事業の知見を商業・ホテル施設へ展開 | 営業部 | 120.0 | 未確定 | 未登録 | 未登録 | 承認未確認 |');
     expect(facts.appendixMarkdown).toContain('全2件を掲載しています。');
     expect(md).not.toMatch(/STAGE\d/);
   });

@@ -1,6 +1,6 @@
 export type ProjectForSelection = {
   revenueYen: number | null;
-  investmentYen: number;
+  investmentYen: number | null;
 };
 
 export const MAIN_PROJECT_LIMIT = 8;
@@ -20,7 +20,7 @@ function topIndexes<T>(rows: T[], value: (row: T) => number, quota: number): Set
  */
 export function selectMainProjects<T extends ProjectForSelection>(rows: T[], limit = MAIN_PROJECT_LIMIT): T[] {
   const byRevenue = topIndexes(rows, (r) => r.revenueYen ?? 0, RANK_QUOTA);
-  const byInvestment = topIndexes(rows, (r) => r.investmentYen, RANK_QUOTA);
+  const byInvestment = topIndexes(rows, (r) => r.investmentYen ?? 0, RANK_QUOTA);
   const picked = rows.filter((_, index) => byRevenue.has(index) || byInvestment.has(index));
   return picked.length > limit ? picked.slice(0, limit) : picked;
 }
