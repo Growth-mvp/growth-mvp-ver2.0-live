@@ -1,6 +1,7 @@
 import type { FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import type { CfAssumptions } from './cashflow';
 import type { ExistingLoanInput, LoanCategory, NewLoanInput, RepaymentMethod } from './debt';
+import { REVISION_UNKNOWN_CODE, REVISION_UNKNOWN_SAVE_MESSAGE } from '@/lib/strategy/revisionUnknown';
 
 export const FINANCE_PLAN_FORMAT_VERSION = 1;
 export const FINANCE_PLAN_CALC_VERSION = 'phase4a-v1';
@@ -331,6 +332,7 @@ export function canRestoreFor(savedCompanyId: string | null, currentCompanyId: s
 
 export function describeSaveError(err: { status?: number; code?: string; message?: string } | null | undefined): string {
   if (!err) return '保存に失敗しました。入力内容は画面に残っています。';
+  if (err.code === REVISION_UNKNOWN_CODE) return REVISION_UNKNOWN_SAVE_MESSAGE;
   if (err.status === 409 || err.code === 'REVISION_CONFLICT') {
     return '他の利用者が先に更新しました。再読み込みしてから保存し直してください（入力内容は画面に残っています）。';
   }

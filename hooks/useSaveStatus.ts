@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { workingHashOf } from '@/utils/stage6/financePlanSnapshot';
+import { REVISION_UNKNOWN_SAVE_MESSAGE } from '@/lib/strategy/revisionUnknown';
 
 export type SaveStatusType = 'error' | 'saving' | 'dirty' | 'saved';
 
@@ -55,7 +56,7 @@ export function useSaveStatus(): SaveStatusInfo {
     return {
       status: 'error',
       message: '保存に失敗',
-      helpText: '再試行してください',
+      helpText: saveError === REVISION_UNKNOWN_SAVE_MESSAGE ? saveError : '再試行してください',
       buttonDisabled: false,
     };
   }

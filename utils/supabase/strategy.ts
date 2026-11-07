@@ -19,6 +19,7 @@ import {
 } from '@/utils/finance/financeInputUnits';
 import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
+import { REVISION_UNKNOWN_CODE, REVISION_UNKNOWN_SAVE_MESSAGE } from '@/lib/strategy/revisionUnknown';
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
@@ -2013,6 +2014,29 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     }
     // ===== End Save Guard =====
 
+    // ★ 既存行を先に読み、revision 不明の既存行への書き込みは answers2 も含めて拒否する
+    let existingRow: any | null = null;
+    try {
+      const existingRes = await fetchExistingRow(cleanCompanyId);
+      existingRow = existingRes.data ?? null;
+    } catch (e) {
+      return { data: null, error: extractErrorVerbose(e) };
+    }
+    if (
+      existingRow &&
+      Object.prototype.hasOwnProperty.call(existingRow, 'revision') &&
+      typeof revision !== 'number'
+    ) {
+      console.warn('[StrategyData] SAVE_BLOCKED - revision unknown for existing row', {
+        companyId: cleanCompanyId,
+        hasRevisionArg: revision !== undefined,
+      });
+      return {
+        data: null,
+        error: { status: 409, code: REVISION_UNKNOWN_CODE, message: REVISION_UNKNOWN_SAVE_MESSAGE },
+      };
+    }
+
     // ★ 会社ストーリー用 answers2 のみ抽出
     const storyAnswersBundle = ensureArray((payload as any)?.answers2).filter(
       (x: any) => Array.isArray(x?.steps) && x.steps.length > 0,
@@ -2033,15 +2057,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           count: storyAnswersBundle.length,
         });
       }
-    }
-
-    // ===== ここで既存行を取得してから「空スキップ」を判定する =====
-    let existingRow: any | null = null;
-    try {
-      const existingRes = await fetchExistingRow(cleanCompanyId);
-      existingRow = existingRes.data ?? null;
-    } catch (e) {
-      return { data: null, error: extractErrorVerbose(e) };
     }
 
     const existingState: StrategyData & { revision?: number } = existingRow
@@ -2276,13 +2291,11 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       });
 
       // ★ 楽観ロック：revision カラムがある場合
-      //   - expectedRev は「引数で渡された revision」優先、無ければ currentRev
+      //   - expectedRev は呼び出し元の revision。不明な既存行は上で拒否済みのため、DB の現行値では代用しない
       //   - UPDATE では expectedRev で衝突検知を行う（.eq('revision', expectedRev)）
-      //   - revision の更新（+1）はアプリ層で実施（nextRevision として updatePayload に含める）
-      //   - これにより DB trigger 依存が排除され、確実にインクリメントが保証される
       let expectedRev: number | undefined;
       if (hasRevision) {
-        expectedRev = typeof revision === 'number' ? revision : currentRev;
+        expectedRev = revision;
       }
 
       let updateQuery = supabase

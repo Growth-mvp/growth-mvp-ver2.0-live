@@ -117,7 +117,7 @@ describe('保存世代: reset / resetAll で古い非同期応答を無効にす
     const pending = get().saveStrategyData({ force: true, reason: 'test-reset-during-save' });
     await flush();
     get().resetAll();
-    resolveSave({ ok: true, revision: 99, strategyId: STRATEGY_A });
+    resolveSave({ data: { revision: 99, strategyId: STRATEGY_A }, error: null });
     await pending;
 
     expect(get().revision).not.toBe(99);

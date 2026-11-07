@@ -23,6 +23,13 @@ describe('STAGE2 の保存で使う revision（画面が読んだ版）', () => 
     expect(stage2ConflictMessage({ code: 'PGRST500', message: 'x' })).toBeNull();
     expect(stage2ConflictMessage(null)).toBeNull();
   });
+
+  it('revision 不明で拒否された保存は、再読み込みしてから保存し直す案内にする（競合の文言にしない）', () => {
+    const msg = stage2ConflictMessage({ code: 'REVISION_UNKNOWN', message: 'x' });
+    expect(msg).toContain('保存できませんでした');
+    expect(msg).toContain('再読み込みすると失われる可能性');
+    expect(msg).not.toContain('他の利用者');
+  });
 });
 
 describe('STAGE2 の 3 つの保存経路（画面の配線・静的確認）', () => {

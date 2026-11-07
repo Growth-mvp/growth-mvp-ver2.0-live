@@ -25,6 +25,7 @@ import {
   sameJson,
 } from '@/lib/strategy/departmentsMerge';
 import { checkRevisionAfterUpdate } from '@/lib/strategy/revisionCheck';
+import { REVISION_UNKNOWN_CODE, REVISION_UNKNOWN_SAVE_MESSAGE } from '@/lib/strategy/revisionUnknown';
 import { appendOpportunitySuggestions } from '@/lib/swot/opportunityAppend';
 import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
 import {
@@ -1301,12 +1302,15 @@ async function isSessionUsable(): Promise<boolean> {
 /* ============================================================
  * 親(strategy_data)の存在を"できる限り"保証
  * ========================================================== */
-let __ensureParentInflight: Promise<void> | null = null;
+/** 'ready': 親が存在する（保存済み・既に読込済み・保存不要）。'blocked': 親の保存可否が不明、または拒否された。 */
+type ParentReadiness = 'ready' | 'blocked';
 
-async function ensureParentExists(): Promise<void> {
+let __ensureParentInflight: Promise<ParentReadiness> | null = null;
+
+async function ensureParentExists(): Promise<ParentReadiness> {
   if (__ensureParentInflight) return __ensureParentInflight;
 
-  __ensureParentInflight = enqueueSave(async () => {
+  __ensureParentInflight = enqueueSave(async (): Promise<ParentReadiness> => {
     const s = useStrategyStore.getState();
     const userId = useUserStore.getState().user?.id;
     // 切替中（保留の会社がある）は親行を作らない。表示中の店舗データを保留中の会社の行へ書かないため。
@@ -1316,31 +1320,48 @@ async function ensureParentExists(): Promise<void> {
 
     if (!userId || !companyId) {
       console.warn('[strategyStore] ensureParentExists skipped: missing ids or switching');
-      return;
+      return 'blocked';
     }
 
     // revision が取れている／loaded の場合は親が存在している可能性が高いので何もしない
     if (typeof s.revision === 'number' || s.loaded || s.hydrated) {
       if (DEBUG) console.log('[strategyStore] ensureParentExists: parent likely exists (revision/loaded/hydrated), skip');
-      return;
+      return 'ready';
     }
 
     const payload = buildSavePayload(s);
     if (isEffectivelyEmpty(payload)) {
       if (DEBUG) console.log('[strategyStore] ensureParentExists: payload effectively empty, skip');
-      return;
+      return 'ready';
     }
 
+    const reportParentFailure = (err: unknown) => {
+      const code = (err as { code?: string } | undefined)?.code;
+      useStrategyStore.setState({
+        saveError:
+          code === REVISION_UNKNOWN_CODE
+            ? REVISION_UNKNOWN_SAVE_MESSAGE
+            : `保存に失敗しました: ${(err as { message?: string } | undefined)?.message || '不明なエラー'}`,
+      });
+    };
+
+    let res: { data?: unknown; error?: unknown } | undefined;
     try {
-      await (saveStrategyDataApi as any)(payload, userId, companyId, undefined, { mode: 'upsert' });
+      res = await (saveStrategyDataApi as any)(payload, userId, companyId, undefined, { mode: 'upsert' });
     } catch (e) {
       console.warn('[strategyStore] ensureParentExists primary call failed, fallback legacy:', e);
       try {
-        await (saveStrategyDataApi as any)(payload, userId, companyId);
+        res = await (saveStrategyDataApi as any)(payload, userId, companyId);
       } catch (e2) {
         console.warn('[strategyStore] ensureParentExists legacy failed:', e2);
+        reportParentFailure(e2);
+        return 'blocked';
       }
     }
+    // 保存スキップ時は data が null・error が無いため、親の存在を確認できた場合だけ ready にする
+    if (res && !res.error && res.data) return 'ready';
+    reportParentFailure(res?.error);
+    return 'blocked';
   }).finally(() => {
     __ensureParentInflight = null;
   });
@@ -2237,7 +2258,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (!userId || !companyId || s.pendingCompanyId) return;
           const epoch = getStrategyScopeEpoch();
 
-          await ensureParentExists();
+          if ((await ensureParentExists()) !== 'ready') return;
           if (!isCompanyWriteCurrent(companyId, epoch)) return;
           try {
             await saveFinalStory(userId, get().finalStory, { companyId });
@@ -2264,7 +2285,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (!userId || !companyId || s.pendingCompanyId) return;
           const epoch = getStrategyScopeEpoch();
 
-          await ensureParentExists();
+          if ((await ensureParentExists()) !== 'ready') return;
           if (!isCompanyWriteCurrent(companyId, epoch)) return;
           try {
             await saveStoryAnswers2(userId, get().answers2 as any, { companyId });
@@ -4019,6 +4040,11 @@ export const useStrategyStore = create<StrategyState>()(
                     return { ok: false, reason: 'revision_conflict_persist', error: err, code: 'REVISION_CONFLICT' };
                   }
                   continue;
+                }
+
+                if (errCode === REVISION_UNKNOWN_CODE) {
+                  set({ saveError: REVISION_UNKNOWN_SAVE_MESSAGE });
+                  return { ok: false, reason: 'revision_unknown', error: err, code: errCode };
                 }
 
                 console.error('[strategyStore] saveStrategyData API error:', err ?? 'unknown error');
