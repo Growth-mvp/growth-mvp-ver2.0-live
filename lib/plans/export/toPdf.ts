@@ -165,7 +165,7 @@ function isAmountCell(runs: PlanInline[]): boolean {
 }
 
 function tableNode(block: Extract<PlanBlock, { type: 'table' }>): Record<string, unknown> {
-  const weights = tableColumnWeights(block);
+  const weights = block.weights ?? tableColumnWeights(block);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   const cellPadding = TABLE_LAYOUT.paddingLeft() + TABLE_LAYOUT.paddingRight();
   const available = CONTENT_WIDTH - weights.length * cellPadding;

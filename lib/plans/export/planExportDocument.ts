@@ -20,7 +20,7 @@ export type PlanBlock =
   | { type: 'heading'; level: 1 | 2 | 3 | 4; runs: PlanInline[] }
   | { type: 'paragraph'; runs: PlanInline[] }
   | { type: 'list'; items: PlanListItem[] }
-  | { type: 'table'; align: PlanAlign[]; header: PlanInline[][]; rows: PlanInline[][][] }
+  | { type: 'table'; align: PlanAlign[]; header: PlanInline[][]; rows: PlanInline[][][]; weights?: number[] }
   | { type: 'note'; runs: PlanInline[] }
   | { type: 'rule' }
   | { type: 'pageBreak' };
@@ -66,10 +66,14 @@ export function buildPlanExportDocument(input: {
 }): PlanExportDocument {
   const meta = AUDIENCE_META[input.audience];
   const name = input.companyName ? normalizeDisplayName(input.companyName) : '';
+  const blocks = markdownToBlocks(input.markdown);
   return {
     title: name ? `${name} ${meta.heading}` : meta.heading,
     subtitle: [meta.label, `生成日時: ${formatGeneratedAt(input.generatedAt)}`],
-    blocks: markdownToBlocks(input.markdown),
+    blocks:
+      input.audience === 'bank'
+        ? blocks.map((block) => (block.type === 'table' ? { ...block, weights: displayColumnWeights(block) } : block))
+        : blocks,
   };
 }
 
@@ -136,6 +140,21 @@ export function tableColumnWeights(block: { header: PlanInline[][]; rows: PlanIn
       ...block.rows.map((row) => joinText(row[col] ?? []).length)
     );
     return Math.min(Math.max(longest, 4), 40);
+  });
+}
+
+/**
+ * 列幅の比率（9ptの文字幅に基づく）。銀行向けの表で、見出し・金額が途中で折り返されるのを減らすために使う。
+ * 全角は9pt、半角は5pt として、列の中で最も長い文字列の幅を基準にする。
+ */
+export function displayColumnWeights(block: { header: PlanInline[][]; rows: PlanInline[][][] }): number[] {
+  const textPt = (text: string) => [...text].reduce((w, ch) => w + (/[\x00-\x7F]/.test(ch) ? 5 : 9), 0);
+  return block.header.map((_, col) => {
+    const longest = Math.max(
+      textPt(joinText(block.header[col])),
+      ...block.rows.map((row) => textPt(joinText(row[col] ?? [])))
+    );
+    return Math.min(Math.max(longest + 4, 20), 200);
   });
 }
 

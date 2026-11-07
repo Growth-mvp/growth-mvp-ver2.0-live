@@ -26,6 +26,8 @@ const APPENDIX_ROW_LIMIT = 60;
 
 const val = (cf: CfValue | undefined): number | null => cf?.value ?? null;
 
+const UNIT_MILLION_NOTE = '> 単位：百万円';
+
 const approvalLabel = (planStatus: string | null) => (planStatus === 'approved' ? '承認済み' : '承認未確認');
 
 function escapeCell(text: string): string {
@@ -138,7 +140,13 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     ];
   });
   parts.push(`**A. 財務目標と収益計画${caption}**`);
-  parts.push(mdTable(['年度', '区分', '売上高', '営業利益', '営業利益率', '売上高の前年比'], revRows));
+  parts.push('> 単位：百万円（営業利益率と前年比の率は%）');
+  parts.push(
+    mdTable(
+      ['年度', '区分', '売上高', '営業利益', '営業利益率（%）', '前年比（差額：百万円／率：%）'],
+      revRows,
+    ),
+  );
 
   const t = sections.financialTargets;
   const gapRows = [
@@ -156,7 +164,8 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     ];
   });
   parts.push('**登録目標と計画経路の比較**');
-  parts.push(mdTable(['項目', '登録目標', '計画経路', '差額', '備考'], targetRows));
+  parts.push(UNIT_MILLION_NOTE);
+  parts.push(mdTable(['項目', '登録目標（百万円）', '計画経路（百万円）', '差額（百万円）', '備考'], targetRows));
   const sc = t.stage6Scenario;
   parts.push(
     `計画経路の前提（利用者が設定した目標値への直線補間。独立した業績予測ではなく、正式な目標でもありません）：目標年度 ${sc.targetYear ?? UNCONFIRMED_TEXT}、売上高 ${formatMillionYenText(sc.revenueYen)}、営業利益 ${formatMillionYenText(sc.operatingIncomeYen)}。`,
@@ -181,15 +190,17 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   });
   parts.push(`**B. 投資・資金需要${caption}**（決算月：${inv.fiscalYearEndMonth ? `${inv.fiscalYearEndMonth}月` : '未設定'}${inv.fiscalYearBucketing === 'CONFIRMED' ? '' : '、暦年仮定のため年度別の額は確定値ではありません'}）`);
   if (invRows.length > 0) {
-    parts.push(mdTable(['年度', 'CAPEX', 'OPEX（参考）', 'その他（参考）'], invRows));
+    parts.push(UNIT_MILLION_NOTE);
+    parts.push(mdTable(['（百万円）', 'CAPEX', 'OPEX（参考）', 'その他（参考）'], invRows));
   } else {
     parts.push('年度別の投資・費用は実行施策に登録されていません。');
   }
   const u = inv.unresolved;
   derived.yen.push(u.unclassifiedYen, u.unscheduledYen, u.candidateYen, u.basisPendingYen);
+  parts.push(UNIT_MILLION_NOTE + '（件数は件）');
   parts.push(
     mdTable(
-      ['未確定の区分', '金額', '件数'],
+      ['未確定の区分', '金額（百万円）', '件数（件）'],
       [
         ['分類未確定', formatMillionYen(u.unclassifiedYen), String(u.unclassifiedCount)],
         ['時期未設定', formatMillionYen(u.unscheduledYen), '-'],
@@ -242,9 +253,10 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     ]);
   }
   parts.push(`**C. キャッシュフロー${caption}**`);
+  parts.push(UNIT_MILLION_NOTE);
   parts.push(
     mdTable(
-      ['年度', '営業CF', '投資CF', 'フリーCF', '財務CF', '期首現預金', '期末現預金', '最低必要現預金', '資金不足額'],
+      ['（百万円）', '営業CF', '投資CF', 'フリーCF', '財務CF', '期首現預金', '期末現預金', '最低必要現預金', '資金不足額'],
       cfRows,
     ),
   );
@@ -295,9 +307,10 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
       ]);
     }
     parts.push(`**D. 借入・返済計画${caption}**`);
+    parts.push('> 単位：百万円（DSCRは倍）');
     parts.push(
       mdTable(
-        ['年度', '借入残高', '新規借入', '元本返済', '支払利息', '元利返済', '配当', 'DSCR', '返済可能性'],
+        ['（百万円）', '借入残高', '新規借入', '元本返済', '支払利息', '元利返済', '配当', 'DSCR（倍）', '返済可能性'],
         debtRows,
       ),
     );
@@ -322,7 +335,8 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
         return [`${d.year}年`, formatMillionYen(close), formatMillionYen(princ), formatMillionYen(intr), formatMillionYen(service)];
       });
       parts.push('**新規借入の返済計画（計算可能な部分）**');
-      parts.push(mdTable(['年度', '期末残高', '元本返済', '支払利息', '元利返済'], newRows));
+      parts.push(UNIT_MILLION_NOTE);
+      parts.push(mdTable(['（百万円）', '期末残高', '元本返済', '支払利息', '元利返済'], newRows));
       parts.push(
         '新規借入の返済計画は、入力された金額・金利・期間・据置・返済方式から計算した想定です。融資の承認を得たものではありません。',
       );
@@ -378,10 +392,11 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     p.investmentRecordCount === 0 ? '未登録' : formatMillionYen(p.investmentYen),
     approvalLabel(p.planStatus),
   ]);
+  appendixParts.push(UNIT_MILLION_NOTE + '（売上寄与・営業利益寄与は期待効果、登録件数は件）');
   appendixParts.push(
     allProjectRows.length > 0
       ? mdTable(
-          ['施策', '担当部門', '売上寄与（期待効果）', '営業利益寄与（期待効果）', '投資・費用の登録', '投資・費用の合計', '承認状態'],
+          ['施策（百万円）', '担当部門', '売上寄与', '営業利益寄与', '投資の登録（件）', '投資の合計', '承認状態'],
           allProjectRows,
         )
       : '登録されている実行施策はありません。',
@@ -404,7 +419,8 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   });
   if (sourceRows.length > 0) {
     appendixParts.push('## 参考資料B：投資・費用の明細');
-    appendixParts.push(mdTable(['施策', '項目', '区分', '金額', '扱い'], sourceRows));
+    appendixParts.push(UNIT_MILLION_NOTE);
+    appendixParts.push(mdTable(['施策', '項目', '区分', '金額（百万円）', '扱い'], sourceRows));
     appendixParts.push(
       inv.sources.length > APPENDIX_ROW_LIMIT
         ? `全${inv.sources.length}件のうち${APPENDIX_ROW_LIMIT}件を掲載しています。`

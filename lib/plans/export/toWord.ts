@@ -191,7 +191,7 @@ function listToWord(nodes: PlanListNode[], depth: number, counter: ListCounter):
 }
 
 function tableToWord(block: Extract<PlanBlock, { type: 'table' }>): Table {
-  const weights = tableColumnWeights(block);
+  const weights = block.weights ?? tableColumnWeights(block);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   const widths = weights.map((weight) => Math.floor((CONTENT_WIDTH * weight) / total));
 

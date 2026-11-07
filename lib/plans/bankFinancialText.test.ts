@@ -9,7 +9,8 @@ import {
   type CalcSnapshotMeta,
   type FinancePlanDomain,
 } from '@/utils/stage6/financePlanSnapshot';
-import { markdownToBlocks } from './export/planExportDocument';
+import { buildPlanExportDocument, markdownToBlocks, planDocumentPlainText } from './export/planExportDocument';
+import { buildPlanPdfDefinition } from './export/toPdf';
 import { buildBankFinancialFacts } from './bankFinancialDocument';
 import { formatMillionYen, formatPercent, collectAllowedFigures } from './bankFinancialFormat';
 import {
@@ -591,6 +592,73 @@ describe('24. 本文と参考資料の分離・注意事項の重複', () => {
     const md = facts().markdown;
     expect(md.split('DSCR（参考指標）は').length - 1).toBe(1);
     expect(md.split('融資の承認を得たものではありません').length - 1).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('26. 財務表の単位表示', () => {
+  const tableHeaders = (md: string) => md.split('\n').filter((l) => l.startsWith('| ') && l.includes(' | ') && !l.startsWith('| ---'));
+
+  /** 表の見出し行の直上（空行を除く）の行 */
+  const lineAboveTable = (md: string, header: string) => {
+    const lines = md.split('\n');
+    const at = lines.findIndex((l) => l.startsWith(header));
+    let i = at - 1;
+    while (i >= 0 && lines[i].trim() === '') i--;
+    return lines[i];
+  };
+
+  it('金額を含む各表の直上に単位を記載する', () => {
+    const md = buildBankFinancialFacts(CURRENT())!.markdown;
+    expect(lineAboveTable(md, '| 年度 | 区分 |')).toContain('> 単位：百万円');
+    expect(lineAboveTable(md, '| 項目 | 登録目標')).toBe('> 単位：百万円');
+    expect(lineAboveTable(md, '| （百万円） | CAPEX')).toBe('> 単位：百万円');
+    expect(lineAboveTable(md, '| （百万円） | 営業CF')).toBe('> 単位：百万円');
+    expect(lineAboveTable(md, '| （百万円） | 借入残高')).toContain('> 単位：百万円');
+  });
+
+  it('金額の列を持つ表は、見出し行に単位を含み、ページをまたいでも単位が見える', () => {
+    const md = buildBankFinancialFacts(CURRENT())!.markdown;
+    const amountHeaders = md.split('\n').filter((l) => /^\| (（百万円）|項目 \| 登録目標|未確定の区分)/.test(l));
+    expect(amountHeaders.length).toBeGreaterThanOrEqual(5);
+    for (const header of amountHeaders) {
+      expect(header.includes('百万円')).toBe(true);
+    }
+  });
+
+  it('利益率・前年比・DSCRは単位を見出しで区別する', () => {
+    const headers = tableHeaders(buildBankFinancialFacts(CURRENT())!.markdown).join('\n');
+    expect(headers).toContain('営業利益率（%）');
+    expect(headers).toContain('前年比（差額：百万円／率：%）');
+    expect(headers).toContain('DSCR（倍）');
+  });
+
+  it('金額の表示そのものは変えない', () => {
+    const md = buildBankFinancialFacts(CURRENT())!.markdown;
+    expect(md).toMatch(/\|\s*2027年\s*\|\s*30\.0\s*\|/);
+    expect(md).toContain('| 1,000.0 |');
+  });
+
+  it('参考資料の金額にも単位を記載する', () => {
+    const projects = [{ title: 'A社開拓', planStatus: 'approved', impactRevenueMJPY: 120 }];
+    const facts = buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })))!;
+    expect(facts.appendixMarkdown).toContain('| 施策（百万円） | 担当部門 | 売上寄与 | 営業利益寄与 |');
+    expect(lineAboveTable(facts.appendixMarkdown, '| 施策（百万円） | 担当部門')).toContain('> 単位：百万円');
+  });
+
+  it('WordとPDFの文書モデルでも単位の注記と見出しが残る', () => {
+    const md = buildBankFinancialFacts(CURRENT())!.markdown;
+    const doc = buildPlanExportDocument({
+      audience: 'bank',
+      companyName: 'テスト株式会社',
+      generatedAt: '2026-11-07T00:00:00.000Z',
+      markdown: md,
+    });
+    const text = planDocumentPlainText(doc);
+    expect(text).toContain('単位：百万円');
+    expect(text).toContain('CAPEX');
+    const pdf = JSON.stringify(buildPlanPdfDefinition(doc));
+    expect(pdf).toContain('単位：百万円');
+    expect(pdf).toContain('DSCR（倍）');
   });
 });
 
