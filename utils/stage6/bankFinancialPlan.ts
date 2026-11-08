@@ -1,5 +1,8 @@
-import type { Department } from '@/types/strategy';
-import type { CashFlowPlan, CfBasis, CfValue, CfYear, WorkingCapitalBreakdown } from './cashflow';
+import type { CompanyTarget, Department } from '@/types/strategy';
+import { buildCashFlowPlan, type CashFlowPlan, type CfBasis, type CfValue, type WorkingCapitalBreakdown } from './cashflow';
+import { buildFinanceOutlook, type FinanceOutlook } from './financeOutlook';
+import { withoutTargetPath } from './financeEffectPlan';
+import type { UnifiedPlYear } from './unifiedPl';
 import type { DebtSchedule } from './debt';
 import {
   FINANCE_PLAN_CALC_VERSION,
@@ -82,6 +85,8 @@ export type BankFinancialPlanSections = {
     gaps: { revenue: GapEntry; operatingIncome: GapEntry };
   };
   revenuePlan: {
+    /** 売上・営業利益は統一財務試算（既存事業＋確認済み施策効果）の値。CFの目標補間は含まない */
+    source: 'FINANCE_OUTLOOK';
     years: {
       year: number;
       kind: 'ACTUAL' | 'FORECAST';
@@ -302,20 +307,8 @@ function stage4Contributions(departments: Department[]) {
     operatingIncomeYen: operatingCount > 0 ? operatingIncome : null,
     projectCount,
     missingValueCount,
-    note: '施策別の期待効果の単純合計です（重複未検証）。既存事業の基礎売上とは別項目で、合算していません',
+    note: '旧見込み（施策の従来入力額）の単純合計です。重複未検証のため、正式な売上・営業利益（統一財務試算）には含めていません',
   };
-}
-
-function gapFor(target: RegisteredTarget | null, plan: CashFlowPlan, pick: (y: CfYear) => CfValue): GapEntry {
-  const base = { explanation: NO_EXPLANATION };
-  if (!target) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: '全社目標が登録されていません' };
-  if (target.dueYear === null) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: '目標年度が未登録のため比較できません' };
-  if (target.valueYen === null) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: target.note };
-  const year = plan.years.find((y) => y.year === target.dueYear && y.kind === 'FORECAST');
-  if (!year) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: `計画期間に目標年度（${target.dueYear}年）が含まれません` };
-  const projected = pick(year).value;
-  if (projected === null) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: '推計値を算出できないため比較を保留します' };
-  return { ...base, targetYen: target.valueYen, projectedYen: projected, differenceYen: projected - target.valueYen, reason: null };
 }
 
 function ratioOf(revenue: CfValue, operatingIncome: CfValue): CfValue {
@@ -329,6 +322,39 @@ function ratioOf(revenue: CfValue, operatingIncome: CfValue): CfValue {
 function subtractCf(a: CfValue, b: CfValue, note: string): CfValue {
   if (a.value === null || b.value === null) return { value: null, basis: 'HELD', note: '算出に必要な値が未確定です' };
   return { value: a.value - b.value, basis: 'ESTIMATE', note };
+}
+
+const heldValue = (note: string): CfValue => ({ value: null, basis: 'HELD', note });
+
+function officialRevenueYears(plan: CashFlowPlan, outlook: FinanceOutlook): BankFinancialPlanSections['revenuePlan']['years'] {
+  const basis: CfBasis = outlook.baselinePlan.basisMode === 'BASE_SCENARIO' ? 'USER' : 'ESTIMATE';
+  return plan.years.map((y) => {
+    if (y.kind === 'ACTUAL') {
+      return { year: y.year, kind: y.kind, revenue: y.revenue, operatingIncome: y.operatingIncome, operatingMarginRate: ratioOf(y.revenue, y.operatingIncome) };
+    }
+    const row: UnifiedPlYear | undefined = outlook.unifiedPl.years.find((r) => r.fiscalYear === y.year);
+    const revenue: CfValue =
+      row && row.plan.revenueYen !== null
+        ? { value: row.plan.revenueYen, basis, note: '既存事業の計画＋確認済み施策効果（財務試算）' }
+        : heldValue('売上の財務試算が未算定です');
+    const operatingIncome: CfValue =
+      row && row.plan.operatingIncomeYen !== null
+        ? { value: row.plan.operatingIncomeYen, basis, note: '既存事業の計画＋確認済み施策効果（財務試算）' }
+        : heldValue(row && row.unknownReasons.length > 0 ? row.unknownReasons.join('、') : '営業利益の財務試算が未算定です');
+    return { year: y.year, kind: y.kind, revenue, operatingIncome, operatingMarginRate: ratioOf(revenue, operatingIncome) };
+  });
+}
+
+function officialGapFor(target: RegisteredTarget | null, years: UnifiedPlYear[], pick: (y: UnifiedPlYear) => number | null): GapEntry {
+  const base = { explanation: NO_EXPLANATION };
+  if (!target) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: '全社目標が登録されていません' };
+  if (target.dueYear === null) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: '目標年度が未登録のため比較できません' };
+  if (target.valueYen === null) return { ...base, targetYen: null, projectedYen: null, differenceYen: null, reason: target.note };
+  const year = years.find((y) => y.fiscalYear === target.dueYear);
+  if (!year) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: `計画期間に目標年度（${target.dueYear}年）が含まれません` };
+  const projected = pick(year);
+  if (projected === null) return { ...base, targetYen: target.valueYen, projectedYen: null, differenceYen: null, reason: '財務試算が未算定のため比較を保留します' };
+  return { ...base, targetYen: target.valueYen, projectedYen: projected, differenceYen: projected - target.valueYen, reason: null };
 }
 
 const emptyReproducibility = (calcVersion: string, currentYear: number, computedAt: string) => ({
@@ -415,6 +441,15 @@ export function buildBankFinancialPlanBlock(args: {
     currentYear,
   });
   const currentRepro = { ...repro, currentSourceHash: computed.sourceHash };
+  const outlook = buildFinanceOutlook({
+    financePL: inputs.financePL,
+    financeBS: inputs.financeBS,
+    departments: inputs.departments,
+    fiscalYearEnd: inputs.fiscalYearEnd,
+    companyTargets: inputs.companyTargets as CompanyTarget[],
+    domain: stored.domain,
+    currentYear,
+  });
 
   const reasons: string[] = [];
   if (meta.baseYear !== computed.basePlan.baseYear) reasons.push('基準年度（PL）が保存時点と異なります');
@@ -422,7 +457,26 @@ export function buildBankFinancialPlanBlock(args: {
   if (meta.sourceHash !== computed.sourceHash) reasons.push('財務実績または実行施策の元データが保存時点から変わっています');
   const status: BankFinancialPlanStatus = reasons.length > 0 ? 'STALE' : 'CURRENT';
 
-  const plan = computed.plan;
+  const plan = buildCashFlowPlan(
+    {
+      financePL: inputs.financePL,
+      financeBS: inputs.financeBS,
+      investment: {
+        yearlyByCategory: computed.investment.yearlyByCategory,
+        unclassifiedYen: computed.investment.unclassifiedYen,
+        unscheduledYen: computed.investment.unscheduledYen,
+        candidateYen: computed.investment.candidateYen,
+        basisPendingYen: computed.investment.basisPendingYen,
+      },
+      assumptions: withoutTargetPath(stored.domain.assumptions),
+      fiscalYearEndSet: computed.fiscalYearEndSet,
+      debt: computed.debtEntered ? computed.schedule : undefined,
+      yearlyOverride: Object.fromEntries(
+        outlook.unifiedPl.years.map((r) => [r.fiscalYear, { revenueYen: r.plan.revenueYen, operatingIncomeYen: r.plan.operatingIncomeYen }]),
+      ),
+    },
+    currentYear,
+  );
   const fiscalYearEndSet = computed.fiscalYearEndSet;
   if (!fiscalYearEndSet) reasons.push('決算期が未設定のため、年度別の投資額と返済可能性の判定は保留です');
   if (plan.yearMismatch) reasons.push('PLとBSの基準年度が一致しないため、資金計画は保留です');
@@ -463,18 +517,13 @@ export function buildBankFinancialPlanBlock(args: {
       },
       stage4Contributions: contributions,
       gaps: {
-        revenue: gapFor(stage2Revenue, plan, (y) => y.revenue),
-        operatingIncome: gapFor(stage2Operating, plan, (y) => y.operatingIncome),
+        revenue: officialGapFor(stage2Revenue, outlook.unifiedPl.years, (y) => y.plan.revenueYen),
+        operatingIncome: officialGapFor(stage2Operating, outlook.unifiedPl.years, (y) => y.plan.operatingIncomeYen),
       },
     },
     revenuePlan: {
-      years: plan.years.map((y) => ({
-        year: y.year,
-        kind: y.kind,
-        revenue: y.revenue,
-        operatingIncome: y.operatingIncome,
-        operatingMarginRate: ratioOf(y.revenue, y.operatingIncome),
-      })),
+      source: 'FINANCE_OUTLOOK',
+      years: officialRevenueYears(plan, outlook),
     },
     investmentPlan: {
       fiscalYearEndMonth: investment.fiscalYearEndMonth,

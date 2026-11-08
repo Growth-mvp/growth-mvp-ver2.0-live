@@ -467,7 +467,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-method',
     screenIds: ['stage4'],
     label: '算定方法',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 137 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 164 },
     purpose:
       '金額の求め方を選ぶ。数量×単価、商談数×受注率×平均受注額（売上増加だけ）、直接入力の3つから一つ。',
     steps: [
@@ -483,7 +483,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-amount',
     screenIds: ['stage4'],
     label: '金額（百万円）',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 187 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 214 },
     purpose:
       '直接入力の金額を百万円で入れる（例（架空）：年間の削減見込みが120万円なら「1.2」）。単位は次の「金額の単位」で決める。',
     steps: [
@@ -499,7 +499,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-unit',
     screenIds: ['stage4'],
     label: '金額の単位',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 194 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 221 },
     purpose:
       '入力した金額が、一回限りの総額か、月額か、年額かを選ぶ。ここで決まった単位で年度に割り付けられる。',
     steps: [
@@ -515,7 +515,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-timing',
     screenIds: ['stage4'],
     label: '効果の開始月',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 210 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 237 },
     purpose:
       '効果が始まる月を選ぶ。決算月と組み合わせて、どの年度に金額が割り付くかが決まる（例（架空）：決算が3月なら、2026年4月開始の効果は2026年度ではなく2027年度から入る）。',
     steps: [
@@ -531,7 +531,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-source',
     screenIds: ['stage4'],
     label: '算定根拠・出所',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 237 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 270 },
     purpose:
       '金額の根拠（見積書、社内の計算、AIの提案など）を書く。確認済みにする前に必要で、空だと確認できない。',
     steps: [
@@ -546,7 +546,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.confirm-finance-effect',
     screenIds: ['stage4'],
     label: '内容を確認し、確認済みにする',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 269 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 302 },
     purpose:
       '利用者自身が財務効果の内容を確認したことを記録する。確認済みの効果だけが、STAGE6の条件付きPL・CF試算に反映される。',
     steps: [
@@ -580,7 +580,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage5.open-project-execution-panel',
     screenIds: ['stage5'],
     label: '▶ クリックで詳細表示',
-    source: { file: 'app/execution/page.tsx', line: 3358 },
+    source: { file: 'app/execution/page.tsx', line: 3243 },
     purpose: 'プロジェクトの実行支援モーダルを開く。',
     steps: ['プロジェクトのカードを押す（md以上の画面幅）'],
     conditions: 'md以上の画面幅でのみ表示される。読み込み中は無効',
@@ -591,7 +591,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage5.organize-memo-with-ai',
     screenIds: ['stage5'],
     label: '✨ メモを整理する',
-    source: { file: 'app/execution/page.tsx', line: 1563 },
+    source: { file: 'app/execution/page.tsx', line: 1498 },
     purpose: '実行メモをAIで整理し、次の一手や支援依頼のたたき台を得る。',
     steps: ['「進み具合を書く」タブでメモを入力する', '「✨ メモを整理する」を押す', '結果カードを確認する'],
     conditions: 'メモが空だと無効',
@@ -608,7 +608,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage5.apply-ai-result-to-memo',
     screenIds: ['stage5'],
     label: 'AI整理をメモに反映',
-    source: { file: 'app/execution/page.tsx', line: 1647 },
+    source: { file: 'app/execution/page.tsx', line: 1582 },
     purpose: 'AIの結果を実行メモの末尾に追記する。',
     steps: ['AIの結果を表示する', '「AI整理をメモに反映」を押す', 'メモの末尾に追記される（保存には「進み具合を保存」が必要）'],
     conditions: 'AIの結果があるときのみ表示される',
@@ -619,7 +619,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage5.save-progress-checkin',
     screenIds: ['stage5'],
     label: '進み具合を保存',
-    source: { file: 'app/execution/page.tsx', line: 1672 },
+    source: { file: 'app/execution/page.tsx', line: 1607 },
     purpose: '進み具合のメモ、支援依頼、インパクト評価を履歴に保存する。',
     steps: ['メモ、支援依頼、星評価のいずれかを入力する', '「進み具合を保存」を押す'],
     conditions: '入力がすべて空だとブロックされる。対象のOKRが見つからないとブロックされる',
@@ -635,7 +635,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage5.save-feedback',
     screenIds: ['stage5'],
     label: 'フィードバックを保存',
-    source: { file: 'app/execution/page.tsx', line: 1715 },
+    source: { file: 'app/execution/page.tsx', line: 1650 },
     purpose: '管理者がメンバーの進捗にフィードバックを残す。',
     steps: ['「フィードバック」タブを開く', '入力して「フィードバックを保存」を押す'],
     conditions: '管理者のみ。管理職は保存できない（画面の案内文と実装が一致していない）',
@@ -645,14 +645,13 @@ export const OPERATIONS: readonly OperationEntry[] = [
   {
     operationId: 'stage5.update-impact-forecast',
     screenIds: ['stage5'],
-    label: '成果見込み%',
-    source: { file: 'app/execution/page.tsx', line: 1753 },
+    label: '作業進捗率%',
+    source: { file: 'app/execution/page.tsx', line: 1678 },
     purpose:
-      'プロジェクトの売上・営業利益への成果見込み率と確度を更新する。旧北極星（手動金額）の参考計算に入る値で、財務効果の確認（条件付きPL・CF試算）には入らない。',
+      'プロジェクトの作業の進捗率を更新する。財務試算（STAGE6）には反映されない。財務効果はSTAGE4で利用者が確認したものだけが試算に入る。',
     steps: [
-      '実行支援モーダル下部の「成果見込み / STAGE6連携」を開く',
-      '成果見込み%（0〜100）を入力する',
-      '確度を選ぶ',
+      '実行支援モーダル下部の「作業の進捗」を開く',
+      '作業進捗率（0〜100）を入力する',
     ],
     conditions: 'STAGE4のプロジェクトと数値の指標がある場合に表示される',
     permission: NONE_PERMISSION,
@@ -682,7 +681,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage6.save-finance-plan',
     screenIds: ['stage6'],
     label: '財務計画を保存',
-    source: { file: 'components/stage6/FinancePlanSection.tsx', line: 408 },
+    source: { file: 'components/stage6/FinancePlanSection.tsx', line: 367 },
     purpose: '試算条件と借入計画の前提を会社データとして保存する。',
     steps: ['「財務計画を保存」を押す', '左サイドバーの保存状態が「保存済み」になったことを確認する'],
     conditions: '会社IDがないと無効',
@@ -743,17 +742,6 @@ export const OPERATIONS: readonly OperationEntry[] = [
     conditions: '重複候補がある明細のみ。承認済みの計画は読み取り専用',
     permission: NONE_PERMISSION,
     save: { kind: 'unverified', target: '明細の更新。永続化の経路は未確認' },
-  },
-  {
-    operationId: 'stage6.select-all-projects',
-    screenIds: ['stage6'],
-    label: '表示中を全選択',
-    source: { file: 'components/stage6/TabImpact.tsx', line: 119 },
-    purpose: '部門フィルタで表示中のプロジェクトを、寄与の集計対象に一括で選ぶ。',
-    steps: ['部門を選ぶ', '「表示中を全選択」を押す'],
-    conditions: '選択が空のときは全プロジェクトが集計される',
-    permission: NONE_PERMISSION,
-    save: { kind: 'none', target: '画面の状態のみ（保存されない）' },
   },
   // ---- 組織変革ルーム（個人）----
   {

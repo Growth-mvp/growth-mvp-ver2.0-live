@@ -1,5 +1,5 @@
 import type { FinanceBSRow, FinancePLRow } from '@/types/strategy';
-import type { CfAssumptions } from './cashflow';
+import { normalizeBaseScenario, type CfAssumptions } from './cashflow';
 import type { ExistingLoanInput, LoanCategory, NewLoanInput, RepaymentMethod } from './debt';
 import { REVISION_UNKNOWN_CODE, REVISION_UNKNOWN_SAVE_MESSAGE } from '@/lib/strategy/revisionUnknown';
 
@@ -120,7 +120,7 @@ export function toSavedFinancePlan(domain: FinancePlanDomain): SavedFinancePlanV
   return withoutEmptyValues<SavedFinancePlanV1>({
     formatVersion: 1,
     unit: 'JPY',
-    cashFlow: { ...domain.assumptions },
+    cashFlow: { ...domain.assumptions, baseScenario: normalizeBaseScenario(domain.assumptions.baseScenario) },
     existingLoans: domain.existingLoans.map((l) => ({
       id: l.id,
       name: l.name,
@@ -181,6 +181,16 @@ export function parseSavedFinancePlan(raw: unknown): ParseResult {
       warnings.push(`${f}の値が数値ではないため未入力として扱いました`);
     }
     assumptions[f] = numberOrNull(v) as never;
+  }
+  const scenarioRaw = cashRaw.baseScenario;
+  if (scenarioRaw && typeof scenarioRaw === 'object' && !Array.isArray(scenarioRaw)) {
+    const parsedScenario: Record<number, { revenueYen: number | null; operatingIncomeYen: number | null }> = {};
+    for (const [k, v] of Object.entries(scenarioRaw as Record<string, unknown>)) {
+      const d = (v ?? {}) as Record<string, unknown>;
+      parsedScenario[Number(k)] = { revenueYen: numberOrNull(d.revenueYen), operatingIncomeYen: numberOrNull(d.operatingIncomeYen) };
+    }
+    const scenario = normalizeBaseScenario(parsedScenario);
+    if (scenario) assumptions.baseScenario = scenario;
   }
 
   const existingRaw = Array.isArray(obj.existingLoans) ? obj.existingLoans : [];

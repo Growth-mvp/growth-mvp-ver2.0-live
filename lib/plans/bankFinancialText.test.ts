@@ -412,17 +412,22 @@ describe('17. 投資額の承認状態', () => {
 });
 
 describe('18. 計画経路の表現', () => {
-  it('STAGE6の値を独立した業績予測として示さない', () => {
+  it('財務試算の値を独立した業績予測として示さず、目標補間は参考と明示する', () => {
     const md = buildBankFinancialFacts(CURRENT())!.markdown;
-    expect(md).toContain('計画経路');
-    expect(md).toContain('独立した業績予測ではなく');
+    expect(md).toContain('財務試算');
+    expect(md).not.toContain('計画経路');
+    expect(md).toContain('独立した業績予測ではありません');
+    expect(md).toContain('財務試算・キャッシュフローには使用していません');
     expect(md).not.toContain('推計（STAGE6）');
     expect(md).not.toMatch(/STAGE\d/);
   });
 
-  it('目標年度の計画経路が登録目標と同額のときは、達成の検証ではないと明示する', () => {
+  it('財務試算の目標年度の売上が登録目標と同額のときは、達成の検証ではないと明示する', () => {
     const src = inputs();
-    const withTarget = { ...domain, assumptions: { ...assumptions, targetRevenueYen: 1_500_000_000, targetYear: 2028 } };
+    const withTarget = {
+      ...domain,
+      assumptions: { ...assumptions, baseScenario: { 2028: { revenueYen: 500_000_000, operatingIncomeYen: 0 } } },
+    };
     const md = buildBankFinancialFacts(blockOf(src, savedFrom(src, COMPANY, COMPANY, withTarget)))!.markdown;
     expect(md).toContain('差額が0になっています');
     expect(md).toContain('目標の実現可能性を検証した結果ではありません');

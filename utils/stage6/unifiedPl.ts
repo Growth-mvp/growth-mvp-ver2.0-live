@@ -15,7 +15,7 @@ export type UnifiedPlYear = {
   fiscalYear: number;
   baseline: { revenueYen: number | null; operatingExpenseYen: number | null; operatingIncomeYen: number | null };
   /** C：確認済み施策効果。算定できた内訳だけを入れる（売上増加・費用削減・追加費用） */
-  effect: { revenueUpYen: number; costReductionYen: number; costIncreaseYen: number };
+  effect: { revenueUpYen: number; costReductionYen: number; costIncreaseYen: number; revenueOperatingIncomeYen: number | null };
   /** D：条件付きPL試算（B に C を年度ごとに反映）。算定できない項目は null */
   plan: { revenueYen: number | null; operatingExpenseYen: number | null; operatingIncomeYen: number | null };
   unknownReasons: string[];
@@ -38,7 +38,7 @@ export type UnifiedPl = {
   gap: UnifiedPlGap | null;
 };
 
-const OP_UNKNOWN_REASON = '売上増加に対応する売上原価・変動費が未確定のため、営業費用と営業利益は未算定';
+const OP_UNKNOWN_REASON = '売上増加の営業利益への効果が未入力のため、営業費用と営業利益は未算定';
 
 export function buildUnifiedPl(args: {
   baseline: BaselineYear[];
@@ -52,6 +52,7 @@ export function buildUnifiedPl(args: {
     const revenueUpYen = effect?.revenueYen ?? 0;
     const costReductionYen = effect?.costReductionYen ?? 0;
     const costIncreaseYen = effect?.costIncreaseYen ?? 0;
+    const revenueOperatingIncomeYen = effect ? effect.revenueOperatingIncomeYen : 0;
 
     const baseOpex =
       b.revenueYen !== null && b.operatingIncomeYen !== null ? b.revenueYen - b.operatingIncomeYen : null;
@@ -65,17 +66,18 @@ export function buildUnifiedPl(args: {
       operatingIncomeYen: null,
     };
 
-    if (revenueUpYen !== 0) {
+    if (revenueOperatingIncomeYen === null) {
       unknownReasons.push(OP_UNKNOWN_REASON);
-    } else if (baseOpex !== null && b.operatingIncomeYen !== null) {
-      plan.operatingExpenseYen = baseOpex - costReductionYen + costIncreaseYen;
-      plan.operatingIncomeYen = b.operatingIncomeYen + costReductionYen - costIncreaseYen;
+    } else if (b.revenueYen !== null && b.operatingIncomeYen !== null) {
+      const operatingIncomeYen = b.operatingIncomeYen + revenueOperatingIncomeYen + costReductionYen - costIncreaseYen;
+      plan.operatingIncomeYen = operatingIncomeYen;
+      plan.operatingExpenseYen = plan.revenueYen === null ? null : plan.revenueYen - operatingIncomeYen;
     }
 
     return {
       fiscalYear: b.fiscalYear,
       baseline: { revenueYen: b.revenueYen, operatingExpenseYen: baseOpex, operatingIncomeYen: b.operatingIncomeYen },
-      effect: { revenueUpYen, costReductionYen, costIncreaseYen },
+      effect: { revenueUpYen, costReductionYen, costIncreaseYen, revenueOperatingIncomeYen },
       plan,
       unknownReasons: Array.from(new Set(unknownReasons)),
     };
@@ -102,7 +104,7 @@ function gapOf(target: PlTarget, years: UnifiedPlYear[]): UnifiedPlGap {
       planOf: (row) => row.plan.operatingIncomeYen,
       unavailableReason: (row) =>
         row.unknownReasons.includes(OP_UNKNOWN_REASON)
-          ? '売上増加があるため営業利益は未算定（差額は算出していません）'
+          ? `${OP_UNKNOWN_REASON}（差額は算出していません）`
           : '営業利益の試算が未算定のため差額は算出していません',
     }),
   };

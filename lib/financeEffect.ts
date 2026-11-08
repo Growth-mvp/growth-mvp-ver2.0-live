@@ -135,26 +135,36 @@ export function computeFinanceEffect(effect: FinanceEffect | null | undefined): 
     amountYen: perPeriod,
     formula: `${formula}（${FINANCE_EFFECT_BASIS_LABEL[amountBasis]}）`,
   };
+  const operatingPerPeriod = operatingPerPeriodOf(effect, sign * perPeriod);
 
   if (amountBasis === 'TOTAL') {
     result.totalYen = perPeriod;
-    result.oneTimeOperatingEffectYen = effect.kind === 'REVENUE_UP' ? undefined : sign * perPeriod;
+    if (operatingPerPeriod !== undefined) result.oneTimeOperatingEffectYen = operatingPerPeriod;
     return result;
   }
 
   const annual = amountBasis === 'MONTHLY' ? perPeriod * 12 : perPeriod;
   result.monthlyYen = amountBasis === 'MONTHLY' ? perPeriod : perPeriod / 12;
   result.annualYen = annual;
+  const annualOperating =
+    operatingPerPeriod === undefined ? undefined : amountBasis === 'MONTHLY' ? operatingPerPeriod * 12 : operatingPerPeriod;
 
   if (effect.kind === 'REVENUE_UP') {
     result.annualRevenueYen = annual;
     if (effect.costRatePct !== undefined && isFiniteNumber(effect.costRatePct)) {
       result.referenceCostYen = annual * (effect.costRatePct / 100);
     }
+    if (annualOperating !== undefined) result.annualOperatingEffectYen = annualOperating;
   } else {
-    result.annualOperatingEffectYen = sign * annual;
+    result.annualOperatingEffectYen = annualOperating;
   }
   return result;
+}
+
+/** 営業利益への効果（期間あたり・符号つき）。売上増加は利用者が入力した増分のみ使い、費用・原価からは推定しない */
+function operatingPerPeriodOf(effect: FinanceEffect, costEffectPerPeriod: number): number | undefined {
+  if (effect.kind !== 'REVENUE_UP') return costEffectPerPeriod;
+  return isFiniteNumber(effect.operatingIncomeEffectYen) ? effect.operatingIncomeEffectYen : undefined;
 }
 
 /** 同じ効果種類で、対象範囲が同じ、または同じ算定方法で期間が重なる他施策（重複の可能性。自動では除外しない） */
@@ -218,6 +228,7 @@ export function normalizeFinanceEffect(raw: unknown): FinanceEffect | undefined 
     'averageDealYen',
     'directAmountYen',
     'costRatePct',
+    'operatingIncomeEffectYen',
   ] as const;
   for (const key of numericKeys) {
     if (isFiniteNumber(r[key])) out[key] = r[key] as number;
@@ -292,6 +303,7 @@ const CONFIRMATION_MATERIAL_KEYS = [
   'averageDealYen',
   'directAmountYen',
   'costRatePct',
+  'operatingIncomeEffectYen',
   'scopeNote',
   'sourceNote',
   'source',

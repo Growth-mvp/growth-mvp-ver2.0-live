@@ -76,8 +76,8 @@ describe('buildTargetSummary', () => {
 
   it('売上増加の効果があると営業利益は未算定になり、その理由を返す。売上は算定できる', () => {
     const effects: FinanceEffectTrialYear[] = [
-      { fiscalYear: 2027, revenueYen: 0, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0 },
-      { fiscalYear: 2028, revenueYen: 50 * M, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0 },
+      { fiscalYear: 2027, revenueYen: 0, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: 0 },
+      { fiscalYear: 2028, revenueYen: 50 * M, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: null },
     ] as FinanceEffectTrialYear[];
     const t = target();
     const unifiedPl = buildUnifiedPl({ baseline, effects, target: t });

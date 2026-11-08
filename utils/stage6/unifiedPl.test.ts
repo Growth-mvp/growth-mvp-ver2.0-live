@@ -91,8 +91,8 @@ describe('統一PL：売上増加・費用削減・追加費用の符号と年�
     expect(fy27.plan.revenueYen).toBe(1_060 * M);
     expect(fy27.plan.operatingIncomeYen).toBeNull();
     // 売上増加がなくても算定できる費用の内訳は残る
-    expect(fy27.effect).toEqual({ revenueUpYen: 60 * M, costReductionYen: 3 * M, costIncreaseYen: 15 * M });
-    expect(p.years[3].effect).toEqual({ revenueUpYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0 });
+    expect(fy27.effect).toEqual({ revenueUpYen: 60 * M, costReductionYen: 3 * M, costIncreaseYen: 15 * M, revenueOperatingIncomeYen: null });
+    expect(p.years[3].effect).toEqual({ revenueUpYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0, revenueOperatingIncomeYen: null });
   });
 
   it('S5 決算月：12月と3月で同じ効果の年度配分が変わる（2026年1月開始・年額 1.2 百万円）', () => {
@@ -178,7 +178,7 @@ describe('統一PL：経営目標との差額（指標ごとの目標年度で�
     // 手計算：売上 1,060 → 差額 140。利益は売上増加のため未算定
     expect(p.gap?.revenue.valueYen).toBe(140 * M);
     expect(p.gap?.operatingIncome.valueYen).toBeNull();
-    expect(p.gap?.operatingIncome.reason).toContain('売上増加があるため営業利益は未算定');
+    expect(p.gap?.operatingIncome.reason).toContain('売上増加の営業利益への効果が未入力のため');
   });
 
   it('G4 目標年度・目標値の欠落と予測期間外：それぞれ差額を出さず、指標ごとの理由を出す', () => {

@@ -5,19 +5,11 @@ import { AlertCircle } from 'lucide-react';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 
-import { TabImpact } from '@/components/stage6/TabImpact';
-import { ProjectContributionCompact } from '@/components/stage6/ProjectContributionCompact';
-import { useProjectFilters } from '@/components/stage6/hooks/useProjectFilters';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
 import { FinancePlanSection } from '@/components/stage6/FinancePlanSection';
 
 function Stage6PageContent() {
   const stage6 = useStage6Data('base') as any;
-
-  const projectFilters = useProjectFilters({
-    core: stage6.core,
-    projectContrib: stage6.projectContrib,
-  });
 
   useAutoSave({
     enabled: !stage6.isHydrating,
@@ -75,51 +67,7 @@ function Stage6PageContent() {
           </div>
         )}
 
-        <FinancePlanSection
-          dashboardSummary={stage6.dashboardSummary}
-          reviewCandidateCount={stage6.reviewCandidates?.length ?? 0}
-          targetContent={
-            <>
-              {(stage6.excludedImpactRows ?? []).length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  <div className="font-semibold">
-                    施策を特定できないため、金額が一部の集計に含まれていない項目があります（{stage6.excludedImpactRows.length}件）
-                  </div>
-                  <ul className="mt-1 list-disc pl-5 text-xs">
-                    {stage6.excludedImpactRows.map((e: { targetId: string; valueMJPY: number | null; reason: string }, i: number) => (
-                      <li key={`${e.targetId}-${i}`}>
-                        登録額 {e.valueMJPY === null ? '不明' : `${e.valueMJPY} 百万円`}：{e.reason}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-1 text-xs">元データは保持されていますが、今回の試算には反映されていません。STAGE4で施策の名称や登録内容を確認してください。</p>
-                </div>
-              )}
-
-              <ProjectContributionCompact projectContrib={stage6.projectContrib} />
-
-              <details className="rounded-xl border border-slate-200 bg-white p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                  プロジェクト寄与の詳細（部門で絞り込み・選択して集計）
-                </summary>
-                <div className="mt-4">
-                  <TabImpact
-                    projectContrib={stage6.projectContrib as any}
-                    core={stage6.core}
-                    deptFilter={projectFilters.deptFilter}
-                    setDeptFilter={projectFilters.setDeptFilter}
-                    selectedProjectKeys={projectFilters.selectedProjectKeys}
-                    selectedSet={projectFilters.selectedSet}
-                    selectedSummary={projectFilters.selectedSummary}
-                    toggleProject={projectFilters.toggleProject}
-                    selectAllFiltered={projectFilters.selectAllFiltered}
-                    clearAllFiltered={projectFilters.clearAllFiltered}
-                  />
-                </div>
-              </details>
-            </>
-          }
-        />
+        <FinancePlanSection />
       </div>
     </main>
   );

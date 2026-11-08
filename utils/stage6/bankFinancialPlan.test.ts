@@ -258,11 +258,24 @@ describe('5. サーバー側のCF再計算', () => {
 
   it('営業CFを、推計売上・営業利益・既存借入利息・税率・減価償却・運転資金から再計算する', () => {
     const base = inputsWith();
-    const block = blockFor({ ...base, storedFinancePlan: savedFor(domain, base) });
+    const withScenario = {
+      ...domain,
+      assumptions: {
+        ...domain.assumptions,
+        targetRevenueYen: null,
+        targetOperatingIncomeYen: null,
+        targetYear: null,
+        baseScenario: {
+          2026: { revenueYen: 100_000_000, operatingIncomeYen: 10_000_000 },
+          2027: { revenueYen: 200_000_000, operatingIncomeYen: 30_000_000 },
+        },
+      },
+    };
+    const block = blockFor({ ...base, storedFinancePlan: savedFor(withScenario, base) });
     const ratio = 0.15 + 0.08 - 0.06;
-    const revenue26 = 1_000_000_000 + (200_000_000 * 1) / 3;
-    const revenue27 = 1_000_000_000 + (200_000_000 * 2) / 3;
-    const oi27 = 50_000_000 + (80_000_000 - 50_000_000) * (2 / 3);
+    const revenue26 = 1_100_000_000;
+    const revenue27 = 1_200_000_000;
+    const oi27 = 80_000_000;
     const netIncome27 = (oi27 - 5_400_000) * (1 - 0.3);
     const wcChange27 = ratio * (revenue27 - revenue26);
     const expectedOcf27 = netIncome27 + 20_000_000 - wcChange27;
@@ -320,9 +333,9 @@ describe('8. STAGE2目標との整合確認', () => {
   });
 
   it('同年度のSTAGE6推計との差額を保持し、説明データがないことを示す', () => {
-    expect(targets.gaps.revenue).toMatchObject({ projectedYen: 1_200_000_000, differenceYen: -300_000_000, reason: null });
+    expect(targets.gaps.revenue).toMatchObject({ projectedYen: 1_000_000_000, differenceYen: -500_000_000, reason: null });
     expect(targets.gaps.revenue.explanation.available).toBe(false);
-    expect(targets.gaps.operatingIncome).toMatchObject({ projectedYen: 80_000_000, differenceYen: 10_000_000 });
+    expect(targets.gaps.operatingIncome).toMatchObject({ projectedYen: 50_000_000, differenceYen: -20_000_000 });
   });
 
   it('単位を金額に換算できない目標は金額として扱わず、差額も出さない', () => {
@@ -484,5 +497,40 @@ describe('14・15. 銀行向け以外への非干渉と既存データの維持'
       now: NOW,
     });
     expect(b.status).toBe('NOT_SAVED');
+  });
+});
+
+describe('9. 正式な売上・営業利益と旧見込みの分離', () => {
+  it('旧見込み（impactRevenueMJPY）は売上表に入らず、確認済み施策効果は1回だけ入る', () => {
+    const withEffect = departments.map((d) => ({
+      ...d,
+      projects: d.projects.map((p) =>
+        p.title === 'A社開拓'
+          ? {
+              ...p,
+              financeEffect: {
+                kind: 'REVENUE_UP',
+                method: 'DIRECT_AMOUNT',
+                directAmountYen: 50_000_000,
+                amountBasis: 'ANNUAL',
+                startYm: '2026-04',
+                sourceNote: '見積書（架空）',
+                source: 'USER_INPUT',
+                confirmed: true,
+                operatingIncomeEffectYen: 5_000_000,
+              },
+            }
+          : p,
+      ),
+    }));
+    const noTarget = { ...domain, assumptions: { ...domain.assumptions, targetRevenueYen: null, targetOperatingIncomeYen: null, targetYear: null, baseScenario: undefined } };
+    const base = inputsWith({ departments: withEffect as unknown as Department[] });
+    const block = blockFor({ ...base, storedFinancePlan: savedFor(noTarget, base) });
+    const row = block.sections!.revenuePlan.years.find((y) => y.year === 2027)!;
+    expect(row.revenue.value).toBe(1_050_000_000);
+    expect(row.operatingIncome.value).toBe(55_000_000);
+    const legacy = block.sections!.financialTargets.stage4Contributions;
+    expect(legacy.revenueYen).toBe(100_000_000);
+    expect(legacy.note).toContain('正式な売上・営業利益（統一財務試算）には含めていません');
   });
 });

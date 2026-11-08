@@ -1255,24 +1255,6 @@ function ExecPanel(props: {
     ? departments?.[di]?.projects?.[pi]
     : null;
 
-  // 成果見込みの確度（STAGE6反映額の補正に使用）
-  const confidenceOptions = [
-    { value: 'low', label: '低い', coefficient: 0.3 },
-    { value: 'medium', label: 'ふつう', coefficient: 0.6 },
-    { value: 'high', label: '高い', coefficient: 0.9 },
-    { value: 'committed', label: 'ほぼ確定', coefficient: 1.0 },
-  ] as const;
-
-  const getConfidenceCoefficient = (value: any): number => {
-    const found = confidenceOptions.find((option) => option.value === value);
-    return found?.coefficient ?? 0.6;
-  };
-
-  const getConfidenceLabel = (value: any): string => {
-    const found = confidenceOptions.find((option) => option.value === value);
-    return found?.label ?? 'ふつう';
-  };
-
   // 成果見込み率の更新ハンドラ（STAGE6シミュレーションの前提）
   const handleProgressChange = useCallback(
     (field: 'impactRevenueProgress' | 'impactOpIncomeProgress', value: string) => {
@@ -1330,53 +1312,6 @@ function ExecPanel(props: {
     [di, pi, stage4Proj, updateDepartments]
   );
 
-  // 成果見込みの確度を更新
-  const handleConfidenceChange = useCallback(
-    (field: 'impactRevenueConfidence' | 'impactOpIncomeConfidence', value: string) => {
-      if (typeof di !== 'number' || typeof pi !== 'number') return;
-
-      updateDepartments((prev) => {
-        const next = [...prev];
-        const dept = next[di];
-        if (!dept) return prev;
-
-        const deptCopy = { ...dept };
-        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-        const proj = projs[pi];
-        if (!proj) return prev;
-
-        if ((proj as any)[field] === value) return prev;
-
-        const projCopy = { ...proj };
-        (projCopy as any)[field] = value;
-        projs[pi] = projCopy;
-        deptCopy.projects = projs;
-        next[di] = deptCopy;
-        return next;
-      });
-
-      useStrategyStore.setState({ dirty: true });
-    },
-    [di, pi, updateDepartments]
-  );
-
-  // Helper: Calculate achieved value from target and progress (display only)
-  const calcAchieved = (target: number | undefined, progress: number | undefined): string => {
-    if (typeof target !== 'number' || typeof progress !== 'number') return '—';
-    const achieved = Math.round(target * (progress / 100) * 10) / 10;
-    return achieved.toString();
-  };
-
-  // Helper: STAGE6に反映する見込み額（目標額 × 成果見込み率 × 確度）
-  const calcStage6Projection = (target: number | undefined, progress: number | undefined, confidence: any): string => {
-    if (typeof target !== 'number' || typeof progress !== 'number') return '—';
-    const projection = Math.round(target * (progress / 100) * getConfidenceCoefficient(confidence) * 10) / 10;
-    return projection.toString();
-  };
-
-  const revenueConfidence = (stage4Proj as any)?.impactRevenueConfidence ?? 'medium';
-  const opIncomeConfidence = (stage4Proj as any)?.impactOpIncomeConfidence ?? 'medium';
-
   const projectHypothesis = String(
     (stage4Proj as any)?.projectHypothesis
       ?? (stage4Proj as any)?.hypothesis
@@ -1408,7 +1343,7 @@ function ExecPanel(props: {
               <div className="text-xs font-medium text-gray-500 tracking-wide mb-1">プロジェクト概要</div>
               <h3 className="text-base font-semibold text-gray-900">{projectTitle || '（プロジェクト未設定）'}</h3>
               <p className="mt-2 text-xs leading-5 text-gray-600">
-                今日の進み具合や困っていることを残します。成果への見込みを更新すると、STAGE6の業績シミュレーションに反映されます。
+                今日の進み具合や困っていることを残します。進捗率は財務試算（STAGE6）には反映されません。財務試算に入るのは、STAGE4で確認済みにした財務効果だけです。
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
@@ -1720,116 +1655,66 @@ function ExecPanel(props: {
         )}
 
 
-        {/* 成果見込み / STAGE6連携 */}
+        {/* 作業の進捗（財務試算には反映しない） */}
         {stage4Proj && (
           <section className="rounded-3xl border border-blue-100 bg-blue-50/40 p-5 shadow-sm">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
-                <div className="text-xs font-medium text-blue-700 tracking-wide mb-1">成果見込み / STAGE6連携</div>
-                <h3 className="text-sm font-semibold text-blue-950">この実行が、売上・利益にどれくらいつながりそうか</h3>
+                <div className="text-xs font-medium text-blue-700 tracking-wide mb-1">作業の進捗</div>
+                <h3 className="text-sm font-semibold text-blue-950">この施策の作業がどこまで進んだか</h3>
                 <p className="mt-1 text-xs leading-5 text-blue-800/80">
-                  ここで更新した数字は、STAGE6の業績シミュレーションに反映されます。作業の進み具合ではなく、売上・利益につながる見込みを入力します。
+                  ここで入力するのは作業の進捗率です。財務試算（STAGE6）には、STAGE4で利用者が確認済みにした財務効果だけが反映されます。ここでの入力は財務試算に反映されません。
                 </p>
               </div>
-              <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">
-                STAGE6に反映
-              </span>
+              <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">財務試算には未反映</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {typeof stage4Proj.impactRevenueMJPY === 'number' && (
                 <div className="rounded-2xl border border-blue-100 bg-white p-4">
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-semibold text-gray-800">売上への見込み</div>
-                      <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactRevenueMJPY}百万円</div>
-                    </div>
-                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
-                      STAGE6反映 {calcStage6Projection(stage4Proj.impactRevenueMJPY, stage4Proj.impactRevenueProgress, revenueConfidence)}百万円
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-3">
-                    <label className="text-xs text-gray-600">
-                      成果見込み%
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={stage4Proj.impactRevenueProgress ?? ''}
-                        onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                        placeholder="例：20"
-                      />
-                    </label>
-                    <label className="text-xs text-gray-600">
-                      確度
-                      <select
-                        value={revenueConfidence}
-                        onChange={(e) => handleConfidenceChange('impactRevenueConfidence', e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                      >
-                        {confidenceOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                    現時点の見込み：{calcAchieved(stage4Proj.impactRevenueMJPY, stage4Proj.impactRevenueProgress)}百万円 / 確度：{getConfidenceLabel(revenueConfidence)}
-                  </div>
+                  <div className="text-xs font-semibold text-gray-800">売上の目標（STAGE4）</div>
+                  <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactRevenueMJPY}百万円</div>
+                  <label className="mt-3 block text-xs text-gray-600">
+                    作業進捗率%
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={stage4Proj.impactRevenueProgress ?? ''}
+                      onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                      placeholder="例：20"
+                    />
+                  </label>
                 </div>
               )}
 
               {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
                 <div className="rounded-2xl border border-blue-100 bg-white p-4">
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-semibold text-gray-800">営業利益への見込み</div>
-                      <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactOpIncomeMJPY}百万円</div>
-                    </div>
-                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
-                      STAGE6反映 {calcStage6Projection(stage4Proj.impactOpIncomeMJPY, stage4Proj.impactOpIncomeProgress, opIncomeConfidence)}百万円
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-3">
-                    <label className="text-xs text-gray-600">
-                      成果見込み%
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={stage4Proj.impactOpIncomeProgress ?? ''}
-                        onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                        placeholder="例：10"
-                      />
-                    </label>
-                    <label className="text-xs text-gray-600">
-                      確度
-                      <select
-                        value={opIncomeConfidence}
-                        onChange={(e) => handleConfidenceChange('impactOpIncomeConfidence', e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                      >
-                        {confidenceOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                    現時点の見込み：{calcAchieved(stage4Proj.impactOpIncomeMJPY, stage4Proj.impactOpIncomeProgress)}百万円 / 確度：{getConfidenceLabel(opIncomeConfidence)}
-                  </div>
+                  <div className="text-xs font-semibold text-gray-800">営業利益の目標（STAGE4）</div>
+                  <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactOpIncomeMJPY}百万円</div>
+                  <label className="mt-3 block text-xs text-gray-600">
+                    作業進捗率%
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={stage4Proj.impactOpIncomeProgress ?? ''}
+                      onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                      placeholder="例：10"
+                    />
+                  </label>
                 </div>
               )}
 
               {typeof stage4Proj.impactRevenueMJPY !== 'number' && typeof stage4Proj.impactOpIncomeMJPY !== 'number' && (
                 <div className="rounded-2xl border border-blue-100 bg-white p-4 md:col-span-2">
-                  <div className="text-xs font-semibold text-gray-800">成果見込みは未設定です</div>
+                  <div className="text-xs font-semibold text-gray-800">売上・営業利益の目標は未設定です</div>
                   <p className="mt-1 text-xs leading-5 text-gray-600">
-                    売上・営業利益への貢献額を設定すると、ここでSTAGE6に反映する見込みを更新できます。
+                    目標と財務効果の登録・確認は、STAGE4で行います。
                   </p>
                 </div>
               )}

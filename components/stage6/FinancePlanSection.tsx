@@ -1,17 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
-import { buildFinanceEffectTrial, withoutTargetPath } from '@/utils/stage6/financeEffectPlan';
+import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
 import { UnifiedPlPanel } from './UnifiedPlPanel';
 import { ConditionalCfPanel } from './ConditionalCfPanel';
-import { buildConditionalCashFlow } from '@/utils/stage6/conditionalCf';
-import { buildUnifiedPl, type PlTarget } from '@/utils/stage6/unifiedPl';
-import { isOperatingIncomeLabel, isRevenueLabel, northStarValueToMJPY } from '@/utils/stage6/compute';
 import {
   FINANCE_PLAN_CALC_VERSION,
   buildStoredFinancePlan,
@@ -31,7 +28,11 @@ import { CashFlowPanel, EMPTY_CASHFLOW_FORM, type CashFlowForm } from './CashFlo
 import { DebtPanel, EMPTY_DEBT_FORM, fundingNeedOf, isDebtEntered, type DebtForm } from './DebtPanel';
 import { FinanceVerdictPanel } from './FinanceVerdictPanel';
 import { FinanceSummary } from './FinanceSummary';
+import { FinanceOutlookCharts } from './FinanceOutlookCharts';
+import { FinanceEffectProjectList } from './FinanceEffectProjectList';
+import { buildOutlookCharts } from './financeOutlookChartModel';
 import { FundingDemandSection } from './FundingDemandSection';
+import { BaseScenarioPanel } from './BaseScenarioPanel';
 import {
   FINANCE_TABS,
   SAVE_STATUS_LABEL,
@@ -43,10 +44,13 @@ import {
 } from './financePlanStatus';
 import { buildCashSummary, buildFundingStatus, buildTargetSummary } from './financeSummaryModel';
 import {
+  baseScenarioFormFrom,
   cashFlowFormFrom,
   debtFormFrom,
+  toBaseScenario,
   toCashFlowAssumptions,
   toDebtDomain,
+  type BaseScenarioForm,
   toDebtInput,
 } from './financePlanForm';
 
@@ -54,19 +58,6 @@ const EMPTY_DEPARTMENTS: Department[] = [];
 const EMPTY_PL: FinancePLRow[] = [];
 const EMPTY_BS: FinanceBSRow[] = [];
 const NOW_YEAR = new Date().getFullYear();
-
-type TargetGap = { forecast: number; target: number; gap: number };
-
-export type DashboardSummary = {
-  revenue: TargetGap;
-  op: TargetGap;
-};
-
-type SectionProps = {
-  dashboardSummary?: DashboardSummary;
-  targetContent?: ReactNode;
-  reviewCandidateCount?: number;
-};
 
 const SAVE_STATUS_CLASS: Record<SaveStatus, string> = {
   SAVING: 'bg-sky-100 text-sky-800',
@@ -87,16 +78,12 @@ function TabHeader({ tab }: { tab: FinanceTab }) {
   );
 }
 
-export function FinancePlanSection(props: SectionProps) {
+export function FinancePlanSection() {
   const companyId = useStrategyStore((s: StrategyState) => s.companyId ?? null);
-  return <FinancePlanContent key={companyId ?? 'no-company'} companyId={companyId} {...props} />;
+  return <FinancePlanContent key={companyId ?? 'no-company'} companyId={companyId} />;
 }
 
-function FinancePlanContent({
-  companyId,
-  targetContent,
-  reviewCandidateCount = 0,
-}: SectionProps & { companyId: string | null }) {
+function FinancePlanContent({ companyId }: { companyId: string | null }) {
   const departments = useStrategyStore((s: StrategyState) =>
     Array.isArray(s.departments) ? s.departments : EMPTY_DEPARTMENTS,
   );
@@ -118,6 +105,9 @@ function FinancePlanContent({
   const [cfForm, setCfForm] = useState<CashFlowForm>(() =>
     stored.kind === 'OK' ? cashFlowFormFrom(stored.domain.assumptions) : EMPTY_CASHFLOW_FORM,
   );
+  const [scenarioForm, setScenarioForm] = useState<BaseScenarioForm>(() =>
+    stored.kind === 'OK' ? baseScenarioFormFrom(stored.domain.assumptions.baseScenario) : {},
+  );
   const [debtForm, setDebtForm] = useState<DebtForm>(() =>
     stored.kind === 'OK' ? debtFormFrom(stored.domain) : EMPTY_DEBT_FORM,
   );
@@ -125,6 +115,11 @@ function FinancePlanContent({
   const [saveFailed, setSaveFailed] = useState(false);
   const setCfFormByUser: Dispatch<SetStateAction<CashFlowForm>> = (action) => {
     setCfForm(action);
+    setEditVersion((v) => v + 1);
+    setSaveFailed(false);
+  };
+  const setScenarioFormByUser: Dispatch<SetStateAction<BaseScenarioForm>> = (action) => {
+    setScenarioForm(action);
     setEditVersion((v) => v + 1);
     setSaveFailed(false);
   };
@@ -142,7 +137,10 @@ function FinancePlanContent({
     [departments, fiscalYearEnd],
   );
   const fiscalYearEndSet = parseFiscalYearEndMonth(fiscalYearEnd) !== null;
-  const assumptions = useMemo(() => toCashFlowAssumptions(cfForm), [cfForm]);
+  const assumptions = useMemo(
+    () => ({ ...toCashFlowAssumptions(cfForm), baseScenario: toBaseScenario(scenarioForm) }),
+    [cfForm, scenarioForm],
+  );
   const targetPathInUse = assumptions.targetRevenueYen !== null || assumptions.targetOperatingIncomeYen !== null;
 
   const investmentInput = useMemo(
@@ -200,68 +198,25 @@ function FinancePlanContent({
     [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule],
   );
 
-  const baselinePlan = useMemo(
-    () =>
-      buildCashFlowPlan(
-        {
-          financePL,
-          financeBS,
-          investment: investmentInput,
-          assumptions: withoutTargetPath(assumptions),
-          fiscalYearEndSet,
-          debt: debtEntered ? schedule : undefined,
-        },
-        NOW_YEAR,
-      ),
-    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule],
-  );
-  const baselineForecastYears = useMemo(
-    () => baselinePlan.years.filter((y) => y.kind === 'FORECAST'),
-    [baselinePlan],
-  );
-  const unifiedTarget = useMemo<PlTarget>(() => {
-    const revenueTarget = (companyTargets ?? []).find((t) => isRevenueLabel(t.label));
-    const opTarget = (companyTargets ?? []).find((t) => isOperatingIncomeLabel(t.label));
-    const toYen = (t: { base: number; unit: string } | undefined) =>
-      t && Number.isFinite(t.base) && t.base > 0 ? northStarValueToMJPY(t.base, t.unit) * 1_000_000 : null;
-    return {
-      revenueYen: toYen(revenueTarget),
-      operatingIncomeYen: toYen(opTarget),
-      revenueDueYear: revenueTarget?.dueYear ?? null,
-      operatingIncomeDueYear: opTarget?.dueYear ?? null,
-    };
-  }, [companyTargets]);
-  const effectTrial = useMemo(
-    () =>
-      buildFinanceEffectTrial({
-        departments,
-        fiscalYearEnd,
-        fiscalYears: baselineForecastYears.map((y) => y.year),
-      }),
-    [departments, fiscalYearEnd, baselineForecastYears],
-  );
-  const unifiedPl = useMemo(
-    () =>
-      buildUnifiedPl({
-        baseline: baselineForecastYears.map((y) => ({
-          fiscalYear: y.year,
-          revenueYen: y.revenue.value,
-          operatingIncomeYen: y.operatingIncome.value,
-        })),
-        effects: effectTrial.years,
-        target: unifiedTarget,
-      }),
-    [baselineForecastYears, effectTrial, unifiedTarget],
-  );
-  const conditionalCf = useMemo(
-    () => buildConditionalCashFlow({ baseline: baselinePlan, unified: unifiedPl }),
-    [baselinePlan, unifiedPl],
-  );
-
   const currentDomain: FinancePlanDomain = useMemo(() => {
     const d = toDebtDomain(debtForm, forecastYears);
     return { assumptions, existingLoans: d.existingLoans, newLoans: d.newLoans, dividendsYen: d.dividendsYen };
   }, [debtForm, forecastYears, assumptions]);
+
+  const financeOutlook = useMemo(
+    () =>
+      buildFinanceOutlook({
+        financePL,
+        financeBS,
+        departments,
+        fiscalYearEnd,
+        companyTargets,
+        domain: currentDomain,
+        currentYear: NOW_YEAR,
+      }),
+    [financePL, financeBS, departments, fiscalYearEnd, companyTargets, currentDomain],
+  );
+  const { target: unifiedTarget, effectTrial, unifiedPl, conditionalCf, baselinePlan } = financeOutlook;
 
   const currentMeta: CalcSnapshotMeta = useMemo(
     () => ({
@@ -304,7 +259,10 @@ function FinancePlanContent({
     );
   }, [editVersion, companyId, currentDomain, currentMeta, setFinancePlanAssumptions]);
 
-  const hasInput = Object.values(cfForm).some((v) => v.trim() !== '') || isDebtEntered(debtForm);
+  const hasInput =
+    Object.values(cfForm).some((v) => v.trim() !== '') ||
+    Object.values(scenarioForm).some((e) => e.revenue.trim() !== '' || e.operatingIncome.trim() !== '') ||
+    isDebtEntered(debtForm);
   const savedMeta = stored.kind === 'OK' ? stored.meta : null;
   const freshness = judgeFreshness(savedMeta, currentMeta);
   const unsaved = financePlanUnsaved({
@@ -382,6 +340,7 @@ function FinancePlanContent({
     saveStatus === 'FAILED' ? '入力内容は画面に残っています。もう一度保存してください。' : freshnessLabel(freshness);
 
   const targetSummary = buildTargetSummary({ unifiedPl, target: unifiedTarget });
+  const outlookCharts = buildOutlookCharts(financeOutlook, targetSummary);
   const cashSummary = buildCashSummary(conditionalCf);
   const fundingStatus = buildFundingStatus({ targetPathInUse, outlook });
   const firstRequired = unconfirmed.find((i) => i.required);
@@ -431,8 +390,9 @@ function FinancePlanContent({
           </div>
         )}
 
+        <FinanceOutlookCharts charts={outlookCharts} />
+
         <FinanceSummary
-          target={targetSummary}
           cash={cashSummary}
           funding={fundingStatus}
           requiredItem={requiredItem}
@@ -479,11 +439,25 @@ function FinancePlanContent({
         {tab === 'target' && (
           <div className="space-y-6">
             <TabHeader tab="target" />
+            <BaseScenarioPanel
+              years={forecastYears}
+              baseYear={basePlan.baseYear}
+              baseRevenueYen={baselinePlan.years.find((y) => y.kind === 'ACTUAL')?.revenue.value ?? null}
+              baseOperatingIncomeYen={baselinePlan.years.find((y) => y.kind === 'ACTUAL')?.operatingIncome.value ?? null}
+              planned={Object.fromEntries(
+                baselinePlan.years
+                  .filter((y) => y.kind === 'FORECAST')
+                  .map((y) => [y.year, { revenueYen: y.revenue.value, operatingIncomeYen: y.operatingIncome.value }]),
+              )}
+              mode={baselinePlan.basisMode}
+              form={scenarioForm}
+              setForm={setScenarioFormByUser}
+            />
             <UnifiedPlPanel plan={unifiedPl} trial={effectTrial} />
             <p className="text-xs leading-relaxed text-slate-600 break-keep">
               目標に至る補間の経路は「3. お金は足りるか」の参考情報にあります。
             </p>
-            {targetContent}
+            <FinanceEffectProjectList projects={effectTrial.projects} years={effectTrial.years} />
           </div>
         )}
 
@@ -538,7 +512,6 @@ function FinancePlanContent({
               debtEntered={debtEntered}
               fundingNeed={fundingNeed}
               items={unconfirmed}
-              reviewCandidateCount={reviewCandidateCount}
               onNavigate={setTab}
             />
           </div>

@@ -19,7 +19,29 @@ export type CfAssumptions = {
   targetRevenueYen: number | null;
   targetOperatingIncomeYen: number | null;
   targetYear: number | null;
+  /** 既存事業の年度別増減（直近実績からの差額、円）。未設定の年度は横ばい */
+  baseScenario?: BaseScenario;
 };
+
+export type BaseScenarioYear = { revenueYen: number | null; operatingIncomeYen: number | null };
+export type BaseScenario = Record<number, BaseScenarioYear>;
+
+/** 両方とも未入力の年度は持たない（未設定と同じ横ばい扱い）。全年度が空なら undefined */
+export function normalizeBaseScenario(s: BaseScenario | undefined | null): BaseScenario | undefined {
+  if (!s) return undefined;
+  const out: BaseScenario = {};
+  for (const [k, d] of Object.entries(s)) {
+    const revenueYen = d?.revenueYen ?? null;
+    const operatingIncomeYen = d?.operatingIncomeYen ?? null;
+    if (revenueYen === null && operatingIncomeYen === null) continue;
+    out[Number(k)] = { revenueYen, operatingIncomeYen };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function hasBaseScenario(a: CfAssumptions): boolean {
+  return normalizeBaseScenario(a.baseScenario) !== undefined;
+}
 
 export type InvestmentYearlyCategory = {
   fiscalYear: number;
@@ -44,6 +66,8 @@ export type CashFlowInput = {
   debt?: DebtSchedule;
   /** 決算期が確認できているか（未確認なら返済可能性の判定を保留）。未指定は確認済みとみなす */
   fiscalYearEndSet?: boolean;
+  /** 統一財務試算の年度別の売上・営業利益。指定時はこの値をそのまま使い、目標補間・ベースシナリオは無視する */
+  yearlyOverride?: Record<number, { revenueYen: number | null; operatingIncomeYen: number | null }>;
 };
 
 export type WcItemBreakdown = {
@@ -110,6 +134,7 @@ export type CashFlowPlan = {
   interest: CfValue;
   workingCapitalRatios: { ar: CfValue; inventory: CfValue; ap: CfValue };
   scenario: { basis: CfBasis; note: string };
+  basisMode: 'FLAT' | 'BASE_SCENARIO' | 'TARGET_PATH' | 'FINANCE_OUTLOOK';
   historicalWorkingCapital: { year: number; ar: number | null; inventory: number | null; ap: number | null }[];
   debtEnabled: boolean;
   debtGlobalHolds: string[];
@@ -319,24 +344,72 @@ export function buildCashFlowPlan(
     })
     .filter((r) => r.ar !== null || r.inventory !== null || r.ap !== null);
 
-  const hasScenario = a.targetRevenueYen !== null || a.targetOperatingIncomeYen !== null || a.targetYear !== null;
+  const overrideOn = input.yearlyOverride !== undefined;
+  const scenarioOn = !overrideOn && hasBaseScenario(a);
+  const targetOn =
+    !overrideOn && (a.targetRevenueYen !== null || a.targetOperatingIncomeYen !== null || a.targetYear !== null);
   let scenarioBasis: CfBasis = 'ESTIMATE';
   let scenarioNote = '横ばい（目標未登録のため基準年度の水準を横置き。独立した予測ではありません）';
   let targetYear: number | null = null;
-  if (hasScenario && Y !== null) {
+  if (targetOn && Y !== null) {
     targetYear = a.targetYear ?? Y + horizon;
     scenarioBasis = 'USER';
-    scenarioNote = '経営者が登録した目標への補間（独立した予測ではありません）';
+    scenarioNote = '経営目標への参考経路（独立した予測ではありません）';
     if (targetYear <= Y) globalHolds.push('推計シナリオの目標年度は基準年度より後である必要があります');
   }
-  const scenarioValid = !hasScenario || (targetYear !== null && Y !== null && targetYear > Y);
+  if (scenarioOn) {
+    scenarioBasis = 'USER';
+    scenarioNote = '既存事業の年度別増減（利用者入力。直近実績からの計画上の増減で、独立した予測ではありません）';
+  }
+  if (overrideOn) {
+    scenarioBasis = 'USER';
+    scenarioNote = '統一財務試算の値（既存事業の計画＋確認済み施策効果）';
+  }
+  if (targetOn && scenarioOn) {
+    globalHolds.push('経営目標への参考経路は、既存事業の年度別増減を起点に、目標年度までの差を直線で加えて計算しています');
+  }
+  const basisMode: CashFlowPlan['basisMode'] = overrideOn
+    ? 'FINANCE_OUTLOOK'
+    : targetOn
+      ? 'TARGET_PATH'
+      : scenarioOn
+        ? 'BASE_SCENARIO'
+        : 'FLAT';
+  const scenarioValid = !targetOn || (targetYear !== null && Y !== null && targetYear > Y);
 
-  const pathValue = (base: number | null, target: number | null, t: number): number | null => {
-    if (base === null) return null;
-    if (!hasScenario || target === null || targetYear === null || !scenarioValid) return base;
-    if (t >= targetYear) return target;
-    return base + ((target - base) * (t - (Y as number))) / (targetYear - (Y as number));
+  const scenarioRevenueAt = (t: number): number | null => {
+    if (rev0 === null) return null;
+    const d = scenarioOn ? a.baseScenario?.[t] : undefined;
+    return d && d.revenueYen !== null ? rev0 + d.revenueYen : rev0;
   };
+  const scenarioOperatingIncomeAt = (t: number): number | null => {
+    if (oi0 === null) return null;
+    if (!scenarioOn) return oi0;
+    const d = a.baseScenario?.[t];
+    if (d && d.revenueYen !== null && d.operatingIncomeYen === null) return null;
+    return oi0 + (d?.operatingIncomeYen ?? 0);
+  };
+  const withTargetPath = (
+    scenarioAt: (t: number) => number | null,
+    target: number | null,
+    t: number,
+  ): number | null => {
+    if (target === null || !targetOn || targetYear === null || !scenarioValid) return scenarioAt(t);
+    const atTarget = scenarioAt(targetYear);
+    const atT = scenarioAt(t);
+    if (atTarget === null || atT === null) return null;
+    const ramp = t >= targetYear ? 1 : (t - (Y as number)) / (targetYear - (Y as number));
+    return atT + (target - atTarget) * ramp;
+  };
+
+  const baseRevenueAt = (t: number): number | null =>
+    input.yearlyOverride
+      ? (input.yearlyOverride[t]?.revenueYen ?? null)
+      : withTargetPath(scenarioRevenueAt, a.targetRevenueYen, t);
+  const baseOperatingIncomeAt = (t: number): number | null =>
+    input.yearlyOverride
+      ? (input.yearlyOverride[t]?.operatingIncomeYen ?? null)
+      : withTargetPath(scenarioOperatingIncomeAt, a.targetOperatingIncomeYen, t);
 
   const yearlyCat = new Map(input.investment.yearlyByCategory.map((r) => [r.fiscalYear, r]));
 
@@ -355,7 +428,7 @@ export function buildCashFlowPlan(
   }
   globalHolds.push('STAGE4に登録のない通常の設備更新投資は未反映です');
   globalHolds.push('営業CFにはその他の調整項目を含めていません（OPEXは営業利益計画に含まれている前提で、二重に控除していません）');
-  if (Y !== null && !hasScenario) {
+  if (Y !== null && !targetOn && !scenarioOn && !overrideOn) {
     globalHolds.push('売上高・営業利益は基準年度の横ばいとして推計しています（推計シナリオ未指定）');
   }
   if (!debt) {
@@ -414,12 +487,20 @@ export function buildCashFlowPlan(
     const missing: string[] = [];
     const dy = debtYearOf(t);
 
-    const revValue = baseOk ? pathValue(rev0, a.targetRevenueYen, t) : null;
-    const oiValue = baseOk ? pathValue(oi0, a.targetOperatingIncomeYen, t) : null;
+    const revValue = baseOk ? baseRevenueAt(t) : null;
+    const oiValue = baseOk ? baseOperatingIncomeAt(t) : null;
     const revenue: CfValue =
       revValue !== null ? { value: revValue, basis: scenarioBasis, note: scenarioNote } : held('基準年度の売上高が確定していません');
     const operatingIncome: CfValue =
-      oiValue !== null ? { value: oiValue, basis: scenarioBasis, note: scenarioNote } : held('基準年度の営業利益が確定していません');
+      oiValue !== null
+        ? { value: oiValue, basis: scenarioBasis, note: scenarioNote }
+        : held(
+            overrideOn
+              ? '統一財務試算の営業利益が未算定のため、算定できません'
+              : scenarioOn && oi0 !== null
+                ? '既存事業の営業利益の増減が未入力のため未算定'
+                : '基準年度の営業利益が確定していません',
+          );
 
     // 支払利息：借入計画があれば借入計画の利息（既存＋新規）、なければ基準年度の据置
     let interestValue: number | null;
@@ -639,6 +720,7 @@ export function buildCashFlowPlan(
     interest,
     workingCapitalRatios: { ar: arR, inventory: invR, ap: apR },
     scenario: { basis: scenarioBasis, note: scenarioNote },
+    basisMode,
     historicalWorkingCapital,
     debtEnabled: debt !== undefined,
     debtGlobalHolds: debt ? debt.globalHolds : [],

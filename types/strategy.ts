@@ -582,6 +582,8 @@ export type FinanceEffect = {
   directAmountYen?: number;
   /** 原価率（売上増加の場合の参考。利益へは自動で差し引かない） */
   costRatePct?: number;
+  /** 売上増加に伴う営業利益の増分（符号つき。売上増加に伴う変動費を含む純額）。未入力なら営業利益は未算定 */
+  operatingIncomeEffectYen?: number;
   amountBasis?: SpendAmountBasis;
   startYm?: Ym;
   endYm?: Ym;

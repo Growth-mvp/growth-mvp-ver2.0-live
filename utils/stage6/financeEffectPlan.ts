@@ -1,6 +1,6 @@
-import type { Department } from '@/types/strategy';
+import type { Department, FinanceEffect, FinanceEffectKind } from '@/types/strategy';
 import { computeFinanceEffect } from '@/lib/financeEffect';
-import { parseFiscalYearEndMonth } from './investmentDemand';
+import { fiscalYearOf, parseFiscalYearEndMonth } from './investmentDemand';
 import type { CfAssumptions } from './cashflow';
 
 /** 経営目標への補間（目標経路）を外した前提。目標を入れていても現状延長（基準年度の横置き）になる */
@@ -22,6 +22,40 @@ export type FinanceEffectTrialYear = {
   costIncreaseYen: number;
   /** 営業利益への効果（費用削減 − 追加費用。売上増加は含まない） */
   operatingEffectYen: number;
+  /** 売上増加に伴う営業利益の増分（円）。その年度に入る売上増加の施策に営業利益の入力がなければ null（未算定） */
+  revenueOperatingIncomeYen: number | null;
+};
+
+/** 試算への反映状態。REFLECTED 以外は年度別金額を持たない（0と区別する） */
+export type FinanceEffectProjectStatus = 'REFLECTED' | 'DRAFT' | 'INCOMPLETE' | 'NOT_FINANCIAL' | 'NOT_SET';
+
+/** 施策ごとの年度別金額。null は未算定（0ではない） */
+export type FinanceEffectProjectYear = {
+  fiscalYear: number;
+  revenueYen: number | null;
+  costReductionYen: number | null;
+  costIncreaseYen: number | null;
+  revenueOperatingIncomeYen: number | null;
+  /** 営業利益への効果（売上増加の営業利益の増分 + 費用削減 − 追加費用）。算定できない年度は null */
+  operatingIncomeYen: number | null;
+};
+
+export type FinanceEffectProjectRow = {
+  deptIndex: number;
+  projectIndex: number;
+  deptName: string;
+  projectTitle: string;
+  status: FinanceEffectProjectStatus;
+  kind: FinanceEffectKind | null;
+  /** 対象年度（効果が始まる会計年度・最後の会計年度。終了未設定は null） */
+  startFiscalYear: number | null;
+  endFiscalYear: number | null;
+  /** 反映されない理由（REFLECTED 以外） */
+  reason: string | null;
+  /** REFLECTED のうち、営業利益を算定できない年度を含む */
+  operatingUnknown: boolean;
+  /** REFLECTED のときだけ、試算の年度に対応する金額を持つ */
+  years: FinanceEffectProjectYear[];
 };
 
 export type FinanceEffectTrial = {
@@ -32,16 +66,33 @@ export type FinanceEffectTrial = {
   revenueCostUnknown: FinanceEffectTrialTarget[];
   legacyReferenced: FinanceEffectTrialTarget[];
   years: FinanceEffectTrialYear[];
+  /** 全施策の一覧（反映状態つき）。years はこの REFLECTED 行の合計と一致する */
+  projects: FinanceEffectProjectRow[];
 };
 
-type Flow = FinanceEffectTrialTarget & {
+type Flow = {
   kind: 'REVENUE_UP' | 'COST_REDUCTION' | 'COST_INCREASE';
   startIdx: number;
   endIdx: number | null;
   perMonthYen: number;
+  /** 売上増加の施策のみ：営業利益の増分（月あたり）。入力がなければ null */
+  opPerMonthYen: number | null;
 };
 
 const monthIndexOf = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
+
+function revenueOperatingPerMonthOf(effect: FinanceEffect, startIdx: number, endIdx: number | null): number | null {
+  const value = effect.operatingIncomeEffectYen;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  if (effect.amountBasis === 'TOTAL') return value / (endIdx === null ? 1 : endIdx - startIdx + 1);
+  return effect.amountBasis === 'MONTHLY' ? value : value / 12;
+}
+
+const REASON: Record<Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, string> = {
+  DRAFT: '利用者が未確認（確認すると試算に入ります）',
+  INCOMPLETE: '入力不足のため未算定',
+  NOT_FINANCIAL: '非財務の効果のため、財務試算には含めない',
+};
 
 export function buildFinanceEffectTrial(args: {
   departments: Department[] | null | undefined;
@@ -57,34 +108,40 @@ export function buildFinanceEffectTrial(args: {
     revenueCostUnknown: [],
     legacyReferenced: [],
     years: [],
+    projects: [],
   };
   if (endMonth === null) return trial;
 
-  const flows: Flow[] = [];
-  for (const dept of args.departments ?? []) {
-    for (const project of dept.projects ?? []) {
+  /** 施策ごとの月次フロー（反映された施策だけ） */
+  const flowsOf = new Map<string, Flow[]>();
+  const rows: FinanceEffectProjectRow[] = [];
+  (args.departments ?? []).forEach((dept, deptIndex) => {
+    (dept.projects ?? []).forEach((project, projectIndex) => {
       const target = { deptName: dept.name || '（部署名なし）', projectTitle: project.title || '（施策名なし）' };
+      const base = { deptIndex, projectIndex, deptName: target.deptName, projectTitle: target.projectTitle, operatingUnknown: false };
       const effect = project.financeEffect;
       const result = computeFinanceEffect(effect);
+      const key = `${deptIndex}:${projectIndex}`;
 
       if (result.status === 'NOT_SET') {
         trial.notSetCount += 1;
-        continue;
+        rows.push({ ...base, status: 'NOT_SET', kind: null, startFiscalYear: null, endFiscalYear: null, reason: '財務効果は未登録', years: [] });
+        return;
       }
-      if (result.status === 'NOT_FINANCIAL') {
-        trial.excluded.push({ ...target, reason: '非財務の効果のため、財務試算には含めない' });
-        continue;
-      }
+      const kind = (effect?.kind ?? null) as FinanceEffectKind | null;
+      const startFy = effect?.startYm ? fiscalYearOf(effect.startYm, endMonth) : null;
+      const endFy = effect?.endYm ? fiscalYearOf(effect.endYm, endMonth) : null;
+      const notReflected = (status: Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, reason: string) => {
+        rows.push({ ...base, status, kind, startFiscalYear: startFy, endFiscalYear: endFy, reason, years: [] });
+        trial.excluded.push({ ...target, reason });
+      };
+      if (result.status === 'NOT_FINANCIAL') return notReflected('NOT_FINANCIAL', REASON.NOT_FINANCIAL);
       if (result.status === 'INCOMPLETE') {
-        trial.excluded.push({ ...target, reason: `入力不足のため未算定：${result.missing.join('、')}` });
-        continue;
+        return notReflected('INCOMPLETE', `${REASON.INCOMPLETE}：${result.missing.join('、')}`);
       }
-      if (result.status === 'DRAFT' || !effect) {
-        trial.excluded.push({ ...target, reason: '利用者が未確認（確認すると試算に入ります）' });
-        continue;
-      }
+      if (result.status === 'DRAFT' || !effect) return notReflected('DRAFT', REASON.DRAFT);
 
-      const kind = effect.kind as Flow['kind'];
+      const reflectedKind = effect.kind as Flow['kind'];
       const startIdx = monthIndexOf(effect.startYm!);
       const endIdx = effect.endYm ? monthIndexOf(effect.endYm) : null;
       const perMonthYen =
@@ -92,34 +149,86 @@ export function buildFinanceEffectTrial(args: {
           ? result.totalYen! / (endIdx === null ? 1 : endIdx - startIdx + 1)
           : result.monthlyYen!;
       const flowEnd = effect.amountBasis === 'TOTAL' && endIdx === null ? startIdx : endIdx;
-
-      flows.push({ ...target, kind, startIdx, endIdx: flowEnd, perMonthYen });
-      trial.included.push({ ...target, kind });
-      if (kind === 'REVENUE_UP') trial.revenueCostUnknown.push(target);
+      const opPerMonthYen = reflectedKind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx) : 0;
+      flowsOf.set(key, [{ kind: reflectedKind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen }]);
+      rows.push({ ...base, status: 'REFLECTED', kind, startFiscalYear: startFy, endFiscalYear: endFy, reason: null, years: [] });
+      trial.included.push({ ...target, kind: reflectedKind });
+      if (reflectedKind === 'REVENUE_UP') trial.revenueCostUnknown.push(target);
       if (project.impactRevenueMJPY !== undefined || project.impactOpIncomeMJPY !== undefined) {
         trial.legacyReferenced.push(target);
       }
-    }
-  }
+    });
+  });
 
-  trial.years = args.fiscalYears.map((fiscalYear) => {
+  const yearsOf = (flows: Flow[], fiscalYear: number): FinanceEffectProjectYear => {
     const fyStart = (fiscalYear - 1) * 12 + endMonth;
     const fyEnd = fiscalYear * 12 + endMonth - 1;
     let revenueYen = 0;
     let costReductionYen = 0;
     let costIncreaseYen = 0;
+    let revenueOperatingIncomeYen: number | null = 0;
     for (const flow of flows) {
       const from = Math.max(fyStart, flow.startIdx);
       const to = Math.min(fyEnd, flow.endIdx ?? Number.POSITIVE_INFINITY);
       const months = Math.max(0, to - from + 1);
       if (months === 0) continue;
       const amount = months * flow.perMonthYen;
-      if (flow.kind === 'REVENUE_UP') revenueYen += amount;
-      else if (flow.kind === 'COST_REDUCTION') costReductionYen += amount;
+      if (flow.kind === 'REVENUE_UP') {
+        revenueYen += amount;
+        if (flow.opPerMonthYen === null) revenueOperatingIncomeYen = null;
+        else if (revenueOperatingIncomeYen !== null) revenueOperatingIncomeYen += months * flow.opPerMonthYen;
+      } else if (flow.kind === 'COST_REDUCTION') costReductionYen += amount;
       else costIncreaseYen += amount;
     }
-    return { fiscalYear, revenueYen, costReductionYen, costIncreaseYen, operatingEffectYen: costReductionYen - costIncreaseYen };
+    return {
+      fiscalYear,
+      revenueYen,
+      costReductionYen,
+      costIncreaseYen,
+      revenueOperatingIncomeYen,
+      operatingIncomeYen: revenueOperatingIncomeYen === null ? null : revenueOperatingIncomeYen + costReductionYen - costIncreaseYen,
+    };
+  };
+
+  for (const row of rows) {
+    if (row.status !== 'REFLECTED') continue;
+    const flows = flowsOf.get(`${row.deptIndex}:${row.projectIndex}`) ?? [];
+    row.years = args.fiscalYears.map((fy) => yearsOf(flows, fy));
+    row.operatingUnknown = row.years.some((y) => y.operatingIncomeYen === null);
+  }
+
+  trial.years = args.fiscalYears.map((fiscalYear) => {
+    let revenueYen = 0;
+    let costReductionYen = 0;
+    let costIncreaseYen = 0;
+    let revenueOperatingIncomeYen: number | null = 0;
+    for (const row of rows) {
+      if (row.status !== 'REFLECTED') continue;
+      const y = row.years.find((v) => v.fiscalYear === fiscalYear)!;
+      revenueYen += y.revenueYen ?? 0;
+      costReductionYen += y.costReductionYen ?? 0;
+      costIncreaseYen += y.costIncreaseYen ?? 0;
+      if (y.revenueOperatingIncomeYen === null) revenueOperatingIncomeYen = null;
+      else if (revenueOperatingIncomeYen !== null) revenueOperatingIncomeYen += y.revenueOperatingIncomeYen;
+    }
+    return {
+      fiscalYear,
+      revenueYen,
+      costReductionYen,
+      costIncreaseYen,
+      operatingEffectYen: costReductionYen - costIncreaseYen,
+      revenueOperatingIncomeYen,
+    };
   });
 
+  trial.projects = rows.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
   return trial;
 }
+
+const STATUS_ORDER: Record<FinanceEffectProjectStatus, number> = {
+  REFLECTED: 0,
+  DRAFT: 1,
+  INCOMPLETE: 2,
+  NOT_FINANCIAL: 3,
+  NOT_SET: 4,
+};

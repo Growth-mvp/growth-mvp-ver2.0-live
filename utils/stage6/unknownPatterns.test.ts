@@ -68,7 +68,7 @@ describe('未算定パターン1：売上増加施策の原価不足', () => {
     expect(countNull(cf.years.map((y) => y.operatingCf.conditionalYen))).toBe(2);
     expect(countNull(cf.years.map((y) => y.closingCashYen))).toBe(2);
     expect(unified.years[0].plan.operatingIncomeYen).toBe(73 * M);
-    expect(unified.years[1].unknownReasons.join('')).toContain('売上原価・変動費が未確定');
+    expect(unified.years[1].unknownReasons.join('')).toContain('売上増加の営業利益への効果が未入力');
   });
 });
 

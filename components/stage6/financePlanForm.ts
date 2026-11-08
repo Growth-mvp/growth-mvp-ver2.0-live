@@ -1,4 +1,4 @@
-import type { CfAssumptions } from '@/utils/stage6/cashflow';
+import { normalizeBaseScenario, type BaseScenario, type CfAssumptions } from '@/utils/stage6/cashflow';
 import type {
   DebtInput,
   ExistingLoanInput,
@@ -189,4 +189,29 @@ export function debtFormFrom(d: DebtDomain): DebtForm {
     .filter((n) => n >= 0);
   const seq = used.length > 0 ? Math.max(...used) + 1 : 0;
   return { existing, newLoans, dividends, seq };
+}
+
+export type BaseScenarioFormEntry = { revenue: string; operatingIncome: string };
+export type BaseScenarioForm = Record<number, BaseScenarioFormEntry>;
+
+export function baseScenarioFormFrom(s: BaseScenario | undefined): BaseScenarioForm {
+  const out: BaseScenarioForm = {};
+  if (!s) return out;
+  const milText = (v: number | null) => (v === null ? '' : asText(round6(v / MILLION)));
+  for (const [k, d] of Object.entries(s)) {
+    out[Number(k)] = { revenue: milText(d.revenueYen), operatingIncome: milText(d.operatingIncomeYen) };
+  }
+  return out;
+}
+
+export function toBaseScenario(f: BaseScenarioForm): BaseScenario | undefined {
+  const mil = (s: string) => {
+    const v = parseNumber(s);
+    return v === null ? null : v * MILLION;
+  };
+  const entries: BaseScenario = {};
+  for (const [k, e] of Object.entries(f)) {
+    entries[Number(k)] = { revenueYen: mil(e.revenue), operatingIncomeYen: mil(e.operatingIncome) };
+  }
+  return normalizeBaseScenario(entries);
 }

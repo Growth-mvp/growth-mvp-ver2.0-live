@@ -49,7 +49,7 @@ export function FinanceEffectSection({ effect, legacy, disabled, overlapCandidat
     onChange(guardFinanceEffectConfirmation(current, { ...base, ...patch }));
   };
 
-  const setMillion = (key: 'unitPriceYen' | 'averageDealYen' | 'directAmountYen', raw: string) => {
+  const setMillion = (key: 'unitPriceYen' | 'averageDealYen' | 'directAmountYen' | 'operatingIncomeEffectYen', raw: string) => {
     const v = fromInput(raw);
     update({ [key]: v === undefined ? undefined : v * MILLION } as Partial<FinanceEffect>);
   };
@@ -130,6 +130,33 @@ export function FinanceEffectSection({ effect, legacy, disabled, overlapCandidat
             ))}
           </select>
         </label>
+
+        {!current && legacy?.revenueMJPY !== undefined && (
+          <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-2">
+            <p className="text-[11px] text-zinc-600">
+              従来の売上見込み（{legacy.revenueMJPY}百万円）を候補にできます。期間・金額の単位・算定根拠は、確認して入力してください。候補は未確認の状態で作られ、確認するまで財務試算には入りません。
+            </p>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onChange(
+                  guardFinanceEffectConfirmation(undefined, {
+                    kind: 'REVENUE_UP',
+                    method: 'DIRECT_AMOUNT',
+                    directAmountYen: legacy.revenueMJPY! * MILLION,
+                    ...(legacy.opIncomeMJPY !== undefined ? { operatingIncomeEffectYen: legacy.opIncomeMJPY * MILLION } : {}),
+                    source: 'USER_INPUT',
+                    confirmed: false,
+                  }),
+                )
+              }
+              className="mt-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+            >
+              従来の見込みから候補を作成
+            </button>
+          </div>
+        )}
 
         {isFinancial && current && (
           <>
@@ -220,10 +247,16 @@ export function FinanceEffectSection({ effect, legacy, disabled, overlapCandidat
               <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700">詳細設定（任意・必要なときだけ）</summary>
               <div className="mt-2 space-y-3">
             {current.kind === 'REVENUE_UP' && (
-              <label className="block space-y-1">
-                <span className="text-[11px] font-semibold">原価率（%・参考。利益へは自動で差し引かない）</span>
-                <input type="number" className={inputClass} disabled={disabled} value={current.costRatePct ?? ''} onChange={(e) => update({ costRatePct: fromInput(e.target.value) })} />
-              </label>
+              <>
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-semibold">原価率（%・参考。利益へは自動で差し引かない）</span>
+                  <input type="number" className={inputClass} disabled={disabled} value={current.costRatePct ?? ''} onChange={(e) => update({ costRatePct: fromInput(e.target.value) })} />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-semibold">売上増加に伴う営業利益の増分（百万円・任意。変動費・追加費用を含む純額。未入力なら営業利益は未算定）</span>
+                  <input type="number" step="any" className={inputClass} disabled={disabled} value={toMillion(current.operatingIncomeEffectYen)} onChange={(e) => setMillion('operatingIncomeEffectYen', e.target.value)} />
+                </label>
+              </>
             )}
 
             <label className="block space-y-1">

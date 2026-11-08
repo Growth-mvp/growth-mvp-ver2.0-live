@@ -3,8 +3,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
+import { achievementPct, buildTargetSummary, formatPct, type MetricSummary } from '@/components/stage6/financeSummaryModel';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
+import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
+import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
+import { readStoredFinancePlan } from '@/utils/stage6/financePlanSnapshot';
 import { safeGetSession } from '@/utils/supabase/client';
+
+const EMPTY_DEPARTMENTS: Department[] = [];
+const EMPTY_PL: FinancePLRow[] = [];
+const EMPTY_BS: FinanceBSRow[] = [];
+const NOW_YEAR = new Date().getFullYear();
 
 type ProjectUpdateItem = {
   departmentId: string;
@@ -49,11 +59,6 @@ function formatOkuFromMJPY(n: number) {
   })}億円`;
 }
 
-function formatRate(rate: number | null) {
-  if (rate == null || !Number.isFinite(rate)) return '—';
-  return `${Math.round(rate * 100)}%`;
-}
-
 function formatUpdateType(type: ProjectUpdateItem['latestUpdateType']) {
   switch (type) {
     case 'progress':
@@ -96,12 +101,14 @@ function Stage6MetricRow({
   forecast,
   target,
   achievementRate,
+  note,
 }: {
   label: string;
   current: string;
   forecast: string;
   target: string;
   achievementRate: string;
+  note: string | null;
 }) {
   return (
     <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
@@ -124,8 +131,35 @@ function Stage6MetricRow({
           <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{achievementRate}</div>
         </div>
       </div>
+      {note && <div className="mt-2 text-[11px] leading-5 text-neutral-500">{note}</div>}
     </div>
   );
+}
+
+type Stage6MetricView = {
+  current: string;
+  forecast: string;
+  target: string;
+  achievementRate: string;
+  note: string | null;
+};
+
+function metricViewOf(metric: MetricSummary, currentYen: number | null): Stage6MetricView {
+  const pct = achievementPct(metric);
+  const forecastYen = metric.status === 'READY' ? metric.planYen : null;
+  const targetYen = 'targetYen' in metric ? metric.targetYen : null;
+  let note: string | null = null;
+  if (metric.status === 'READY') note = `${metric.fiscalYear}年度時点の見込み（既存事業＋確認済みの財務効果）`;
+  else if (metric.status === 'PLAN_UNKNOWN') note = `${metric.fiscalYear}年度：${metric.reason}`;
+  else if (metric.status === 'OUT_OF_RANGE') note = `目標年度（${metric.fiscalYear}年度）が試算期間の外のため、見込みを算出していません`;
+  else if (metric.status === 'NO_DUE_YEAR') note = '目標年度が未設定のため、見込みを算出していません';
+  return {
+    current: currentYen === null ? '—' : formatOkuFromMJPY(currentYen / 1_000_000),
+    forecast: forecastYen === null ? '—' : formatOkuFromMJPY(forecastYen / 1_000_000),
+    target: targetYen === null ? '—' : formatOkuFromMJPY(targetYen / 1_000_000),
+    achievementRate: pct === null ? '—' : formatPct(pct),
+    note,
+  };
 }
 
 type OrgAlignmentSummary = {
@@ -152,9 +186,21 @@ type OrgAlignmentSummary = {
 };
 
 export default function ExecutionPanel() {
-  const s6 = useStage6Data('base') as any;
+  // 初期データ読込の副作用を維持するため呼び出しを残す（表示にはSTAGE6の財務試算を使う）
+  useStage6Data('base');
   const companyId = useUserStore((s) => s.companyId);
   const membershipVerified = useUserStore((s) => s.membershipVerified);
+  const strategyCompanyId = useStrategyStore((s: StrategyState) => s.companyId ?? null);
+  const financePL = useStrategyStore((s: StrategyState) => (Array.isArray(s.financePL) ? s.financePL : EMPTY_PL));
+  const financeBS = useStrategyStore((s: StrategyState) => (Array.isArray(s.financeBS) ? s.financeBS : EMPTY_BS));
+  const departments = useStrategyStore((s: StrategyState) =>
+    Array.isArray(s.departments) ? s.departments : EMPTY_DEPARTMENTS,
+  );
+  const fiscalYearEnd = useStrategyStore((s: StrategyState) => s.fiscalYearEnd);
+  const companyTargets = useStrategyStore((s: StrategyState) => s.companyTargets);
+  const storedFinancePlan = useStrategyStore(
+    (s: StrategyState) => (s.csvFinanceData as Record<string, unknown> | undefined)?.financePlanAssumptions,
+  );
 
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -327,42 +373,23 @@ export default function ExecutionPanel() {
   };
 
   const stage6Summary = useMemo(() => {
-    const dashboardSummary = s6?.dashboardSummary as any;
-    if (!dashboardSummary) return null;
-
-    const baselineRevenueMJPY = Number(dashboardSummary?.revenue?.baseline ?? NaN);
-    const forecastRevenueMJPY = Number(dashboardSummary?.revenue?.forecast ?? NaN);
-    const targetRevenueMJPY = Number(dashboardSummary?.revenue?.target ?? NaN);
-
-    const baselineOpMJPY = Number(dashboardSummary?.op?.baseline ?? NaN);
-    const forecastOpMJPY = Number(dashboardSummary?.op?.forecast ?? NaN);
-    const targetOpMJPY = Number(dashboardSummary?.op?.target ?? NaN);
-
-    const revenueAchievementRate =
-      Number.isFinite(forecastRevenueMJPY) && Number.isFinite(targetRevenueMJPY) && targetRevenueMJPY > 0
-        ? forecastRevenueMJPY / targetRevenueMJPY
-        : null;
-
-    const opAchievementRate =
-      Number.isFinite(forecastOpMJPY) && Number.isFinite(targetOpMJPY) && targetOpMJPY > 0
-        ? forecastOpMJPY / targetOpMJPY
-        : null;
-
+    const stored = readStoredFinancePlan(storedFinancePlan, strategyCompanyId);
+    const outlook = buildFinanceOutlook({
+      financePL,
+      financeBS,
+      departments,
+      fiscalYearEnd,
+      companyTargets,
+      domain: stored.kind === 'OK' ? stored.domain : null,
+      currentYear: NOW_YEAR,
+    });
+    const targetSummary = buildTargetSummary({ unifiedPl: outlook.unifiedPl, target: outlook.target });
+    const actualYear = outlook.baselinePlan.years.find((y) => y.kind === 'ACTUAL');
     return {
-      revenue: {
-        current: Number.isFinite(baselineRevenueMJPY) ? formatOkuFromMJPY(baselineRevenueMJPY) : '—',
-        forecast: Number.isFinite(forecastRevenueMJPY) ? formatOkuFromMJPY(forecastRevenueMJPY) : '—',
-        target: Number.isFinite(targetRevenueMJPY) ? formatOkuFromMJPY(targetRevenueMJPY) : '—',
-        achievementRate: formatRate(revenueAchievementRate),
-      },
-      op: {
-        current: Number.isFinite(baselineOpMJPY) ? formatOkuFromMJPY(baselineOpMJPY) : '—',
-        forecast: Number.isFinite(forecastOpMJPY) ? formatOkuFromMJPY(forecastOpMJPY) : '—',
-        target: Number.isFinite(targetOpMJPY) ? formatOkuFromMJPY(targetOpMJPY) : '—',
-        achievementRate: formatRate(opAchievementRate),
-      },
+      revenue: metricViewOf(targetSummary.revenue, actualYear?.revenue.value ?? null),
+      op: metricViewOf(targetSummary.operatingIncome, actualYear?.operatingIncome.value ?? null),
     };
-  }, [s6?.dashboardSummary]);
+  }, [financePL, financeBS, departments, fiscalYearEnd, companyTargets, storedFinancePlan, strategyCompanyId]);
 
   return (
     <div className="space-y-3">
@@ -451,18 +478,20 @@ export default function ExecutionPanel() {
         <div className="mt-3 space-y-3">
           <Stage6MetricRow
             label="売上"
-            current={stage6Summary?.revenue.current ?? '—'}
-            forecast={stage6Summary?.revenue.forecast ?? '—'}
-            target={stage6Summary?.revenue.target ?? '—'}
-            achievementRate={stage6Summary?.revenue.achievementRate ?? '—'}
+            current={stage6Summary.revenue.current}
+            forecast={stage6Summary.revenue.forecast}
+            target={stage6Summary.revenue.target}
+            achievementRate={stage6Summary.revenue.achievementRate}
+            note={stage6Summary.revenue.note}
           />
 
           <Stage6MetricRow
             label="営業利益"
-            current={stage6Summary?.op.current ?? '—'}
-            forecast={stage6Summary?.op.forecast ?? '—'}
-            target={stage6Summary?.op.target ?? '—'}
-            achievementRate={stage6Summary?.op.achievementRate ?? '—'}
+            current={stage6Summary.op.current}
+            forecast={stage6Summary.op.forecast}
+            target={stage6Summary.op.target}
+            achievementRate={stage6Summary.op.achievementRate}
+            note={stage6Summary.op.note}
           />
         </div>
       </div>

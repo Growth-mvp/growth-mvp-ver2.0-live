@@ -79,7 +79,6 @@ type Props = {
   debtEntered: boolean;
   fundingNeed: number | null;
   items: UnconfirmedItem[];
-  reviewCandidateCount: number;
   onNavigate: (tab: FinanceTab) => void;
 };
 
@@ -89,7 +88,6 @@ export function FinanceVerdictPanel({
   debtEntered,
   fundingNeed,
   items,
-  reviewCandidateCount,
   onNavigate,
 }: Props) {
   const forecast = plan.years.filter((y) => y.kind === 'FORECAST');
@@ -105,7 +103,7 @@ export function FinanceVerdictPanel({
 
   const requiredItems = uniqueByLabel(items.filter((i) => i.required));
   const referenceItems = uniqueByLabel(items.filter((i) => !i.required));
-  const hasActions = requiredItems.length > 0 || reviewCandidateCount > 0;
+  const hasActions = requiredItems.length > 0;
 
   return (
     <div className="space-y-6">
@@ -142,20 +140,6 @@ export function FinanceVerdictPanel({
           </div>
         ) : (
           <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
-            {reviewCandidateCount > 0 && (
-              <li className="flex flex-col gap-2 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
-                <span className="text-slate-900">
-                  経営目標と施策の効果を見直す（見直し候補 {reviewCandidateCount}件）
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('target')}
-                  className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 md:self-auto"
-                >
-                  {moveLabelOf('target')}
-                </button>
-              </li>
-            )}
             {requiredItems.map((item) => (
               <li
                 key={item.key}

@@ -89,7 +89,7 @@ function App() {
         />
       </section>
       <section id="s-finance-plan">
-        <FinancePlanSection dashboardSummary={summary as any} reviewCandidateCount={0} />
+        <FinancePlanSection />
       </section>
       <section id="s-cashflow">
         <table>

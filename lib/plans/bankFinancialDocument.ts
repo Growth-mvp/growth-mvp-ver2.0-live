@@ -132,7 +132,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     if (margin !== null) derived.fractions.push(margin);
     return [
       `${y.year}年`,
-      y.kind === 'ACTUAL' ? '実績' : '計画経路',
+      y.kind === 'ACTUAL' ? '実績' : '財務試算',
       formatMillionYen(rv),
       formatMillionYen(oi),
       formatPercent(margin),
@@ -163,16 +163,16 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
       gap.reason ?? '登録目標との差額（承認状態は未確認）',
     ];
   });
-  parts.push('**登録目標と計画経路の比較**');
+  parts.push('**登録目標と財務試算の比較**');
   parts.push(UNIT_MILLION_NOTE);
-  parts.push(mdTable(['項目', '登録目標（百万円）', '計画経路（百万円）', '差額（百万円）', '備考'], targetRows));
+  parts.push(mdTable(['項目', '登録目標（百万円）', '財務試算（百万円）', '差額（百万円）', '備考'], targetRows));
   const sc = t.stage6Scenario;
   parts.push(
-    `計画経路の前提（利用者が設定した目標値への直線補間。独立した業績予測ではなく、正式な目標でもありません）：目標年度 ${sc.targetYear ?? UNCONFIRMED_TEXT}、売上高 ${formatMillionYenText(sc.revenueYen)}、営業利益 ${formatMillionYenText(sc.operatingIncomeYen)}。`,
+    `目標補間の前提（参考。財務試算・キャッシュフローには使用していません。利用者が設定した目標値への直線補間で、独立した業績予測ではありません）：目標年度 ${sc.targetYear ?? UNCONFIRMED_TEXT}、売上高 ${formatMillionYenText(sc.revenueYen)}、営業利益 ${formatMillionYenText(sc.operatingIncomeYen)}。`,
   );
-  if (sc.revenueYen !== null && t.gaps.revenue.differenceYen === 0) {
+  if (t.gaps.revenue.differenceYen === 0) {
     parts.push(
-      '計画経路の目標年度の値は、利用者が設定した目標値と同額です。そのため差額が0になっていますが、これは目標の実現可能性を検証した結果ではありません。',
+      '財務試算の目標年度の売上高が登録目標と同額です。差額が0になっていますが、これは目標の実現可能性を検証した結果ではありません。',
     );
   }
   const s4 = t.stage4Contributions;
