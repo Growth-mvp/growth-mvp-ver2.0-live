@@ -1,3 +1,4 @@
+import { projectFinanceSummary } from '@/lib/plans/financeEffectSummary';
 /**
  * /utils/export/buildPlanData.ts
  *
@@ -17,7 +18,9 @@ export type ProjectImpactRow = {
   impactRevenue?: string;
   impactOpIncome?: string;
   impactInvestment?: string;
-  confidence?: number;
+  /** 確認済み財務効果の売上（円）。未確認・未算定なら null */
+  confirmedRevenueYen?: number | null;
+  confirmedOperatingYen?: number | null;
 };
 
 export type ConfirmedStage2 = {
@@ -262,18 +265,16 @@ export function buildPlanData(
   departments.forEach((dept: Department) => {
     if (Array.isArray(dept?.projects)) {
       dept.projects.forEach((proj: Project) => {
+        const finance = projectFinanceSummary(proj);
         projectImpacts.push({
           title: proj?.title,
-          impactRevenue: proj?.impactRevenueMJPY
-            ? `¥${proj.impactRevenueMJPY}M`
-            : undefined,
-          impactOpIncome: proj?.impactOpIncomeMJPY
-            ? `¥${proj.impactOpIncomeMJPY}M`
-            : undefined,
+          impactRevenue: finance.revenueText,
+          impactOpIncome: finance.operatingText,
+          confirmedRevenueYen: finance.confirmedRevenueYen,
+          confirmedOperatingYen: finance.confirmedOperatingYen,
           impactInvestment: proj?.impactInvestmentMJPY
             ? `¥${proj.impactInvestmentMJPY}M`
             : undefined,
-          confidence: proj?.impactConfidence,
         });
       });
     }
@@ -486,15 +487,12 @@ function extractNorthStarRevenue(
   let projectImpact: string | undefined;
   let totalImpact = 0;
   projectImpacts.forEach((p) => {
-    const impact = p.impactRevenue?.replace(/[¥M]/g, '');
-    if (impact && !isNaN(parseFloat(impact))) {
-      totalImpact += parseFloat(impact);
-    }
+    if (typeof p.confirmedRevenueYen === 'number') totalImpact += p.confirmedRevenueYen / 1_000_000;
   });
 
   if (totalImpact > 0) {
     // ★ STAGE4施策効果は「重複未検証」と明記（「参考値」に加えて）
-    projectImpact = `¥${totalImpact.toFixed(0)}M（施策別期待効果の単純合計・重複未検証）`;
+    projectImpact = `¥${totalImpact.toFixed(0)}M（確認済み財務効果の年額合計・全社試算に含まれる内訳）`;
   }
 
   // ★ Step 3: 推奨される目標表示（STAGE2優先、なければ「未設定」）

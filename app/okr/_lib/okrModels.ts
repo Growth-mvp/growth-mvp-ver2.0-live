@@ -390,6 +390,7 @@ export function mergeGeneratedKpisIntoOkrsV2(
     if (draftKpi) {
       if (!kr.target && draftKpi.target) {
         kr.target = Number(draftKpi.target);
+        kr.targetBasis = 'AI_PROVISIONAL';
         filled = true;
       }
       if (!kr.unit && draftKpi.unit) {

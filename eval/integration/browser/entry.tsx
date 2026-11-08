@@ -11,13 +11,12 @@ import { FinancePlanSection } from '@/components/stage6/FinancePlanSection';
 const w = window as any;
 w.__calls = [] as any[];
 
-function FinanceHarness(props: { id: string; initial?: any; legacy?: any }) {
+function FinanceHarness(props: { id: string; initial?: any }) {
   const [effect, setEffect] = useState<any>(props.initial);
   return (
     <div id={props.id}>
       <FinanceEffectSection
         effect={effect}
-        legacy={props.legacy}
         disabled={false}
         overlapCandidates={[]}
         onChange={(next: any) => {
@@ -38,18 +37,8 @@ function App() {
   return (
     <div>
       <section id="s-fin-empty"><FinanceHarness id="fin-empty" /></section>
-      <section id="s-fin-legacy-diff">
-        <FinanceHarness
-          id="fin-legacy-diff"
-          legacy={{ revenueMJPY: 10 }}
-          initial={{
-            kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', directAmountYen: 20000000, amountBasis: 'ANNUAL',
-            startYm: '2027-04', sourceNote: '架空', source: 'USER_INPUT', confirmed: true, confirmedAt: '2026-11-01T00:00:00.000Z',
-          }}
-        />
-      </section>
       <section id="s-fin-notfin">
-        <FinanceHarness id="fin-notfin" legacy={{ revenueMJPY: 10 }} initial={{ kind: 'NOT_FINANCIAL', source: 'USER_INPUT', confirmed: false }} />
+        <FinanceHarness id="fin-notfin" initial={{ kind: 'NOT_FINANCIAL', source: 'USER_INPUT', confirmed: false }} />
       </section>
       <section id="s-north-star">
         <TargetOverview

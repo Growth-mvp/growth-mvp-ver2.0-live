@@ -1,5 +1,7 @@
 /* 成果見込みの前提から計算結果を作る。前提の保存と金額の反映は別の操作にする（金額は利用者の明示操作だけで書く）。 */
-import { IMPACT_FIELD_BY_ROLE, type ImpactRoleKey } from './impactAdoption';
+import type { AssumptionOrigin } from './financeEffectCandidate';
+
+export type ImpactRoleKey = 'REVENUE' | 'COST' | 'FUTURE';
 
 export type ImpactAssumptions = Record<string, number | undefined>;
 
@@ -15,6 +17,7 @@ export function getImpactResultFromAssumptions(role: ImpactRoleKey | undefined, 
   const a = assumptions ?? {};
 
   if (role === 'REVENUE') {
+    if (toFiniteNumber(a.targetCustomers) === undefined || toFiniteNumber(a.conversionRatePct) === undefined || toFiniteNumber(a.averageDealMJPY) === undefined) return null;
     const targetCustomers = toFiniteNumber(a.targetCustomers) ?? 0;
     const conversionRatePct = toFiniteNumber(a.conversionRatePct) ?? 0;
     const averageDealMJPY = toFiniteNumber(a.averageDealMJPY) ?? 0;
@@ -28,6 +31,7 @@ export function getImpactResultFromAssumptions(role: ImpactRoleKey | undefined, 
   }
 
   if (role === 'COST') {
+    if (toFiniteNumber(a.currentCostMJPY) === undefined || toFiniteNumber(a.reductionRatePct) === undefined) return null;
     const currentCostMJPY = toFiniteNumber(a.currentCostMJPY) ?? 0;
     const reductionRatePct = toFiniteNumber(a.reductionRatePct) ?? 0;
     const opIncomeMJPY = roundImpact(currentCostMJPY * (reductionRatePct / 100));
@@ -40,6 +44,7 @@ export function getImpactResultFromAssumptions(role: ImpactRoleKey | undefined, 
   }
 
   if (role === 'FUTURE') {
+    if (toFiniteNumber(a.peopleCount) === undefined || toFiniteNumber(a.durationMonths) === undefined || toFiniteNumber(a.monthlyCostPerPersonMJPY) === undefined) return null;
     const peopleCount = toFiniteNumber(a.peopleCount) ?? 0;
     const durationMonths = toFiniteNumber(a.durationMonths) ?? 0;
     const monthlyCostPerPersonMJPY = toFiniteNumber(a.monthlyCostPerPersonMJPY) ?? 0;
@@ -79,16 +84,11 @@ export function getImpactPreset(role: ImpactRoleKey | undefined, size: 'small' |
 }
 
 /** 前提の保存だけを作る。効果額の欄は変えない */
-export function buildAssumptionPatch(current: ImpactAssumptions | undefined, assumptionPatch: ImpactAssumptions) {
-  return { impactAssumptions: { ...(current ?? {}), ...assumptionPatch } };
+export function buildAssumptionPatch(
+  current: ImpactAssumptions | undefined,
+  assumptionPatch: ImpactAssumptions,
+  origin: AssumptionOrigin = 'USER_INPUT',
+) {
+  return { impactAssumptions: { ...(current ?? {}), ...assumptionPatch }, impactAssumptionsOrigin: origin };
 }
 
-/** 利用者が「反映」したときだけ使う。前提から計算した値を、役割に対応する効果額の欄へ入れる */
-export function buildReflectPatch(
-  role: ImpactRoleKey | undefined,
-  assumptions: ImpactAssumptions | undefined,
-): Record<string, number> | null {
-  const calc = getImpactResultFromAssumptions(role, assumptions);
-  if (!calc || !role) return null;
-  return { [IMPACT_FIELD_BY_ROLE[role]]: calc.resultValue };
-}

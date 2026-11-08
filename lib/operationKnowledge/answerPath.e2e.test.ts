@@ -28,7 +28,7 @@ describe('質問の分類（7つの代表質問）', () => {
   it.each([
     ['財務効果は何を入力すればいい？', 'operation'],
     ['算定根拠って何？', 'operation'],
-    ['確認済みと金額に反映の違いは？', 'operation'],
+    ['確認済みとこの案を財務効果の候補にするの違いは？', 'operation'],
     ['KR実績はどこで入力する？', 'operation'],
     ['条件付きPL・CFって何？', 'operation'],
     ['未算定と出たらどうすればいい？', 'operation'],
@@ -58,11 +58,11 @@ describe('プロンプト組み立て：操作質問には正しい画面の案�
     expect(systemBase).toContain('「算定根拠・出所」');
   });
 
-  it('「確認済みと金額に反映の違いは？」（STAGE4）→ 2つの操作を別物として案内する', () => {
-    const { systemBase } = composeSystemPrompt(STAGE4, '確認済みと金額に反映の違いは？');
+  it('「確認済みとこの案を財務効果の候補にするの違いは？」（STAGE4）→ 2つの操作を別物として案内する', () => {
+    const { systemBase } = composeSystemPrompt(STAGE4, '確認済みとこの案を財務効果の候補にするの違いは？');
     expect(systemBase).toContain('「内容を確認し、確認済みにする」');
-    expect(systemBase).toContain('「この案を金額に反映」');
-    expect(systemBase).toContain('旧北極星の手動金額');
+    expect(systemBase).toContain('「この案を財務効果の候補にする」');
+    expect(systemBase).toContain('未確認');
     expect(systemBase).toContain('別の操作');
   });
 
@@ -106,7 +106,7 @@ describe('プロンプト組み立て：案内の品質（初心者向けの合�
   const operationQueries: [string, { screenId: string }][] = [
     ['財務効果は何を入力すればいい？', STAGE4],
     ['算定根拠って何？', STAGE4],
-    ['確認済みと金額に反映の違いは？', STAGE4],
+    ['確認済みとこの案を財務効果の候補にするの違いは？', STAGE4],
     ['KR実績はどこで入力する？', STAGE5],
     ['条件付きPL・CFって何？', STAGE6],
     ['未算定と出たらどうすればいい？', STAGE6],

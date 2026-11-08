@@ -36,7 +36,6 @@ function Stage4Panel() {
       {project && (
         <FinanceEffectSection
           effect={project.financeEffect}
-          legacy={{ revenueMJPY: project.impactRevenueMJPY, opIncomeMJPY: project.impactOpIncomeMJPY }}
           disabled={false}
           overlapCandidates={[]}
           onChange={(next: any) => patchProject({ financeEffect: next })}

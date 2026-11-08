@@ -127,7 +127,7 @@ export function FinanceEffectProjectList({ projects, years }: { projects: Financ
           <p className="text-[11px] text-slate-500">反映済み {reflected}件 ／ 全{projects.length}件</p>
           <ul className="divide-y divide-slate-100">
             {visible.map((row) => (
-              <ProjectRow key={`${row.deptIndex}:${row.projectIndex}`} row={row} />
+              <ProjectRow key={`${row.deptIndex}:${row.projectIndex}:${row.effectIndex}`} row={row} />
             ))}
           </ul>
           {projects.length > INITIAL_ROWS && (

@@ -188,3 +188,15 @@ describe('修正前の照合式の再現（ID欠落KRの取り違え）', () => 
     expect(locateKrById(list, krId)).toEqual({ ok: false, reason: 'missing-id' });
   });
 });
+
+describe('目標が未設定のKRは、0として差を計算しない（Phase 3-A3）', () => {
+  it('目標未設定・実績ありは「目標未設定」と書き、差は算出しない（NaNにしない）', () => {
+    const v = krActualView({ ...kr('kr-u', '継続率'), target: undefined, actual: actual(92) });
+    expect(v).toMatchObject({ status: 'recorded', targetText: '目標未設定', actualText: '92 %' });
+    expect((v as any).diffText).not.toMatch(/NaN|undefined|[+−]\d/);
+  });
+
+  it('目標未設定・実績なしは「目標未設定」と書く', () => {
+    expect(krActualView({ ...kr('kr-v', '継続率'), target: undefined })).toEqual({ status: 'unrecorded', targetText: '目標未設定' });
+  });
+});

@@ -9,7 +9,6 @@ import {
   financeEffectViewModel,
   normalizeFinanceEffect,
 } from '@/lib/financeEffect';
-import { adoptableImpact } from '@/lib/okr/impactAdoption';
 import { mergeImpacts } from '@/utils/stage6/autoLinking';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 
@@ -214,8 +213,6 @@ describe('STAGE4 Phase 2.5 財務効果の正の情報源（架空企業）', ()
 
 describe('自動書き込みの条件（AI反映・前提編集・プリセット）', () => {
   it('AI案の反映は、既存の値があれば上書きしない。前提編集・プリセットは無条件に上書きする', () => {
-    const aiOverSet = adoptableImpact({ role: 'REVENUE', draftImpact: { revenueMJPY: 30 }, calculatedValue: 120, current: { impactRevenueMJPY: 10 } });
-    const aiEmpty = adoptableImpact({ role: 'REVENUE', draftImpact: { revenueMJPY: 30 }, calculatedValue: 120, current: {} });
 
     const current = { impactRevenueMJPY: 10, impactAssumptions: { conversionRatePct: 20, averageDealMJPY: 20 } };
     const editedTarget = assumptionWrite(current, { targetCustomers: 30 });
@@ -223,14 +220,10 @@ describe('自動書き込みの条件（AI反映・前提編集・プリセッ�
     const preset = assumptionWrite(current, { targetCustomers: 30, conversionRatePct: 20, averageDealMJPY: 20 });
 
     R['自動書き込み'] = {
-      AI案反映_既存値あり: aiOverSet,
-      AI案反映_空欄: aiEmpty,
       前提編集_targetCustomersを30に: { 直前: 10, 書き込み後: editedTarget.impactRevenueMJPY },
       前提編集_targetCustomersを空欄に: { 直前: 10, 書き込み後: editedEmpty.impactRevenueMJPY },
       プリセット_標準: { 直前: 10, 書き込み後: preset.impactRevenueMJPY },
     };
-    expect(aiOverSet.kind).toBe('already_set');
-    expect(aiEmpty).toEqual({ kind: 'adoptable', field: 'impactRevenueMJPY', value: 120 });
     expect(editedTarget.impactRevenueMJPY).toBe(120);
     expect(editedEmpty.impactRevenueMJPY).toBe(0);
     expect(preset.impactRevenueMJPY).toBe(120);

@@ -7,6 +7,17 @@ import { buildBankFinancialFacts } from '../bankFinancialDocument';
 import { buildPlanExportDocument } from './planExportDocument';
 import { buildPlanPdfDefinition } from './toPdf';
 
+const revenueEffect = (mjpy: number) => ({
+  kind: 'REVENUE_UP',
+  method: 'DIRECT_AMOUNT',
+  directAmountYen: mjpy * 1_000_000,
+  amountBasis: 'ANNUAL',
+  startYm: '2026-04',
+  sourceNote: '架空',
+  source: 'USER_INPUT',
+  confirmed: true,
+});
+
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const STRATEGY = '33333333-3333-4333-8333-333333333333';
 const NOW_YEAR = 2026;
@@ -51,7 +62,7 @@ const departments = [
       {
         title: 'A社開拓',
         planStatus: 'approved',
-        impactRevenueMJPY: 120,
+        financeEffect: revenueEffect(120),
         skillPlans: [
           { id: 'sk1', skillName: '設備', cost: 30_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: '2027-03' } },
         ],

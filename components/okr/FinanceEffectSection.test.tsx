@@ -85,4 +85,11 @@ describe('STAGE4 財務効果の入力欄', () => {
     const confirm = screen.getByText('内容を確認し、確認済みにする') as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
   });
+
+  it('詳細設定で未設定の施策は、直接金額で登録でき、未確認のまま作られる', () => {
+    const onChange = jest.fn();
+    render(<FinanceEffectSection mode="details" effect={undefined} disabled={false} overlapCandidates={[]} onChange={onChange} />);
+    fireEvent.click(screen.getByText('金額を直接入力して登録する'));
+    expect(onChange).toHaveBeenCalledWith({ kind: 'REVENUE_UP', source: 'USER_INPUT', confirmed: false, method: 'DIRECT_AMOUNT' });
+  });
 });

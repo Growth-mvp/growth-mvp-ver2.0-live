@@ -126,15 +126,15 @@ const signed = (n: number) => {
 /** 目標と実績の並べ表示用。差は「実績−目標」（同じ単位）。%の差はポイントとして表す。 */
 export function krActualView(kr: KRStructured): KrActualView {
   const unit = String(kr.unit ?? '');
-  const targetText = `${kr.target} ${unit}`.trim();
+  const hasTarget = typeof kr.target === 'number' && Number.isFinite(kr.target);
+  const targetText = hasTarget ? `${kr.target} ${unit}`.trim() : '目標未設定';
   if (!kr.actual) return { status: 'unrecorded', targetText };
-  const diff = kr.actual.value - Number(kr.target);
   const diffUnit = unit === '%' ? 'ポイント' : unit;
   return {
     status: 'recorded',
     targetText,
     actualText: `${kr.actual.value} ${unit}`.trim(),
-    diffText: `${signed(diff)}${diffUnit}`,
+    diffText: hasTarget ? `${signed(kr.actual.value - kr.target)}${diffUnit}` : '目標未設定のため差を算出できない',
     asOf: kr.actual.asOf,
     recordedAt: kr.actual.recordedAt,
     ...(kr.actual.note ? { note: kr.actual.note } : {}),

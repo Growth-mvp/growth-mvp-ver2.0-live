@@ -67,15 +67,9 @@ ${guidance}
 `;
 }
 
-function revenueSortValue(text: string | undefined): number {
-  if (!text) return Number.NEGATIVE_INFINITY;
-  const n = parseFloat(text.replace(/[¥M,]/g, ''));
-  return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
-}
-
 function compareRevenueDesc(a: ProjectImpactRow, b: ProjectImpactRow): number {
-  const av = revenueSortValue(a.impactRevenue);
-  const bv = revenueSortValue(b.impactRevenue);
+  const av = a.confirmedRevenueYen ?? Number.NEGATIVE_INFINITY;
+  const bv = b.confirmedRevenueYen ?? Number.NEGATIVE_INFINITY;
   if (av === bv) return 0;
   return bv > av ? 1 : -1;
 }
@@ -105,7 +99,7 @@ export function bankStage34Block(planData: PlanData & { bankFinancialPlan?: Bank
     const mainLines = main
       .map(
         (p) =>
-          `- ${p.title}（${p.departmentName}）：売上寄与 ${formatMillionYenText(p.revenueYen)} ／ 営業利益寄与 ${formatMillionYenText(p.operatingIncomeYen)} ／ 承認状態 ${p.planStatus === 'approved' ? '承認済み' : '承認未確認'}`,
+          `- ${p.title}（${p.departmentName}）：財務効果（売上） ${formatMillionYenText(p.revenueYen)} ／ 財務効果（営業利益） ${formatMillionYenText(p.operatingIncomeYen)} ／ 承認状態 ${p.planStatus === 'approved' ? '承認済み' : '承認未確認'}`,
       )
       .join('\n');
     return `【部門別戦略】（部門：${coverageNote(totalDepartments, shownDepartments.length)}）
@@ -126,14 +120,14 @@ ${mainLines}
       : shownProjects
           .map(
             (p) =>
-              `- ${p.title || '（名称未入力）'}：売上寄与 ${p.impactRevenue ?? '未定'} ／ 営業利益寄与 ${p.impactOpIncome ?? '未定'} ／ 投資額 ${p.impactInvestment ?? '未定'}`,
+              `- ${p.title || '（名称未入力）'}：財務効果（売上） ${p.impactRevenue ?? '未定'} ／ 財務効果（営業利益） ${p.impactOpIncome ?? '未定'} ／ 投資額 ${p.impactInvestment ?? '未定'}`,
           )
           .join('\n');
 
   return `【部門別戦略】（部門：${coverageNote(totalDepartments, shownDepartments.length)}）
 ${departmentLines}
 
-【実行施策・期待効果】（施策：${coverageNote(totalProjects, shownProjects.length)}。売上寄与の大きい順）
+【実行施策・期待効果】（施策：${coverageNote(totalProjects, shownProjects.length)}。財務効果（売上）の大きい順）
 ${projectLines}
 ※掲載範囲外の部門・施策があります。計画書で全件が反映されたように書かず、掲載件数と全件数を明記すること。`;
 }

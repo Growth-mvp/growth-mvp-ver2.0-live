@@ -30,10 +30,18 @@ export function applyProjectImpactPatch(st: any, dIdx: number, pIdx: number, pat
   if (!projPrev) return st;
 
   const touchesImpact = IMPACT_KEYS.some((k) => k in patch);
-  const guardedPatch =
-    'financeEffect' in patch
-      ? { ...patch, financeEffect: guardFinanceEffectConfirmation(projPrev.financeEffect, patch.financeEffect) }
-      : patch;
+  let guardedPatch: Record<string, any> = patch;
+  if ('financeEffect' in patch) {
+    guardedPatch = { ...guardedPatch, financeEffect: guardFinanceEffectConfirmation(projPrev.financeEffect, patch.financeEffect) };
+  }
+  if ('financeEffects' in patch) {
+    const prevList: unknown[] = Array.isArray(projPrev.financeEffects) ? projPrev.financeEffects : [];
+    const nextList: unknown[] = Array.isArray(patch.financeEffects) ? patch.financeEffects : [];
+    guardedPatch = {
+      ...guardedPatch,
+      financeEffects: nextList.map((e, i) => guardFinanceEffectConfirmation(prevList[i], e)).filter((e) => e !== undefined),
+    };
+  }
   const projectUid = touchesImpact ? projPrev.projectUid ?? newProjectUid() : projPrev.projectUid;
   const nextProj = { ...projPrev, ...guardedPatch, ...(projectUid ? { projectUid } : {}) };
 

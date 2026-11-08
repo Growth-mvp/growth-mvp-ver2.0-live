@@ -13,6 +13,17 @@
 import { buildPlanData, type PlanData } from './buildPlanData';
 import type { StrategyData } from '@/types/strategy';
 
+const revenueEffect = (mjpy: number) => ({
+  kind: 'REVENUE_UP',
+  method: 'DIRECT_AMOUNT',
+  directAmountYen: mjpy * 1_000_000,
+  amountBasis: 'ANNUAL',
+  startYm: '2026-04',
+  sourceNote: '架空',
+  source: 'USER_INPUT',
+  confirmed: true,
+});
+
 // ★ テストケース1: STAGE2売上目標がある場合
 describe('buildPlanData - STAGE2売上目標がある場合', () => {
   it('should use STAGE2 company target as primary revenue goal', () => {
@@ -69,11 +80,11 @@ describe('buildPlanData - STAGE4施策効果のみの場合', () => {
         {
           name: 'Sales',
           projects: [
-            { title: '施策1', impactRevenueMJPY: 120 },
-            { title: '施策2', impactRevenueMJPY: 90 },
-            { title: '施策3', impactRevenueMJPY: 10 },
-            { title: '施策4', impactRevenueMJPY: 250 },
-            { title: '施策5', impactRevenueMJPY: 18 },
+            { title: '施策1', financeEffect: revenueEffect(120)},
+            { title: '施策2', financeEffect: revenueEffect(90)},
+            { title: '施策3', financeEffect: revenueEffect(10)},
+            { title: '施策4', financeEffect: revenueEffect(250)},
+            { title: '施策5', financeEffect: revenueEffect(18)},
           ],
         },
       ],
@@ -83,7 +94,7 @@ describe('buildPlanData - STAGE4施策効果のみの場合', () => {
 
     // ★ 重要: STAGE4の施策効果合計488Mは参考値
     expect(planData.stage56.projectImpactSum).toContain('¥488M');
-    expect(planData.stage56.projectImpactSum).toContain('重複未検証');
+    expect(planData.stage56.projectImpactSum).toContain('全社試算に含まれる内訳');
 
     // ★ 重要: 北極星目標は「未設定」（488Mではない）
     expect(planData.stage56.northStarRevenue).toContain('未設定');
@@ -110,8 +121,8 @@ describe('buildPlanData - STAGE2とSTAGE4が異なる場合', () => {
         {
           name: 'Operations',
           projects: [
-            { title: '施策A', impactRevenueMJPY: 100 },
-            { title: '施策B', impactRevenueMJPY: 200 },
+            { title: '施策A', financeEffect: revenueEffect(100)},
+            { title: '施策B', financeEffect: revenueEffect(200)},
           ],
         },
       ],

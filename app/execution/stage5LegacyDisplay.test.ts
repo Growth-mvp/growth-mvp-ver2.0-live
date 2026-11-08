@@ -12,15 +12,19 @@ describe('STAGE5：旧方式の金額を財務試算の値として表示しな�
     expect(source).not.toContain('impactRevenueConfidence');
   });
 
-  it('作業進捗率の入力と、STAGE4の目標の表示は残す', () => {
-    expect(source).toContain('作業進捗率%');
-    expect(source).toContain("handleProgressChange('impactRevenueProgress'");
-    expect(source).toContain("handleProgressChange('impactOpIncomeProgress'");
-    expect(source).toContain('売上の目標（STAGE4）');
+  it('作業進捗率は金額と切り離した独立の入力として残し、旧目標カードは表示しない', () => {
+    expect(source).toContain('作業進捗率（%）');
+    expect(source).toContain('handleWorkProgressChange');
+    expect(source).toContain('workProgressPct');
+    expect(source).not.toContain("onChange={(e) => handleProgressChange('impactRevenueProgress'");
+    expect(source).not.toContain("handleProgressChange('impactOpIncomeProgress'");
+    expect(source).toContain('以前の入力（旧方式の売上達成率');
+    expect(source).not.toContain('売上の目標（STAGE4）');
+    expect(source).not.toContain('営業利益の目標（STAGE4）');
   });
 
-  it('財務試算には反映されないことを、利用者に明示する', () => {
-    expect(source).toContain('財務試算には未反映');
-    expect(source).not.toMatch(/反映されます。\s*\n/);
+  it('進捗率は財務試算に入らないことを、利用者に明示する', () => {
+    expect(source).toContain('金額や財務効果は変わりません');
+    expect(source).toContain('STAGE4で確認した財務効果だけが反映されます');
   });
 });

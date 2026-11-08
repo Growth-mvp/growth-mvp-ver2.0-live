@@ -71,13 +71,19 @@ import {
 } from './_lib/okrModels';
 
 import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
-import { adoptableImpact } from '@/lib/okr/impactAdoption';
 import { FinanceEffectSection } from '@/components/okr/FinanceEffectSection';
+import { FinancialDialoguePanel } from '@/components/okr/FinancialDialoguePanel';
+import { buildExecutionCompanyContext } from '@/lib/stage4/companyContext';
+import { ASSUMPTION_BASIS_LABEL, CAUSAL_LABEL, type AssumptionBasis } from '@/lib/stage4/draftPromptSections';
+import { provenanceAfterEdit, provenanceAfterPreset, provenanceConfirm, reasoningFromDraft } from '@/lib/stage4/provenance';
+import { SavedReasoningSection } from '@/components/okr/SavedReasoningSection';
+import { followUpQuestionsOf, nextFollowUp } from '@/lib/stage4/followUpQuestions';
 import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
+import { buildFinanceEffectCandidate, planCandidateWrite, type AssumptionOrigin } from '@/lib/okr/financeEffectCandidate';
+import { syncEffectWithAssumptions } from '@/lib/okr/financeQuestions';
 import { krLocateMessage, locateKrById } from '@/lib/stage5/krActual';
 import {
   buildAssumptionPatch,
-  buildReflectPatch,
   getImpactPreset,
   getImpactResultFromAssumptions,
   toFiniteNumber,
@@ -739,7 +745,6 @@ function OKRPageContent() {
       impactOpIncomeMJPY: proj?.impactOpIncomeMJPY ?? null,
       impactInvestmentMJPY: proj?.impactInvestmentMJPY ?? null,
       impactAssumptions: proj?.impactAssumptions ?? null,
-      impactProfitMJPY: proj?.impactProfitMJPY ?? null,
       impactRevenueProgress: proj?.impactRevenueProgress ?? null,
       impactProfitProgress: proj?.impactProfitProgress ?? null,
       targetLinkedRevenueId: proj?.targetLinkedRevenueId ?? null,
@@ -747,6 +752,10 @@ function OKRPageContent() {
       impactCategory: proj?.impactCategory ?? null,
       impactConfidence: proj?.impactConfidence ?? null,
       impactRationale: proj?.impactRationale ?? null,
+      draftReasoning: proj?.draftReasoning ?? null,
+      impactAssumptionsOrigin: proj?.impactAssumptionsOrigin ?? null,
+      financeEffect: proj?.financeEffect ?? null,
+      financeEffects: proj?.financeEffects ?? null,
       ownerUserId: proj?.ownerUserId ?? null,
       ownerName: proj?.ownerName ?? null,
     };
@@ -789,14 +798,6 @@ function OKRPageContent() {
     Array.isArray(s?.companyTargets) ? (s.companyTargets as any[]) : [],
   );
 
-  // 期限（North Star目標年）は固定前提：companyTargets の dueYear の最大値を採用
-  const northStarDueYear: number | undefined = useMemo(() => {
-    const ys = companyTargets
-      .map((t: any) => t?.dueYear)
-      .filter((y: any) => typeof y === 'number' && Number.isFinite(y)) as number[];
-    return ys.length ? Math.max(...ys) : undefined;
-  }, [companyTargets]);
-
   /* ============================================================
    * ロールの“影”を保持してリフェッチ上書きを回避（UI都合なので page に残す）
    * ========================================================== */
@@ -824,6 +825,7 @@ function OKRPageContent() {
   {/* STAGE4: 投資・スキルフォームの初期非表示状態管理 */}
   const [showInvestmentForm, setShowInvestmentForm] = useState<boolean>(false);
   const [showSkillForm, setShowSkillForm] = useState<boolean>(false);
+  const [followUpPausedKey, setFollowUpPausedKey] = useState<string | null>(null);
 
   {/* STAGE4: planStatus, skillPlans/humanInvestments CRUD UI */}
   const [addingSkillPlan, setAddingSkillPlan] = useState<{ deptIdx: number; projIdx: number } | null>(null);
@@ -1687,6 +1689,15 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           existingOkrsV2: ensureArray(proj.okrsV2),
           existingKpis: Array.isArray((proj as any)?.kpis) ? (proj as any).kpis : [],
           sourceKpis: sourceKpis,  // ★ STAGE3 固定KPI（AIが変更しない）
+          companyContext: (() => {
+            const st = useStrategyStore.getState() as any;
+            return buildExecutionCompanyContext({
+              department: dept as any,
+              priorityThemes: st?.midtermStrategy?.priorityStrategicThemes,
+              finalStory: st?.finalStory,
+              financePL: st?.financePL,
+            });
+          })(),
           companyStrategy: (() => {
             const st = useStrategyStore.getState() as any;
             const strats = st?.strategiesDataGlobal?.data ?? st?.data;
@@ -1879,25 +1890,10 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           updateProjectRole(dIdx, pIdx, draft.role);
         }
 
-        // 3. impact を更新（既存値がない場合のみ補完）
-        // ★ 修正：売上と営業利益の優先順位を分離して設定
+        // 3. 算定の前提と根拠を保存（金額は書き込まない。金額は財務効果の確認で扱う）
         if (draft.impact) {
           const currentImpact = (selectedProj as any) || {};
           const impactPatch: Record<string, any> = {};
-          const impactRole = (draft.role || (selectedProj as any)?.role) as ImpactRole | undefined;
-          const assumptions = draft.impact.assumptions as ImpactAssumptions | undefined;
-          const calculatedImpact = getImpactResultFromAssumptions(impactRole, assumptions);
-
-          // 効果額は利用者が「反映」したときにだけ入る（役割ごと。既存の承認済み値は変えない）
-          const adoption = adoptableImpact({
-            role: impactRole,
-            draftImpact: draft.impact,
-            calculatedValue: calculatedImpact?.resultValue,
-            current: currentImpact,
-          });
-          if (adoption.kind === 'adoptable') {
-            impactPatch[adoption.field] = adoption.value;
-          }
           if (!currentImpact.impactRationale && draft.impact.rationale) {
             impactPatch.impactRationale = draft.impact.rationale;
           }
@@ -1905,8 +1901,16 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           // ★ 計算前提（assumptions）も保存
           if (draft.impact.assumptions && !currentImpact.impactAssumptions) {
             impactPatch.impactAssumptions = draft.impact.assumptions;
+            impactPatch.impactAssumptionsOrigin = 'AI_PROPOSED';
           }
 
+          if (!currentImpact.draftReasoning) {
+            const savingAssumptions = !!draft.impact.assumptions && !currentImpact.impactAssumptions;
+            const assumptionKeys = savingAssumptions
+              ? Object.keys(draft.impact.assumptions).filter((k) => (draft.impact.assumptions as any)[k] !== undefined && (draft.impact.assumptions as any)[k] !== null)
+              : [];
+            impactPatch.draftReasoning = { ...reasoningFromDraft(draft, assumptionKeys), objectiveProvisional: /d/.test(String(draft.objective ?? '')) };
+          }
           if (Object.keys(impactPatch).length > 0) {
             updateProjectImpactAndSave(dIdx, pIdx, impactPatch);
           }
@@ -2030,7 +2034,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generatedDraft, setGeneratedDraft] = useState<any>(null);
   const [generationSuccess, setGenerationSuccess] = useState(false);
-  const [showDirectImpactInput, setShowDirectImpactInput] = useState(false);
 
   // 表示値：draft があれば draft、無ければ mainOKR から取得
   const displayObjective = objDraft !== null ? objDraft : (mainOKR?.objective ?? '');
@@ -2044,23 +2047,140 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
   // 前提の保存のみ。効果額の欄は変えない（反映は reflectImpactProposal の明示操作だけ）
   const updateImpactAssumptionsAndSave = useCallback(
-    (assumptionPatch: ImpactAssumptions) => {
+    (assumptionPatch: ImpactAssumptions, origin: AssumptionOrigin = 'USER_INPUT', draftExtra?: Record<string, unknown>) => {
       if (!selected || !selectedImpactRole) return;
+      const assumptionsPatch = buildAssumptionPatch(selectedImpactAssumptions, assumptionPatch, origin);
+      const proj = selectedProj as any;
+      const changedKeys = Object.keys(assumptionPatch).filter((k) => (assumptionPatch as any)[k] !== (selectedImpactAssumptions as any)[k]);
+      const prevProvenance = proj?.draftReasoning?.provenance;
+      const nextProvenance =
+        origin === 'PRESET'
+          ? provenanceAfterPreset(prevProvenance, Object.keys(assumptionPatch))
+          : provenanceAfterEdit(prevProvenance, changedKeys);
+      const provenanceChanged = origin === 'PRESET' || changedKeys.length > 0;
+      const provenancePatch =
+        provenanceChanged || draftExtra
+          ? { draftReasoning: { ...(proj?.draftReasoning ?? {}), ...(provenanceChanged ? { provenance: nextProvenance } : {}), ...(draftExtra ?? {}) } }
+          : {};
+      const synced = syncEffectWithAssumptions({
+        effect: proj?.financeEffect,
+        role: selectedImpactRole,
+        prevAssumptions: selectedImpactAssumptions,
+        nextAssumptions: assumptionsPatch.impactAssumptions,
+        rationale: proj?.impactRationale,
+        prevOrigin: proj?.impactAssumptionsOrigin,
+        nextOrigin: origin,
+      });
       updateProjectImpactAndSave(
         selected.deptIdx,
         selected.projIdx,
-        buildAssumptionPatch(selectedImpactAssumptions, assumptionPatch),
+        synced ? { ...assumptionsPatch, ...provenancePatch, financeEffect: synced } : { ...assumptionsPatch, ...provenancePatch },
       );
     },
-    [selected, selectedImpactRole, selectedImpactAssumptions, updateProjectImpactAndSave],
+    [selected, selectedImpactRole, selectedImpactAssumptions, selectedProj, updateProjectImpactAndSave],
   );
 
+  const confirmAssumptionProvenance = useCallback(
+    (key: string) => {
+      if (!selected) return;
+      const proj = selectedProj as any;
+      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+        draftReasoning: { ...(proj?.draftReasoning ?? {}), provenance: provenanceConfirm(proj?.draftReasoning?.provenance, key) },
+      });
+    },
+    [selected, selectedProj, updateProjectImpactAndSave],
+  );
+
+  const answerFollowUp = useCallback(
+    (questionId: string, status: 'answered' | 'skipped', value: string | number | undefined, assumptionKey?: string) => {
+      if (!selected) return;
+      const proj = selectedProj as any;
+      const at = new Date().toISOString();
+      const nextFollowUps = {
+        ...(proj?.draftReasoning?.followUps ?? {}),
+        [questionId]: status === 'answered' ? { status, value, answeredAt: at } : { status, answeredAt: at },
+      };
+      if (assumptionKey && status === 'answered' && typeof value === 'number') {
+        updateImpactAssumptionsAndSave({ [assumptionKey]: value } as ImpactAssumptions, 'USER_INPUT', { followUps: nextFollowUps });
+        return;
+      }
+      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+        draftReasoning: { ...(proj?.draftReasoning ?? {}), followUps: nextFollowUps },
+      });
+    },
+    [selected, selectedProj, updateImpactAssumptionsAndSave, updateProjectImpactAndSave],
+  );
+
+  const reopenFollowUp = useCallback(
+    (questionId: string) => {
+      if (!selected) return;
+      const proj = selectedProj as any;
+      const next = { ...(proj?.draftReasoning?.followUps ?? {}) };
+      delete next[questionId];
+      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+        draftReasoning: { ...(proj?.draftReasoning ?? {}), followUps: next },
+      });
+    },
+    [selected, selectedProj, updateProjectImpactAndSave],
+  );
+
+  const confirmObjectiveProvisional = useCallback(() => {
+    if (!selected) return;
+    const proj = selectedProj as any;
+    updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+      draftReasoning: { ...(proj?.draftReasoning ?? {}), objectiveProvisional: false },
+    });
+  }, [selected, selectedProj, updateProjectImpactAndSave]);
+
+  const adoptKrTarget = useCallback(
+    (rowId: string) => {
+      if (!selected) return;
+      const at = new Date().toISOString();
+      patchDepartments((prev: any) => {
+        const next = Array.isArray(prev) ? [...prev] : [];
+        const dept = next[selected.deptIdx];
+        if (!dept) return prev;
+        const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        const proj = projects[selected.projIdx];
+        if (!proj) return prev;
+        const okrsV2 = (Array.isArray(proj.okrsV2) ? proj.okrsV2 : []).map((k: any) =>
+          String(k?.id) === rowId ? { ...k, targetBasis: 'USER_CONFIRMED', targetAdoptedAt: at } : k,
+        );
+        projects[selected.projIdx] = { ...proj, okrsV2 };
+        next[selected.deptIdx] = { ...dept, projects };
+        return next;
+      });
+      queueStage4SnapshotPersist('stage4_kpi_target_adopted');
+    },
+    [selected, patchDepartments, queueStage4SnapshotPersist],
+  );
+
+  const [financeCandidateNotice, setFinanceCandidateNotice] = useState<{ key: string; text: string } | null>(null);
   const reflectImpactProposal = useCallback(() => {
     if (!selected || !selectedImpactRole) return;
-    const patch = buildReflectPatch(selectedImpactRole, selectedImpactAssumptions);
-    if (!patch) return;
-    updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, patch);
-  }, [selected, selectedImpactRole, selectedImpactAssumptions, updateProjectImpactAndSave]);
+    const proj = selectedProj as any;
+    const candidate = buildFinanceEffectCandidate({
+      role: selectedImpactRole,
+      assumptions: selectedImpactAssumptions,
+      rationale: proj?.impactRationale,
+      origin: proj?.impactAssumptionsOrigin,
+    });
+    let financePatch: Record<string, unknown> = {};
+    const key = keyFor(selected.deptIdx, selected.projIdx);
+    if (candidate.ok) {
+      const write = planCandidateWrite({ primary: proj?.financeEffect, additional: proj?.financeEffects, candidate: candidate.effect });
+      financePatch = write.patch;
+      const text =
+        write.outcome === 'already_has_same_kind'
+          ? '同じ種類の財務効果が既にあるため、候補は作りませんでした（既存の効果は変えていません）'
+          : '財務効果の候補を作りました（未確認。確認するまで財務試算には入りません）';
+      setFinanceCandidateNotice({ key, text });
+    } else {
+      setFinanceCandidateNotice({ key, text: candidate.reason });
+    }
+    if (Object.keys(financePatch).length === 0) return;
+    updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, financePatch);
+  }, [selected, selectedImpactRole, selectedImpactAssumptions, selectedProj, updateProjectImpactAndSave]);
 
   useEffect(() => {
     if (!selected || !mainOKR) return;
@@ -2962,6 +3082,7 @@ const saveEditKr = async (dIdx: number, pIdx: number, krId: string) => {
       ...before,
       label: nextLabel,
       target: t,
+      ...(Number(before.target) !== t ? { targetBasis: 'USER_CONFIRMED', targetAdoptedAt: new Date().toISOString() } : {}),
       unit: (editingKrDraft.unit || undefined) as any,
       due: editingKrDraft.due?.trim() || undefined,
       owner: editingKrDraft.owner?.trim() || undefined,
@@ -3321,9 +3442,162 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
    * ========================================================== */
   const renderSimpleRight = () => {
     if (selected === null || !selectedProj || !selectedDept) return null;
+    const followUpQuestions = followUpQuestionsOf({
+      reasoning: (selectedProj as any).draftReasoning,
+      projectText: [selectedProj.title, (selectedProj as any).hypothesis, (selectedProj as any).rationale, (selectedProj as any).mainLever, (selectedProj as any).kind].filter(Boolean).join(' '),
+      hasCausalWhyUs: !!(selectedProj as any).draftReasoning?.causalChain?.whyUs,
+    });
+    const followUpPaused = followUpPausedKey === keyFor(selected.deptIdx, selected.projIdx);
+    const followUpView = nextFollowUp(followUpQuestions, (selectedProj as any).draftReasoning?.followUps, selectedImpactAssumptions, (selectedProj as any).draftReasoning?.provenance);
+
+    const assumptionEditorNode = (
+      <div className="space-y-3">
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <button
+          type="button"
+          onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'small'), 'PRESET')}
+          disabled={isHydrating || isApproved()}
+          className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+        >
+          小さめ
+        </button>
+        <button
+          type="button"
+          onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'standard'), 'PRESET')}
+          disabled={isHydrating || isApproved()}
+          className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+        >
+          標準
+        </button>
+        <button
+          type="button"
+          onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'large'), 'PRESET')}
+          disabled={isHydrating || isApproved()}
+          className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+        >
+          大きめ
+        </button>
+      </div>
+
+      {(selectedProj as any).role === 'REVENUE' && (
+        <div className="grid grid-cols-3 gap-2">
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">対象顧客数（社）</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.targetCustomers ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ targetCustomers: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">想定受注率（%）</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.conversionRatePct ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ conversionRatePct: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">平均単価</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.averageDealMJPY ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ averageDealMJPY: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+        </div>
+      )}
+
+      {(selectedProj as any).role === 'COST' && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">現在コスト</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.currentCostMJPY ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ currentCostMJPY: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">削減率（%）</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.reductionRatePct ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ reductionRatePct: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+        </div>
+      )}
+
+      {(selectedProj as any).role === 'FUTURE' && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">投入人数（人）</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.peopleCount ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ peopleCount: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">実施月数（月）</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.durationMonths ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ durationMonths: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">1人あたり月額</span>
+            <input
+              type="number"
+              step="0.1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.monthlyCostPerPersonMJPY ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ monthlyCostPerPersonMJPY: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] font-semibold text-zinc-700">外部費用</span>
+            <input
+              type="number"
+              step="1"
+              className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+              value={selectedImpactAssumptions.externalCostMJPY ?? ''}
+              onChange={(e) => updateImpactAssumptionsAndSave({ externalCostMJPY: toFiniteNumber(e.target.value) })}
+              disabled={isHydrating || isApproved()}
+            />
+          </label>
+        </div>
+      )}
+      </div>
+    );
 
     return (
       <div className="mx-auto max-w-2xl">
+        <div className="mb-2 px-1 text-[13px] font-bold text-zinc-900">① このプロジェクトで何を実現するか</div>
         {/* ========== なぜこのプロジェクトに取り組むのか（STAGE3由来情報） ========== */}
         <div className="mb-6 rounded-2xl border border-zinc-300 bg-gradient-to-br from-blue-50 to-indigo-50 p-5">
           <h2 className="mb-2 text-[14px] font-semibold text-zinc-900">なぜこのプロジェクトに取り組むのか</h2>
@@ -3384,15 +3658,6 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   {Array.isArray(selectedProj.okrsV2) ? selectedProj.okrsV2.length : 0}件
                 </div>
               </div>
-              <div className="flex-1">
-                <div className="text-[11px] font-semibold text-zinc-600">どこに効くか</div>
-                <div className="mt-1 text-[12px] font-semibold text-zinc-800">
-                  {(selectedProj as any)?.role === 'REVENUE' && '売上を伸ばす'}
-                  {(selectedProj as any)?.role === 'COST' && 'ムダを減らす'}
-                  {(selectedProj as any)?.role === 'FUTURE' && '将来の成長に備える'}
-                  {!(selectedProj as any)?.role && '—'}
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -3442,6 +3707,19 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 disabled={isHydrating || isApproved() || isSavingOkr}
               />
             </div>
+            {(selectedProj as any)?.draftReasoning?.objectiveProvisional && /\d/.test(String(displayObjective ?? '')) && (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-amber-900">
+                <span>目的文の数字はAIの仮目標です（未確認）。</span>
+                <button
+                  type="button"
+                  onClick={confirmObjectiveProvisional}
+                  disabled={isHydrating || isApproved()}
+                  className="rounded-lg border border-amber-300 bg-white px-2 py-0.5 font-semibold hover:bg-amber-50 disabled:opacity-50"
+                >
+                  目的文を確認した
+                </button>
+              </div>
+            )}
 
             {/* ★Phase 1: Project Owner + Due Date */}
             <div className="grid grid-cols-2 gap-3">
@@ -3535,43 +3813,45 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     </div>
                   )}
 
-                  {/* 期待する成果（利用者が「反映」するまで確定値ではない） */}
-                  {generatedDraft.impact && (() => {
-                    const previewRole = (generatedDraft.role || (selectedProj as any)?.role) as ImpactRole | undefined;
-                    const previewCalc = getImpactResultFromAssumptions(previewRole, generatedDraft.impact.assumptions as ImpactAssumptions | undefined);
-                    const adoption = adoptableImpact({
-                      role: previewRole,
-                      draftImpact: generatedDraft.impact,
-                      calculatedValue: previewCalc?.resultValue,
-                      current: (selectedProj as any) || {},
-                    });
-                    const impactLabel: Record<string, string> = {
-                      impactRevenueMJPY: '売上増分',
-                      impactOpIncomeMJPY: '営業利益増分',
-                      impactInvestmentMJPY: '必要投資',
-                    };
-                    return (
+                  {generatedDraft.impact?.rationale && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">期待する成果：</span>
-                      <div className="text-indigo-700 mt-1 ml-2 text-[11px]">
-                        {adoption.kind === 'adoptable' && (
-                          <p>• {impactLabel[adoption.field]}: {adoption.value}百万円（「反映」するまで確定値ではありません）</p>
-                        )}
-                        {adoption.kind === 'already_set' && (
-                          <p>• {impactLabel[adoption.field]}: 既存の承認済みの値（{String(adoption.current)}百万円）を変えません</p>
-                        )}
-                        {generatedDraft.impact.rationale && (
-                          <p className="mt-1 italic">根拠: {generatedDraft.impact.rationale}</p>
-                        )}
-                      </div>
+                      <span className="font-medium text-indigo-800">根拠：</span>
+                      <p className="mt-1 ml-2 text-[11px] italic text-indigo-700">{generatedDraft.impact.rationale}</p>
                     </div>
-                    );
-                  })()}
+                  )}
+                  {generatedDraft.causalChain && (
+                    <div className="mb-3 text-[12px]">
+                      <span className="font-medium text-indigo-800">因果関係（AIの仮説）：</span>
+                      <ul className="mt-1 ml-2 space-y-0.5 text-[11px] text-indigo-700">
+                        {Object.entries(generatedDraft.causalChain).map(([k, v]) => (
+                          <li key={k}>・{CAUSAL_LABEL[k as keyof typeof CAUSAL_LABEL] ?? k}：{String(v)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {Array.isArray(generatedDraft.verificationItems) && generatedDraft.verificationItems.length > 0 && (
+                    <div className="mb-3 text-[12px]">
+                      <span className="font-medium text-indigo-800">確認すべき数値・根拠：</span>
+                      <ul className="mt-1 ml-2 list-disc pl-4 text-[11px] text-indigo-700">
+                        {generatedDraft.verificationItems.map((item: string, i: number) => (
+                          <li key={i}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {generatedDraft.assumptionBasis && (
+                    <div className="mb-3 text-[11px] text-indigo-700">
+                      <span className="font-medium text-indigo-800">前提の根拠区分：</span>
+                      {Object.entries(generatedDraft.assumptionBasis).map(([k, v]) => (
+                        <span key={k} className="ml-2">{k}：{ASSUMPTION_BASIS_LABEL[v as AssumptionBasis] ?? String(v)}</span>
+                      ))}
+                    </div>
+                  )}
 
                   {/* KPI案 */}
                   {Array.isArray(generatedDraft.kpis) && generatedDraft.kpis.length > 0 && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">KPI案：</span>
+                      <span className="font-medium text-indigo-800">KPI案（AIの仮目標。採用するまで確定しません）：</span>
                       <div className="text-indigo-700 mt-1 ml-2 text-[11px] space-y-2">
                         {generatedDraft.kpis.map((kpi: any, idx: number) => (
                           <div key={idx} className="border-l-2 border-indigo-300 pl-2">
@@ -3625,55 +3905,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
           {/* ========== Card 2: 成長につながる変化 ========== */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">このプロジェクトによる最終成果</h2>
-            {(() => {
-              const hypothesis =
-                typeof (selectedProj as any)?.hypothesis === 'string'
-                  ? (selectedProj as any).hypothesis.trim()
-                  : '';
-              const kind = (selectedProj as any)?.kind as string | undefined;
-              const mainLever = (selectedProj as any)?.mainLever as string | undefined;
-              const horizon = (selectedProj as any)?.horizon as string | undefined;
-
-              const kindLabel = kind ? (KIND_JA[kind] ?? kind) : '';
-              const leverLabel = mainLever ? (LEVER_JA[mainLever] ?? mainLever) : '';
-              const horizonLabel = horizon ? (HORIZON_JA[horizon] ?? horizon) : '';
-
-              return (
-                <div className="mb-4 rounded-md border bg-slate-50 p-3">
-                  <div className="text-xs font-semibold text-slate-600">この取り組みで変えるポイント</div>
-                  <div className="mt-1 text-[11px] text-slate-500">例：既存顧客への提案内容を変える／重点顧客を絞る／作業のムダを減らす／新しい市場への接点を作る</div>
-
-                  <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
-                    <span className="font-medium">仮説：</span>{hypothesis || '—'}
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-slate-700">成長のポイント：</span>
-
-                    {kindLabel && (
-                      <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">
-                        {kindLabel}
-                      </span>
-                    )}
-                    {leverLabel && (
-                      <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">
-                        {leverLabel}
-                      </span>
-                    )}
-                    {horizonLabel && (
-                      <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">
-                        {horizonLabel}
-                      </span>
-                    )}
-
-                    {!kindLabel && !leverLabel && !horizonLabel && (
-                      <span className="text-xs text-slate-500">—</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
+            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">② 売上・利益への効果を一緒に考える</h2>
             {/* ★STAGE4拡張：ロール（財務レバー） - 現場向けに言い換え */}
             <div className="mb-4 space-y-2">
               <label className="text-[11px] font-semibold text-zinc-700">どこに効く取り組みか</label>
@@ -3754,291 +3986,82 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               )}
             </div>
 
-            {/* ★ 期待する成果（金額ゴール統合）- 前提入力 + 自動計算 */}
-            {(selectedProj as any)?.role && (
-              <div className="mt-4 border-t border-zinc-200 pt-4">
-                <h3 className="mb-2 text-[13px] font-semibold text-zinc-800">
-                  成果見込みと計算根拠<span className="text-[11px] font-normal text-zinc-500">（AIが置いた目安・修正可）</span>
-                </h3>
-                <div className="mb-3 text-[11px] text-zinc-600">
-                  AIが置いた成果見込みです。前提を修正しても、登録済みの金額は変わりません。「この案を金額に反映」は、旧北極星の手動金額（売上・営業利益の影響額）を書き換えます。財務効果の確認（下の「財務効果の算定根拠」）とは別の操作で、条件付きPL・CF試算には入りません。
-                </div>
-
-                <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-semibold text-blue-900">AIが置いた前提（修正できます）</div>
-                    <div className="text-[10px] text-blue-700">単位：百万円</div>
-                  </div>
-
-                  <div className="mb-3 grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'small'))}
-                      disabled={isHydrating || isApproved()}
-                      className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
-                    >
-                      小さめ
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'standard'))}
-                      disabled={isHydrating || isApproved()}
-                      className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
-                    >
-                      標準
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'large'))}
-                      disabled={isHydrating || isApproved()}
-                      className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
-                    >
-                      大きめ
-                    </button>
-                  </div>
-
-                  {(selectedProj as any).role === 'REVENUE' && (
-                    <div className="grid grid-cols-3 gap-2">
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">対象顧客数（社）</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.targetCustomers ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ targetCustomers: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">想定受注率（%）</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.conversionRatePct ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ conversionRatePct: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">平均単価</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.averageDealMJPY ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ averageDealMJPY: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                    </div>
-                  )}
-
-                  {(selectedProj as any).role === 'COST' && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">現在コスト</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.currentCostMJPY ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ currentCostMJPY: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">削減率（%）</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.reductionRatePct ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ reductionRatePct: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                    </div>
-                  )}
-
-                  {(selectedProj as any).role === 'FUTURE' && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">投入人数（人）</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.peopleCount ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ peopleCount: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">実施月数（月）</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.durationMonths ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ durationMonths: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">1人あたり月額</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.monthlyCostPerPersonMJPY ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ monthlyCostPerPersonMJPY: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] font-semibold text-zinc-700">外部費用</span>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
-                          value={selectedImpactAssumptions.externalCostMJPY ?? ''}
-                          onChange={(e) => updateImpactAssumptionsAndSave({ externalCostMJPY: toFiniteNumber(e.target.value) })}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mb-3 rounded-lg border border-zinc-200 bg-white p-3">
-                  <div className="text-[11px] font-semibold text-zinc-500">計算結果（案・未反映）</div>
-                  <div className="mt-1 flex items-end justify-between gap-3">
-                    <div className="text-[13px] font-semibold text-zinc-800">{selectedImpactCalculation?.resultLabel ?? '見込み効果'}</div>
-                    <div className="text-[20px] font-bold text-zinc-950">
-                      {selectedImpactCalculation?.resultValue ?? 0}
-                      <span className="ml-1 text-[11px] font-semibold text-zinc-500">百万円</span>
-                    </div>
-                  </div>
-                  <div className="mt-2 rounded-md bg-zinc-50 px-2 py-1.5 text-[11px] text-zinc-600">
-                    計算式：{selectedImpactCalculation?.formula ?? '前提を入力すると計算結果が表示されます'}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-zinc-700">
-                    <span>
-                      登録済みの金額：
-                      {selectedImpactCalculation && (selectedProj as any)?.[selectedImpactCalculation.resultKey] !== undefined
-                        ? `${(selectedProj as any)[selectedImpactCalculation.resultKey]}百万円`
-                        : '未登録'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={reflectImpactProposal}
-                      disabled={!selectedImpactCalculation || isHydrating || isApproved()}
-                      className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
-                    >
-                      この案を金額に反映
-                    </button>
-                  </div>
-                  {selectedImpactCalculation &&
-                    (selectedProj as any)?.[selectedImpactCalculation.resultKey] !== undefined &&
-                    (selectedProj as any)[selectedImpactCalculation.resultKey] !== selectedImpactCalculation.resultValue && (
-                      <p className="mt-1 text-[11px] text-amber-800">
-                        反映すると、登録済みの金額が案の値に置き換わります。
-                      </p>
-                    )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowDirectImpactInput((v) => !v)}
-                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-700"
-                >
-                  {showDirectImpactInput ? '▼ 金額を直接修正する' : '▶ 金額を直接修正する'}
-                </button>
-
-                {showDirectImpactInput && (
-                  <div className="mt-2 space-y-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-                    {(selectedProj as any).role === 'REVENUE' && (
-                      <div className="space-y-1">
-                        <div className="text-[11px] font-semibold text-zinc-700">売上への見込み効果（百万円）</div>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                          placeholder="例：300"
-                          value={selectedProj.impactRevenueMJPY ?? ''}
-                          onChange={(e) => {
-                            if (!selected) return;
-                            const raw = e.target.value;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactRevenueMJPY: raw === '' ? undefined : Number(raw),
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </div>
-                    )}
-
-                    {(selectedProj as any).role === 'COST' && (
-                      <div className="space-y-1">
-                        <div className="text-[11px] font-semibold text-zinc-700">利益への見込み効果（百万円）</div>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                          placeholder="例：50"
-                          value={selectedProj.impactOpIncomeMJPY ?? ''}
-                          onChange={(e) => {
-                            if (!selected) return;
-                            const raw = e.target.value;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </div>
-                    )}
-
-                    {(selectedProj as any).role === 'FUTURE' && (
-                      <div className="space-y-1">
-                        <div className="text-[11px] font-semibold text-zinc-700">必要な投資（百万円）</div>
-                        <input
-                          type="number"
-                          step="1"
-                          className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                          placeholder="例：30"
-                          value={selectedProj.impactInvestmentMJPY ?? ''}
-                          onChange={(e) => {
-                            if (!selected) return;
-                            const raw = e.target.value;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+            {selectedProj && selected && (
+              <SavedReasoningSection
+                reasoning={(selectedProj as any).draftReasoning}
+                assumptions={selectedImpactAssumptions}
+                disabled={isHydrating || isApproved()}
+                onConfirm={confirmAssumptionProvenance}
+                view={followUpView}
+                onAnswer={(q, value) => answerFollowUp(q.id, 'answered', value, q.assumptionKey)}
+                onSkip={(q) => answerFollowUp(q.id, 'skipped', undefined)}
+                onReopen={(q) => reopenFollowUp(q.id)}
+                onConfirmObjective={confirmObjectiveProvisional}
+                paused={followUpPaused}
+                onPause={() => setFollowUpPausedKey(keyFor(selected.deptIdx, selected.projIdx))}
+                onResume={() => setFollowUpPausedKey(null)}
+              />
             )}
-          {selectedProj && selected && (
-            <FinanceEffectSection
-              effect={(selectedProj as any).financeEffect}
-              legacy={{
-                revenueMJPY: (selectedProj as any).impactRevenueMJPY,
-                opIncomeMJPY: (selectedProj as any).impactOpIncomeMJPY,
-              }}
-              disabled={isHydrating || isApproved()}
-              overlapCandidates={findFinanceEffectOverlapCandidates(departments, selected.deptIdx, selected.projIdx)}
-              onChange={(next) => updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffect: next })}
-            />
-          )}
+            {selectedProj && selected && (
+              <FinancialDialoguePanel
+                key={keyFor(selected.deptIdx, selected.projIdx)}
+                deferQuestions={!!followUpView.current && !followUpPaused}
+                role={selectedImpactRole}
+                assumptions={selectedImpactAssumptions}
+                calc={
+                  selectedImpactCalculation
+                    ? {
+                        resultLabel: selectedImpactCalculation.resultLabel,
+                        resultValue: selectedImpactCalculation.resultValue,
+                        formula: selectedImpactCalculation.formula,
+                      }
+                    : null
+                }
+                effect={(selectedProj as any).financeEffect}
+                origin={(selectedProj as any).impactAssumptionsOrigin}
+                disabled={isHydrating || isApproved()}
+                notice={
+                  financeCandidateNotice && financeCandidateNotice.key === keyFor(selected.deptIdx, selected.projIdx)
+                    ? financeCandidateNotice.text
+                    : null
+                }
+                onEffectChange={(next) => updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffect: next })}
+                onCreateCandidate={reflectImpactProposal}
+                assumptionEditor={assumptionEditorNode}
+                detailsSlot={
+                  <div className="space-y-3">
+                    <FinanceEffectSection
+                      mode="details"
+                      effect={(selectedProj as any).financeEffect}
+                      disabled={isHydrating || isApproved()}
+                      overlapCandidates={findFinanceEffectOverlapCandidates(departments, selected.deptIdx, selected.projIdx)}
+                      origin={(selectedProj as any).impactAssumptionsOrigin}
+                      onChange={(next) => updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffect: next })}
+                    />
+                    {((selectedProj as any).financeEffects ?? []).map((extra: any, i: number) => (
+                      <FinanceEffectSection
+                        key={`extra-effect-${i}`}
+                        mode="details"
+                        label={`追加の財務効果 ${i + 1}`}
+                        effect={extra}
+                        disabled={isHydrating || isApproved()}
+                        overlapCandidates={[]}
+                        origin={(selectedProj as any).impactAssumptionsOrigin}
+                        onChange={(next) => {
+                          const list: any[] = [...((selectedProj as any).financeEffects ?? [])];
+                          if (next === undefined) list.splice(i, 1);
+                          else list[i] = next;
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffects: list });
+                        }}
+                      />
+                    ))}
+                  </div>
+                }
+              />
+            )}
           </div>
 
+          <div className="px-1 text-[13px] font-bold text-zinc-900">③ 具体的にどう実行するか</div>
           {/* ========== Card 3: 成長KPI ========== */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">成長KPI</h2>
@@ -4447,6 +4470,16 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           <div className="flex items-start justify-between gap-2">
             <div className="text-[13px] font-semibold text-zinc-800">{label || '（未入力）'}</div>
             <div className="flex gap-2">
+              {(kr as any).targetBasis === 'AI_PROVISIONAL' && (
+                <button
+                  type="button"
+                  onClick={() => adoptKrTarget(rowId)}
+                  disabled={isHydrating || isApproved()}
+                  className="h-8 rounded-lg border border-amber-300 bg-amber-50 px-3 text-[12px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  この目標を採用
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => startEditKr(kr as any, rowId)}
@@ -4469,6 +4502,9 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-zinc-700">
             <div>
               <span className="text-zinc-500">目標:</span> {target} {unit}
+              {(kr as any).targetBasis === 'AI_PROVISIONAL' && (
+                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">AIの仮目標（未確認）</span>
+              )}
             </div>
             <div>
               <span className="text-zinc-500">期限:</span> {due || '-'}
@@ -5299,370 +5335,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             </div>
           </details>
 
-          {/* ========== Card 6: 金額ゴール（North Star寄与） - Card 2 に統合したため非表示 ========== */}
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hidden">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">金額ゴール（North Star寄与）</h2>
-            {/* ★STAGE4拡張：財務ゴール（North Star寄与・百万円） */}
-            {(selectedProj as any)?.role && (
-              <div className="mb-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-semibold text-zinc-700">金額ゴール（North Star寄与）</label>
-                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600">
-                    期限：{northStarDueYear ?? '未設定'}
-                  </span>
-                </div>
 
-                {(selectedProj as any).role === 'REVENUE' && (
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-2">
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">売上寄与（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：3000"
-                        value={selectedProj.impactRevenueMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactRevenueMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：70"
-                        value={
-                          typeof selectedProj.impactConfidence === 'number'
-                            ? Math.round(selectedProj.impactConfidence * 100)
-                            : ''
-                        }
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {(selectedProj as any).role === 'COST' && (
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-2">
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">営業利益寄与（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：500（コスト削減なら＋）"
-                        value={selectedProj.impactOpIncomeMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：70"
-                        value={
-                          typeof selectedProj.impactConfidence === 'number'
-                            ? Math.round(selectedProj.impactConfidence * 100)
-                            : ''
-                        }
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {(selectedProj as any).role === 'FUTURE' && (
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-2">
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">投資（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：2000"
-                        value={selectedProj.impactInvestmentMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：50"
-                        value={
-                          typeof selectedProj.impactConfidence === 'number'
-                            ? Math.round(selectedProj.impactConfidence * 100)
-                            : ''
-                        }
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-1 hidden">
-                  <div className="text-[11px] font-semibold text-zinc-700">根拠メモ（任意）</div>
-                  <input
-                    type="text"
-                    className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                    placeholder="例：単価×数量の見直し、工数削減、人員再配置など"
-                    value={selectedProj.impactRationale ?? ''}
-                    onChange={(e) => {
-                      if (!selected) return;
-                      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { impactRationale: e.target.value });
-                    }}
-                    disabled={isHydrating || isApproved()}
-                  />
-                </div>
-
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
-                  入力した金額ゴールは、STAGE6の「North Star vs 予測」「プロジェクト寄与」に<strong>手動寄与（固定）</strong>として反映されます。
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ========== Card 7: プロジェクト共通マイルストーン（任意） ========== */}
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hidden">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">プロジェクト共通マイルストーン（任意）</h2>
-{/* Milestones */}
-<div className="mb-4 space-y-2">
-  <div className="flex items-center justify-between">
-    <label className="text-[11px] font-semibold text-zinc-700">プロジェクト共通マイルストーン（任意・0〜2推奨）</label>
-    <div className="text-[11px] text-zinc-500">{(((selectedProj as any).planMilestones || []) as any[]).length}件</div>
-  </div>
-  <div className="text-[10px] text-zinc-500 italic">主要なマイルストーンはKPI内で設定してください</div>
-
-  {/* List */}
-  <div className="space-y-2">
-    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).map((mItem: any, idx: number) => {
-      const title = String(mItem?.title ?? '');
-      const dueYm = String(mItem?.dueYm ?? '');
-      return (
-        <div key={String(mItem?.id ?? idx)} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-semibold text-zinc-900 truncate">{title || '（タスク名未入力）'}</div>
-              <div className="mt-1 text-[11px] text-zinc-600">期限：{dueYm || '—'}</div>
-            </div>
-            {!isApproved() && (
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-700"
-                  onClick={() => {
-                    setEditingMilestoneIdx(idx);
-                    setNewMilestoneFormData({ title, dueYm });
-                  }}
-                >
-                  編集
-                </button>
-                <button
-                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
-                  onClick={() => {
-                    if (!selected) return;
-                    patchDepartments((prev: any) => {
-                      const next = [...prev];
-                      const dept = { ...next[selected.deptIdx] };
-                      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                      const proj = { ...(projs[selected.projIdx] as any) };
-                      const list = Array.isArray(proj.planMilestones) ? [...proj.planMilestones] : [];
-                      list.splice(idx, 1);
-                      proj.planMilestones = list;
-                      projs[selected.projIdx] = proj;
-                      dept.projects = projs;
-                      next[selected.deptIdx] = dept;
-                      return next;
-                    });
-                  }}
-                >
-                  削除
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    })}
-
-    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length >= 3 && (
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-[12px] text-zinc-600">
-        推奨は0〜2件です。必要に応じて調整してください。
-      </div>
-    )}
-
-    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length === 0 && (
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-[12px] text-zinc-600">
-        まだ工程がありません。まずは「タスク名」と「期限（YYYY-MM）」を追加してください。
-        {!isApproved() && (
-          <div className="mt-2">
-            <button
-              className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100"
-              onClick={() => {
-                if (!selected) return;
-                patchDepartments((prev: any) => {
-                  const next = [...prev];
-                  const dept = { ...next[selected.deptIdx] };
-                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                  const proj = { ...(projs[selected.projIdx] as any) };
-                  proj.planMilestones = [
-                    { id: cryptoRandomId(), title: '調査・要件整理', dueYm: '' },
-                    { id: cryptoRandomId(), title: '設計・準備', dueYm: '' },
-                    { id: cryptoRandomId(), title: '実行・展開', dueYm: '' },
-                  ];
-                  projs[selected.projIdx] = proj;
-                  dept.projects = projs;
-                  next[selected.deptIdx] = dept;
-                  return next;
-                });
-              }}
-            >
-              例の3行を入れる
-            </button>
-          </div>
-        )}
-      </div>
-    )}
-  </div>
-
-  {/* Add/Edit form */}
-  {!isApproved() && (
-    <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-3">
-      <div className="mb-2 text-[12px] font-semibold text-zinc-900">
-        {editingMilestoneIdx != null ? 'マイルストーンを編集' : 'マイルストーンを追加'}
-      </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div>
-          <div className="mb-1 text-[11px] font-semibold text-zinc-700">タスク名</div>
-          <input
-            className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-            placeholder="例：提案書作成、社内説明会、PoC実施"
-            value={newMilestoneFormData.title}
-            onChange={(e) => setNewMilestoneFormData({ ...newMilestoneFormData, title: e.target.value })}
-            disabled={isHydrating}
-          />
-        </div>
-        <div>
-          <div className="mb-1 text-[11px] font-semibold text-zinc-700">期限（YYYY-MM）</div>
-          <input
-            className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-            placeholder="2026-03"
-            value={newMilestoneFormData.dueYm}
-            onChange={(e) => setNewMilestoneFormData({ ...newMilestoneFormData, dueYm: e.target.value })}
-            disabled={isHydrating}
-          />
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          className="rounded-xl bg-gray-200 px-4 py-2 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
-          disabled={isHydrating || newMilestoneFormData.title.trim() === ''}
-          onClick={() => {
-            if (!selected) return;
-            const payload = {
-              id: cryptoRandomId(),
-              title: newMilestoneFormData.title.trim(),
-              dueYm: newMilestoneFormData.dueYm.trim(),
-            };
-
-            patchDepartments((prev: any) => {
-              const next = [...prev];
-              const dept = { ...next[selected.deptIdx] };
-              const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-              const proj = { ...(projs[selected.projIdx] as any) };
-              const list = Array.isArray(proj.planMilestones) ? [...proj.planMilestones] : [];
-
-              if (editingMilestoneIdx != null) {
-                list[editingMilestoneIdx] = { ...list[editingMilestoneIdx], ...payload, id: list[editingMilestoneIdx]?.id ?? payload.id };
-              } else {
-                list.push(payload);
-              }
-
-              proj.planMilestones = list;
-              projs[selected.projIdx] = proj;
-              dept.projects = projs;
-              next[selected.deptIdx] = dept;
-              return next;
-            });
-
-            setNewMilestoneFormData({ title: '', dueYm: '' });
-            setEditingMilestoneIdx(null);
-          }}
-        >
-          {editingMilestoneIdx != null ? '更新' : '追加'}
-        </button>
-
-        <button
-          className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-100"
-          onClick={() => {
-            setNewMilestoneFormData({ title: '', dueYm: '' });
-            setEditingMilestoneIdx(null);
-          }}
-        >
-          クリア
-        </button>
-      </div>
-    </div>
-  )}
-
-            </div>
-          </div>
         </div>
       </div>
     );

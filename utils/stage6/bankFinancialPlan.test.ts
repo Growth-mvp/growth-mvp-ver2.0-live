@@ -376,13 +376,12 @@ describe('9. STAGE4投資額との連携', () => {
     );
   });
 
-  it('施策別の期待効果は単純合計として別項目に置き、未入力の施策は件数で示す', () => {
+  it('旧見込みの金額は施策効果の集計に入れず、確認済みの財務効果がなければ未算定にする', () => {
     const s = block.sections!.financialTargets.stage4Contributions;
-    expect(s.revenueYen).toBe(100_000_000);
-    expect(s.operatingIncomeYen).toBe(10_000_000);
+    expect(s.revenueYen).toBeNull();
+    expect(s.operatingIncomeYen).toBeNull();
     expect(s.projectCount).toBe(2);
-    expect(s.missingValueCount).toBe(1);
-    expect(s.note).toContain('単純合計');
+    expect(s.note).toContain('確認済み');
   });
 });
 
@@ -529,8 +528,9 @@ describe('9. 正式な売上・営業利益と旧見込みの分離', () => {
     const row = block.sections!.revenuePlan.years.find((y) => y.year === 2027)!;
     expect(row.revenue.value).toBe(1_050_000_000);
     expect(row.operatingIncome.value).toBe(55_000_000);
-    const legacy = block.sections!.financialTargets.stage4Contributions;
-    expect(legacy.revenueYen).toBe(100_000_000);
-    expect(legacy.note).toContain('正式な売上・営業利益（統一財務試算）には含めていません');
+    const effects = block.sections!.financialTargets.stage4Contributions;
+    expect(effects.revenueYen).toBe(50_000_000);
+    expect(effects.operatingIncomeYen).toBe(5_000_000);
+    expect(effects.note).toContain('そこへ加算しません');
   });
 });

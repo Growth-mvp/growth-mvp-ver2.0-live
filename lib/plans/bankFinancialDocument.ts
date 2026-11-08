@@ -179,7 +179,7 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   if (s4.revenueYen !== null) derived.yen.push(s4.revenueYen);
   if (s4.operatingIncomeYen !== null) derived.yen.push(s4.operatingIncomeYen);
   parts.push(
-    `実行施策の期待効果の単純合計：売上高 ${formatMillionYenText(s4.revenueYen)}、営業利益 ${formatMillionYenText(s4.operatingIncomeYen)}（対象 ${s4.projectCount}件、金額未入力 ${s4.missingValueCount}件）。${s4.note}`,
+    `確認済み財務効果の年額合計（全社試算に含まれる内訳・加算不要）：売上高 ${formatMillionYenText(s4.revenueYen)}、営業利益 ${formatMillionYenText(s4.operatingIncomeYen)}（施策 ${s4.projectCount}件、未確認・未算定の効果 ${s4.missingValueCount}件）。${s4.note}`,
   );
 
   // B. 投資・資金需要
@@ -392,11 +392,11 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     p.investmentRecordCount === 0 ? '未登録' : formatMillionYen(p.investmentYen),
     approvalLabel(p.planStatus),
   ]);
-  appendixParts.push(UNIT_MILLION_NOTE + '（売上寄与・営業利益寄与は期待効果、登録件数は件）');
+  appendixParts.push(UNIT_MILLION_NOTE + '（財務効果は確認済みの年額換算、登録件数は件）');
   appendixParts.push(
     allProjectRows.length > 0
       ? mdTable(
-          ['施策（百万円）', '担当部門', '売上寄与', '営業利益寄与', '投資の登録（件）', '投資の合計', '承認状態'],
+          ['施策（百万円）', '担当部門', '財務効果（売上）', '財務効果（営業利益）', '投資の登録（件）', '投資の合計', '承認状態'],
           allProjectRows,
         )
       : '登録されている実行施策はありません。',

@@ -1255,61 +1255,31 @@ function ExecPanel(props: {
     ? departments?.[di]?.projects?.[pi]
     : null;
 
-  // 成果見込み率の更新ハンドラ（STAGE6シミュレーションの前提）
-  const handleProgressChange = useCallback(
-    (field: 'impactRevenueProgress' | 'impactOpIncomeProgress', value: string) => {
+  // 作業進捗率（財務効果・金額とは独立した記録。金額は変えない）
+  const handleWorkProgressChange = useCallback(
+    (value: string) => {
       if (typeof di !== 'number' || typeof pi !== 'number') return;
 
       const parsed = parseInt(value, 10);
-      const oldValue = field === 'impactRevenueProgress'
-        ? stage4Proj?.impactRevenueProgress
-        : stage4Proj?.impactOpIncomeProgress;
-
-      let numValue: number | undefined;
-      if (value === '') {
-        numValue = undefined;
-      } else if (isNaN(parsed)) {
-        numValue = oldValue;
-      } else {
-        numValue = Math.max(0, Math.min(100, parsed));
-      }
-
-      if (numValue === oldValue) return;
+      const numValue = value === '' || isNaN(parsed) ? undefined : Math.max(0, Math.min(100, parsed));
 
       updateDepartments((prev) => {
         const next = [...prev];
         const dept = next[di];
         if (!dept) return prev;
 
-        const deptCopy = { ...dept };
         const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
         const proj = projs[pi];
         if (!proj) return prev;
 
-        const projCopy = { ...proj };
-        (projCopy as any)[field] = numValue;
-        projs[pi] = projCopy;
-        deptCopy.projects = projs;
-        next[di] = deptCopy;
+        projs[pi] = { ...proj, workProgressPct: numValue };
+        next[di] = { ...dept, projects: projs };
         return next;
-      });
-
-      const state = useStrategyStore.getState();
-      const proj = state.departments?.[di]?.projects?.[pi];
-
-      console.log('[STAGE5-impact-forecast-change]', {
-        field,
-        oldValue,
-        newValue: numValue,
-        projectId: proj?.id,
-        departmentId: state.departments?.[di]?.id,
-        action: 'delegating to useAutoSave via dirty flag',
-        timestamp: new Date().toISOString(),
       });
 
       useStrategyStore.setState({ dirty: true });
     },
-    [di, pi, stage4Proj, updateDepartments]
+    [di, pi, updateDepartments]
   );
 
   const projectHypothesis = String(
@@ -1655,70 +1625,34 @@ function ExecPanel(props: {
         )}
 
 
-        {/* 作業の進捗（財務試算には反映しない） */}
+        {/* 作業の進捗（金額・財務効果とは別の記録） */}
         {stage4Proj && (
           <section className="rounded-3xl border border-blue-100 bg-blue-50/40 p-5 shadow-sm">
-            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="text-xs font-medium text-blue-700 tracking-wide mb-1">作業の進捗</div>
-                <h3 className="text-sm font-semibold text-blue-950">この施策の作業がどこまで進んだか</h3>
-                <p className="mt-1 text-xs leading-5 text-blue-800/80">
-                  ここで入力するのは作業の進捗率です。財務試算（STAGE6）には、STAGE4で利用者が確認済みにした財務効果だけが反映されます。ここでの入力は財務試算に反映されません。
-                </p>
-              </div>
-              <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">財務試算には未反映</span>
+            <div className="mb-4">
+              <div className="text-xs font-medium text-blue-700 tracking-wide mb-1">作業の進捗</div>
+              <h3 className="text-sm font-semibold text-blue-950">この施策の作業がどこまで進んだか</h3>
+              <p className="mt-1 text-xs leading-5 text-blue-800/80">
+                ここで入力するのは作業の進捗率です。金額や財務効果は変わりません。財務試算（STAGE6）には、STAGE4で確認した財務効果だけが反映されます。
+              </p>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {typeof stage4Proj.impactRevenueMJPY === 'number' && (
-                <div className="rounded-2xl border border-blue-100 bg-white p-4">
-                  <div className="text-xs font-semibold text-gray-800">売上の目標（STAGE4）</div>
-                  <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactRevenueMJPY}百万円</div>
-                  <label className="mt-3 block text-xs text-gray-600">
-                    作業進捗率%
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={stage4Proj.impactRevenueProgress ?? ''}
-                      onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                      placeholder="例：20"
-                    />
-                  </label>
-                </div>
-              )}
-
-              {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
-                <div className="rounded-2xl border border-blue-100 bg-white p-4">
-                  <div className="text-xs font-semibold text-gray-800">営業利益の目標（STAGE4）</div>
-                  <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactOpIncomeMJPY}百万円</div>
-                  <label className="mt-3 block text-xs text-gray-600">
-                    作業進捗率%
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={stage4Proj.impactOpIncomeProgress ?? ''}
-                      onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                      placeholder="例：10"
-                    />
-                  </label>
-                </div>
-              )}
-
-              {typeof stage4Proj.impactRevenueMJPY !== 'number' && typeof stage4Proj.impactOpIncomeMJPY !== 'number' && (
-                <div className="rounded-2xl border border-blue-100 bg-white p-4 md:col-span-2">
-                  <div className="text-xs font-semibold text-gray-800">売上・営業利益の目標は未設定です</div>
-                  <p className="mt-1 text-xs leading-5 text-gray-600">
-                    目標と財務効果の登録・確認は、STAGE4で行います。
-                  </p>
-                </div>
-              )}
-            </div>
+            <label className="block max-w-xs text-xs text-gray-600">
+              作業進捗率（%）
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={(stage4Proj as any).workProgressPct ?? ''}
+                onChange={(e) => handleWorkProgressChange(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                placeholder="例：20"
+              />
+            </label>
+            {typeof (stage4Proj as any).impactRevenueProgress === 'number' && (
+              <p className="mt-3 text-xs leading-5 text-gray-600">
+                以前の入力（旧方式の売上達成率 {(stage4Proj as any).impactRevenueProgress}%）は保存されたままです。作業進捗率には自動で移していません。必要なら上の欄に改めて入力してください。
+              </p>
+            )}
           </section>
         )}
 
@@ -2465,6 +2399,14 @@ function ExecutionPageContent() {
 
   // ===== 選択（実行支援：OKR）=====
   const [selected, setSelected] = useState<SelectedExecutionItem | null>(null);
+  // 会社を切り替えたら、前の会社で選んだ施策を残さない
+  const scopeCompanyKey = useStrategyStore((st: any) => st.companyId ?? null);
+  const prevScopeCompanyKeyRef = useRef(scopeCompanyKey);
+  useEffect(() => {
+    if (prevScopeCompanyKeyRef.current === scopeCompanyKey) return;
+    prevScopeCompanyKeyRef.current = scopeCompanyKey;
+    setSelected(null);
+  }, [scopeCompanyKey]);
 
   const selectedDi = selected?.di;
   const selectedPi = selected?.pi;

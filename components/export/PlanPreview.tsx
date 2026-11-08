@@ -296,10 +296,10 @@ export default function PlanPreview({
                         </h4>
                         <div className="text-sm text-gray-700 mt-2 space-y-1">
                           {project.impactRevenue && (
-                            <div>📈 売上寄与: {project.impactRevenue}</div>
+                            <div>📈 財務効果（売上）: {project.impactRevenue}</div>
                           )}
                           {project.impactOpIncome && (
-                            <div>💰 営業利益寄与: {project.impactOpIncome}</div>
+                            <div>💰 財務効果（営業利益）: {project.impactOpIncome}</div>
                           )}
                           {project.impactInvestment && (
                             <div>💵 投資額: {project.impactInvestment}</div>

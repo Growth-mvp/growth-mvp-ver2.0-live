@@ -37,6 +37,17 @@ import { formatMillionYen } from '@/lib/plans/bankFinancialFormat';
 import { investmentInputMismatches } from '@/lib/plans/projectInvestment';
 import { buildPlanExportDocument, planDocumentPlainText } from '@/lib/plans/export/planExportDocument';
 
+const revenueEffect = (mjpy: number) => ({
+  kind: 'REVENUE_UP',
+  method: 'DIRECT_AMOUNT',
+  directAmountYen: mjpy * 1_000_000,
+  amountBasis: 'ANNUAL',
+  startYm: '2026-04',
+  sourceNote: '架空',
+  source: 'USER_INPUT',
+  confirmed: true,
+});
+
 const YEAR = new Date().getFullYear();
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const OTHER_COMPANY = '22222222-2222-4222-8222-222222222222';
@@ -240,7 +251,7 @@ const CONSISTENCY_DEPARTMENTS = [
       {
         title: 'A社開拓',
         planStatus: 'approved',
-        impactRevenueMJPY: 120,
+        financeEffect: revenueEffect(120),
         skillPlans: [
           { id: 'c1', skillName: '設備', cost: 30_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: `${YEAR + 1}-03` } },
         ],
@@ -248,13 +259,13 @@ const CONSISTENCY_DEPARTMENTS = [
       {
         title: 'B社開拓',
         planStatus: 'draft',
-        impactRevenueMJPY: 50,
+        financeEffect: revenueEffect(50),
         impactInvestmentMJPY: 80,
         skillPlans: [
           { id: 'c2', skillName: '採用', cost: 100_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: `${YEAR + 1}-03` } },
         ],
       },
-      { title: '文化施設の知見展開', planStatus: 'draft', impactRevenueMJPY: 40 },
+      { title: '文化施設の知見展開', planStatus: 'draft', financeEffect: revenueEffect(40)},
     ],
   },
 ];
@@ -312,8 +323,8 @@ describe('同一のモック企業データで銀行・株主・社員の3種類
 
   it('期待売上寄与が3種類で一致する', async () => {
     const r = await generateAll();
-    expect(r.shareholder.prompt).toContain('売上寄与: ¥120M');
-    expect(r.employee.prompt).toContain('売上寄与: ¥120M');
+    expect(r.shareholder.prompt).toContain('財務効果（売上）: 年額換算 +120百万円（確認済み）');
+    expect(r.employee.prompt).toContain('財務効果（売上）: 年額換算 +120百万円（確認済み）');
     expect(r.bank.text).toContain('| A社開拓 | 営業部 | 120.0 |');
     expect(r.shareholder.text).toContain('120百万円');
   });

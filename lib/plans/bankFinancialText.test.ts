@@ -20,6 +20,17 @@ import {
   finalizeBankPlanText,
 } from './bankFinancialText';
 
+const revenueEffect = (mjpy: number) => ({
+  kind: 'REVENUE_UP',
+  method: 'DIRECT_AMOUNT',
+  directAmountYen: mjpy * 1_000_000,
+  amountBasis: 'ANNUAL',
+  startYm: '2026-04',
+  sourceNote: '架空',
+  source: 'USER_INPUT',
+  confirmed: true,
+});
+
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const OTHER_COMPANY = '22222222-2222-4222-8222-222222222222';
 const STRATEGY = '33333333-3333-4333-8333-333333333333';
@@ -537,7 +548,7 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
               { id: 'sk1', skillName: '設備', cost: 30_000_000, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: '2027-03' } },
             ],
           },
-          { title: '文化施設事業の知見を商業・ホテル施設へ展開', planStatus: 'draft', impactRevenueMJPY: 120 },
+          { title: '文化施設事業の知見を商業・ホテル施設へ展開', planStatus: 'draft', financeEffect: revenueEffect(120)},
         ],
       },
     ] as unknown as Department[];
@@ -553,7 +564,7 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
 
   it('売上寄与が無くても投資額の大きい施策は主要施策に含める', () => {
     const projects = [
-      ...[10, 20, 30, 40, 50, 60].map((v, i) => ({ title: `売上施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: v })),
+      ...[10, 20, 30, 40, 50, 60].map((v, i) => ({ title: `売上施策${i + 1}`, planStatus: 'approved', financeEffect: revenueEffect(v)})),
       {
         title: '設備投資施策',
         planStatus: 'approved',
@@ -568,20 +579,20 @@ describe('23. 実行施策の一覧（全件・掲載範囲）と内部用語', 
   });
 
   it('掲載数が上限を超える場合は全件数と掲載範囲を明示する', () => {
-    const projects = Array.from({ length: 42 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: 1 }));
+    const projects = Array.from({ length: 42 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', financeEffect: revenueEffect(1)}));
     const md = buildBankFinancialFacts(
       blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })),
     )!.markdown;
     expect(md).not.toContain('主要な施策4件を掲載');
     expect(md).not.toContain('| 施策40 |');
     expect(buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })))!.appendixMarkdown).toContain('全42件を掲載しています。');
-    const many = Array.from({ length: 61 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: 1 }));
+    const many = Array.from({ length: 61 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', financeEffect: revenueEffect(1)}));
     expect(buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects: many }] as unknown as Department[] })))!.appendixMarkdown).toContain('全61件のうち60件を掲載しています。');
   });
 });
 
 describe('24. 本文と参考資料の分離・注意事項の重複', () => {
-  const projects = Array.from({ length: 12 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', impactRevenueMJPY: i + 1 }));
+  const projects = Array.from({ length: 12 }, (_, i) => ({ title: `施策${i + 1}`, planStatus: 'approved', financeEffect: revenueEffect(i + 1)}));
   const facts = () => buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })))!;
 
   it('全件の施策一覧と投資明細は本文に含めず、参考資料に分けて出力する', () => {
@@ -644,9 +655,9 @@ describe('26. 財務表の単位表示', () => {
   });
 
   it('参考資料の金額にも単位を記載する', () => {
-    const projects = [{ title: 'A社開拓', planStatus: 'approved', impactRevenueMJPY: 120 }];
+    const projects = [{ title: 'A社開拓', planStatus: 'approved', financeEffect: revenueEffect(120)}];
     const facts = buildBankFinancialFacts(blockOf(inputs({ departments: [{ name: '営業部', projects }] as unknown as Department[] })))!;
-    expect(facts.appendixMarkdown).toContain('| 施策（百万円） | 担当部門 | 売上寄与 | 営業利益寄与 |');
+    expect(facts.appendixMarkdown).toContain('| 施策（百万円） | 担当部門 | 財務効果（売上） | 財務効果（営業利益） |');
     expect(lineAboveTable(facts.appendixMarkdown, '| 施策（百万円） | 担当部門')).toContain('> 単位：百万円');
   });
 

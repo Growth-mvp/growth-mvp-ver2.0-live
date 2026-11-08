@@ -1,6 +1,5 @@
 import { applyProjectImpactPatch } from './projectImpactPatch';
-import { buildAssumptionPatch, buildReflectPatch, getImpactPreset } from './impactAssumptions';
-import { adoptableImpact } from './impactAdoption';
+import { buildAssumptionPatch, getImpactPreset } from './impactAssumptions';
 import { resolveManualImpacts } from './impactRows';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 
@@ -69,51 +68,13 @@ describe('前提編集・プリセットは、明示的に反映するまで既�
     expect(st1.projectTargetImpacts).toEqual([]);
   });
 
-  it('明示的に反映すると、既存の金額と北極星の行が更新される', () => {
-    const st0 = withRegisteredRevenue(10);
-    const st1 = applyProjectImpactPatch(st0, 0, 0, buildAssumptionPatch(CURRENT_ASSUMPTIONS, { targetCustomers: 30 }));
-    const reflect = buildReflectPatch('REVENUE', projectOf(st1).impactAssumptions);
-    const st2 = applyProjectImpactPatch(st1, 0, 0, reflect!);
-
-    expect(reflect).toEqual({ impactRevenueMJPY: 120 });
-    expect(projectOf(st2).impactRevenueMJPY).toBe(120);
-    expect(revRow(st2).delta).toBe(120);
-    expect(revRow(st2).source).toBe('manual');
-    expect(st2.projectTargetImpacts).toHaveLength(1);
-  });
-
-  it('役割に応じて、反映先の欄が決まる（COST は営業利益、FUTURE は投資）', () => {
-    expect(buildReflectPatch('COST', { currentCostMJPY: 120, reductionRatePct: 10 })).toEqual({ impactOpIncomeMJPY: 12 });
-    expect(
-      buildReflectPatch('FUTURE', { peopleCount: 3, durationMonths: 6, monthlyCostPerPersonMJPY: 1, externalCostMJPY: 12 }),
-    ).toEqual({ impactInvestmentMJPY: 30 });
-    expect(buildReflectPatch(undefined, CURRENT_ASSUMPTIONS)).toBeNull();
-  });
 });
 
-describe('直接入力・AI案の採用は従来どおり動く', () => {
+describe('直接入力は従来どおり保存され、北極星の行にも同期される', () => {
   it('直接入力した金額は保存され、北極星の行にも同期される', () => {
     const st1 = applyProjectImpactPatch(stateWith({}), 0, 0, { impactRevenueMJPY: 15 });
     expect(projectOf(st1).impactRevenueMJPY).toBe(15);
     expect(revRow(st1).delta).toBe(15);
-  });
-
-  it('AI案の採用は、金額が空のときだけ反映される', () => {
-    const empty = adoptableImpact({ role: 'REVENUE', draftImpact: { revenueMJPY: 30 }, calculatedValue: 120, current: {} });
-    expect(empty).toEqual({ kind: 'adoptable', field: 'impactRevenueMJPY', value: 120 });
-    if (empty.kind !== 'adoptable') throw new Error('expected adoptable');
-    const st1 = applyProjectImpactPatch(stateWith({}), 0, 0, { [empty.field]: empty.value });
-    expect(projectOf(st1).impactRevenueMJPY).toBe(120);
-    expect(revRow(st1).delta).toBe(120);
-
-    const set = adoptableImpact({
-      role: 'REVENUE',
-      draftImpact: { revenueMJPY: 30 },
-      calculatedValue: 120,
-      current: { impactRevenueMJPY: 10 },
-    });
-    expect(set.kind).toBe('already_set');
-    expect(projectOf(withRegisteredRevenue(10)).impactRevenueMJPY).toBe(10);
   });
 });
 

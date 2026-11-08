@@ -3,6 +3,8 @@
 // STAGE3から引き継がれたプロジェクト情報をもとに、実行計画のたたき台をAI生成
 
 import 'server-only';
+import type { ExecutionCompanyContext } from '@/lib/stage4/companyContext';
+import { REASONING_OUTPUT_FIELDS, REASONING_RULES, companyContextSection, sanitizeDraftReasoning } from '@/lib/stage4/draftPromptSections';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -33,6 +35,7 @@ interface ExecutionDraftRequest {
   ownerName?: string;
   companyStrategy?: string;
   companyTargets?: any[];
+  companyContext?: ExecutionCompanyContext;
 }
 
 interface ExecutionDraft {
@@ -141,6 +144,7 @@ ${sourceKpisText}
 
 ${projectInfo.companyStrategy ? `【全社戦略】\n${projectInfo.companyStrategy}` : ''}
 ${projectInfo.companyTargets && projectInfo.companyTargets.length > 0 ? `【全社目標】\n${projectInfo.companyTargets.map((t: any) => `- ${t.label}: ${t.base}→${t.high || t.base} (${t.unit})`).join('\n')}` : ''}
+${companyContextSection(projectInfo.companyContext)}
   `.trim();
 
   const prompt = `【重要：現在日時】
@@ -156,6 +160,8 @@ ${projectInfo.companyTargets && projectInfo.companyTargets.length > 0 ? `【全�
 ${projectContext}
 
 ---
+
+${REASONING_RULES}
 
 ## 出力形式
 
@@ -181,7 +187,7 @@ JSON形式で以下を返してください。
       "externalCostMJPY": 数値（FUTURE時のみ）
     }
   },
-  "kpis": [
+${REASONING_OUTPUT_FIELDS}  "kpis": [
     {
       "label": "KPI名",
       "target": 数値,
@@ -311,6 +317,8 @@ JSON形式で以下を返してください。
     const jsonStr = jsonMatch[0];
 
     parsed = JSON.parse(jsonStr) as ExecutionDraft;
+    const reasoning = sanitizeDraftReasoning(parsed);
+    Object.assign(parsed, { causalChain: reasoning.causalChain, assumptionBasis: reasoning.assumptionBasis, verificationItems: reasoning.verificationItems });
 
     // バリデーション
     if (!parsed.objective || typeof parsed.objective !== 'string') {

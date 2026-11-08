@@ -22,6 +22,17 @@ import {
   type FinancePlanDomain,
 } from './financePlanSnapshot';
 
+const revenueEffect = (mjpy: number) => ({
+  kind: 'REVENUE_UP',
+  method: 'DIRECT_AMOUNT',
+  directAmountYen: mjpy * 1_000_000,
+  amountBasis: 'ANNUAL',
+  startYm: '2026-04',
+  sourceNote: '架空',
+  source: 'USER_INPUT',
+  confirmed: true,
+});
+
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const YEAR = 2026;
 
@@ -41,7 +52,7 @@ const departments = [
       {
         title: 'A社開拓',
         planStatus: 'approved',
-        impactRevenueMJPY: 100,
+        financeEffect: revenueEffect(100),
         skillPlans: [
           {
             id: 'sk1',

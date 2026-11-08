@@ -7,6 +7,7 @@ const M = 1_000_000;
 const reflected = (n: number, over: Partial<FinanceEffectProjectRow> = {}): FinanceEffectProjectRow => ({
   deptIndex: 0,
   projectIndex: n,
+  effectIndex: 0,
   deptName: '営業部',
   projectTitle: `施策${n}`,
   status: 'REFLECTED',
@@ -25,6 +26,7 @@ const reflected = (n: number, over: Partial<FinanceEffectProjectRow> = {}): Fina
 const notReflected = (n: number, status: FinanceEffectProjectRow['status'], reason: string): FinanceEffectProjectRow => ({
   deptIndex: 1,
   projectIndex: n,
+  effectIndex: 0,
   deptName: '製造部',
   projectTitle: `未反映${n}`,
   status,

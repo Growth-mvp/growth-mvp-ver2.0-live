@@ -4,22 +4,23 @@ import { FinanceEffectSection } from './FinanceEffectSection';
 
 const M = 1_000_000;
 
-function html(effect: FinanceEffect | undefined, legacy?: { revenueMJPY?: number; opIncomeMJPY?: number }) {
+function html(effect: FinanceEffect | undefined) {
   return renderToStaticMarkup(
-    <FinanceEffectSection effect={effect} legacy={legacy} disabled={false} overlapCandidates={[]} onChange={() => {}} />,
+    <FinanceEffectSection effect={effect} disabled={false} overlapCandidates={[]} onChange={() => {}} />,
   );
 }
 
-describe('財務効果：旧見込みからの候補と営業利益の増分入力', () => {
-  it('効果が未登録で旧見込みの売上があるときだけ、候補の作成を案内する', () => {
-    expect(html(undefined, { revenueMJPY: 60 })).toContain('従来の見込みから候補を作成');
-    expect(html(undefined, {})).not.toContain('従来の見込みから候補を作成');
-    expect(html({ kind: 'REVENUE_UP', source: 'USER_INPUT', confirmed: false }, { revenueMJPY: 60 })).not.toContain('従来の見込みから候補を作成');
+describe('財務効果：旧見込みの表示と営業利益の増分入力', () => {
+  it('旧見込みから候補を作る表示や、旧値との比較は出さない', () => {
+    const out = html(undefined);
+    expect(out).not.toContain('従来の見込みから候補を作成');
+    expect(out).not.toContain('従来の成果見込みと、新しい財務効果の関係');
   });
 
   it('売上増加の施策には、営業利益の増分を任意で入力する欄を出す（原価率は参考のまま）', () => {
     const out = html({ kind: 'REVENUE_UP', source: 'USER_INPUT', confirmed: false, costRatePct: 40 });
-    expect(out).toContain('売上増加に伴う営業利益の増分（百万円・任意');
+    expect(out).toContain('5. 営業利益への増分効果');
+    expect(out).toContain('売上増加に伴う営業利益の増分（百万円・変動費・追加費用を含む純額）');
     expect(out).toContain('原価率（%・参考。利益へは自動で差し引かない）');
   });
 

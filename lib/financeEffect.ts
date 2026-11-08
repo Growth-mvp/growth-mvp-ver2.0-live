@@ -2,6 +2,7 @@ import type {
   FinanceEffect,
   FinanceEffectKind,
   FinanceEffectMethod,
+  FinanceEffectQuestionAnswers,
   FinanceEffectSource,
   SpendAmountBasis,
 } from '@/types/strategy';
@@ -10,6 +11,23 @@ export const FINANCE_EFFECT_KINDS: FinanceEffectKind[] = ['REVENUE_UP', 'COST_RE
 export const FINANCE_EFFECT_METHODS: FinanceEffectMethod[] = ['QUANTITY_UNIT_PRICE', 'FUNNEL', 'DIRECT_AMOUNT'];
 const AMOUNT_BASES: SpendAmountBasis[] = ['TOTAL', 'MONTHLY', 'ANNUAL'];
 const SOURCES: FinanceEffectSource[] = ['AI_PROPOSED', 'USER_INPUT'];
+
+const ANSWER_VALUES: Record<keyof FinanceEffectQuestionAnswers, string[]> = {
+  validity: ['OK', 'EDITED', 'UNKNOWN'],
+  meaning: ['YES', 'NO', 'UNKNOWN'],
+  timing: ['SET', 'UNKNOWN'],
+  operatingIncome: ['SET', 'UNKNOWN'],
+};
+
+function readQuestionAnswers(raw: unknown): FinanceEffectQuestionAnswers | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(ANSWER_VALUES) as (keyof FinanceEffectQuestionAnswers)[]) {
+    if (typeof r[key] === 'string' && ANSWER_VALUES[key].includes(r[key] as string)) out[key] = r[key] as string;
+  }
+  return Object.keys(out).length > 0 ? (out as FinanceEffectQuestionAnswers) : undefined;
+}
 
 export const FINANCE_EFFECT_KIND_LABEL: Record<FinanceEffectKind, string> = {
   REVENUE_UP: '売上増加',
@@ -237,7 +255,18 @@ export function normalizeFinanceEffect(raw: unknown): FinanceEffect | undefined 
   for (const key of ['scopeNote', 'sourceNote', 'overlapNote', 'confirmedAt'] as const) {
     if (typeof r[key] === 'string') out[key] = r[key] as string;
   }
+  for (const key of ['isIncremental', 'meetingBasisConfirmed'] as const) {
+    if (typeof r[key] === 'boolean') out[key] = r[key] as boolean;
+  }
+  const answers = readQuestionAnswers(r.questionAnswers);
+  if (answers) out.questionAnswers = answers;
   return out;
+}
+
+/** 施策の追加の効果（2つ目以降）を読む。読めない項目は捨てる */
+export function normalizeFinanceEffects(raw: unknown): FinanceEffect[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((e) => normalizeFinanceEffect(e)).filter((e): e is FinanceEffect => e !== undefined);
 }
 
 export type FinanceEffectViewModel = {
@@ -304,6 +333,8 @@ const CONFIRMATION_MATERIAL_KEYS = [
   'directAmountYen',
   'costRatePct',
   'operatingIncomeEffectYen',
+  'isIncremental',
+  'meetingBasisConfirmed',
   'scopeNote',
   'sourceNote',
   'source',
@@ -331,78 +362,4 @@ export function guardFinanceEffectConfirmation(prev: unknown, nextRaw: unknown):
   if (confirmedAt) out.confirmedAt = confirmedAt;
   else delete out.confirmedAt;
   return out;
-}
-
-export type LegacyImpactView = {
-  rows: { label: string; value: string }[];
-  notes: string[];
-};
-
-const LEGACY_TOLERANCE_MJPY = 0.0005;
-
-/** 従来の成果見込み（旧値）と財務効果の算定根拠を並べ、食い違いを注記する。旧値は検証済みの値ではない */
-export function compareLegacyImpact(
-  effect: FinanceEffect | undefined,
-  legacy: { revenueMJPY?: number; opIncomeMJPY?: number },
-): LegacyImpactView {
-  const fmt = (mjpy: number) => `${Math.round(mjpy * 1000) / 1000}百万円`;
-  const rows: LegacyImpactView['rows'] = [];
-  const notes: string[] = [];
-
-  if (legacy.revenueMJPY !== undefined) {
-    rows.push({ label: '従来の売上見込み（旧値・検証済みではありません）', value: fmt(legacy.revenueMJPY) });
-  }
-  if (legacy.opIncomeMJPY !== undefined) {
-    rows.push({ label: '従来の営業利益見込み（旧値・検証済みではありません）', value: fmt(legacy.opIncomeMJPY) });
-  }
-
-  const fe = normalizeFinanceEffect(effect);
-  const r = computeFinanceEffect(fe);
-  const confirmedLabel = fe?.confirmed ? '確認済み' : '未確認';
-
-  if (fe?.kind === 'NOT_FINANCIAL') {
-    if (legacy.revenueMJPY !== undefined || legacy.opIncomeMJPY !== undefined) {
-      notes.push('財務換算しない施策ですが、従来の見込み額が入っています。');
-    }
-    return { rows, notes };
-  }
-
-  const finRevenueMJPY = r.annualRevenueYen !== undefined ? r.annualRevenueYen / MILLION_YEN : undefined;
-  const finOpMJPY =
-    r.annualOperatingEffectYen !== undefined
-      ? r.annualOperatingEffectYen / MILLION_YEN
-      : r.oneTimeOperatingEffectYen !== undefined
-        ? r.oneTimeOperatingEffectYen / MILLION_YEN
-        : undefined;
-
-  if (fe && isFinancialKindForView(fe.kind)) {
-    rows.push({
-      label: '財務効果の年額売上',
-      value: finRevenueMJPY !== undefined ? `${fmt(finRevenueMJPY)}（${confirmedLabel}）` : '未算定',
-    });
-    rows.push({
-      label: '財務効果の営業利益への効果',
-      value: finOpMJPY !== undefined ? `${fmt(finOpMJPY)}（${confirmedLabel}）` : '未算定',
-    });
-  } else if (legacy.revenueMJPY !== undefined || legacy.opIncomeMJPY !== undefined) {
-    notes.push('財務効果の算定根拠は未入力です。従来の見込み額は、財務効果に移すまで統一試算には入りません。');
-  }
-
-  if (legacy.revenueMJPY !== undefined && finRevenueMJPY !== undefined && Math.abs(legacy.revenueMJPY - finRevenueMJPY) > LEGACY_TOLERANCE_MJPY) {
-    notes.push(`従来の売上見込み（${fmt(legacy.revenueMJPY)}）と財務効果の年額売上（${fmt(finRevenueMJPY)}）が異なります。統一試算には財務効果だけを使い、旧値は自動では採用しません。`);
-  }
-  if (legacy.opIncomeMJPY !== undefined && finOpMJPY !== undefined && Math.abs(legacy.opIncomeMJPY - finOpMJPY) > LEGACY_TOLERANCE_MJPY) {
-    notes.push(`従来の営業利益見込み（${fmt(legacy.opIncomeMJPY)}）と財務効果の営業利益への効果（${fmt(finOpMJPY)}）が異なります。`);
-  }
-  if (fe && !fe.confirmed && (legacy.revenueMJPY !== undefined || legacy.opIncomeMJPY !== undefined)) {
-    notes.push('財務効果は未確認です。確認するまで、統一試算には入りません。');
-  }
-
-  return { rows, notes };
-}
-
-const MILLION_YEN = 1_000_000;
-
-function isFinancialKindForView(kind: FinanceEffectKind): boolean {
-  return kind === 'REVENUE_UP' || kind === 'COST_REDUCTION' || kind === 'COST_INCREASE';
 }

@@ -24,8 +24,8 @@ const APP_OBJECT = /(画面|欄|部門|SWOT|たたき台|論点|計画書|ルー
 const CONSULT_CUE = /(売上|利益|伸び|成果|効果|本当に|正しい|根拠|判断|リスク|投資|収益|原価|なぜ|動か|動いて|やる気|不満|反発|業績|市場|競合|戦略は|戦略で|勝て|方向性|どう思う)/;
 const ELEMENT_WORD = /(ボタン|タブ|項目|欄|リンク)/;
 /* 画面の用語（財務効果・算定根拠など）は、経営相談の判定から外す。「効果」「根拠」は経営の語としても使われるため */
-const APP_TERM = /(財務効果|財務換算|算定根拠|KR(の)?実績|実績を記録|条件付きPL|条件付きCF|統一PL|参考判定|未算定|確認済み|この案を金額に反映|効果の種類|旧北極星|金額が分からない|金額の入力)/;
-const APP_TERM_OPERATION_CUE = /(入力|入れ|何を|どこ|種類|単位|開始|記録|確認|反映|違い|見方|読み方|意味|どう考|どうすれば|どうしたら|書けば|例|って何|とは|何ですか|何です|何？)/;
+const APP_TERM = /(財務効果|財務換算|算定根拠|KR(の)?実績|実績を記録|条件付きPL|条件付きCF|統一PL|参考判定|未算定|確認済み|この案を財務効果の候補にする|効果の種類|旧北極星|金額が分からない|金額の入力)/;
+const APP_TERM_OPERATION_CUE = /(入力|入れ|何を|どこ|種類|単位|開始|記録|確認|反映|候補|違い|見方|読み方|意味|どう考|どうすれば|どうしたら|書けば|例|って何|とは|何ですか|何です|何？)/;
 const APP_TERM_IN_CONSULT_CHECK = /(財務効果|算定根拠|KR(の)?実績|条件付きPL|条件付きCF|統一PL|参考判定|未算定|確認済み|旧北極星)/g;
 const VALIDITY_ASK = /でよい|でいい|よいか|よいでしょうか|妥当|どうか/;
 const APP_LOCATION_CUE = /STAGE|ステージ|画面|欄|ボタン|タブ|アプリ|GROWTH|どこ|開く|クリック|入力|登録|保存/i;
@@ -86,7 +86,7 @@ export function detectMentionedScreenIds(text: string): string[] {
   if (planAudience.length > 0) ids.push(...planAudience);
   else if (/経営計画書|計画書/.test(text)) ids.push('plan-hub', 'plan-bank', 'plan-shareholder', 'plan-employee');
   if (/条件付きPL|条件付きCF|統一PL|参考判定|未算定/.test(text)) ids.push('stage6');
-  if (/財務効果|算定根拠|効果の種類|この案を金額に反映|旧北極星/.test(text)) ids.push('stage4');
+  if (/財務効果|算定根拠|効果の種類|この案を財務効果の候補にする|旧北極星/.test(text)) ids.push('stage4');
   if (/KR(の)?実績|実績を記録/.test(text)) ids.push('stage5');
   return [...new Set(ids)];
 }

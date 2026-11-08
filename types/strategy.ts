@@ -430,6 +430,9 @@ export type KRStructured = {
 
   /** 目標値（% は 0.10 のように小数推奨） */
   target: number;
+  /** AIが提案した目標値（仮目標）か、利用者が採用・入力した目標値か。未設定は利用者入力の既存値 */
+  targetBasis?: 'AI_PROVISIONAL' | 'USER_CONFIRMED';
+  targetAdoptedAt?: string;
 
   unit: KRUnit;
   due?: ISODateString | Ym;
@@ -571,6 +574,30 @@ export type FinanceEffectKind = 'REVENUE_UP' | 'COST_REDUCTION' | 'COST_INCREASE
 export type FinanceEffectMethod = 'QUANTITY_UNIT_PRICE' | 'FUNNEL' | 'DIRECT_AMOUNT';
 export type FinanceEffectSource = 'AI_PROPOSED' | 'USER_INPUT';
 
+export type AssumptionSource = 'AI_DRAFT' | 'PRESET' | 'USER_INPUT' | 'UNKNOWN';
+
+/** 数値の区分：登録済みの会社実績・利用者入力 / 既存情報からの計算 / AIの仮説 / 固定プリセット / 根拠不足 */
+export type AssumptionBasisKind = 'USER_DATA' | 'DERIVED' | 'HYPOTHESIS' | 'PRESET' | 'MISSING';
+
+export type AssumptionProvenance = {
+  source: AssumptionSource;
+  basis: AssumptionBasisKind;
+  /** 利用者が数値を修正した（元の出所は source のまま残す） */
+  userEdited?: boolean;
+  /** 利用者が内容を確認した（AI仮説を実績に変えるものではない） */
+  userConfirmed?: boolean;
+};
+
+export type ProjectDraftReasoning = {
+  causalChain?: Record<string, string>;
+  verificationItems?: string[];
+  provenance?: Record<string, AssumptionProvenance>;
+  /** AIの確認事項への利用者の回答（回答値・保留）。確定値ではなく、回答として保存する */
+  followUps?: Record<string, { status: 'answered' | 'skipped'; value?: number | string; answeredAt?: string }>;
+  /** 目的文に含まれる数字がAIの仮目標であり、利用者が未確認の状態 */
+  objectiveProvisional?: boolean;
+};
+
 export type FinanceEffect = {
   kind: FinanceEffectKind;
   method?: FinanceEffectMethod;
@@ -596,6 +623,23 @@ export type FinanceEffect = {
   confirmedAt?: string;
   /** 既存実績・他施策との重複についての利用者の説明 */
   overlapNote?: string;
+  /** 既存の売上に対する追加効果か（利用者が確認。AI提案の売上効果は確認必須） */
+  isIncremental?: boolean;
+  /** AI提案の「対象顧客数」を商談数として扱ってよいか（利用者が確認） */
+  meetingBasisConfirmed?: boolean;
+  /** AIの質問への回答（未回答と「まだ分からない」を区別する）。未設定の項目は既存フィールドから推定する */
+  questionAnswers?: FinanceEffectQuestionAnswers;
+};
+
+export type FinanceEffectQuestionAnswers = {
+  /** 数字の妥当性：妥当 / 修正して確認 / まだ分からない */
+  validity?: 'OK' | 'EDITED' | 'UNKNOWN';
+  /** 売上の意味：既存売上への追加 / 既存売上に含まれる / まだ分からない */
+  meaning?: 'YES' | 'NO' | 'UNKNOWN';
+  /** 発生時期：開始月と金額の単位を入力 / まだ分からない */
+  timing?: 'SET' | 'UNKNOWN';
+  /** 営業利益への増分：入力 / まだ分からない（未算定） */
+  operatingIncome?: 'SET' | 'UNKNOWN';
 };
 
 export type SpendSchedule = {
@@ -750,8 +794,11 @@ export type Project = {
   /** ★Phase 1：プロジェクトオーナー（表示名） */
   ownerName?: string | null;
 
-  /** ★Phase 2：財務効果の算定根拠（任意）。STAGE6の統一計算にはまだ接続しない */
+  /** ★Phase 2：財務効果の算定根拠（任意）。1つ目の効果 */
   financeEffect?: FinanceEffect;
+
+  /** 2つ目以降の財務効果（異なる種類の効果を同じ施策に保持する）。任意 */
+  financeEffects?: FinanceEffect[];
 
   /** ★STAGE4 実行計画：スキルプラン（プロジェクト単位） */
   skillPlans?: SkillPlan[];
@@ -777,6 +824,11 @@ export type Project = {
   /** ★STAGE4拡張：寄与の根拠・備考 */
   impactRationale?: string;
 
+  /** 計算前提の出所（AI提案・固定プリセット・利用者入力）。未記録の既存値は出所不明として扱う */
+  impactAssumptionsOrigin?: 'AI_PROPOSED' | 'PRESET' | 'USER_INPUT';
+  /** AI実行計画の根拠（因果関係・根拠区分・確認項目）。AIの出所と利用者の確認・修正を分けて保持する */
+  draftReasoning?: ProjectDraftReasoning;
+
   /** ★STAGE4拡張：期待成果の計算前提（AI案反映時に保存） */
   impactAssumptions?: {
     // REVENUE の場合
@@ -797,6 +849,8 @@ export type Project = {
 
   /** ★STAGE5拡張：北極星売上寄与の達成率（%） */
   impactRevenueProgress?: number;
+  /** 作業の進捗率（0〜100）。金額・財務効果とは独立した記録 */
+  workProgressPct?: number;
 
   /** ★STAGE5拡張：北極星営業利益寄与の達成率（%） */
   impactOpIncomeProgress?: number;

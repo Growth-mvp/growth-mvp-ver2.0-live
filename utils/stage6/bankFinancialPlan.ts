@@ -1,3 +1,4 @@
+import { financeTotals, projectFinanceSummary } from '@/lib/plans/financeEffectSummary';
 import type { CompanyTarget, Department } from '@/types/strategy';
 import { buildCashFlowPlan, type CashFlowPlan, type CfBasis, type CfValue, type WorkingCapitalBreakdown } from './cashflow';
 import { buildFinanceOutlook, type FinanceOutlook } from './financeOutlook';
@@ -261,15 +262,14 @@ function strategyProjectRows(departments: Department[], items: InvestmentItem[])
     const deptName = dept?.name ?? '（未名）';
     for (const p of dept?.projects ?? []) {
       const title = p?.title ?? '（未名）';
-      const r = (p as { impactRevenueMJPY?: unknown }).impactRevenueMJPY;
-      const o = (p as { impactOpIncomeMJPY?: unknown }).impactOpIncomeMJPY;
+      const finance = projectFinanceSummary(p);
       const own = items.filter((it) => it.deptName === deptName && it.projectTitle === title);
       rows.push({
         departmentName: deptName,
         title,
         planStatus: p?.planStatus ?? null,
-        revenueYen: typeof r === 'number' && Number.isFinite(r) ? r * 1_000_000 : null,
-        operatingIncomeYen: typeof o === 'number' && Number.isFinite(o) ? o * 1_000_000 : null,
+        revenueYen: finance.confirmedRevenueYen,
+        operatingIncomeYen: finance.confirmedOperatingYen,
         investmentRecordCount: own.filter((it) => it.duplicateStatus !== 'CANDIDATE').length,
         investmentYen: knownTotal(own),
       });
@@ -279,35 +279,13 @@ function strategyProjectRows(departments: Department[], items: InvestmentItem[])
 }
 
 function stage4Contributions(departments: Department[]) {
-  let revenue = 0;
-  let operatingIncome = 0;
-  let revenueCount = 0;
-  let operatingCount = 0;
-  let projectCount = 0;
-  let missingValueCount = 0;
-  for (const dept of departments) {
-    for (const p of dept.projects ?? []) {
-      projectCount++;
-      const r = (p as { impactRevenueMJPY?: unknown }).impactRevenueMJPY;
-      const o = (p as { impactOpIncomeMJPY?: unknown }).impactOpIncomeMJPY;
-      if (typeof r === 'number' && Number.isFinite(r)) {
-        revenue += r * 1_000_000;
-        revenueCount++;
-      } else {
-        missingValueCount++;
-      }
-      if (typeof o === 'number' && Number.isFinite(o)) {
-        operatingIncome += o * 1_000_000;
-        operatingCount++;
-      }
-    }
-  }
+  const t = financeTotals(departments);
   return {
-    revenueYen: revenueCount > 0 ? revenue : null,
-    operatingIncomeYen: operatingCount > 0 ? operatingIncome : null,
-    projectCount,
-    missingValueCount,
-    note: '旧見込み（施策の従来入力額）の単純合計です。重複未検証のため、正式な売上・営業利益（統一財務試算）には含めていません',
+    revenueYen: t.revenueYen,
+    operatingIncomeYen: t.operatingIncomeYen,
+    projectCount: t.projectCount,
+    missingValueCount: t.pendingCount,
+    note: '確認済みの財務効果の年額換算の合計です。全社の財務試算（統一PL）に含まれる内訳のため、そこへ加算しません。未確認・未算定の効果は含みません。',
   };
 }
 

@@ -43,6 +43,8 @@ export type FinanceEffectProjectYear = {
 export type FinanceEffectProjectRow = {
   deptIndex: number;
   projectIndex: number;
+  /** 施策が持つ効果のうち何番目か（0が financeEffect、1以降が financeEffects） */
+  effectIndex: number;
   deptName: string;
   projectTitle: string;
   status: FinanceEffectProjectStatus;
@@ -119,44 +121,50 @@ export function buildFinanceEffectTrial(args: {
     (dept.projects ?? []).forEach((project, projectIndex) => {
       const target = { deptName: dept.name || '（部署名なし）', projectTitle: project.title || '（施策名なし）' };
       const base = { deptIndex, projectIndex, deptName: target.deptName, projectTitle: target.projectTitle, operatingUnknown: false };
-      const effect = project.financeEffect;
-      const result = computeFinanceEffect(effect);
-      const key = `${deptIndex}:${projectIndex}`;
+      const effects: FinanceEffect[] = [project.financeEffect, ...(Array.isArray(project.financeEffects) ? project.financeEffects : [])].filter(
+        (e): e is FinanceEffect => !!e && typeof e === 'object',
+      );
 
-      if (result.status === 'NOT_SET') {
+      if (effects.length === 0) {
         trial.notSetCount += 1;
-        rows.push({ ...base, status: 'NOT_SET', kind: null, startFiscalYear: null, endFiscalYear: null, reason: '財務効果は未登録', years: [] });
+        rows.push({ ...base, effectIndex: 0, status: 'NOT_SET', kind: null, startFiscalYear: null, endFiscalYear: null, reason: '財務効果は未登録', years: [] });
         return;
       }
-      const kind = (effect?.kind ?? null) as FinanceEffectKind | null;
-      const startFy = effect?.startYm ? fiscalYearOf(effect.startYm, endMonth) : null;
-      const endFy = effect?.endYm ? fiscalYearOf(effect.endYm, endMonth) : null;
-      const notReflected = (status: Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, reason: string) => {
-        rows.push({ ...base, status, kind, startFiscalYear: startFy, endFiscalYear: endFy, reason, years: [] });
-        trial.excluded.push({ ...target, reason });
-      };
-      if (result.status === 'NOT_FINANCIAL') return notReflected('NOT_FINANCIAL', REASON.NOT_FINANCIAL);
-      if (result.status === 'INCOMPLETE') {
-        return notReflected('INCOMPLETE', `${REASON.INCOMPLETE}：${result.missing.join('、')}`);
-      }
-      if (result.status === 'DRAFT' || !effect) return notReflected('DRAFT', REASON.DRAFT);
 
-      const reflectedKind = effect.kind as Flow['kind'];
-      const startIdx = monthIndexOf(effect.startYm!);
-      const endIdx = effect.endYm ? monthIndexOf(effect.endYm) : null;
-      const perMonthYen =
-        effect.amountBasis === 'TOTAL'
-          ? result.totalYen! / (endIdx === null ? 1 : endIdx - startIdx + 1)
-          : result.monthlyYen!;
-      const flowEnd = effect.amountBasis === 'TOTAL' && endIdx === null ? startIdx : endIdx;
-      const opPerMonthYen = reflectedKind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx) : 0;
-      flowsOf.set(key, [{ kind: reflectedKind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen }]);
-      rows.push({ ...base, status: 'REFLECTED', kind, startFiscalYear: startFy, endFiscalYear: endFy, reason: null, years: [] });
-      trial.included.push({ ...target, kind: reflectedKind });
-      if (reflectedKind === 'REVENUE_UP') trial.revenueCostUnknown.push(target);
-      if (project.impactRevenueMJPY !== undefined || project.impactOpIncomeMJPY !== undefined) {
-        trial.legacyReferenced.push(target);
-      }
+      effects.forEach((effect, effectIndex) => {
+        const effectBase = { ...base, effectIndex };
+        const key = `${deptIndex}:${projectIndex}:${effectIndex}`;
+        const result = computeFinanceEffect(effect);
+        const kind = (effect.kind ?? null) as FinanceEffectKind | null;
+        const startFy = effect.startYm ? fiscalYearOf(effect.startYm, endMonth) : null;
+        const endFy = effect.endYm ? fiscalYearOf(effect.endYm, endMonth) : null;
+        const notReflected = (status: Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, reason: string) => {
+          rows.push({ ...effectBase, status, kind, startFiscalYear: startFy, endFiscalYear: endFy, reason, years: [] });
+          trial.excluded.push({ ...target, reason });
+        };
+        if (result.status === 'NOT_FINANCIAL') return notReflected('NOT_FINANCIAL', REASON.NOT_FINANCIAL);
+        if (result.status === 'INCOMPLETE') {
+          return notReflected('INCOMPLETE', `${REASON.INCOMPLETE}：${result.missing.join('、')}`);
+        }
+        if (result.status === 'DRAFT') return notReflected('DRAFT', REASON.DRAFT);
+
+        const reflectedKind = effect.kind as Flow['kind'];
+        const startIdx = monthIndexOf(effect.startYm!);
+        const endIdx = effect.endYm ? monthIndexOf(effect.endYm) : null;
+        const perMonthYen =
+          effect.amountBasis === 'TOTAL'
+            ? result.totalYen! / (endIdx === null ? 1 : endIdx - startIdx + 1)
+            : result.monthlyYen!;
+        const flowEnd = effect.amountBasis === 'TOTAL' && endIdx === null ? startIdx : endIdx;
+        const opPerMonthYen = reflectedKind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx) : 0;
+        flowsOf.set(key, [{ kind: reflectedKind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen }]);
+        rows.push({ ...effectBase, status: 'REFLECTED', kind, startFiscalYear: startFy, endFiscalYear: endFy, reason: null, years: [] });
+        trial.included.push({ ...target, kind: reflectedKind });
+        if (reflectedKind === 'REVENUE_UP') trial.revenueCostUnknown.push(target);
+        if (project.impactRevenueMJPY !== undefined || project.impactOpIncomeMJPY !== undefined) {
+          trial.legacyReferenced.push(target);
+        }
+      });
     });
   });
 
@@ -192,7 +200,7 @@ export function buildFinanceEffectTrial(args: {
 
   for (const row of rows) {
     if (row.status !== 'REFLECTED') continue;
-    const flows = flowsOf.get(`${row.deptIndex}:${row.projectIndex}`) ?? [];
+    const flows = flowsOf.get(`${row.deptIndex}:${row.projectIndex}:${row.effectIndex}`) ?? [];
     row.years = args.fiscalYears.map((fy) => yearsOf(flows, fy));
     row.operatingUnknown = row.years.some((y) => y.operatingIncomeYen === null);
   }

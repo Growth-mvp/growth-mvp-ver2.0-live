@@ -7,6 +7,17 @@ import {
   bankStage34Block,
 } from './bankStrategyPrompt';
 
+const revenueEffect = (mjpy: number) => ({
+  kind: 'REVENUE_UP',
+  method: 'DIRECT_AMOUNT',
+  directAmountYen: mjpy * 1_000_000,
+  amountBasis: 'ANNUAL',
+  startYm: '2026-04',
+  sourceNote: '架空',
+  source: 'USER_INPUT',
+  confirmed: true,
+});
+
 const chapter = (title: string, body: string) => ({ title, body });
 const base = (extra: Record<string, unknown> = {}) => ({ companyName: 'テスト株式会社', departments: [], ...extra });
 
@@ -100,12 +111,11 @@ describe('STAGE2 確定戦略の取り込み', () => {
 describe('STAGE3・4 の件数表示と掲載範囲', () => {
   const departments = Array.from({ length: 12 }, (_, i) => ({
     name: `部門${i + 1}`,
-    projects: [{ title: `部門${i + 1}の施策`, impactRevenueMJPY: 1 }],
+    projects: [{ title: `部門${i + 1}の施策`, financeEffect: revenueEffect(1)}],
   }));
   const projects = Array.from({ length: 25 }, (_, i) => ({
     title: `施策${i + 1}`,
-    impactRevenueMJPY: i + 1,
-    impactOpIncomeMJPY: 1,
+    financeEffect: revenueEffect(i + 1),
   }));
 
   it('部門は上限まで掲載し、全件数と掲載件数を明示する', () => {
