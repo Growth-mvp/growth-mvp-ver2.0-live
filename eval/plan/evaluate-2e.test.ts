@@ -39,7 +39,10 @@ function conforms(schema: any, value: any, p = '$'): string[] {
   const api = buildPlanApiSchema();
   for (const [id, raw] of inputs) {
     const file = path.join(dir, `${id}-ENGINE-2E.json`);
-    if (!existsSync(file)) continue;
+    if (!existsSync(file)) {
+      it.skip(`${id}：保存済みの出力がない（スキップ）`, () => {});
+      continue;
+    }
     it(`${id}：スキーマ・検証器・KPI保護・財務の確認`, async () => {
       const rec = JSON.parse(readFileSync(file, 'utf8'));
       const parsed = JSON.parse(rec.output);

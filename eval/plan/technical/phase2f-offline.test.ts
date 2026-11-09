@@ -26,7 +26,7 @@ const withoutRefs = (v: any): any => {
 };
 
 (existsSync(saved) ? describe : describe.skip)('Phase 2F：保存済みの成長戦略型のオフライン検証', () => {
-  const rec = JSON.parse(readFileSync(saved, 'utf8'));
+  const rec = existsSync(saved) ? JSON.parse(readFileSync(saved, 'utf8')) : { output: '{}' };
   const original = JSON.parse(rec.output);
   const { source, scope } = buildPlanSource(GROWTH_INPUT);
   const ctx = buildPlanContext(source, scope);
