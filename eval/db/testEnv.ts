@@ -105,7 +105,7 @@ export async function createTestEnv(): Promise<TestEnv> {
       return m ? m[1] : null;
     },
     gatewayFor: (_req, userId) => new PgliteGateway(db, userId),
-    generationEnabled: true,
+    enabled: true,
     generation: {
       currentYm: () => '2026-11',
       mapStrategy: mapStrategyRow,

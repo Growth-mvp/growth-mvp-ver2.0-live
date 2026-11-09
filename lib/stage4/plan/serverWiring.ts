@@ -49,7 +49,7 @@ async function openAiCall(prompt: string): Promise<ModelReply> {
 export const stage4PlanApi = createPlanApi({
   verifyUser: (req) => getAuthUserIdFromBearer(getSupabaseAdmin(), req),
   gatewayFor: (req) => createSupabasePlanGateway(userScopedClient(req)),
-  generationEnabled: process.env.STAGE4_PLAN_GENERATION_ENABLED === 'true',
+  enabled: process.env.STAGE4_PLAN_API_ENABLED === 'true',
   generation: {
     now: () => new Date().toISOString(),
     currentYm: () => {

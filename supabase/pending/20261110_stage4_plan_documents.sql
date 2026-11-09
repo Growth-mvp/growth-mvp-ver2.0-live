@@ -10,8 +10,9 @@
 -- 状態: GENERATING（生成中）→ DRAFT（草案あり）。生成に失敗したら GENERATION_FAILED（再試行できる）。
 --       草案（DRAFT）は、作った後に ai_draft を変えられない。草案からは GENERATING 以外へ戻らない。
 -- 競合制御: version（版番号）。更新は「読んだ版番号と同じ時だけ」行い、違えば 0 件になる（競合）。
--- 採用・開始: 利用者の修正内容が変わったら、採用と開始は自動で解除される（トリガー）。
+-- 採用・開始: 利用者の修正内容が変わったら、採用・開始・規制の判断は自動で解除される（トリガー）。修正版は改めて確認する。
 -- 操作履歴: stage4_plan_document_events に、トリガーが追記する（利用者からは書き換え・削除できない）。
+--       解除・取り消しの履歴には、解除前の採用・開始・規制の記録（採用者・日時・版・採用時の内容）をそのまま残す。
 -- ============================================================
 
 create table if not exists public.stage4_plan_documents (
@@ -114,12 +115,13 @@ begin
       using errcode = '40001';
   end if;
 
-  -- 利用者の修正が変わったら、採用と実行開始を解除する（採用時点の内容と一致しなくなるため）
+  -- 利用者の修正が変わったら、採用・実行開始・規制の判断を解除する（修正版は改めて確認する）。解除前の記録は履歴に残る
   if new.status <> 'DRAFT' or new.user_edits is distinct from old.user_edits then
     new.adopted := false;
     new.adoption := null;
     new.started := false;
     new.start_info := null;
+    new.regulatory := '{}'::jsonb;
   end if;
 
   new.updated_at := now();
@@ -142,7 +144,7 @@ create table if not exists public.stage4_plan_document_events (
   action text not null check (action in (
     'GENERATION_STARTED', 'GENERATED', 'GENERATION_FAILED', 'GENERATION_RETRIED',
     'SAVED', 'ADOPTED', 'ADOPTION_CANCELLED', 'ADOPTION_RESET',
-    'REGULATORY_RECORDED', 'STARTED', 'START_CANCELLED', 'START_RESET')),
+    'REGULATORY_RECORDED', 'REGULATORY_RESET', 'STARTED', 'START_CANCELLED', 'START_RESET')),
   version integer not null,
   actor_user_id uuid,
   payload jsonb not null default '{}'::jsonb,
@@ -182,6 +184,7 @@ begin
             new.version, v_actor);
   end if;
 
+  -- 解除・取り消しの履歴には、解除前の記録（採用者・日時・版・採用時の内容、開始者・日時・版、規制の判断）を残す
   if new.user_edits is distinct from old.user_edits then
     insert into public.stage4_plan_document_events
       (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
@@ -191,42 +194,55 @@ begin
       insert into public.stage4_plan_document_events
         (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
       values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTION_RESET', new.version, v_actor,
-              jsonb_build_object('reason', 'EDITED'));
+              jsonb_build_object('reason', 'EDITED', 'adoption', old.adoption));
     end if;
     if old.started then
       insert into public.stage4_plan_document_events
         (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
       values (new.id, new.company_id, new.strategy_id, new.project_id, 'START_RESET', new.version, v_actor,
-              jsonb_build_object('reason', 'EDITED'));
+              jsonb_build_object('reason', 'EDITED', 'start', old.start_info));
     end if;
-  elsif old.adopted and not new.adopted then
-    insert into public.stage4_plan_document_events
-      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
-    values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTION_CANCELLED', new.version, v_actor);
+    if old.regulatory <> '{}'::jsonb then
+      insert into public.stage4_plan_document_events
+        (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+      values (new.id, new.company_id, new.strategy_id, new.project_id, 'REGULATORY_RESET', new.version, v_actor,
+              jsonb_build_object('reason', 'EDITED', 'regulatory', old.regulatory));
+    end if;
+  else
+    if old.adopted and not new.adopted then
+      insert into public.stage4_plan_document_events
+        (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+      values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTION_CANCELLED', new.version, v_actor,
+              jsonb_build_object('adoption', old.adoption));
+    end if;
+    if old.started and not new.started then
+      insert into public.stage4_plan_document_events
+        (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+      values (new.id, new.company_id, new.strategy_id, new.project_id, 'START_CANCELLED', new.version, v_actor,
+              jsonb_build_object('start', old.start_info));
+    end if;
+    if old.regulatory is distinct from new.regulatory and new.regulatory <> '{}'::jsonb then
+      insert into public.stage4_plan_document_events
+        (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+      values (new.id, new.company_id, new.strategy_id, new.project_id, 'REGULATORY_RECORDED', new.version, v_actor,
+              jsonb_build_object('regulatory', new.regulatory));
+    end if;
   end if;
 
   if not old.adopted and new.adopted then
     insert into public.stage4_plan_document_events
       (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
     values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTED', new.version, v_actor,
-            jsonb_build_object('by', new.adoption ->> 'by', 'at', new.adoption ->> 'at'));
-  end if;
-
-  if old.regulatory is distinct from new.regulatory then
-    insert into public.stage4_plan_document_events
-      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
-    values (new.id, new.company_id, new.strategy_id, new.project_id, 'REGULATORY_RECORDED', new.version, v_actor);
+            jsonb_build_object('adoptedVersion', new.adoption -> 'version', 'by', new.adoption -> 'by',
+                               'at', new.adoption -> 'at', 'edits', new.adoption -> 'edits'));
   end if;
 
   if not old.started and new.started then
     insert into public.stage4_plan_document_events
       (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
     values (new.id, new.company_id, new.strategy_id, new.project_id, 'STARTED', new.version, v_actor,
-            jsonb_build_object('by', new.start_info ->> 'by', 'at', new.start_info ->> 'at'));
-  elsif old.started and not new.started and new.user_edits is not distinct from old.user_edits then
-    insert into public.stage4_plan_document_events
-      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
-    values (new.id, new.company_id, new.strategy_id, new.project_id, 'START_CANCELLED', new.version, v_actor);
+            jsonb_build_object('startedVersion', new.start_info -> 'version', 'by', new.start_info -> 'by',
+                               'at', new.start_info -> 'at'));
   end if;
 
   return new;

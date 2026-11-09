@@ -17,8 +17,8 @@ import {
 export type PlanApiDeps = {
   verifyUser: (req: Request) => Promise<string | null>;
   gatewayFor: (req: Request, userId: string) => PlanGateway;
-  /** 生成の経路を使うか（本番では環境変数で切り替える。既定は使わない） */
-  generationEnabled: boolean;
+  /** 新STAGE4の入口を使うか。無効なら認証・データベース・AIのいずれにも触れず 503 を返す（本番では環境変数で有効化。既定は無効） */
+  enabled: boolean;
   generation: Omit<GenerateDeps, 'now'> & { now?: () => string };
   companyNameOf?: (companyId: string) => string;
   now?: () => string;
@@ -119,7 +119,6 @@ export function createPlanApi(deps: PlanApiDeps) {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
     const auth = await withUser(req);
     if ('error' in auth) return auth.error;
-    if (!deps.generationEnabled) return json(503, { status: 'DISABLED' });
 
     const parsed = Key.safeParse(await readJson(req));
     if (!parsed.success) return json(400, { error: 'Invalid input' });
@@ -218,5 +217,11 @@ export function createPlanApi(deps: PlanApiDeps) {
     return json(405, { error: 'Method not allowed' });
   }
 
-  return { plans, generate, transition, identity };
+  const off = async () => json(503, { status: 'DISABLED' });
+  return {
+    plans: (req: Request) => (deps.enabled ? plans(req) : off()),
+    generate: (req: Request) => (deps.enabled ? generate(req) : off()),
+    transition: (req: Request) => (deps.enabled ? transition(req) : off()),
+    identity: (req: Request) => (deps.enabled ? identity(req) : off()),
+  };
 }

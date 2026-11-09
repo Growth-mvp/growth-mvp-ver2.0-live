@@ -66,6 +66,13 @@ async function main() {
   };
   const gen = (userId: string, projectId: string) =>
     generatePlanDraft(ctxOf(db, userId), { companyId: CO, strategyId: ST, projectId, companyName: '架空' }, genDeps);
+  const payloadsOf = async (action: string): Promise<Array<Record<string, any>>> =>
+    (
+      await env.sql(
+        'select e.payload from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 and e.action = $2 order by e.created_at, e.id',
+        [RENEWAL, action]
+      )
+    ).map((r) => r.payload as Record<string, any>);
 
   /* ---- 1. 表と制約 ---- */
   const tables = await env.sql(
@@ -194,7 +201,14 @@ async function main() {
     'task:verify-1': true,
   });
   check('実行条件：実行責任者と実行前の確認を、利用者の編集として保存する', withResponsible.status === 'SAVED', withResponsible.status);
-  const reAdopt = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), withResponsible.status === 'SAVED' ? withResponsible.record.version : 0, 'ADOPT', { now: NOW });
+  const regAfterEdit = await env.sql('select regulatory from stage4_plan_documents where project_id = $1', [RENEWAL]);
+  check('規制・安全：編集すると判断の記録は解除され、修正版として改めて記録が必要になる', Object.keys(regAfterEdit[0].regulatory as object).length === 0);
+  const reRecord = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), withResponsible.status === 'SAVED' ? withResponsible.record.version : 0, 'RECORD_REGULATORY', {
+    regulatory: confirmedReg,
+    now: NOW,
+  });
+  check('規制・安全：修正版の判断を改めて記録する', reRecord.status === 'OK', reRecord.status);
+  const reAdopt = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), reRecord.status === 'OK' ? reRecord.record.version : 0, 'ADOPT', { now: NOW });
   check('採用（条件の後）：条件を満たした版を採用する', reAdopt.status === 'OK', reAdopt.status === 'BLOCKED' ? reAdopt.blockers.join(' / ') : reAdopt.status);
   const startVersion = reAdopt.status === 'OK' ? reAdopt.record.version : 0;
   const started = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), startVersion, 'START', { now: NOW });
@@ -209,13 +223,60 @@ async function main() {
   );
   check('操作履歴：開始が記録される（STARTED）', startEvents.length === 1);
 
-  const bobAfterStart = await saveEdits(ctxOf(db, BOB), KEY(RENEWAL), started.status === 'OK' ? started.record.version : 0, { 'action:1:title': '開始後の変更' });
+  const unadopt = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), started.status === 'OK' ? started.record.version : 0, 'UNADOPT', { now: NOW });
+  check('採用の取り消し：採用と開始は解除される（記録は履歴に残す）', unadopt.status === 'OK' && unadopt.record.adoption === null && unadopt.record.startInfo === null, unadopt.status);
+  const readopt = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), unadopt.status === 'OK' ? unadopt.record.version : 0, 'ADOPT', { now: NOW });
+  check('採用し直し：取り消した後も、同じ内容を採用し直せる', readopt.status === 'OK', readopt.status);
+  const restarted = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), readopt.status === 'OK' ? readopt.record.version : 0, 'START', { now: NOW });
+  check('再開始：採用し直した版を、規制の判断つきで開始する', restarted.status === 'OK', restarted.status === 'BLOCKED' ? restarted.blockers.join(' / ') : restarted.status);
+
+  const bobAfterStart = await saveEdits(ctxOf(db, BOB), KEY(RENEWAL), restarted.status === 'OK' ? restarted.record.version : 0, { 'action:1:title': '開始後の変更' });
   check('開始後の変更：修正すると、採用と開始は解除される', bobAfterStart.status === 'SAVED' && bobAfterStart.record.startInfo === null && bobAfterStart.record.adoption === null);
   const startResetEvents = await env.sql(
     "select e.action from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 and e.action = 'START_RESET'",
     [RENEWAL]
   );
   check('操作履歴：開始の解除が記録される（START_RESET）', startResetEvents.length === 1);
+
+  /* ---- 5b. 履歴：解除・取り消しの前の記録が残る（消えない） ---- */
+  const adoptedLog = await payloadsOf('ADOPTED');
+  check(
+    '採用の履歴：採用のたびに、採用版・採用者・採用時の内容が残る（4回）',
+    adoptedLog.length === 4 && adoptedLog[0].adoptedVersion === 2 && adoptedLog[0].by === ALICE && adoptedLog[3].edits?.responsible === '鈴木一郎（仮）',
+    adoptedLog.map((p) => p.adoptedVersion).join(',')
+  );
+  const adoptionResets = await payloadsOf('ADOPTION_RESET');
+  check(
+    '解除の履歴：編集で解除された採用は、採用者・日時・版・採用時の内容つきで残る',
+    adoptionResets.map((p) => p.adoption?.version).join(',') === '2,4,12' &&
+      adoptionResets[0].adoption?.by === ALICE &&
+      typeof adoptionResets[0].adoption?.at === 'string' &&
+      adoptionResets[0].adoption?.edits !== undefined,
+    adoptionResets.map((p) => p.adoption?.version).join(',')
+  );
+  const adoptionCancelled = await payloadsOf('ADOPTION_CANCELLED');
+  check(
+    '取り消しの履歴：採用の取り消しで、取り消された採用者・版・内容が残る',
+    adoptionCancelled.length === 1 && adoptionCancelled[0].adoption?.by === ALICE && adoptionCancelled[0].adoption?.version === 9 && adoptionCancelled[0].adoption?.edits?.responsible === '鈴木一郎（仮）'
+  );
+  const startedLog = await payloadsOf('STARTED');
+  check(
+    '開始の履歴：開始のたびに、開始版・開始者が残る（2回）',
+    startedLog.map((p) => p.startedVersion).join(',') === '10,13' && startedLog[0].by === ALICE,
+    startedLog.map((p) => p.startedVersion).join(',')
+  );
+  const startCancelled = await payloadsOf('START_CANCELLED');
+  check(
+    '取り消しの履歴：開始の取り消しで、開始者・日時・版が残る',
+    startCancelled.length === 1 && startCancelled[0].start?.by === ALICE && startCancelled[0].start?.version === 10 && typeof startCancelled[0].start?.at === 'string'
+  );
+  const startResets = await payloadsOf('START_RESET');
+  check('開始の履歴：編集で解除された開始も、開始者・版が残る', startResets.length === 1 && startResets[0].start?.by === ALICE && startResets[0].start?.version === 13);
+  const regulatoryResets = await payloadsOf('REGULATORY_RESET');
+  check(
+    '規制の履歴：編集で解除された判断は、確認者・確認日つきで残る',
+    regulatoryResets.length === 2 && regulatoryResets[0].regulatory?.confirmer === '法務 山田' && regulatoryResets[0].regulatory?.confirmedOn === '2026-11-08'
+  );
 
   /* ---- 6. 権限・追記専用の履歴・他社 ---- */
   const carolLoad = await loadPlan(ctxOf(db, CAROL), KEY(RENEWAL));
@@ -280,6 +341,22 @@ async function main() {
   check('旧い保存経路：番号は消えない', keptId === idNew && afterLegacy.revision === afterAssign.revision);
   const idPlan = await gen(ALICE, idNew);
   check('番号の後：その番号のプロジェクトは、生成の照合で見つかる（NOT_FOUND ではない）', idPlan.status !== 'NOT_FOUND', idPlan.status);
+
+  const sameRecord = (a: Awaited<ReturnType<typeof loadPlan>>, b: Awaited<ReturnType<typeof loadPlan>>) =>
+    a.status === 'FOUND' && b.status === 'FOUND' && a.record.version === b.record.version && JSON.stringify(a.record.aiDraft) === JSON.stringify(b.record.aiDraft);
+  const renewalBefore = await loadPlan(ctxOf(db, ALICE), KEY(RENEWAL));
+  const idBefore = await loadPlan(ctxOf(db, ALICE), KEY(idNew));
+  const original = JSON.parse(JSON.stringify(afterLegacy.departments)) as Array<{ projects: Array<Record<string, unknown>> }>;
+  const moved = JSON.parse(JSON.stringify(original)) as Array<{ projects: Array<Record<string, unknown>> }>;
+  [moved[1].projects[0], moved[1].projects[1]] = [moved[1].projects[1], moved[1].projects[0]];
+  moved[1].projects[1].title = '点検工程の標準化（改称）';
+  await env.setStrategyA(moved);
+  const renewalAfter = await loadPlan(ctxOf(db, ALICE), KEY(RENEWAL));
+  const idAfter = await loadPlan(ctxOf(db, ALICE), KEY(idNew));
+  check('並び替え・名称変更：計画書は番号で結び付き、取り違えない（内容・版が変わらない）', sameRecord(renewalBefore, renewalAfter) && sameRecord(idBefore, idAfter));
+  const regenAfterMove = await gen(ALICE, idNew);
+  check('名称変更後：同じ番号のプロジェクトは、同じ計画書に照合される（EXISTS）', regenAfterMove.status === 'EXISTS', regenAfterMove.status);
+  await env.setStrategyA(original);
 
   check('STAGE3のKPI（okrsV2）は、この検証の全体で変わらない', (await okrsOf()) === okrsBefore);
 

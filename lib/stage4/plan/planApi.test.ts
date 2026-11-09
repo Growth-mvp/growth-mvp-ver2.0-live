@@ -50,7 +50,7 @@ function gateway(over: Partial<PlanGateway> = {}): PlanGateway {
 const deps = (g: PlanGateway, over: Partial<PlanApiDeps> = {}): PlanApiDeps => ({
   verifyUser: async () => USER,
   gatewayFor: () => g,
-  generationEnabled: true,
+  enabled: true,
   generation: {
     currentYm: () => '2026-11',
     mapStrategy: (row) => row as never,
@@ -120,7 +120,7 @@ describe('AI生成（POST …/generate）', () => {
     api(g, over).generate(req('POST', 'plan-documents/generate', { ...key, projectId: 'fict-proj-renewal' }));
 
   it('生成が無効なら 503（既定では使わない）', async () => {
-    const res = await gen(gateway(), { generationEnabled: false });
+    const res = await gen(gateway(), { enabled: false });
     expect(res.status).toBe(503);
   });
 
@@ -204,5 +204,44 @@ describe('番号の付与の結果を、HTTPの状態に変える', () => {
     const body2 = await res.json();
     expect(body2.revision).toBe(9);
     expect(body2.projects[0]).toEqual({ departmentIndex: 0, projectIndex: 0, title: '案件', projectId: 'p-a' });
+  });
+});
+
+describe('無効な間（既定）は、認証・データベース・AIのいずれにも触れない', () => {
+  const body = { companyId: CO, strategyId: ST, departmentIndex: 0, projectIndex: 1, expectedTitle: '案件', expectedRevision: 5, newId: NEW_ID };
+  const cases: Array<[string, (a: ReturnType<typeof api>) => Promise<Response>]> = [
+    ['草案の読み込み', (a) => a.plans(req('GET', 'plan-documents', undefined, SEARCH))],
+    ['修正の保存', (a) => a.plans(req('PUT', 'plan-documents', { ...key, expectedVersion: 1, userEdits: { a: 'x' } }))],
+    ['AI生成', (a) => a.generate(req('POST', 'plan-documents/generate', { ...key, projectId: 'fict-proj-renewal' }))],
+    ['採用', (a) => a.transition(req('POST', 'plan-documents/transition', { ...key, action: 'ADOPT', expectedVersion: 1 }))],
+    ['番号の読み取り', (a) => a.identity(req('GET', 'project-identity', undefined, `?companyId=${CO}&strategyId=${ST}`))],
+    ['番号の付与', (a) => a.identity(req('POST', 'project-identity', body))],
+  ];
+
+  it.each(cases)('%s は 503 で、認証・データベース・AIを呼ばない', async (_name, call) => {
+    let touched = 0;
+    const a = api(gateway(), {
+      enabled: false,
+      verifyUser: async () => {
+        touched++;
+        return USER;
+      },
+      gatewayFor: () => {
+        touched++;
+        return gateway();
+      },
+      generation: {
+        currentYm: () => '2026-11',
+        mapStrategy: (row) => row as never,
+        modelFor: async () => {
+          touched++;
+          return async () => ({ text: '' });
+        },
+      },
+    });
+    const res = await call(a);
+    expect(res.status).toBe(503);
+    expect((await res.json()).status).toBe('DISABLED');
+    expect(touched).toBe(0);
   });
 });
