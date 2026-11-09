@@ -36,6 +36,48 @@ const FLOW_STUB_MAP = Object.fromEntries(
 FLOW_STUB_MAP['@/store/strategyStore'] = S('flowStore.ts');
 const FLOW_EXEC_STUB_MAP = { ...FLOW_STUB_MAP, '@/utils/supabase/strategy': S('supabaseStrategy.ts') };
 
+/* 実アプリのレイアウトで描画する各STAGEのページ（route は app/ 配下のフォルダ名） */
+const SHELL_PAGES = [
+  { key: 'stage1', route: 'stage1' },
+  { key: 'stage2', route: 'stage2' },
+  { key: 'stage3', route: 'stage3' },
+  { key: 'stage4', route: 'stage4' },
+  { key: 'stage5', route: 'execution' },
+  { key: 'okr', route: 'okr' },
+  { key: 'report', route: 'report' },
+  { key: 'cascade', route: 'cascade' },
+  {
+    key: 'stage6-mock-negative',
+    route: 'stage6',
+    setup:
+      "useStrategyStore.setState({ financePL: (useStrategyStore.getState().financePL ?? []).map((r) => (r.year === 2025 ? { ...r, interest: 120000000 } : r)) });",
+  },
+  {
+    /* 丹青社の既存データに相当する架空のモック（売上達成率 82.5%・営業利益達成率 71.4% になる目標値）。
+     * 予測期間（2026〜2028年度）の内側に年度を置く。 */
+    key: 'stage6-mock-target',
+    route: 'stage6',
+    setup:
+      "useStrategyStore.setState({ companyTargets: [" +
+      "{ id: 'rev', label: '売上', unit: '百万円', base: 1127, low: 1000, high: 1200, dueYear: 2028 }," +
+      "{ id: 'op', label: '営業利益', unit: '百万円', base: 72.8, low: 60, high: 80, dueYear: 2028 }] });\n" +
+      "useStrategyStore.setState({ financePL: (useStrategyStore.getState().financePL ?? []).map((r) => (r.year === 2025 ? { ...r, interest: 2000000 } : r)) });",
+  },
+];
+
+/* 実アプリのレイアウト（layoutClient・Sidebar・CEOChatPanel・STAGE6ページ）を、認証・通信・ルーターだけ差し替えて描画する */
+const SHELL_STUB_MAP = {
+  ...STUB_MAP,
+  '@/store/strategyStore': S('strategyStore.ts'),
+  '@/utils/supabase/client': S('shell-supabase.ts'),
+  '@/utils/supabase/strategy': S('shell-supabaseStrategy.ts'),
+  '@/store/userStore': S('shell-userStore.ts'),
+  'next/navigation': S('shell-navigation.ts'),
+  'next/link': S('shell-navigation.ts'),
+  '@/components/MfaGate': S('shell-passthrough.ts'),
+  '@/context/CompanyContext': S('shell-passthrough.ts'),
+};
+
 function stubPlugin(map = STUB_MAP) {
   const keys = Object.keys(map).map((k) => k.replace(/[/.*+?^${}()|[\]\\]/g, '\\$&'));
   const filter = new RegExp('^(' + keys.join('|') + ')$');
@@ -123,6 +165,93 @@ function html(title, bundleName) {
     plugins: [stubPlugin(FLOW_EXEC_STUB_MAP)],
   });
   fs.writeFileSync(path.join(outDir, 'flow-exec.html'), html('STAGE5 実行画面 流れの検証', 'flow-exec-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'shell-entry.tsx')],
+    outfile: path.join(outDir, 'shell-bundle.js'),
+    plugins: [stubPlugin(SHELL_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'shell.html'), html('実レイアウト（モック認証）', 'shell-bundle.js'));
+  /* 実際の /okr 画面（app/okr/page.tsx）を、実レイアウトの中で描画する（開発用の文書型計画書を含む） */
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'okr-shell-entry.tsx')],
+    outfile: path.join(outDir, 'okr-shell-bundle.js'),
+    plugins: [stubPlugin(SHELL_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'okr-shell.html'), html('STAGE4 /okr（実レイアウト）', 'okr-shell-bundle.js'));
+  fs.mkdirSync(path.join(outDir, 'shell-entries'), { recursive: true });
+  const componentEntry = path.join(outDir, 'shell-entries', 'component-negative.tsx');
+  fs.writeFileSync(
+    componentEntry,
+    "import React from 'react';\n" +
+      "import { createRoot } from 'react-dom/client';\n" +
+      "import { FinanceSummary } from '@/components/stage6/FinanceSummary';\n" +
+      "const M = 1000000;\n" +
+      "const metric = { status: 'READY', fiscalYear: 2028, targetYen: 100 * M, planYen: 60 * M, gapYen: 40 * M };\n" +
+      "const cash = { unknownReason: null, points: [\n" +
+      "  { fiscalYear: 2026, baselineYen: -12 * M, conditionalYen: -12 * M },\n" +
+      "  { fiscalYear: 2027, baselineYen: 5 * M, conditionalYen: 5 * M },\n" +
+      "  { fiscalYear: 2028, baselineYen: -3 * M, conditionalYen: -3 * M },\n" +
+      "] };\n" +
+      "const funding = { kind: 'JUDGED', label: '資金不足あり', detail: '該当年度：2026年', tone: 'warn' };\n" +
+      "createRoot(document.getElementById('root')!).render(\n" +
+      "  <div style={{ width: 620, padding: 8 }}><FinanceSummary target={{ revenue: metric as any, operatingIncome: { status: 'NO_TARGET' } as any }} cash={cash as any} funding={funding as any} requiredItem={null} onNavigate={() => {}} /></div>,\n" +
+      ");\n",
+  );
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [componentEntry],
+    outfile: path.join(outDir, 'component-negative-bundle.js'),
+  });
+  fs.writeFileSync(path.join(outDir, 'component-negative.html'), html('サマリー 負の値の確認', 'component-negative-bundle.js'));
+  const compareEntry = path.join(outDir, 'shell-entries', 'component-compare.tsx');
+  fs.writeFileSync(
+    compareEntry,
+    "import React from 'react';\n" +
+      "import { createRoot } from 'react-dom/client';\n" +
+      "import { FinanceSummary } from '@/components/stage6/FinanceSummary';\n" +
+      "const M = 1000000;\n" +
+      "const metric = { status: 'READY', fiscalYear: 2028, targetYen: 100 * M, planYen: 60 * M, gapYen: 40 * M };\n" +
+      "const cash = { unknownReason: null, points: [\n" +
+      "  { fiscalYear: 2026, baselineYen: 10 * M, conditionalYen: 12 * M },\n" +
+      "  { fiscalYear: 2027, baselineYen: 5 * M, conditionalYen: -4 * M },\n" +
+      "  { fiscalYear: 2028, baselineYen: 6 * M, conditionalYen: null },\n" +
+      "] };\n" +
+      "const funding = { kind: 'JUDGED', label: '評価保留', detail: '', tone: 'hold' };\n" +
+      "createRoot(document.getElementById('root')!).render(\n" +
+      "  <div style={{ width: 620, padding: 8 }}><FinanceSummary target={{ revenue: metric as any, operatingIncome: { status: 'NO_TARGET' } as any }} cash={cash as any} funding={funding as any} requiredItem={null} onNavigate={() => {}} /></div>,\n" +
+      ");\n",
+  );
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [compareEntry],
+    outfile: path.join(outDir, 'component-compare-bundle.js'),
+  });
+  fs.writeFileSync(path.join(outDir, 'component-compare.html'), html('サマリー 比較表示の確認', 'component-compare-bundle.js'));
+  const entryDir = path.join(outDir, 'shell-entries');
+  fs.mkdirSync(entryDir, { recursive: true });
+  for (const p of SHELL_PAGES) {
+    const entry = path.join(entryDir, `${p.key}.tsx`);
+    fs.writeFileSync(
+      entry,
+      "import React from 'react';\n" +
+        "import { createRoot } from 'react-dom/client';\n" +
+        "import LayoutClient from '@/app/layoutClient';\n" +
+        "import { setMockPathname } from 'next/navigation';\n" +
+        `import Page from '@/app/${p.route}/page';\n` +
+        `setMockPathname('/${p.route}');\n` +
+        (p.setup ? "import { useStrategyStore } from '@/store/strategyStore';\n" + p.setup + '\n' : '') +
+        "createRoot(document.getElementById('root')!).render(<LayoutClient><Page /></LayoutClient>);\n",
+    );
+    await esbuild.build({
+      ...COMMON,
+      entryPoints: [entry],
+      outfile: path.join(outDir, `shell-${p.key}-bundle.js`),
+      plugins: [stubPlugin(SHELL_STUB_MAP)],
+    });
+    fs.writeFileSync(path.join(outDir, `shell-${p.key}.html`), html(`実レイアウト ${p.route}`, `shell-${p.key}-bundle.js`));
+  }
   console.log('built', path.join(outDir, 'flow-okr.html'), path.join(outDir, 'flow-exec.html'));
   console.log('built', path.join(outDir, 'index.html'), path.join(outDir, 'okr.html'), path.join(outDir, 'stage5.html'));
 })().catch((e) => {

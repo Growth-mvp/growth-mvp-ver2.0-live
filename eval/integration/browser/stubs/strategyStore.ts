@@ -58,7 +58,7 @@ function subscribe(l: () => void) {
 function setState(partial: any, _replace?: boolean): void {
   const next = typeof partial === 'function' ? partial(state) : partial;
   state = { ...state, ...next };
-  listeners.forEach((l) => l());
+  listeners.forEach((l) => l(state));
 }
 
 /* 店舗の操作（アクション）のうち、状態を変えないものは「呼ばれたこと」だけを記録する。
@@ -68,13 +68,19 @@ const views = new WeakMap<object, any>();
 function viewOf(st: any): any {
   let v = views.get(st);
   if (!v) {
+    const fns = new Map<string, (...args: any[]) => void>();
     v = new Proxy(st, {
       get(target, prop) {
         if (prop in target) return target[prop as string];
         if (typeof prop === 'string' && ACTION.test(prop)) {
-          return (...args: any[]) => {
-            w.__storeLog.push({ action: prop, args: args.length });
-          };
+          let fn = fns.get(prop);
+          if (!fn) {
+            fn = (...args: any[]) => {
+              w.__storeLog.push({ action: prop, args: args.length });
+            };
+            fns.set(prop, fn);
+          }
+          return fn;
         }
         return undefined;
       },

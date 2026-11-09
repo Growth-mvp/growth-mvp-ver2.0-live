@@ -144,6 +144,9 @@ function viewOf(st: any): any {
 state.setDepartments = (deps: any) => {
   setState({ departments: typeof deps === 'function' ? deps(state.departments) : deps });
 };
+state.updateDepartments = (fn: any) => {
+  setState({ departments: typeof fn === 'function' ? fn(state.departments) : fn });
+};
 state.setHydrated = () => {};
 state.setCompanyScope = () => {};
 state.refetchFromServer = async () => {};
