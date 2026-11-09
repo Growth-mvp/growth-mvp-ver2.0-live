@@ -7,7 +7,7 @@ const sub = { unsubscribe() {} };
 
 function queryResult(table: string): unknown[] {
   if (table === 'company_members') {
-    return [{ company_id: MOCK_COMPANY_ID, role: 'ADMIN', user_id: user.id, created_at: '2026-01-01T00:00:00.000Z' }];
+    return [{ company_id: MOCK_COMPANY_ID, role: 'admin', user_id: user.id, created_at: '2026-01-01T00:00:00.000Z' }];
   }
   return [];
 }

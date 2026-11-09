@@ -1,6 +1,7 @@
 /* ブラウザ検証用のstore（評価専用）。購読できる最小のstoreで、架空データだけを持つ。DB・認証・保存には接続しない。 */
 import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/with-selector';
 import { FICTIONAL_DEPARTMENTS, FICTIONAL_STRATEGY_ROW } from '../../../quality/fictionalCompany';
+import { STAGE3_SNAPSHOT_STRATEGIES } from '../../../../lib/stage4/planView/fixtures/stage3Snapshot';
 
 export const COMPANY_SWITCH_SAVE_MESSAGE =
   '会社の切り替え中のため、保存されませんでした。切り替えが完了してから、もう一度保存してください。';
@@ -109,6 +110,21 @@ function getState(): any {
 }
 
 w.__getStrategyState = () => state;
+/* 検証用：STAGE3の保存構造（架空）を、指定した会社の戦略として注入する。開いている会社と一致させる */
+w.__seedStage3 = (companyId: string) => {
+  const dept = (STAGE3_SNAPSHOT_STRATEGIES[0] as any).departments;
+  setState({
+    companyId,
+    companyName: '架空精密計測株式会社（評価用）',
+    strategyId: 'fict-strategy-a',
+    hydrated: true,
+    restoreReady: true,
+    isRestoring: false,
+    pendingCompanyId: undefined,
+    departments: JSON.parse(JSON.stringify(dept)),
+  });
+};
+w.__setStrategyState = (partial: any) => setState(partial);
 
 export function getStrategyScopeEpoch(): number {
   return 0;

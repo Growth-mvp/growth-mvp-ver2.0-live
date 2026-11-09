@@ -29,6 +29,41 @@ export type Stage3ReadView =
 
 export const selectionKey = (s: Stage3Selection): string => `${s.companyId}|${s.strategyId}|${s.projectKey}`;
 
+export type Stage3ScopeInput = {
+  storeCompanyId: string | null;
+  storeStrategyId: string | null;
+  storeDepartments: unknown;
+  storeCompanyName: string | null;
+  storeHydrated: boolean;
+  storeRestoreReady: boolean;
+  storeIsRestoring: boolean;
+  storePendingCompanyId: string | null;
+  userCompanyId: string | null;
+  userRole: string | null;
+};
+
+export type Stage3Source =
+  | { status: 'LOADING' }
+  | { status: 'SCOPE_MISMATCH' }
+  | { status: 'NO_STRATEGY' }
+  | { status: 'READY'; memberships: MembershipRow[]; strategies: StrategyRow[]; companyLabels: Record<string, string> };
+
+/* 画面に載せてよいSTAGE3データかを決める。読み込み中・会社切替中は前の企業の情報を出さず、
+ * ストアの企業がユーザーの現在の所属企業と一致しないときは何も出さない。 */
+export function stage3SourceFromScope(i: Stage3ScopeInput): Stage3Source {
+  if (!i.storeHydrated || !i.storeRestoreReady || i.storeIsRestoring || i.storePendingCompanyId) return { status: 'LOADING' };
+  if (!i.userCompanyId || !i.userRole) return { status: 'LOADING' };
+  if (!i.storeCompanyId) return { status: 'NO_STRATEGY' };
+  if (i.storeCompanyId !== i.userCompanyId) return { status: 'SCOPE_MISMATCH' };
+  if (!i.storeStrategyId) return { status: 'NO_STRATEGY' };
+  return {
+    status: 'READY',
+    memberships: [{ company_id: i.userCompanyId, role: i.userRole }],
+    strategies: [{ id: i.storeStrategyId, company_id: i.storeCompanyId, departments: i.storeDepartments }],
+    companyLabels: { [i.storeCompanyId]: i.storeCompanyName?.trim() || '企業名未設定' },
+  };
+}
+
 /** 所属している企業の、企業・戦略・部門・プロジェクトの木構造（画面の選択に使う） */
 export function buildStage3Tree(args: { memberships: MembershipRow[]; strategies: StrategyRow[] }): Stage3Tree {
   const tree: Stage3Tree = [];

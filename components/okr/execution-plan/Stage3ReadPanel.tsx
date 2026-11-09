@@ -1,13 +1,18 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { buildStage3Tree, readStage3Project, selectionKey, type Stage3ReadView, type Stage3Selection } from '@/lib/stage4/plan/stage3Read';
+import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
 import {
-  STAGE3_SNAPSHOT_COMPANY_LABELS,
-  STAGE3_SNAPSHOT_MEMBERSHIPS,
-  STAGE3_SNAPSHOT_SAVED_PLANS,
-  STAGE3_SNAPSHOT_STRATEGIES,
-} from '@/lib/stage4/planView/fixtures/stage3Snapshot';
+  buildStage3Tree,
+  readStage3Project,
+  selectionKey,
+  stage3SourceFromScope,
+  type Stage3ReadView,
+  type Stage3Selection,
+  type Stage3Source,
+} from '@/lib/stage4/plan/stage3Read';
+import type { SavedPlanRecord } from '@/lib/stage4/plan/readModel';
 import { PLAN_DOC_CSS } from './planDocStyles';
 import PlanDocument from './PlanDocument';
 
@@ -19,6 +24,12 @@ const REASON_LABEL: Record<string, string> = {
   PROJECT_NOT_FOUND: '選んだプロジェクトが見つかりません。一覧から選び直してください。',
   PROJECT_AMBIGUOUS: '同じ名前のプロジェクトが複数あるため、対象を特定できません。',
 };
+const STATUS_LABEL: Record<Exclude<Stage3Source['status'], 'READY'>, string> = {
+  LOADING: 'STAGE3の情報を読み込んでいます。',
+  SCOPE_MISMATCH: '表示中の企業と、STAGE3の情報の企業が一致しません。画面を読み込み直してください。',
+  NO_STRATEGY: '表示できる戦略がまだありません。',
+};
+const NO_SAVED_PLANS: SavedPlanRecord[] = [];
 const noop = () => {};
 
 const ymJa = (ym: string | null): string => {
@@ -29,66 +40,120 @@ const ymJa = (ym: string | null): string => {
 const targetText = (t: number | null, unit: string): string => (t === null ? '未設定' : `${t}${unit}`);
 const textOrMissing = (t: string | null, missing = '未入力'): string => t ?? missing;
 
-/* STAGE3の部門・プロジェクトを、読み取り専用で文書型に並べる。保存・生成・修正の操作は持たない。 */
+/* 現在の会社の戦略（ストア）を、読み取り専用で文書型に並べる。保存・生成・修正の操作は持たない。
+ * 会社・戦略が変わると、表示の状態ごと作り直す（前の選択を残さない）。 */
 export default function Stage3ReadPanel() {
-  const [selected, setSelected] = useState<Stage3Selection | null>(null);
-  const tree = useMemo(
-    () => buildStage3Tree({ memberships: STAGE3_SNAPSHOT_MEMBERSHIPS, strategies: STAGE3_SNAPSHOT_STRATEGIES }),
-    []
+  const storeCompanyId = useStrategyStore((s: any) => (s.companyId ?? null) as string | null);
+  const storeStrategyId = useStrategyStore((s: any) => (s.strategyId ?? null) as string | null);
+  const storeDepartments = useStrategyStore((s: any) => s.departments as unknown);
+  const storeCompanyName = useStrategyStore((s: any) => (s.companyName ?? null) as string | null);
+  const storeHydrated = useStrategyStore((s: any) => s.hydrated === true);
+  const storeRestoreReady = useStrategyStore((s: any) => s.restoreReady === true);
+  const storeIsRestoring = useStrategyStore((s: any) => s.isRestoring === true);
+  const storePendingCompanyId = useStrategyStore((s: any) => (s.pendingCompanyId ?? null) as string | null);
+  const userCompanyId = useUserStore((s) => s.companyId);
+  const userRole = useUserStore((s) => s.role);
+
+  const source = useMemo(
+    () =>
+      stage3SourceFromScope({
+        storeCompanyId,
+        storeStrategyId,
+        storeDepartments,
+        storeCompanyName,
+        storeHydrated,
+        storeRestoreReady,
+        storeIsRestoring,
+        storePendingCompanyId,
+        userCompanyId,
+        userRole,
+      }),
+    [
+      storeCompanyId,
+      storeStrategyId,
+      storeDepartments,
+      storeCompanyName,
+      storeHydrated,
+      storeRestoreReady,
+      storeIsRestoring,
+      storePendingCompanyId,
+      userCompanyId,
+      userRole,
+    ]
   );
+
+  if (source.status !== 'READY') {
+    return (
+      <p role="status" className="rounded-lg bg-zinc-50 p-4 text-[13px] text-zinc-700">
+        {STATUS_LABEL[source.status]}
+      </p>
+    );
+  }
+  return <Stage3ProjectBrowser key={`${storeCompanyId}|${storeStrategyId}`} source={source} />;
+}
+
+function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { status: 'READY' }> }) {
+  const [selected, setSelected] = useState<Stage3Selection | null>(null);
+  const tree = useMemo(() => buildStage3Tree({ memberships: source.memberships, strategies: source.strategies }), [source]);
+  const companyId = source.strategies[0]?.company_id ?? '';
+  const companyLabel = source.companyLabels[companyId] ?? '企業名未設定';
   const view: Stage3ReadView | null = selected
     ? readStage3Project({
-        memberships: STAGE3_SNAPSHOT_MEMBERSHIPS,
-        strategies: STAGE3_SNAPSHOT_STRATEGIES,
-        savedPlans: STAGE3_SNAPSHOT_SAVED_PLANS,
+        memberships: source.memberships,
+        strategies: source.strategies,
+        savedPlans: NO_SAVED_PLANS,
         selection: selected,
       })
     : null;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+    <div className="space-y-4">
       <style>{PLAN_DOC_CSS}</style>
-      <nav aria-label="STAGE3のプロジェクト一覧" className="space-y-3 rounded-xl border border-zinc-200 bg-white p-3 text-[12px]">
-        {tree.length === 0 && <p className="text-zinc-600">表示できるプロジェクトがありません。</p>}
-        {tree.map((strategy) => (
-          <div key={`${strategy.companyId}|${strategy.strategyId}`} className="space-y-2">
-            <div className="text-[11px] font-semibold text-zinc-500">{STAGE3_SNAPSHOT_COMPANY_LABELS[strategy.companyId] ?? strategy.companyId}</div>
-            {strategy.departments.map((dept) => (
-              <div key={dept.departmentIndex} className="space-y-1">
-                <div className="font-semibold text-zinc-800">{dept.name}</div>
-                {dept.mission && <div className="text-[11px] text-zinc-500">{dept.mission}</div>}
-                {dept.projects.map((p) => {
-                  const key: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
-                  const isSelected = selected !== null && selectionKey(selected) === selectionKey(key);
-                  return (
-                    <button
-                      key={selectionKey(key)}
-                      type="button"
-                      aria-pressed={isSelected}
-                      onClick={() => setSelected(key)}
-                      className={`block w-full rounded-lg px-2 py-1.5 text-left ${isSelected ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'}`}
-                    >
-                      <div className="font-semibold">{p.projectTitle}</div>
-                      <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{p.role ? ROLE_LABEL[p.role] ?? p.role : '役割 未設定'}</div>
-                    </button>
-                  );
-                })}
+      <section aria-label="表示するプロジェクトの選択" className="rounded-xl border border-zinc-200 bg-white p-3">
+        <p className="text-[12px] font-semibold text-zinc-500">企業：{companyLabel}</p>
+        {tree.length === 0 && <p className="mt-2 text-[13px] text-zinc-600">表示できるプロジェクトがありません。</p>}
+        <nav aria-label="STAGE3のプロジェクト一覧" className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {tree.flatMap((strategy) =>
+            strategy.departments.map((dept) => (
+              <div key={`${strategy.strategyId}|${dept.departmentIndex}`} className="rounded-lg border border-zinc-200 p-3 text-[12px]">
+                <div className="text-[11px] font-semibold text-zinc-500">部門</div>
+                <div className="font-semibold text-zinc-900">{dept.name}</div>
+                {dept.mission && <div className="mt-0.5 text-[11px] text-zinc-500">{dept.mission}</div>}
+                <div className="mt-2 text-[11px] font-semibold text-zinc-500">プロジェクト</div>
+                <div className="mt-1 flex flex-col gap-1.5">
+                  {dept.projects.map((p) => {
+                    const key: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
+                    const isSelected = selected !== null && selectionKey(selected) === selectionKey(key);
+                    return (
+                      <button
+                        key={selectionKey(key)}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setSelected(key)}
+                        className={`block w-full rounded-lg px-2 py-1.5 text-left ${isSelected ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'}`}
+                      >
+                        <div className="font-semibold">{p.projectTitle}</div>
+                        <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{p.role ? ROLE_LABEL[p.role] ?? p.role : '役割 未設定'}</div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            ))}
-          </div>
-        ))}
-      </nav>
+            ))
+          )}
+        </nav>
+      </section>
 
       <section className="min-w-0">
-        {!view && <p className="rounded-lg bg-zinc-50 p-4 text-[13px] text-zinc-700">一覧からプロジェクトを選ぶと、STAGE3の情報を表示します。</p>}
+        {!view && <p className="rounded-lg bg-zinc-50 p-4 text-[13px] text-zinc-700">上の一覧からプロジェクトを選ぶと、STAGE3の情報を表示します。</p>}
         {view && view.status === 'NO_DATA' && <p className="rounded-lg bg-amber-50 p-4 text-[13px] text-amber-900">{REASON_LABEL[view.reason] ?? '情報を表示できません。'}</p>}
-        {view && view.status === 'READY' && <ReadOnlyProject key={view.key} view={view} />}
+        {view && view.status === 'READY' && <ReadOnlyProject key={view.key} view={view} companyLabel={companyLabel} />}
       </section>
     </div>
   );
 }
 
-function ReadOnlyProject({ view }: { view: Extract<Stage3ReadView, { status: 'READY' }> }) {
+function ReadOnlyProject({ view, companyLabel }: { view: Extract<Stage3ReadView, { status: 'READY' }>; companyLabel: string }) {
   const m = view.model;
   if (m.status !== 'READY') return null;
   const dept = m.department;
@@ -120,7 +185,7 @@ function ReadOnlyProject({ view }: { view: Extract<Stage3ReadView, { status: 'RE
               </tr>
             </tbody>
           </table>
-          <p className="plan-company">{STAGE3_SNAPSHOT_COMPANY_LABELS[m.scope.companyId] ?? m.scope.companyId}</p>
+          <p className="plan-company">{companyLabel}</p>
         </header>
 
         <section className="plan-section">
@@ -182,9 +247,7 @@ function ReadOnlyProject({ view }: { view: Extract<Stage3ReadView, { status: 'RE
           <h2 className="plan-h2">
             <span className="plan-no">3</span> 実行計画
           </h2>
-          {doc.kind === 'NO_PLAN' && (
-            <p className="plan-p">このプロジェクトの実行計画はまだありません。STAGE3の情報だけを表示しています。</p>
-          )}
+          {doc.kind === 'NO_PLAN' && <p className="plan-p">実行計画書はまだ作成されていません。</p>}
           {doc.kind === 'SAVED_PLAN' && (
             <p className="plan-note">保存された計画（{ymJa(doc.savedAt.slice(0, 7))}に保存）を、読み取り専用で表示しています。</p>
           )}

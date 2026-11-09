@@ -3,7 +3,7 @@ import {
   STAGE3_SNAPSHOT_SAVED_PLANS,
   STAGE3_SNAPSHOT_STRATEGIES,
 } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
-import { buildStage3Tree, readStage3Project, selectionKey, type Stage3Selection } from './stage3Read';
+import { buildStage3Tree, readStage3Project, selectionKey, stage3SourceFromScope, type Stage3ScopeInput, type Stage3Selection } from './stage3Read';
 
 const sel = (projectKey: string, companyId = 'fict-co-a', strategyId = 'fict-strategy-a'): Stage3Selection => ({
   companyId,
@@ -139,5 +139,48 @@ describe('切り替えと拒否', () => {
     buildStage3Tree({ memberships: STAGE3_SNAPSHOT_MEMBERSHIPS, strategies: STAGE3_SNAPSHOT_STRATEGIES });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe('stage3SourceFromScope（読み取り元の判定）', () => {
+  const ready: Stage3ScopeInput = {
+    storeCompanyId: 'co-a',
+    storeStrategyId: 'strat-a',
+    storeDepartments: [{ name: '営業部', projects: [] }],
+    storeCompanyName: '架空会社',
+    storeHydrated: true,
+    storeRestoreReady: true,
+    storeIsRestoring: false,
+    storePendingCompanyId: null,
+    userCompanyId: 'co-a',
+    userRole: 'member',
+  };
+
+  it('読み込み中・会社切替中・復元中は、前の情報を出さない（LOADING）', () => {
+    expect(stage3SourceFromScope({ ...ready, storeHydrated: false }).status).toBe('LOADING');
+    expect(stage3SourceFromScope({ ...ready, storeRestoreReady: false }).status).toBe('LOADING');
+    expect(stage3SourceFromScope({ ...ready, storeIsRestoring: true }).status).toBe('LOADING');
+    expect(stage3SourceFromScope({ ...ready, storePendingCompanyId: 'co-b' }).status).toBe('LOADING');
+    expect(stage3SourceFromScope({ ...ready, userRole: null }).status).toBe('LOADING');
+  });
+
+  it('ストアの企業が所属企業と違えば、何も出さない（SCOPE_MISMATCH）', () => {
+    expect(stage3SourceFromScope({ ...ready, storeCompanyId: 'co-b' }).status).toBe('SCOPE_MISMATCH');
+  });
+
+  it('企業や戦略がなければ、戦略なしとして扱う（NO_STRATEGY）', () => {
+    expect(stage3SourceFromScope({ ...ready, storeCompanyId: null }).status).toBe('NO_STRATEGY');
+    expect(stage3SourceFromScope({ ...ready, storeStrategyId: null }).status).toBe('NO_STRATEGY');
+  });
+
+  it('準備ができたら、所属企業と戦略の1件だけを渡す。企業名がなければ補わない', () => {
+    const r = stage3SourceFromScope(ready);
+    expect(r.status).toBe('READY');
+    if (r.status !== 'READY') return;
+    expect(r.memberships).toEqual([{ company_id: 'co-a', role: 'member' }]);
+    expect(r.strategies).toEqual([{ id: 'strat-a', company_id: 'co-a', departments: ready.storeDepartments }]);
+    expect(r.companyLabels).toEqual({ 'co-a': '架空会社' });
+    const noName = stage3SourceFromScope({ ...ready, storeCompanyName: null });
+    expect(noName.status === 'READY' && noName.companyLabels).toEqual({ 'co-a': '企業名未設定' });
   });
 });
