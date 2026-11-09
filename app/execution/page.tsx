@@ -10,6 +10,7 @@ import ProjectCard from '@/components/execution/ProjectCard';
 import { ExecutionHeader } from '@/components/stage5/ExecutionHeader';
 import { EmptyExecutionMessage } from '@/components/stage5/EmptyExecutionMessage';
 import { EmptyPyramidMessage } from '@/components/stage5/EmptyPyramidMessage';
+import { StartedPlansPanel } from '@/components/stage5/StartedPlansPanel';
 import { saveProgressLog } from '@/utils/supabase/strategy';
 import { buildProgressLogMetadata, embedMetadata } from '@/utils/execution/metadata';
 import { supabase } from '@/utils/supabase/client';
@@ -3004,6 +3005,10 @@ function ExecutionPageContent() {
     <main className="min-h-screen bg-gray-50 avoid-agent-dock">
       {/* Header */}
       <ExecutionHeader isHydrating={isHydrating} selected={selected} />
+
+      <div className="px-3 sm:px-4 pt-4">
+        <StartedPlansPanel />
+      </div>
 
       {/* モバイル */}
       <div className="md:hidden -mx-3 px-3 sm:-mx-4 sm:px-4 pt-6">

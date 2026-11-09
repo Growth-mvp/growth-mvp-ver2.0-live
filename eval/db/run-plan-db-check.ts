@@ -6,6 +6,7 @@ import { createMockModel } from '@/lib/stage4/plan/mockGenerate';
 import { generatePlanDraft, type GenerateDeps } from '@/lib/stage4/plan/planGenerate';
 import { assignProjectIdentity, loadPlan, readStrategyProjects, saveEdits, type ServiceContext } from '@/lib/stage4/plan/planService';
 import { transitionPlan } from '@/lib/stage4/plan/planTransitions';
+import { startedPlanView } from '@/lib/stage5/startedPlans';
 
 type Row = Record<string, unknown>;
 const results: Array<{ name: string; ok: boolean; detail: string }> = [];
@@ -229,6 +230,37 @@ async function main() {
   check('採用し直し：取り消した後も、同じ内容を採用し直せる', readopt.status === 'OK', readopt.status);
   const restarted = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), readopt.status === 'OK' ? readopt.record.version : 0, 'START', { now: NOW });
   check('再開始：採用し直した版を、規制の判断つきで開始する', restarted.status === 'OK', restarted.status === 'BLOCKED' ? restarted.blockers.join(' / ') : restarted.status);
+
+  /* ---- 5a. STAGE5 からの読み取り（実行開始済みの計画だけ、プロジェクトIDで照合・読み取りのみ） ---- */
+  const s5Strategy = await env.strategyRow(ST);
+  const s5Depts = s5Strategy.departments as Array<{ name: string; projects: Array<{ id?: string; title: string }> }>;
+  const s5Project = s5Depts.flatMap((d) => d.projects.map((p) => ({ dept: d.name, p }))).find((x) => x.p.id === RENEWAL);
+  const s5Before = await loadPlan(ctxOf(db, ALICE), KEY(RENEWAL));
+  const s5Rows = await env.sql('select count(*)::int as n from stage4_plan_document_events');
+  const s5View =
+    s5Before.status === 'FOUND' && s5Project
+      ? startedPlanView({ expected: KEY(RENEWAL), departmentName: s5Project.dept, projectTitle: s5Project.p.title, record: s5Before.record })
+      : null;
+  check(
+    'STAGE5参照：実行開始した計画を、プロジェクトIDで対応づけて読み取れる（目的・実施事項・KPIあり）',
+    restarted.status === 'OK' &&
+      s5View !== null &&
+      s5View.actions.length > 0 &&
+      s5View.kpis.length > 0 &&
+      s5View.startedVersion === restarted.record.startInfo?.version,
+    s5View ? `actions=${s5View.actions.length}` : 'null'
+  );
+  check(
+    'STAGE5参照：別のプロジェクト（同じ記録を渡しても）には表示されない',
+    s5Before.status === 'FOUND' && startedPlanView({ expected: KEY(INSPECTION), departmentName: '', projectTitle: '', record: s5Before.record }) === null
+  );
+  check('STAGE5参照：他社の社員には計画が読めない（DENIED）', (await loadPlan(ctxOf(db, CAROL), KEY(RENEWAL))).status === 'DENIED');
+  const s5After = await loadPlan(ctxOf(db, ALICE), KEY(RENEWAL));
+  const s5RowsAfter = await env.sql('select count(*)::int as n from stage4_plan_document_events');
+  check(
+    'STAGE5参照：読み取りで計画の版・履歴は変わらない（書き込みなし）',
+    s5After.status === 'FOUND' && s5Before.status === 'FOUND' && s5After.record.version === s5Before.record.version && s5Rows[0].n === s5RowsAfter[0].n
+  );
 
   const bobAfterStart = await saveEdits(ctxOf(db, BOB), KEY(RENEWAL), restarted.status === 'OK' ? restarted.record.version : 0, { 'action:1:title': '開始後の変更' });
   check('開始後の変更：修正すると、採用と開始は解除される', bobAfterStart.status === 'SAVED' && bobAfterStart.record.startInfo === null && bobAfterStart.record.adoption === null);
