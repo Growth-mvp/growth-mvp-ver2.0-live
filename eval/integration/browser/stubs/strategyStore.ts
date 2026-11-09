@@ -47,8 +47,8 @@ if (!noKrIdMode) {
   for (const d of state.departments) for (const pr of d.projects ?? []) (pr.okrsV2 ?? []).forEach((kr: any, i: number) => { if (!kr.id) kr.id = `kr-${pr.id ?? 'p'}-${i}`; });
 }
 
-const listeners = new Set<() => void>();
-function subscribe(l: () => void) {
+const listeners = new Set<(state: unknown) => void>();
+function subscribe(l: (state: unknown) => void) {
   listeners.add(l);
   return () => {
     listeners.delete(l);
