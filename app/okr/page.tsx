@@ -9,7 +9,7 @@ if (typeof window !== 'undefined') {
 import StrategyGuard from '@/app/StrategyGuard';
 import { useSearchParams } from 'next/navigation';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import {
   ChevronDown,
@@ -146,6 +146,12 @@ type ImpactAssumptions = Record<string, number | undefined>;
  * ※ 以上の拡張は、実装者が STAGE6 の本当の要件を検証した上で進めること
  *
  * ============================================================ */
+
+/* 開発用の文書型実行計画書。本番ビルドでは NODE_ENV の条件がビルド時に決まり、この分岐とコードはバンドルに含まれない */
+const DevPlanDocument =
+  process.env.NODE_ENV === 'production'
+    ? null
+    : lazy(() => import('@/components/okr/execution-plan/DevPlanDocument'));
 
 /* ============================================================
  * 軽量ツールチップ（依存を増やさず同ファイルで実装）
@@ -931,6 +937,7 @@ const [editingMilestoneIdx, setEditingMilestoneIdx] = useState<number | null>(nu
    * プロジェクト選択（左→右）
    * ========================================================== */
   const [selected, setSelected] = useState<{ deptIdx: number; projIdx: number } | null>(null);
+  const [devPlanOpen, setDevPlanOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'objective' | 'kr' | 'plan'>('kr');
 
   const autoSelectedProjectRef = useRef<string>('');
@@ -5372,8 +5379,20 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       <div className="mx-auto max-w-6xl">
         <div data-debug="okr-scrollwrap" className="overflow-x-auto overscroll-x-contain touch-pan-x pb-2">
           <div className="min-w-0">
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-[280px_1fr]">
+            {process.env.NODE_ENV !== 'production' && DevPlanDocument && (
+              <div className="mb-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDevPlanOpen((v) => !v)}
+                  className="rounded-lg border border-dashed border-amber-400 bg-amber-50 px-3 py-1.5 text-[12px] font-semibold text-amber-900 hover:bg-amber-100"
+                >
+                  {devPlanOpen ? '開発用の試作を閉じて、従来の画面に戻る' : '開発用：新しい実行計画書を表示（架空サンプル）'}
+                </button>
+              </div>
+            )}
+            <div className={devPlanOpen ? 'grid gap-4 grid-cols-1' : 'grid gap-4 grid-cols-1 md:grid-cols-[280px_1fr]'}>
               {/* Left: project list */}
+              {!devPlanOpen && (
               <aside className="w-[280px] rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
             <ProjectListHeader departments={departments} />
 
@@ -5460,10 +5479,15 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               })}
           </div>
             </aside>
+              )}
 
               {/* Right: 3カラム（目的/KPI/実行計画） */}
               <section className="min-h-[420px]">
-                {!selected || !selectedProj ? (
+                {process.env.NODE_ENV !== 'production' && DevPlanDocument && devPlanOpen ? (
+                  <Suspense fallback={<div className="text-[13px] text-zinc-500">読み込み中…</div>}>
+                    <DevPlanDocument />
+                  </Suspense>
+                ) : !selected || !selectedProj ? (
                   <ProjectSelectionPrompt />
                 ) : (
                   renderSimpleRight()

@@ -1,0 +1,737 @@
+{
+  "caseId": "profit",
+  "rawOutputSha256": "46d3fa74d7a9024ce20009a780b2ed172e1412cb05874182410b55c559349e4e",
+  "rawOutput": "{\"provisionalPeriod\":null,\"section1\":{\"customerProblem\":{\"text\":\"量販店の売場担当者が、欠品なく安定した品質の商品を仕入れられる状態が必要である。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-CORE\"]},\"problemCause\":{\"text\":\"原材料費率の上昇と、不良による廃棄の増加が利益低下の主な原因であり、工場の歩留まりと不良原因を日次で把握できていないことが改善を妨げている。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S1-FIN\",\"S2-STORY-1\",\"S2-QA-1\",\"S2-SWOT-W\"]},\"ourValue\":{\"text\":\"新しい設備投資に頼らず、既存製品の不良・廃棄と原価を下げ、安定した品質で無駄なく生産する。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-STORY-2\",\"S3-DEPT\"]},\"whyChosen\":{\"text\":\"工場と購買が同じ数字を見て、不良削減と原材料の調達条件見直しを原価への寄与額で示せるため、同じ売上で利益を戻す勝ち筋に結びつく。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-STORY-2\",\"S2-STORY-3\",\"S2-DEP-1\",\"S3-BRIDGE-1\",\"S3-BRIDGE-2\"]},\"customerOutcome\":{\"text\":\"不良と廃棄の削減を通じて、量販店の売場担当者が欠品なく安定した品質の商品を仕入れられる状態に近づける。\",\"basis\":\"DERIVED\",\"sourceRefs\":[\"S2-CORE\",\"S2-PRIO-2\",\"S3-DEPT\"]},\"companyResult\":{\"text\":\"歩留まりを高め、原材料費と廃棄を抑えて、営業利益率と粗利率の改善につなげる。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S1-FIN\",\"S2-DEC-1\",\"S2-PRIO-1\",\"S2-PRIO-2\",\"S3-KPI-qp-kpi-yield\",\"S3-KPI-qp-kpi-gross\"]},\"goalState\":{\"text\":\"2027-03までに歩留まり率94%を目指し、2027-09までに粗利率28%を目指す。工場と購買が歩留まり、不良原因、原材料の調達条件を同じ数字で確認し、原価への寄与額で改善策を判断できる状態にする。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S3-KPI-qp-kpi-yield\",\"S3-KPI-qp-kpi-gross\",\"S2-STORY-3\",\"S2-DEP-1\"]},\"obstacles\":[{\"text\":\"歩留まりの実績が日次で見えず、悪化を早期に特定できない。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"製造実績と廃棄実績を照合し、日次で歩留まりを算出できるかを確認する。\",\"sourceRefs\":[\"S3-ISSUE-1\",\"S2-SWOT-W\"]},{\"text\":\"不良の原因が記録されておらず、対策の対象と効果を判断できない。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"不良発生時の原因分類、発生工程、廃棄量を確認し、原因別に集計できるかを検証する。\",\"sourceRefs\":[\"S3-ISSUE-2\",\"S3-BEH-1\"]},{\"text\":\"原材料の規格や調達条件が原価・不良に与える影響が把握できていない可能性がある。\",\"basis\":\"HYPOTHESIS\",\"verifyBy\":\"原材料の規格、調達単価、不良・廃棄実績を照合し、調達条件の違いと原価への寄与を確認する。\",\"sourceRefs\":[\"S2-SWOT-O\",\"S3-COLLAB-1\"]}]},\"section2\":{\"actions\":[{\"order\":1,\"title\":\"歩留まりと廃棄の実績を日次で算出できる状態にする\",\"ownerRole\":\"工場\",\"dueYm\":\"2026-12\",\"dependsOn\":[],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-ISSUE-1\",\"S3-BRIDGE-1\"],\"supportsKpiKeys\":[\"A1\",\"S1\"],\"mechanism\":{\"obstacleRefs\":[1],\"stateChange\":\"製造実績と廃棄実績が日次で照合され、歩留まりの悪化を翌日以降の対策対象として特定できる状態にする。\",\"whyItMatters\":\"歩留まりの悪化を早期に是正できれば、不良・廃棄を減らし、安定した品質と原価低減に結びつく。\"}},{\"order\":2,\"title\":\"不良の原因を分類し、原因別に廃棄への影響を確認する\",\"ownerRole\":\"工場\",\"dueYm\":\"2027-01\",\"dependsOn\":[1],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-ISSUE-2\",\"S3-BEH-1\"],\"supportsKpiKeys\":[\"A2\",\"S1\"],\"mechanism\":{\"obstacleRefs\":[2],\"stateChange\":\"不良ごとに原因、発生工程、廃棄量が分類され、影響の大きい原因から対策対象を選べる状態にする。\",\"whyItMatters\":\"原因に対応した対策を選べることで、活動量ではなく不良・廃棄の実際の削減につながる。\"}},{\"order\":3,\"title\":\"原因別の対策を実施し、歩留まりへの効果を検証する\",\"ownerRole\":\"工場\",\"dueYm\":\"2027-02\",\"dependsOn\":[2],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-BRIDGE-1\",\"S3-BEH-1\",\"S3-KPI-qp-kpi-yield\"],\"supportsKpiKeys\":[\"A2\",\"S1\"],\"mechanism\":{\"obstacleRefs\":[1,2],\"stateChange\":\"影響の大きい不良原因に対する対策前後の歩留まりと廃棄を比較し、効果のない対策を継続せず改善対象を更新する。\",\"whyItMatters\":\"対策の効果を歩留まりで判断することで、既存設備の範囲で不良・廃棄を減らし、顧客に安定品質の商品を供給しやすくなる。\"}},{\"order\":4,\"title\":\"購買と原材料の規格・調達条件を不良と原価への寄与額で見直す\",\"ownerRole\":\"工場・購買\",\"dueYm\":\"2027-04\",\"dependsOn\":[2,3],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-BRIDGE-2\",\"S3-COLLAB-1\",\"S3-OTHER-1\",\"S2-STORY-3\"],\"supportsKpiKeys\":[\"A3\",\"S2\"],\"mechanism\":{\"obstacleRefs\":[3],\"stateChange\":\"原材料の規格、調達単価、不良・廃棄の関係を工場と購買が同じ数字で確認し、原価への寄与額を踏まえて調達条件の見直し候補を選べる状態にする。\",\"whyItMatters\":\"品質を損なわずに原材料費と廃棄を抑えられれば、同じ売上で利益を戻し、営業利益率に効く施策を優先できる。\"}}]},\"section3\":{\"kpis\":[{\"key\":\"A1\",\"kind\":\"LEADING\",\"label\":\"日次歩留まり算出可能日比率\",\"target\":100,\"unit\":\"%\",\"targetBasis\":\"AI_PROVISIONAL\",\"due\":\"2027-01\",\"owner\":\"岡田 健（仮）\",\"measurement\":\"製造実績と廃棄実績から、対象生産日のうち日次歩留まりを算出できる日数の比率を測定する。\",\"supportsActionOrders\":[1]},{\"key\":\"A2\",\"kind\":\"LEADING\",\"label\":\"原因分類済み不良比率\",\"target\":100,\"unit\":\"%\",\"targetBasis\":\"AI_PROVISIONAL\",\"due\":\"2027-02\",\"owner\":\"岡田 健（仮）\",\"measurement\":\"発生した不良のうち、原因・発生工程・廃棄量が分類されている件数の比率を測定する。\",\"supportsActionOrders\":[2,3]},{\"key\":\"A3\",\"kind\":\"LEADING\",\"label\":\"原材料条件別の原価・不良影響比較完了率\",\"target\":100,\"unit\":\"%\",\"targetBasis\":\"AI_PROVISIONAL\",\"due\":\"2027-04\",\"owner\":\"岡田 健（仮）\",\"measurement\":\"見直し対象となる原材料について、規格・調達単価・不良・廃棄への影響を比較できた対象の比率を測定する。\",\"supportsActionOrders\":[4]}],\"stage3Review\":[]},\"section4\":{\"financeItems\":[{\"key\":\"F1\",\"label\":\"歩留まり改善による廃棄・原材料費の低減\",\"kind\":\"COST_REDUCTION\",\"method\":\"FREE\",\"inputs\":[{\"role\":\"YIELD_RATE\",\"label\":\"歩留まり率目標\",\"value\":94,\"unit\":\"%\",\"basis\":\"STAGE_DATA\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[\"S3-KPI-qp-kpi-yield\"]},{\"role\":\"COST_RATE\",\"label\":\"原材料費率\",\"value\":null,\"unit\":\"%\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[]},{\"role\":\"DIRECT_AMOUNT\",\"label\":\"廃棄削減額\",\"value\":null,\"unit\":\"金額\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[]}],\"amountBasis\":\"ANNUAL\",\"startYm\":\"2026-12\",\"endYm\":\"2027-09\",\"sourceNote\":\"歩留まり改善と不良・廃棄削減による原価低減を評価する。原材料費率と廃棄削減額は入力情報に数値がないため確認が必要。\",\"basedOnKpiKeys\":[\"S1\",\"S2\"],\"freeNote\":\"歩留まり率、不良・廃棄量、原材料費率を実績で確認し、改善前後の原価への寄与額を算定する。金額は現時点では作成しない。\"}]},\"section5\":{\"responsible\":{\"name\":\"岡田 健（仮）\",\"basis\":\"STAGE_DATA\",\"note\":\"確定済みKPIの担当者として入力されているが、正式担当者かは確認が必要。\"},\"roles\":[{\"unit\":\"工場\",\"role\":\"歩留まり・不良原因・廃棄実績の把握と対策実施\",\"actionOrders\":[1,2,3]},{\"unit\":\"購買\",\"role\":\"工場と原材料の規格・調達条件を確認し、原価への寄与額で見直し候補を示す\",\"actionOrders\":[4]}],\"budget\":null,\"risks\":[{\"risk\":\"歩留まりや不良原因を同じ定義で集計できず、工場と購買の判断が分かれる。\",\"countermeasure\":\"実績、原因分類、原材料条件の定義と照合方法を実行前に確認する。\",\"confirmBy\":\"2026-12\",\"basis\":\"HYPOTHESIS\",\"sourceRefs\":[\"S2-STORY-3\",\"S3-ISSUE-1\",\"S3-ISSUE-2\"]},{\"risk\":\"原材料の調達条件見直しが品質低下や欠品につながる。\",\"countermeasure\":\"調達条件の変更前後で歩留まり、不良、廃棄、安定品質への影響を確認し、品質を損なう案は採用しない。\",\"confirmBy\":\"2027-04\",\"basis\":\"HYPOTHESIS\",\"sourceRefs\":[\"S2-CORE\",\"S3-COLLAB-1\",\"S3-OTHER-1\"]},{\"risk\":\"人員、スキル、期間の制約により、日次把握と原因分類を継続できない。\",\"countermeasure\":\"既存の実績情報で実施可能か、追加作業と担当範囲を開始前に確認する。\",\"confirmBy\":\"2026-12\",\"basis\":\"UNCONFIRMED\",\"sourceRefs\":[]}],\"preconditions\":[\"歩留まり、不良、廃棄、原材料の規格・調達単価を同じ期間・単位で照合できること。\",\"工場と購買が原価への寄与額を共通の判断基準として確認できること。\"]},\"verificationItems\":[{\"item\":\"日次歩留まり、不良原因、廃棄量を算出・分類するために利用できる既存データと定義を確認する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2026-12\",\"sourceRefs\":[\"S3-ISSUE-1\",\"S3-ISSUE-2\"]},{\"item\":\"工場と購買で、原材料の規格・調達単価・不良・廃棄を比較する対象と、原価への寄与額の算定方法を確認する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2026-12\",\"sourceRefs\":[\"S2-STORY-3\",\"S2-DEP-1\",\"S3-COLLAB-1\"]},{\"item\":\"担当者「岡田 健（仮）」が本計画の実行責任者として正式に確認されているか確認する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2026-12\",\"sourceRefs\":[\"S3-KPI-qp-kpi-yield\",\"S3-KPI-qp-kpi-gross\"]},{\"item\":\"原材料の調達条件見直しが品質と欠品に与える影響を、変更前後で測定できる方法を確認する。\",\"priority\":\"DETAIL\",\"confirmBy\":\"2027-04\",\"sourceRefs\":[\"S2-CORE\",\"S3-COLLAB-1\"]}]}",
+  "ok": true,
+  "executionStartable": true,
+  "plan": {
+    "period": {
+      "startYm": "2026-12",
+      "endYm": "2027-09",
+      "basis": "STAGE3_KPI_DUE"
+    },
+    "section1": {
+      "customerProblem": {
+        "text": "量販店の売場担当者が、欠品なく安定した品質の商品を仕入れられる状態が必要である。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-CORE"
+        ]
+      },
+      "problemCause": {
+        "text": "原材料費率の上昇と、不良による廃棄の増加が利益低下の主な原因であり、工場の歩留まりと不良原因を日次で把握できていないことが改善を妨げている。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S1-FIN",
+          "S2-STORY-1",
+          "S2-QA-1",
+          "S2-SWOT-W"
+        ]
+      },
+      "ourValue": {
+        "text": "新しい設備投資に頼らず、既存製品の不良・廃棄と原価を下げ、安定した品質で無駄なく生産する。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-STORY-2",
+          "S3-DEPT"
+        ]
+      },
+      "whyChosen": {
+        "text": "工場と購買が同じ数字を見て、不良削減と原材料の調達条件見直しを原価への寄与額で示せるため、同じ売上で利益を戻す勝ち筋に結びつく。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-STORY-2",
+          "S2-STORY-3",
+          "S2-DEP-1",
+          "S3-BRIDGE-1",
+          "S3-BRIDGE-2"
+        ]
+      },
+      "customerOutcome": {
+        "text": "不良と廃棄の削減を通じて、量販店の売場担当者が欠品なく安定した品質の商品を仕入れられる状態に近づける。",
+        "basis": "DERIVED",
+        "sourceRefs": [
+          "S2-CORE",
+          "S2-PRIO-2",
+          "S3-DEPT"
+        ]
+      },
+      "companyResult": {
+        "text": "歩留まりを高め、原材料費と廃棄を抑えて、営業利益率と粗利率の改善につなげる。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S1-FIN",
+          "S2-DEC-1",
+          "S2-PRIO-1",
+          "S2-PRIO-2",
+          "S3-KPI-qp-kpi-yield",
+          "S3-KPI-qp-kpi-gross"
+        ]
+      },
+      "goalState": {
+        "text": "2027-03までに歩留まり率94%を目指し、2027-09までに粗利率28%を目指す。工場と購買が歩留まり、不良原因、原材料の調達条件を同じ数字で確認し、原価への寄与額で改善策を判断できる状態にする。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S3-KPI-qp-kpi-yield",
+          "S3-KPI-qp-kpi-gross",
+          "S2-STORY-3",
+          "S2-DEP-1"
+        ]
+      },
+      "obstacles": [
+        {
+          "text": "歩留まりの実績が日次で見えず、悪化を早期に特定できない。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "製造実績と廃棄実績を照合し、日次で歩留まりを算出できるかを確認する。",
+          "sourceRefs": [
+            "S3-ISSUE-1",
+            "S2-SWOT-W"
+          ]
+        },
+        {
+          "text": "不良の原因が記録されておらず、対策の対象と効果を判断できない。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "不良発生時の原因分類、発生工程、廃棄量を確認し、原因別に集計できるかを検証する。",
+          "sourceRefs": [
+            "S3-ISSUE-2",
+            "S3-BEH-1"
+          ]
+        },
+        {
+          "text": "原材料の規格や調達条件が原価・不良に与える影響が把握できていない可能性がある。",
+          "basis": "HYPOTHESIS",
+          "verifyBy": "原材料の規格、調達単価、不良・廃棄実績を照合し、調達条件の違いと原価への寄与を確認する。",
+          "sourceRefs": [
+            "S2-SWOT-O",
+            "S3-COLLAB-1"
+          ]
+        }
+      ]
+    },
+    "section2": {
+      "actions": [
+        {
+          "order": 1,
+          "title": "歩留まりと廃棄の実績を日次で算出できる状態にする",
+          "ownerRole": "工場",
+          "dueYm": "2026-12",
+          "dependsOn": [],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-ISSUE-1",
+            "S3-BRIDGE-1"
+          ],
+          "supportsKpiKeys": [
+            "A1",
+            "S1"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              1
+            ],
+            "stateChange": "製造実績と廃棄実績が日次で照合され、歩留まりの悪化を翌日以降の対策対象として特定できる状態にする。",
+            "whyItMatters": "歩留まりの悪化を早期に是正できれば、不良・廃棄を減らし、安定した品質と原価低減に結びつく。"
+          }
+        },
+        {
+          "order": 2,
+          "title": "不良の原因を分類し、原因別に廃棄への影響を確認する",
+          "ownerRole": "工場",
+          "dueYm": "2027-01",
+          "dependsOn": [
+            1
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-ISSUE-2",
+            "S3-BEH-1"
+          ],
+          "supportsKpiKeys": [
+            "A2",
+            "S1"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              2
+            ],
+            "stateChange": "不良ごとに原因、発生工程、廃棄量が分類され、影響の大きい原因から対策対象を選べる状態にする。",
+            "whyItMatters": "原因に対応した対策を選べることで、活動量ではなく不良・廃棄の実際の削減につながる。"
+          }
+        },
+        {
+          "order": 3,
+          "title": "原因別の対策を実施し、歩留まりへの効果を検証する",
+          "ownerRole": "工場",
+          "dueYm": "2027-02",
+          "dependsOn": [
+            2
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-BRIDGE-1",
+            "S3-BEH-1",
+            "S3-KPI-qp-kpi-yield"
+          ],
+          "supportsKpiKeys": [
+            "A2",
+            "S1"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              1,
+              2
+            ],
+            "stateChange": "影響の大きい不良原因に対する対策前後の歩留まりと廃棄を比較し、効果のない対策を継続せず改善対象を更新する。",
+            "whyItMatters": "対策の効果を歩留まりで判断することで、既存設備の範囲で不良・廃棄を減らし、顧客に安定品質の商品を供給しやすくなる。"
+          }
+        },
+        {
+          "order": 4,
+          "title": "購買と原材料の規格・調達条件を不良と原価への寄与額で見直す",
+          "ownerRole": "工場・購買",
+          "dueYm": "2027-04",
+          "dependsOn": [
+            2,
+            3
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-BRIDGE-2",
+            "S3-COLLAB-1",
+            "S3-OTHER-1",
+            "S2-STORY-3"
+          ],
+          "supportsKpiKeys": [
+            "A3",
+            "S2"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              3
+            ],
+            "stateChange": "原材料の規格、調達単価、不良・廃棄の関係を工場と購買が同じ数字で確認し、原価への寄与額を踏まえて調達条件の見直し候補を選べる状態にする。",
+            "whyItMatters": "品質を損なわずに原材料費と廃棄を抑えられれば、同じ売上で利益を戻し、営業利益率に効く施策を優先できる。"
+          }
+        }
+      ]
+    },
+    "section3": {
+      "protectedKpis": [
+        {
+          "key": "S1",
+          "origin": "STAGE3",
+          "stage3KpiId": "qp-kpi-yield",
+          "kind": "UNCLASSIFIED",
+          "label": "歩留まり率",
+          "target": 94,
+          "unit": "%",
+          "targetBasis": "STAGE_DATA",
+          "due": "2027-03",
+          "owner": "岡田 健（仮）",
+          "measurement": "確定済みKPI（STAGE3）の測定方法に従う",
+          "supportsActionOrders": [],
+          "judgeCandidateYm": null
+        },
+        {
+          "key": "S2",
+          "origin": "STAGE3",
+          "stage3KpiId": "qp-kpi-gross",
+          "kind": "UNCLASSIFIED",
+          "label": "粗利率",
+          "target": 28,
+          "unit": "%",
+          "targetBasis": "STAGE_DATA",
+          "due": "2027-09",
+          "owner": "岡田 健（仮）",
+          "measurement": "確定済みKPI（STAGE3）の測定方法に従う",
+          "supportsActionOrders": [],
+          "judgeCandidateYm": null
+        }
+      ],
+      "proposedKpis": [
+        {
+          "key": "A1",
+          "kind": "LEADING",
+          "label": "日次歩留まり算出可能日比率",
+          "target": 100,
+          "unit": "%",
+          "targetBasis": "AI_PROVISIONAL",
+          "due": "2027-01",
+          "owner": "岡田 健（仮）",
+          "measurement": "製造実績と廃棄実績から、対象生産日のうち日次歩留まりを算出できる日数の比率を測定する。",
+          "supportsActionOrders": [
+            1
+          ]
+        },
+        {
+          "key": "A2",
+          "kind": "LEADING",
+          "label": "原因分類済み不良比率",
+          "target": 100,
+          "unit": "%",
+          "targetBasis": "AI_PROVISIONAL",
+          "due": "2027-02",
+          "owner": "岡田 健（仮）",
+          "measurement": "発生した不良のうち、原因・発生工程・廃棄量が分類されている件数の比率を測定する。",
+          "supportsActionOrders": [
+            2,
+            3
+          ]
+        },
+        {
+          "key": "A3",
+          "kind": "LEADING",
+          "label": "原材料条件別の原価・不良影響比較完了率",
+          "target": 100,
+          "unit": "%",
+          "targetBasis": "AI_PROVISIONAL",
+          "due": "2027-04",
+          "owner": "岡田 健（仮）",
+          "measurement": "見直し対象となる原材料について、規格・調達単価・不良・廃棄への影響を比較できた対象の比率を測定する。",
+          "supportsActionOrders": [
+            4
+          ]
+        }
+      ],
+      "stage3Review": []
+    },
+    "section4": {
+      "financeItems": [
+        {
+          "key": "F1",
+          "label": "歩留まり改善による廃棄・原材料費の低減",
+          "kind": "COST_REDUCTION",
+          "method": "FREE",
+          "inputs": [
+            {
+              "role": "YIELD_RATE",
+              "label": "歩留まり率目標",
+              "value": 94,
+              "unit": "%",
+              "basis": "STAGE_DATA",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": [
+                "S3-KPI-qp-kpi-yield"
+              ]
+            },
+            {
+              "role": "COST_RATE",
+              "label": "原材料費率",
+              "value": null,
+              "unit": "%",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": []
+            },
+            {
+              "role": "DIRECT_AMOUNT",
+              "label": "廃棄削減額",
+              "value": null,
+              "unit": "金額",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": []
+            }
+          ],
+          "amountBasis": "ANNUAL",
+          "startYm": "2026-12",
+          "endYm": "2027-09",
+          "sourceNote": "歩留まり改善と不良・廃棄削減による原価低減を評価する。原材料費率と廃棄削減額は入力情報に数値がないため確認が必要。",
+          "basedOnKpiKeys": [
+            "S1",
+            "S2"
+          ],
+          "freeNote": "歩留まり率、不良・廃棄量、原材料費率を実績で確認し、改善前後の原価への寄与額を算定する。金額は現時点では作成しない。"
+        }
+      ]
+    },
+    "section5": {
+      "responsible": {
+        "name": "岡田 健（仮）",
+        "basis": "STAGE_DATA",
+        "note": "確定済みKPIの担当者として入力されているが、正式担当者かは確認が必要。"
+      },
+      "roles": [
+        {
+          "unit": "工場",
+          "role": "歩留まり・不良原因・廃棄実績の把握と対策実施",
+          "actionOrders": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "unit": "購買",
+          "role": "工場と原材料の規格・調達条件を確認し、原価への寄与額で見直し候補を示す",
+          "actionOrders": [
+            4
+          ]
+        }
+      ],
+      "budget": null,
+      "risks": [
+        {
+          "risk": "歩留まりや不良原因を同じ定義で集計できず、工場と購買の判断が分かれる。",
+          "countermeasure": "実績、原因分類、原材料条件の定義と照合方法を実行前に確認する。",
+          "confirmBy": "2026-12",
+          "basis": "HYPOTHESIS",
+          "sourceRefs": [
+            "S2-STORY-3",
+            "S3-ISSUE-1",
+            "S3-ISSUE-2"
+          ]
+        },
+        {
+          "risk": "原材料の調達条件見直しが品質低下や欠品につながる。",
+          "countermeasure": "調達条件の変更前後で歩留まり、不良、廃棄、安定品質への影響を確認し、品質を損なう案は採用しない。",
+          "confirmBy": "2027-04",
+          "basis": "HYPOTHESIS",
+          "sourceRefs": [
+            "S2-CORE",
+            "S3-COLLAB-1",
+            "S3-OTHER-1"
+          ]
+        },
+        {
+          "risk": "人員、スキル、期間の制約により、日次把握と原因分類を継続できない。",
+          "countermeasure": "既存の実績情報で実施可能か、追加作業と担当範囲を開始前に確認する。",
+          "confirmBy": "2026-12",
+          "basis": "UNCONFIRMED",
+          "sourceRefs": []
+        }
+      ],
+      "preconditions": [
+        "歩留まり、不良、廃棄、原材料の規格・調達単価を同じ期間・単位で照合できること。",
+        "工場と購買が原価への寄与額を共通の判断基準として確認できること。"
+      ]
+    },
+    "verificationItems": [
+      {
+        "item": "日次歩留まり、不良原因、廃棄量を算出・分類するために利用できる既存データと定義を確認する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2026-12",
+        "sourceRefs": [
+          "S3-ISSUE-1",
+          "S3-ISSUE-2"
+        ]
+      },
+      {
+        "item": "工場と購買で、原材料の規格・調達単価・不良・廃棄を比較する対象と、原価への寄与額の算定方法を確認する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2026-12",
+        "sourceRefs": [
+          "S2-STORY-3",
+          "S2-DEP-1",
+          "S3-COLLAB-1"
+        ]
+      },
+      {
+        "item": "担当者「岡田 健（仮）」が本計画の実行責任者として正式に確認されているか確認する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2026-12",
+        "sourceRefs": [
+          "S3-KPI-qp-kpi-yield",
+          "S3-KPI-qp-kpi-gross"
+        ]
+      },
+      {
+        "item": "原材料の調達条件見直しが品質と欠品に与える影響を、変更前後で測定できる方法を確認する。",
+        "priority": "DETAIL",
+        "confirmBy": "2027-04",
+        "sourceRefs": [
+          "S2-CORE",
+          "S3-COLLAB-1"
+        ]
+      }
+    ],
+    "responsibleSuggestion": null
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "code": "LEADING_PROCESS_KPI",
+      "path": "section3.A1",
+      "message": "「日次歩留まり算出可能日比率」は記録・算出の完了を測る途中の確認。成果（不良率・廃棄量など）を動かす道筋を mechanism に書く"
+    },
+    {
+      "severity": "warning",
+      "code": "LEADING_PROCESS_KPI",
+      "path": "section3.A2",
+      "message": "「原因分類済み不良比率」は記録・算出の完了を測る途中の確認。成果（不良率・廃棄量など）を動かす道筋を mechanism に書く"
+    },
+    {
+      "severity": "warning",
+      "code": "LEADING_PROCESS_KPI",
+      "path": "section3.A3",
+      "message": "「原材料条件別の原価・不良影響比較完了率」は記録・算出の完了を測る途中の確認。成果（不良率・廃棄量など）を動かす道筋を mechanism に書く"
+    }
+  ],
+  "estimates": [
+    {
+      "itemKey": "F1",
+      "status": "NOT_ESTIMATED",
+      "amountYen": null,
+      "formula": null,
+      "missing": []
+    }
+  ],
+  "context": {
+    "periodBasis": "STAGE3_KPI_DUE",
+    "startYm": "2026-12",
+    "endYm": "2027-09",
+    "projectTitle": "工場の歩留まり改善と原価低減",
+    "departmentName": "製造部",
+    "ownerCandidates": [
+      "岡田 健（仮）"
+    ],
+    "stage3Kpis": [
+      {
+        "id": "qp-kpi-yield",
+        "label": "歩留まり率",
+        "target": 94,
+        "unit": "%",
+        "due": "2027-03",
+        "owner": "岡田 健（仮）"
+      },
+      {
+        "id": "qp-kpi-gross",
+        "label": "粗利率",
+        "target": 28,
+        "unit": "%",
+        "due": "2027-09",
+        "owner": "岡田 健（仮）"
+      }
+    ],
+    "sources": [
+      {
+        "ref": "S3-PERIOD",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "計画期間の根拠",
+        "text": "計画期間は 2026-12 〜 2027-09（根拠：既存の確定KPIの期限のうち最も遅いもの）"
+      },
+      {
+        "ref": "S3-PROJ",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "プロジェクトの目的・背景",
+        "text": "工場の歩留まり改善と原価低減 ／ 不良の原因を毎週記録して対策すれば、歩留まりが上がり原価が下がる ／ 原材料費と廃棄の増加が、利益低下の主な原因になっている"
+      },
+      {
+        "ref": "S1-FIN",
+        "stage": "STAGE1",
+        "role": "PRIMARY",
+        "label": "財務実績（財務制約の根拠）",
+        "text": "2025年度 売上9800百万円・営業利益137.2百万円 / 2024年度 売上9900百万円・営業利益217.8百万円 / 2023年度 売上10100百万円・営業利益303百万円。直近の営業利益率 1.4%"
+      },
+      {
+        "ref": "S1-CAP",
+        "stage": "STAGE1",
+        "role": "SUPPORT",
+        "label": "資本効率と資本コスト",
+        "text": "ROIC 3%、WACC 5.2%"
+      },
+      {
+        "ref": "S2-STORY-1",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第1章 現状）",
+        "text": "第1章 現状：売上は横ばいだが、原材料費と廃棄の増加で利益が減っている。"
+      },
+      {
+        "ref": "S2-STORY-2",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第2章 勝ち筋）",
+        "text": "第2章 勝ち筋：既存製品の原価と不良を下げ、同じ売上で利益を戻す。新しい設備投資には頼らない。"
+      },
+      {
+        "ref": "S2-STORY-3",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第3章 体制）",
+        "text": "第3章 体制：工場と購買が同じ数字を見て、原価への寄与額で施策を示す。"
+      },
+      {
+        "ref": "S2-CORE",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "顧客にとっての価値",
+        "text": "量販店の売場担当者が、欠品なく安定した品質の商品を仕入れられること"
+      },
+      {
+        "ref": "S2-PRIO-1",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "全社の重点テーマ",
+        "text": "既存製品の原価を下げ、採算を戻す"
+      },
+      {
+        "ref": "S2-PRIO-2",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "全社の重点テーマ",
+        "text": "不良と廃棄を減らす"
+      },
+      {
+        "ref": "S2-DEC-1",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "全社の判断基準",
+        "text": "営業利益率に効かない施策は優先しない"
+      },
+      {
+        "ref": "S2-DEP-1",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "部門への展開原則",
+        "text": "部門は、原価への寄与額で施策を示す"
+      },
+      {
+        "ref": "S2-SWOT-S",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "SWOT（強み）",
+        "text": "量販店との取引が長く、品質の安定で信頼を得ている"
+      },
+      {
+        "ref": "S2-SWOT-W",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "SWOT（弱み）",
+        "text": "工場の歩留まりと不良の原因が、日次で把握できていない"
+      },
+      {
+        "ref": "S2-SWOT-O",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "SWOT（機会）",
+        "text": "原材料の調達先を見直せる余地がある"
+      },
+      {
+        "ref": "S2-SWOT-T",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "SWOT（脅威）",
+        "text": "原材料価格の上昇が続き、値上げの交渉が難しい"
+      },
+      {
+        "ref": "S2-QA-1",
+        "stage": "STAGE2",
+        "role": "EVIDENCE",
+        "label": "元の議論（第1章 現状）",
+        "text": "Q: 利益が減った主な原因は何か A: 原材料費率が上がり、不良による廃棄も増えた"
+      },
+      {
+        "ref": "S3-DEPT",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の役割・勝ち筋",
+        "text": "安定した品質で、無駄なく生産する ／ 歩留まりを上げ、廃棄を減らす ／ 勝ち筋：cost-leadership ／ レバー：原価の低減 ／ レバー：不良の削減"
+      },
+      {
+        "ref": "S3-ISSUE-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の重点課題",
+        "text": "歩留まりの実績が日次で見えない"
+      },
+      {
+        "ref": "S3-ISSUE-2",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の重点課題",
+        "text": "不良の原因が記録されていない"
+      },
+      {
+        "ref": "S3-BRIDGE-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の結論（重点テーマ）",
+        "text": "工場の歩留まりを上げる"
+      },
+      {
+        "ref": "S3-BRIDGE-2",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の結論（重点テーマ）",
+        "text": "原材料の調達条件を見直す"
+      },
+      {
+        "ref": "S3-BEH-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の求める行動変化",
+        "text": "不良の原因を毎週記録し、製造と購買で共有する"
+      },
+      {
+        "ref": "S3-COLLAB-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "部門間の連携事項",
+        "text": "購買部と、原材料の規格の見直しを相談する"
+      },
+      {
+        "ref": "S3-RISK-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "すり合わせの論点",
+        "text": "規格を変えると、量販店の品質基準と合わなくなるおそれ"
+      },
+      {
+        "ref": "S3-OTHER-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "他部門の施策（購買部）",
+        "text": "参照のみ（この計画の確定KPIではない）：原材料の調達条件の見直し（KPI: 主要原材料の調達単価の改善率）"
+      },
+      {
+        "ref": "S3-KPI-qp-kpi-yield",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "確定済みKPI（変更不可）",
+        "text": "歩留まり率：目標 94%、期限 2027-03、担当 岡田 健（仮）"
+      },
+      {
+        "ref": "S3-KPI-qp-kpi-gross",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "確定済みKPI（変更不可）",
+        "text": "粗利率：目標 28%、期限 2027-09、担当 岡田 健（仮）"
+      }
+    ]
+  },
+  "inputSummary": {
+    "companyName": "架空食品加工株式会社（評価用）",
+    "strategySummary": "量販店向けの惣菜事業の採算を立て直し、営業利益率を2028年にかけて2%台へ戻す。",
+    "swot": {
+      "strength": "量販店との取引が長く、品質の安定で信頼を得ている",
+      "weakness": "工場の歩留まりと不良の原因が、日次で把握できていない",
+      "opportunity": "原材料の調達先を見直せる余地がある",
+      "threat": "原材料価格の上昇が続き、値上げの交渉が難しい"
+    },
+    "valueAnalysis": {
+      "operatingMarginPctLatest": 1.4,
+      "roic": 3,
+      "wacc": 5.2
+    },
+    "financePL": [
+      {
+        "year": 2025,
+        "revenue": 9800000000,
+        "operatingIncome": 137200000
+      },
+      {
+        "year": 2024,
+        "revenue": 9900000000,
+        "operatingIncome": 217800000
+      },
+      {
+        "year": 2023,
+        "revenue": 10100000000,
+        "operatingIncome": 303000000
+      }
+    ]
+  }
+}

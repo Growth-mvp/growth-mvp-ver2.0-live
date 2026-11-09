@@ -1,0 +1,124 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { SAMPLE_PLANS } from '@/lib/stage4/planView/fixtures';
+import {
+  INITIAL_PLAN_STATE,
+  adopt,
+  applyEdit,
+  computePlanView,
+  discardEdit,
+  enterEdit,
+  reconcileStart,
+  setCommittedValue,
+  setDraftValue,
+  setRegulatory,
+  start,
+  unadopt,
+  unstart,
+  type ProjectPlanState,
+} from '@/lib/stage4/planView/planState';
+import { useCeoDrawerCloseButton } from '@/components/CeoDrawerCloseContext';
+import PlanDocument from './PlanDocument';
+import StartConfirmation from './StartConfirmation';
+
+type View = 'document' | 'start';
+
+/* 開発用の文書型実行計画書（開発環境でのみ表示される）。
+ * 表示するのは保存済みの架空企業のサンプルだけ。状態はプロジェクトごとに分け、画面内に留める（保存しない）。 */
+export default function DevPlanDocument() {
+  const [sampleId, setSampleId] = useState<string>(SAMPLE_PLANS[0].id);
+  const [states, setStates] = useState<Record<string, ProjectPlanState>>({});
+  const [view, setView] = useState<View>('document');
+  useCeoDrawerCloseButton(true);
+
+  const sample = SAMPLE_PLANS.find((s) => s.id === sampleId) ?? SAMPLE_PLANS[0];
+  const plan = states[sample.id] ?? INITIAL_PLAN_STATE;
+  const pv = useMemo(() => computePlanView(sample.bundle, plan), [sample.bundle, plan]);
+
+  const update = (fn: (p: ProjectPlanState) => ProjectPlanState) =>
+    setStates((prev) => ({ ...prev, [sample.id]: fn(prev[sample.id] ?? INITIAL_PLAN_STATE) }));
+
+  useEffect(() => {
+    if (!plan.started || pv.gate.startable) return;
+    const id = sample.id;
+    setStates((prev) => ({ ...prev, [id]: reconcileStart(prev[id] ?? INITIAL_PLAN_STATE, false) }));
+  }, [plan.started, pv.gate.startable, sample.id]);
+
+  return (
+    <div className="space-y-4">
+      <div role="note" className="rounded-lg border border-dashed border-amber-400 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
+        開発用の表示です。架空企業の保存済みデータを使っており、実在の計画ではありません。画面内の操作は保存されません。
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-[13px] text-zinc-700">
+          <span className="whitespace-nowrap">プロジェクト選択</span>
+          <select
+            aria-label="プロジェクト選択"
+            value={sample.id}
+            onChange={(e) => setSampleId(e.target.value)}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-[13px]"
+          >
+            {SAMPLE_PLANS.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="ml-auto flex gap-2" role="group" aria-label="表示の切り替え">
+          {(
+            [
+              ['document', '計画書を読む'],
+              ['start', '実行開始の確認'],
+            ] as Array<[View, string]>
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={view === id}
+              onClick={() => setView(id)}
+              className={`rounded-full px-4 py-1.5 text-[13px] font-semibold ${view === id ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === 'start' ? (
+        <StartConfirmation
+          key={`start-${sample.id}`}
+          bundle={sample.bundle}
+          plan={plan}
+          view={pv}
+          onEdit={(key, value) => update((p) => setCommittedValue(p, key, value))}
+          onRegulatory={(r) => update((p) => setRegulatory(p, r))}
+          onStart={() => update((p) => start(p, pv.gate.startable))}
+          onUnstart={() => update(unstart)}
+          onBack={() => setView('document')}
+        />
+      ) : (
+        <PlanDocument
+          key={sample.id}
+          bundle={sample.bundle}
+          mode={plan.mode}
+          committed={plan.committed}
+          draft={plan.draft}
+          adopted={plan.adopted}
+          adoptable={pv.d.adoption.adoptable}
+          blockers={pv.d.adoption.blockers}
+          notice={plan.notice}
+          onEnterEdit={() => update(enterEdit)}
+          onApply={() => update(applyEdit)}
+          onDiscard={() => update(discardEdit)}
+          onDraftChange={(key, value) => update((p) => setDraftValue(p, key, value))}
+          onAdopt={() => update((p) => adopt(p, pv.d.adoption.adoptable))}
+          onUnadopt={() => update(unadopt)}
+          onOpenStart={() => setView('start')}
+        />
+      )}
+    </div>
+  );
+}

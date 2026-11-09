@@ -1,0 +1,796 @@
+{
+  "caseId": "growth",
+  "sentAt": "2026-11-09T00:58:05.576Z",
+  "usage": {
+    "prompt_tokens": 7542,
+    "completion_tokens": 3992
+  },
+  "costUsd": 0.006298799999999999,
+  "durationMs": 34142,
+  "finishReason": "stop",
+  "rawOutputSha256": "219c85b80f8d989094e4e82aa9de6c467fa9677a2e39087004bfd6645e6f44f8",
+  "rawOutput": "{\"provisionalPeriod\":null,\"section1\":{\"customerProblem\":{\"text\":\"医療機関では、院内感染対策の計測・記録・点検に現場の負担が生じている。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-QA-1\",\"S2-CORE\"]},\"problemCause\":{\"text\":\"感染対策に必要な計測と記録が自動化されておらず、計測の手間を減らしながら確実に記録する手段が検証されていない。\",\"basis\":\"DERIVED\",\"sourceRefs\":[\"S2-QA-1\",\"S2-CORE\",\"S3-PROJ\"]},\"ourValue\":{\"text\":\"既存の工場向け計測技術の精度と長い稼働実績を活用し、医療機関の感染対策における計測・記録業務の負担軽減を試験する。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-SWOT-S\",\"S2-CORE\",\"S3-PROJ\"]},\"whyChosen\":{\"text\":\"既存技術を転用できるため新市場への初期投資を抑えられる可能性があり、医療機関が求める感染対策記録の自動化を試験できるため。医療機器としての規制適用や必要手続きは未確認であり、選定理由の成立条件として確認する。\",\"basis\":\"HYPOTHESIS\",\"sourceRefs\":[\"S3-PROJ\",\"S2-SWOT-S\",\"S2-SWOT-O\",\"S2-SWOT-T\"]},\"customerOutcome\":{\"text\":\"医療機関の感染対策担当者が、計測・記録・点検に必要な負担を減らし、必要な記録を確実に残せる状態になる。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-CORE\",\"S2-QA-1\"]},\"companyResult\":{\"text\":\"既存の計測技術を活用して医療機関向け新市場を開拓し、試験導入後の継続利用につながる可能性を検証する。投資判断では回収期間と規制対応に要する費用・期間を確認する。\",\"basis\":\"DERIVED\",\"sourceRefs\":[\"S2-STORY-2\",\"S2-DEC-1\",\"S2-SWOT-T\",\"S3-KPI-qg-kpi-intent\"]},\"goalState\":{\"text\":\"2027-09までに試験導入に合意した医療機関5件を確保し、試験導入結果を製品仕様の見直しに反映しながら、2028-02までに継続利用の意向を確認した医療機関3件につなげる。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S3-KPI-qg-kpi-trial\",\"S3-KPI-qg-kpi-intent\",\"S3-BRIDGE-2\",\"S3-BEH-1\"]},\"obstacles\":[{\"text\":\"医療機関の業務フローや購買の流れを知る社員が少なく、顧客課題に合う試験導入条件を設計できていない可能性がある。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"医療機関の感染対策担当者への確認で、現行の計測・記録・点検業務、購買判断者、導入条件を確認する。\",\"sourceRefs\":[\"S2-SWOT-W\",\"S3-ISSUE-1\",\"S2-QA-1\"]},{\"text\":\"試験導入の費用と期間の条件が決まっておらず、医療機関が合意できる導入条件を提示できない。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"候補医療機関との条件確認で、導入範囲、費用負担、期間、評価方法を確認する。\",\"sourceRefs\":[\"S3-ISSUE-2\"]},{\"text\":\"医療機器としての規制適用の有無や必要手続きにより、試験導入の時間と費用が増える可能性がある。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"適用される規制・法令の有無、必要な手続き、対応に要する期間と費用を確認する。\",\"sourceRefs\":[\"S2-SWOT-T\"]},{\"text\":\"新用途に人員を振り向けることで、既存顧客の保守対応が遅れる可能性がある。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"試験導入に必要な人員と既存顧客の保守対応への影響を確認し、両方の優先順位と対応可能な範囲を整理する。\",\"sourceRefs\":[\"S3-RISK-1\"]}]},\"section2\":{\"actions\":[{\"order\":1,\"title\":\"医療機関の感染対策業務と購買条件を確認し、試験導入の評価条件を整理する\",\"ownerRole\":\"医療機関向け新用途担当\",\"dueYm\":\"2027-02\",\"dependsOn\":[],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-ISSUE-1\",\"S3-ISSUE-2\",\"S2-QA-1\"],\"supportsKpiKeys\":[\"A1\"],\"mechanism\":{\"obstacleRefs\":[1,2],\"stateChange\":\"医療機関ごとの計測・記録・点検の負担、購買判断者、導入範囲、費用・期間・評価方法が不明な状態から、試験導入を提案できる条件が整理された状態に変える。\",\"whyItMatters\":\"顧客の実際の業務負担に合う提案に変わることで、試験導入への合意と、導入後に負担軽減を評価する土台につながる。\"}},{\"order\":2,\"title\":\"規制・法令の適用有無と必要手続き、試験導入の費用・期間を確認して実行条件を決める\",\"ownerRole\":\"医療機関向け新用途担当\",\"dueYm\":\"2027-03\",\"dependsOn\":[1],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S2-SWOT-T\",\"S3-ISSUE-2\",\"S2-DEC-1\"],\"supportsKpiKeys\":[\"A2\"],\"mechanism\":{\"obstacleRefs\":[2,3,4],\"stateChange\":\"規制対応と試験導入の費用・期間が未確定の状態から、必要な手続き、実行可能な期間、回収期間を判断するための条件が確認された状態に変える。\",\"whyItMatters\":\"安全・法令上の未確認事項と資金負担を先に把握することで、実行不能な導入条件や既存顧客対応への過大な影響を避け、投資判断につなげられる。\"}},{\"order\":3,\"title\":\"整理した条件に基づき医療機関へ試験導入を提案し、合意した導入先で計測・記録の負担軽減を検証する\",\"ownerRole\":\"医療機関向け新用途担当\",\"dueYm\":\"2027-09\",\"dependsOn\":[2],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-BRIDGE-1\",\"S3-KPI-qg-kpi-trial\",\"S2-CORE\"],\"supportsKpiKeys\":[\"S1\",\"A3\"],\"mechanism\":{\"obstacleRefs\":[1,2,3],\"stateChange\":\"導入条件が未合意の状態から、条件に合意した医療機関で試験導入し、計測・記録・点検の負担と記録の確実性を評価できる状態に変える。\",\"whyItMatters\":\"顧客の業務負担が実際に軽減されるかを検証できれば、試験導入への合意を継続利用の判断につなげられる。\"}},{\"order\":4,\"title\":\"試験導入の結果と顧客要望を毎週製品開発部と共有し、製品仕様の見直しと継続利用提案に反映する\",\"ownerRole\":\"医療機関向け新用途担当\",\"dueYm\":\"2028-02\",\"dependsOn\":[3],\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S3-BEH-1\",\"S3-BRIDGE-2\",\"S3-KPI-qg-kpi-intent\",\"S3-OTHER-1\"],\"supportsKpiKeys\":[\"S2\",\"A3\"],\"mechanism\":{\"obstacleRefs\":[1,2],\"stateChange\":\"試験導入結果や顧客要望が製品開発に戻らない状態から、顧客の業務上の要望を仕様見直しと継続利用提案に反映できる状態に変える。\",\"whyItMatters\":\"顧客の実務に合う仕様へ改善することで、計測・記録の負担軽減を継続利用の意向につなげ、新用途の顧客価値と事業成果を高める。\"}}]},\"section3\":{\"kpis\":[{\"key\":\"A1\",\"kind\":\"CUSTOMER_OUTCOME\",\"label\":\"試験導入で計測・記録・点検の負担軽減と記録の確実性を確認できた医療機関数\",\"target\":null,\"unit\":\"医療機関\",\"targetBasis\":null,\"due\":\"2028-02\",\"owner\":null,\"measurement\":\"試験導入前後の計測・記録・点検に必要な負担と、必要な記録を確実に残せたかを医療機関ごとに確認する。\",\"supportsActionOrders\":[1,3,4]},{\"key\":\"A2\",\"kind\":\"LEADING\",\"label\":\"試験導入の費用・期間・規制対応条件が投資判断に使える状態になった項目数\",\"target\":null,\"unit\":\"項目\",\"targetBasis\":null,\"due\":\"2027-03\",\"owner\":null,\"measurement\":\"試験導入の費用、期間、規制・法令の適用有無、必要手続き、回収期間の判断に必要な情報が確認済みかを項目別に判定する。\",\"supportsActionOrders\":[2]},{\"key\":\"A3\",\"kind\":\"LEADING\",\"label\":\"試験導入結果を製品仕様の見直しに反映できた顧客要望数\",\"target\":null,\"unit\":\"要望\",\"targetBasis\":null,\"due\":\"2028-02\",\"owner\":null,\"measurement\":\"試験導入先から得た要望について、製品仕様の見直し対象として判断・反映されたものを確認する。\",\"supportsActionOrders\":[3,4]}],\"stage3Review\":[]},\"section4\":{\"financeItems\":[{\"key\":\"F1\",\"label\":\"医療機関向け新用途の試験導入による売上増加\",\"kind\":\"REVENUE_UP\",\"method\":\"QUANTITY_UNIT_PRICE\",\"inputs\":[{\"role\":\"QUANTITY\",\"label\":\"有償化した医療機関数\",\"value\":null,\"unit\":\"医療機関\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[]},{\"role\":\"UNIT_PRICE\",\"label\":\"医療機関1件あたりの売上単価\",\"value\":null,\"unit\":\"円/医療機関\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[]}],\"amountBasis\":\"TOTAL\",\"startYm\":\"2027-09\",\"endYm\":\"2028-02\",\"sourceNote\":\"試験導入に合意した医療機関数5件と継続利用の意向を確認した医療機関数3件は進捗指標であり、有償化の割合と単価は入力にないため売上額は算定しない。\",\"basedOnKpiKeys\":[\"S1\",\"S2\"],\"freeNote\":null},{\"key\":\"F2\",\"label\":\"規制対応・試験導入に伴う費用\",\"kind\":\"COST_INCREASE\",\"method\":\"FREE\",\"inputs\":[{\"role\":\"OTHER\",\"label\":\"規制対応に要する費用・期間\",\"value\":null,\"unit\":\"費用・期間\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[\"S2-SWOT-T\"]},{\"role\":\"OTHER\",\"label\":\"試験導入の費用・期間\",\"value\":null,\"unit\":\"費用・期間\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[\"S3-ISSUE-2\"]}],\"amountBasis\":\"TOTAL\",\"startYm\":\"2026-12\",\"endYm\":\"2028-03\",\"sourceNote\":\"直近の営業利益率は1%、ROICは2.1%、WACCは5.8%であり、投資余力と回収期間を確認して判断する必要がある。\",\"basedOnKpiKeys\":[],\"freeNote\":\"規制対応費用、試験導入費用、必要人員、回収期間が未確認のため金額は算定しない。投資判断は回収期間を明示して行う。\"}]},\"section5\":{\"responsible\":{\"name\":\"中村 美咲（仮）\",\"basis\":\"PROPOSAL\",\"note\":\"候補（仮）。実行前に確定が必要\"},\"roles\":[{\"unit\":\"医療機関向け新用途担当\",\"role\":\"医療機関の業務・購買条件の確認、試験導入条件の整理、導入提案と結果評価\",\"actionOrders\":[1,2,3,4]},{\"unit\":\"製品開発部\",\"role\":\"試験導入結果と顧客要望を受けた製品仕様の見直し\",\"actionOrders\":[4]}],\"budget\":null,\"risks\":[{\"risk\":\"医療機器としての規制・法令の適用有無や必要手続きにより、試験導入の費用・期間が増える。\",\"countermeasure\":\"適用の有無と必要手続きを確認し、費用・期間を投資判断の条件に反映する。\",\"confirmBy\":\"2027-03\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-SWOT-T\"]},{\"risk\":\"新用途に人を回すことで既存顧客の保守対応が遅れる。\",\"countermeasure\":\"試験導入に必要な人員と既存保守への影響を確認し、実行可能な範囲と優先順位を決める。\",\"confirmBy\":\"2027-03\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S3-RISK-1\"]},{\"risk\":\"試験導入の費用と回収期間が不明なまま投資を進め、資本効率を損なう。\",\"countermeasure\":\"試験導入費用、規制対応費用、回収期間を確認し、回収期間を明示して投資判断する。\",\"confirmBy\":\"2027-03\",\"basis\":\"DERIVED\",\"sourceRefs\":[\"S2-DEC-1\",\"S1-FIN\",\"S1-CAP\",\"S3-ISSUE-2\"]}],\"preconditions\":[\"試験導入の費用・期間、規制・法令の適用有無と必要手続きを実行前に確認する。\",\"既存顧客の保守対応に必要な人員と、新用途に配分できる範囲を確認する。\"]},\"verificationItems\":[{\"item\":\"医療機器としての規制・法令の適用有無、必要手続き、対応に要する費用と期間を確認する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2027-03\",\"sourceRefs\":[\"S2-SWOT-T\"]},{\"item\":\"試験導入の費用、期間、評価方法、有償化の条件と回収期間を確認し、投資判断に使用する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2027-03\",\"sourceRefs\":[\"S3-ISSUE-2\",\"S2-DEC-1\",\"S1-FIN\",\"S1-CAP\"]},{\"item\":\"新用途への人員配分が既存顧客の保守対応に与える影響と、実行可能な配分範囲を確認する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2027-03\",\"sourceRefs\":[\"S3-RISK-1\"]},{\"item\":\"試験導入の結果を製品開発部の施策と連携し、顧客要望を製品仕様の見直しに反映する。\",\"priority\":\"DETAIL\",\"confirmBy\":\"2028-02\",\"sourceRefs\":[\"S3-OTHER-1\",\"S3-BEH-1\",\"S3-BRIDGE-2\"]},{\"item\":\"試験導入前後で、計測・記録・点検の負担と記録の確実性を比較できるデータ定義と評価方法を確認する。\",\"priority\":\"DETAIL\",\"confirmBy\":\"2027-09\",\"sourceRefs\":[\"S2-CORE\",\"S2-QA-1\"]}]}",
+  "ok": true,
+  "executionStartable": true,
+  "plan": {
+    "period": {
+      "startYm": "2026-12",
+      "endYm": "2028-03",
+      "basis": "COMPANY_PLAN"
+    },
+    "section1": {
+      "customerProblem": {
+        "text": "医療機関では、院内感染対策の計測・記録・点検に現場の負担が生じている。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-QA-1",
+          "S2-CORE"
+        ]
+      },
+      "problemCause": {
+        "text": "感染対策に必要な計測と記録が自動化されておらず、計測の手間を減らしながら確実に記録する手段が検証されていない。",
+        "basis": "DERIVED",
+        "sourceRefs": [
+          "S2-QA-1",
+          "S2-CORE",
+          "S3-PROJ"
+        ]
+      },
+      "ourValue": {
+        "text": "既存の工場向け計測技術の精度と長い稼働実績を活用し、医療機関の感染対策における計測・記録業務の負担軽減を試験する。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-SWOT-S",
+          "S2-CORE",
+          "S3-PROJ"
+        ]
+      },
+      "whyChosen": {
+        "text": "既存技術を転用できるため新市場への初期投資を抑えられる可能性があり、医療機関が求める感染対策記録の自動化を試験できるため。医療機器としての規制適用や必要手続きは未確認であり、選定理由の成立条件として確認する。",
+        "basis": "HYPOTHESIS",
+        "sourceRefs": [
+          "S3-PROJ",
+          "S2-SWOT-S",
+          "S2-SWOT-O",
+          "S2-SWOT-T"
+        ]
+      },
+      "customerOutcome": {
+        "text": "医療機関の感染対策担当者が、計測・記録・点検に必要な負担を減らし、必要な記録を確実に残せる状態になる。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-CORE",
+          "S2-QA-1"
+        ]
+      },
+      "companyResult": {
+        "text": "既存の計測技術を活用して医療機関向け新市場を開拓し、試験導入後の継続利用につながる可能性を検証する。投資判断では回収期間と規制対応に要する費用・期間を確認する。",
+        "basis": "DERIVED",
+        "sourceRefs": [
+          "S2-STORY-2",
+          "S2-DEC-1",
+          "S2-SWOT-T",
+          "S3-KPI-qg-kpi-intent"
+        ]
+      },
+      "goalState": {
+        "text": "2027-09までに試験導入に合意した医療機関5件を確保し、試験導入結果を製品仕様の見直しに反映しながら、2028-02までに継続利用の意向を確認した医療機関3件につなげる。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S3-KPI-qg-kpi-trial",
+          "S3-KPI-qg-kpi-intent",
+          "S3-BRIDGE-2",
+          "S3-BEH-1"
+        ]
+      },
+      "obstacles": [
+        {
+          "text": "医療機関の業務フローや購買の流れを知る社員が少なく、顧客課題に合う試験導入条件を設計できていない可能性がある。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "医療機関の感染対策担当者への確認で、現行の計測・記録・点検業務、購買判断者、導入条件を確認する。",
+          "sourceRefs": [
+            "S2-SWOT-W",
+            "S3-ISSUE-1",
+            "S2-QA-1"
+          ]
+        },
+        {
+          "text": "試験導入の費用と期間の条件が決まっておらず、医療機関が合意できる導入条件を提示できない。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "候補医療機関との条件確認で、導入範囲、費用負担、期間、評価方法を確認する。",
+          "sourceRefs": [
+            "S3-ISSUE-2"
+          ]
+        },
+        {
+          "text": "医療機器としての規制適用の有無や必要手続きにより、試験導入の時間と費用が増える可能性がある。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "適用される規制・法令の有無、必要な手続き、対応に要する期間と費用を確認する。",
+          "sourceRefs": [
+            "S2-SWOT-T"
+          ]
+        },
+        {
+          "text": "新用途に人員を振り向けることで、既存顧客の保守対応が遅れる可能性がある。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "試験導入に必要な人員と既存顧客の保守対応への影響を確認し、両方の優先順位と対応可能な範囲を整理する。",
+          "sourceRefs": [
+            "S3-RISK-1"
+          ]
+        }
+      ]
+    },
+    "section2": {
+      "actions": [
+        {
+          "order": 1,
+          "title": "医療機関の感染対策業務と購買条件を確認し、試験導入の評価条件を整理する",
+          "ownerRole": "医療機関向け新用途担当",
+          "dueYm": "2027-02",
+          "dependsOn": [],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-ISSUE-1",
+            "S3-ISSUE-2",
+            "S2-QA-1"
+          ],
+          "supportsKpiKeys": [
+            "A1"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              1,
+              2
+            ],
+            "stateChange": "医療機関ごとの計測・記録・点検の負担、購買判断者、導入範囲、費用・期間・評価方法が不明な状態から、試験導入を提案できる条件が整理された状態に変える。",
+            "whyItMatters": "顧客の実際の業務負担に合う提案に変わることで、試験導入への合意と、導入後に負担軽減を評価する土台につながる。"
+          }
+        },
+        {
+          "order": 2,
+          "title": "規制・法令の適用有無と必要手続き、試験導入の費用・期間を確認して実行条件を決める",
+          "ownerRole": "医療機関向け新用途担当",
+          "dueYm": "2027-03",
+          "dependsOn": [
+            1
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S2-SWOT-T",
+            "S3-ISSUE-2",
+            "S2-DEC-1"
+          ],
+          "supportsKpiKeys": [
+            "A2"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              2,
+              3,
+              4
+            ],
+            "stateChange": "規制対応と試験導入の費用・期間が未確定の状態から、必要な手続き、実行可能な期間、回収期間を判断するための条件が確認された状態に変える。",
+            "whyItMatters": "安全・法令上の未確認事項と資金負担を先に把握することで、実行不能な導入条件や既存顧客対応への過大な影響を避け、投資判断につなげられる。"
+          }
+        },
+        {
+          "order": 3,
+          "title": "整理した条件に基づき医療機関へ試験導入を提案し、合意した導入先で計測・記録の負担軽減を検証する",
+          "ownerRole": "医療機関向け新用途担当",
+          "dueYm": "2027-09",
+          "dependsOn": [
+            2
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-BRIDGE-1",
+            "S3-KPI-qg-kpi-trial",
+            "S2-CORE"
+          ],
+          "supportsKpiKeys": [
+            "S1",
+            "A3"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              1,
+              2,
+              3
+            ],
+            "stateChange": "導入条件が未合意の状態から、条件に合意した医療機関で試験導入し、計測・記録・点検の負担と記録の確実性を評価できる状態に変える。",
+            "whyItMatters": "顧客の業務負担が実際に軽減されるかを検証できれば、試験導入への合意を継続利用の判断につなげられる。"
+          }
+        },
+        {
+          "order": 4,
+          "title": "試験導入の結果と顧客要望を毎週製品開発部と共有し、製品仕様の見直しと継続利用提案に反映する",
+          "ownerRole": "医療機関向け新用途担当",
+          "dueYm": "2028-02",
+          "dependsOn": [
+            3
+          ],
+          "basis": "STAGE_DATA",
+          "sourceRefs": [
+            "S3-BEH-1",
+            "S3-BRIDGE-2",
+            "S3-KPI-qg-kpi-intent",
+            "S3-OTHER-1"
+          ],
+          "supportsKpiKeys": [
+            "S2",
+            "A3"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              1,
+              2
+            ],
+            "stateChange": "試験導入結果や顧客要望が製品開発に戻らない状態から、顧客の業務上の要望を仕様見直しと継続利用提案に反映できる状態に変える。",
+            "whyItMatters": "顧客の実務に合う仕様へ改善することで、計測・記録の負担軽減を継続利用の意向につなげ、新用途の顧客価値と事業成果を高める。"
+          }
+        }
+      ]
+    },
+    "section3": {
+      "protectedKpis": [
+        {
+          "key": "S1",
+          "origin": "STAGE3",
+          "stage3KpiId": "qg-kpi-trial",
+          "kind": "UNCLASSIFIED",
+          "label": "試験導入に合意した医療機関数",
+          "target": 5,
+          "unit": "件",
+          "targetBasis": "STAGE_DATA",
+          "due": "2027-09",
+          "owner": "中村 美咲（仮）",
+          "measurement": "確定済みKPI（STAGE3）の測定方法に従う",
+          "supportsActionOrders": [],
+          "judgeCandidateYm": null
+        },
+        {
+          "key": "S2",
+          "origin": "STAGE3",
+          "stage3KpiId": "qg-kpi-intent",
+          "kind": "UNCLASSIFIED",
+          "label": "試験導入後に継続利用の意向を確認した医療機関数",
+          "target": 3,
+          "unit": "件",
+          "targetBasis": "STAGE_DATA",
+          "due": "2028-02",
+          "owner": null,
+          "measurement": "確定済みKPI（STAGE3）の測定方法に従う",
+          "supportsActionOrders": [],
+          "judgeCandidateYm": null
+        }
+      ],
+      "proposedKpis": [
+        {
+          "key": "A1",
+          "kind": "CUSTOMER_OUTCOME",
+          "label": "試験導入で計測・記録・点検の負担軽減と記録の確実性を確認できた医療機関数",
+          "target": null,
+          "unit": "医療機関",
+          "targetBasis": null,
+          "due": "2028-02",
+          "owner": null,
+          "measurement": "試験導入前後の計測・記録・点検に必要な負担と、必要な記録を確実に残せたかを医療機関ごとに確認する。",
+          "supportsActionOrders": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "key": "A2",
+          "kind": "LEADING",
+          "label": "試験導入の費用・期間・規制対応条件が投資判断に使える状態になった項目数",
+          "target": null,
+          "unit": "項目",
+          "targetBasis": null,
+          "due": "2027-03",
+          "owner": null,
+          "measurement": "試験導入の費用、期間、規制・法令の適用有無、必要手続き、回収期間の判断に必要な情報が確認済みかを項目別に判定する。",
+          "supportsActionOrders": [
+            2
+          ]
+        },
+        {
+          "key": "A3",
+          "kind": "LEADING",
+          "label": "試験導入結果を製品仕様の見直しに反映できた顧客要望数",
+          "target": null,
+          "unit": "要望",
+          "targetBasis": null,
+          "due": "2028-02",
+          "owner": null,
+          "measurement": "試験導入先から得た要望について、製品仕様の見直し対象として判断・反映されたものを確認する。",
+          "supportsActionOrders": [
+            3,
+            4
+          ]
+        }
+      ],
+      "stage3Review": []
+    },
+    "section4": {
+      "financeItems": [
+        {
+          "key": "F1",
+          "label": "医療機関向け新用途の試験導入による売上増加",
+          "kind": "REVENUE_UP",
+          "method": "QUANTITY_UNIT_PRICE",
+          "inputs": [
+            {
+              "role": "QUANTITY",
+              "label": "有償化した医療機関数",
+              "value": null,
+              "unit": "医療機関",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": []
+            },
+            {
+              "role": "UNIT_PRICE",
+              "label": "医療機関1件あたりの売上単価",
+              "value": null,
+              "unit": "円/医療機関",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": []
+            }
+          ],
+          "amountBasis": "TOTAL",
+          "startYm": "2027-09",
+          "endYm": "2028-02",
+          "sourceNote": "試験導入に合意した医療機関数5件と継続利用の意向を確認した医療機関数3件は進捗指標であり、有償化の割合と単価は入力にないため売上額は算定しない。",
+          "basedOnKpiKeys": [
+            "S1",
+            "S2"
+          ],
+          "freeNote": null
+        },
+        {
+          "key": "F2",
+          "label": "規制対応・試験導入に伴う費用",
+          "kind": "COST_INCREASE",
+          "method": "FREE",
+          "inputs": [
+            {
+              "role": "OTHER",
+              "label": "規制対応に要する費用・期間",
+              "value": null,
+              "unit": "費用・期間",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": [
+                "S2-SWOT-T"
+              ]
+            },
+            {
+              "role": "OTHER",
+              "label": "試験導入の費用・期間",
+              "value": null,
+              "unit": "費用・期間",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": [
+                "S3-ISSUE-2"
+              ]
+            }
+          ],
+          "amountBasis": "TOTAL",
+          "startYm": "2026-12",
+          "endYm": "2028-03",
+          "sourceNote": "直近の営業利益率は1%、ROICは2.1%、WACCは5.8%であり、投資余力と回収期間を確認して判断する必要がある。",
+          "basedOnKpiKeys": [],
+          "freeNote": "規制対応費用、試験導入費用、必要人員、回収期間が未確認のため金額は算定しない。投資判断は回収期間を明示して行う。"
+        }
+      ]
+    },
+    "section5": {
+      "responsible": {
+        "name": "中村 美咲（仮）",
+        "basis": "PROPOSAL",
+        "note": "候補（仮）。実行前に確定が必要"
+      },
+      "roles": [
+        {
+          "unit": "医療機関向け新用途担当",
+          "role": "医療機関の業務・購買条件の確認、試験導入条件の整理、導入提案と結果評価",
+          "actionOrders": [
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        {
+          "unit": "製品開発部",
+          "role": "試験導入結果と顧客要望を受けた製品仕様の見直し",
+          "actionOrders": [
+            4
+          ]
+        }
+      ],
+      "budget": null,
+      "risks": [
+        {
+          "risk": "医療機器としての規制・法令の適用有無や必要手続きにより、試験導入の費用・期間が増える。",
+          "countermeasure": "適用の有無と必要手続きを確認し、費用・期間を投資判断の条件に反映する。",
+          "confirmBy": "2027-03",
+          "basis": "STAGE_DATA",
+          "sourceRefs": [
+            "S2-SWOT-T"
+          ]
+        },
+        {
+          "risk": "新用途に人を回すことで既存顧客の保守対応が遅れる。",
+          "countermeasure": "試験導入に必要な人員と既存保守への影響を確認し、実行可能な範囲と優先順位を決める。",
+          "confirmBy": "2027-03",
+          "basis": "STAGE_DATA",
+          "sourceRefs": [
+            "S3-RISK-1"
+          ]
+        },
+        {
+          "risk": "試験導入の費用と回収期間が不明なまま投資を進め、資本効率を損なう。",
+          "countermeasure": "試験導入費用、規制対応費用、回収期間を確認し、回収期間を明示して投資判断する。",
+          "confirmBy": "2027-03",
+          "basis": "DERIVED",
+          "sourceRefs": [
+            "S2-DEC-1",
+            "S1-FIN",
+            "S1-CAP",
+            "S3-ISSUE-2"
+          ]
+        }
+      ],
+      "preconditions": [
+        "試験導入の費用・期間、規制・法令の適用有無と必要手続きを実行前に確認する。",
+        "既存顧客の保守対応に必要な人員と、新用途に配分できる範囲を確認する。"
+      ]
+    },
+    "verificationItems": [
+      {
+        "item": "医療機器としての規制・法令の適用有無、必要手続き、対応に要する費用と期間を確認する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2027-03",
+        "sourceRefs": [
+          "S2-SWOT-T"
+        ]
+      },
+      {
+        "item": "試験導入の費用、期間、評価方法、有償化の条件と回収期間を確認し、投資判断に使用する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2027-03",
+        "sourceRefs": [
+          "S3-ISSUE-2",
+          "S2-DEC-1",
+          "S1-FIN",
+          "S1-CAP"
+        ]
+      },
+      {
+        "item": "新用途への人員配分が既存顧客の保守対応に与える影響と、実行可能な配分範囲を確認する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2027-03",
+        "sourceRefs": [
+          "S3-RISK-1"
+        ]
+      },
+      {
+        "item": "試験導入の結果を製品開発部の施策と連携し、顧客要望を製品仕様の見直しに反映する。",
+        "priority": "DETAIL",
+        "confirmBy": "2028-02",
+        "sourceRefs": [
+          "S3-OTHER-1",
+          "S3-BEH-1",
+          "S3-BRIDGE-2"
+        ]
+      },
+      {
+        "item": "試験導入前後で、計測・記録・点検の負担と記録の確実性を比較できるデータ定義と評価方法を確認する。",
+        "priority": "DETAIL",
+        "confirmBy": "2027-09",
+        "sourceRefs": [
+          "S2-CORE",
+          "S2-QA-1"
+        ]
+      }
+    ],
+    "responsibleSuggestion": null
+  },
+  "issues": [],
+  "estimates": [
+    {
+      "itemKey": "F1",
+      "status": "INPUT_MISSING",
+      "amountYen": null,
+      "formula": null,
+      "missing": [
+        "数量",
+        "単価"
+      ]
+    },
+    {
+      "itemKey": "F2",
+      "status": "NOT_ESTIMATED",
+      "amountYen": null,
+      "formula": null,
+      "missing": []
+    }
+  ],
+  "checks": {
+    "rawSha256Unchanged": true,
+    "zodConstraintsSatisfied": true,
+    "obstaclesAllKept": true,
+    "actionObstacleRefsKept": true,
+    "actionObstacleRefsResolve": true,
+    "protectedKpisUnchanged": true,
+    "protectedLabelsNotOverwritten": true,
+    "financeHasNoAmount": true,
+    "financeNotConfirmed": true,
+    "regulatoryKept": true,
+    "engineOk": true,
+    "noErrorIssues": true
+  },
+  "context": {
+    "periodBasis": "COMPANY_PLAN",
+    "startYm": "2026-12",
+    "endYm": "2028-03",
+    "projectTitle": "医療機関向け計測ソリューションの試験導入",
+    "departmentName": "新規事業開発部",
+    "ownerCandidates": [
+      "中村 美咲（仮）"
+    ],
+    "stage3Kpis": [
+      {
+        "id": "qg-kpi-trial",
+        "label": "試験導入に合意した医療機関数",
+        "target": 5,
+        "unit": "件",
+        "due": "2027-09",
+        "owner": "中村 美咲（仮）"
+      },
+      {
+        "id": "qg-kpi-intent",
+        "label": "試験導入後に継続利用の意向を確認した医療機関数",
+        "target": 3,
+        "unit": "件",
+        "due": "2028-02",
+        "owner": null
+      }
+    ],
+    "sources": [
+      {
+        "ref": "S3-PERIOD",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "計画期間の根拠",
+        "text": "計画期間は 2026-12 〜 2028-03（根拠：全社計画期間の終了）"
+      },
+      {
+        "ref": "S3-PROJ",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "プロジェクトの目的・背景",
+        "text": "医療機関向け計測ソリューションの試験導入 ／ 院内の感染対策の記録を自動化すれば、医療機関が試験導入を検討する ／ 既存の計測技術を転用でき、新市場の初期投資を抑えられる"
+      },
+      {
+        "ref": "S1-FIN",
+        "stage": "STAGE1",
+        "role": "PRIMARY",
+        "label": "財務実績（財務制約の根拠）",
+        "text": "2025年度 売上4200百万円・営業利益42百万円 / 2024年度 売上4050百万円・営業利益60.8百万円 / 2023年度 売上3900百万円・営業利益74.1百万円。直近の営業利益率 1%"
+      },
+      {
+        "ref": "S1-CAP",
+        "stage": "STAGE1",
+        "role": "SUPPORT",
+        "label": "資本効率と資本コスト",
+        "text": "ROIC 2.1%、WACC 5.8%"
+      },
+      {
+        "ref": "S2-STORY-1",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第1章 現状）",
+        "text": "第1章 現状：主力の工場向け計測器は国内で安定しているが、新規の設備投資は頭打ちになっている。"
+      },
+      {
+        "ref": "S2-STORY-2",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第2章 勝ち筋）",
+        "text": "第2章 勝ち筋：既存の計測技術を医療現場の記録業務へ転用し、少ない投資で新しい顧客を開拓する。"
+      },
+      {
+        "ref": "S2-STORY-3",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第3章 体制）",
+        "text": "第3章 体制：新用途の顧客の声を製品開発に戻し、試験導入の数で進捗を測る。"
+      },
+      {
+        "ref": "S2-CORE",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "顧客にとっての価値",
+        "text": "医療機関の感染対策担当者が、計測の手間を減らして確実に記録できること"
+      },
+      {
+        "ref": "S2-PRIO-1",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "全社の重点テーマ",
+        "text": "既存の計測技術を医療現場へ展開する"
+      },
+      {
+        "ref": "S2-PRIO-2",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "全社の重点テーマ",
+        "text": "新用途の顧客の声を製品開発に戻す"
+      },
+      {
+        "ref": "S2-DEC-1",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "全社の判断基準",
+        "text": "投資は、回収期間を明示して判断する"
+      },
+      {
+        "ref": "S2-DEP-1",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "部門への展開原則",
+        "text": "新用途は、試験導入の数で進捗を測る"
+      },
+      {
+        "ref": "S2-SWOT-S",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "SWOT（強み）",
+        "text": "工場向けの計測器で、高い精度と長い稼働実績を持つ"
+      },
+      {
+        "ref": "S2-SWOT-W",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "SWOT（弱み）",
+        "text": "医療機関の業務や購買の流れを知る社員が少ない"
+      },
+      {
+        "ref": "S2-SWOT-O",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "SWOT（機会）",
+        "text": "院内感染対策の記録を自動化したいという医療機関の需要が増えている"
+      },
+      {
+        "ref": "S2-SWOT-T",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "SWOT（脅威）",
+        "text": "医療機器としての規制対応に時間と費用がかかる"
+      },
+      {
+        "ref": "S2-QA-1",
+        "stage": "STAGE2",
+        "role": "EVIDENCE",
+        "label": "元の議論（第2章 勝ち筋）",
+        "text": "Q: 医療機関のどの業務に計測が役立つか A: 院内の感染対策の記録と点検の時間が、現場の負担になっている"
+      },
+      {
+        "ref": "S2-QA-2",
+        "stage": "STAGE2",
+        "role": "EVIDENCE",
+        "label": "元の議論（第1章 現状）",
+        "text": "Q: 新規の設備投資が頭打ちの理由は何か A: 工場の更新需要はほぼ一巡し、新しい用途の顧客を見つけられていない"
+      },
+      {
+        "ref": "S3-DEPT",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の役割・勝ち筋",
+        "text": "工場向け計測技術を、新しい用途と市場へ広げる ／ 医療機関向けの新用途を立ち上げる ／ 勝ち筋：new-market ／ 勝ち筋：existing-tech ／ レバー：新市場の開拓 ／ レバー：既存技術の転用"
+      },
+      {
+        "ref": "S3-ISSUE-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の重点課題",
+        "text": "医療機関の業務フローを知る社員がいない"
+      },
+      {
+        "ref": "S3-ISSUE-2",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の重点課題",
+        "text": "試験導入の費用と期間の条件が決まっていない"
+      },
+      {
+        "ref": "S3-BRIDGE-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の結論（重点テーマ）",
+        "text": "医療機関向けの計測の試験導入を進める"
+      },
+      {
+        "ref": "S3-BRIDGE-2",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の結論（重点テーマ）",
+        "text": "製品の仕様を新用途の要望で見直す"
+      },
+      {
+        "ref": "S3-BEH-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の求める行動変化",
+        "text": "試験導入の結果を毎週製品開発部と共有する"
+      },
+      {
+        "ref": "S3-RISK-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "すり合わせの論点",
+        "text": "新用途に人を回すと、既存顧客の保守対応が遅れる"
+      },
+      {
+        "ref": "S3-OTHER-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "他部門の施策（製品開発部）",
+        "text": "参照のみ（この計画の確定KPIではない）：計測器の小型化（KPI: 小型化モデルの試作数）"
+      },
+      {
+        "ref": "S3-KPI-qg-kpi-trial",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "確定済みKPI（変更不可）",
+        "text": "試験導入に合意した医療機関数：目標 5件、期限 2027-09、担当 中村 美咲（仮）"
+      },
+      {
+        "ref": "S3-KPI-qg-kpi-intent",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "確定済みKPI（変更不可）",
+        "text": "試験導入後に継続利用の意向を確認した医療機関数：目標 3件、期限 2028-02、担当 未設定"
+      }
+    ]
+  },
+  "inputSummary": {
+    "companyName": "架空精密計測株式会社（評価用）",
+    "strategySummary": "工場向けの計測器で培った精度を、医療機関の感染対策など新しい用途へ広げ、2028年度に新用途の売上を柱の一つにする。",
+    "swot": {
+      "strength": "工場向けの計測器で、高い精度と長い稼働実績を持つ",
+      "weakness": "医療機関の業務や購買の流れを知る社員が少ない",
+      "opportunity": "院内感染対策の記録を自動化したいという医療機関の需要が増えている",
+      "threat": "医療機器としての規制対応に時間と費用がかかる"
+    },
+    "valueAnalysis": {
+      "operatingMarginPctLatest": 1,
+      "roic": 2.1,
+      "wacc": 5.8
+    },
+    "financePL": [
+      {
+        "year": 2025,
+        "revenue": 4200000000,
+        "operatingIncome": 42000000
+      },
+      {
+        "year": 2024,
+        "revenue": 4050000000,
+        "operatingIncome": 60750000
+      },
+      {
+        "year": 2023,
+        "revenue": 3900000000,
+        "operatingIncome": 74100000
+      }
+    ]
+  }
+}

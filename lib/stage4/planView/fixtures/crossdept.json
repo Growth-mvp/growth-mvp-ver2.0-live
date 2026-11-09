@@ -1,0 +1,823 @@
+{
+  "caseId": "crossdept",
+  "rawOutputSha256": "b75a5ae7b3913dbe1ca53799eddfac065fd435e207caacedaef7d2fa2d6e6caa",
+  "rawOutput": "{\"provisionalPeriod\":{\"endYm\":\"2027-05\",\"reason\":\"計画期間の期限根拠が入力にないため、市場投入から導入後定着の初期確認までを扱う仮期間として設定\"},\"section1\":{\"customerProblem\":{\"text\":\"中小企業の業務担当者が、自動化の効果を自分の手で確かめながら使い続けられず、導入後に利用が止まっている。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-CORE\",\"S2-STORY-1\"]},\"problemCause\":{\"text\":\"導入時の設定で止まり、現場の業務に組み込まれていないことが、導入後に使われなくなる原因である。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-QA-1\"]},\"ourValue\":{\"text\":\"既存顧客の業務に深く入り込み現場の信頼を得ている強みと、既存顧客の業務データを活かせる点を用いて、業務自動化パッケージを現場の業務に組み込む。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S3-PROJ\",\"S2-SWOT-S\"]},\"whyChosen\":{\"text\":\"既存顧客の業務理解と業務データを活かし、導入後の定着を支援することが、他社との差別化と既存顧客からの紹介につながる仮説がある。\",\"basis\":\"HYPOTHESIS\",\"sourceRefs\":[\"S3-PROJ\",\"S2-SWOT-S\",\"S2-STORY-2\"]},\"customerOutcome\":{\"text\":\"顧客が自動化の効果を確認でき、導入した機能を現場の業務で使い続けられる状態。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-CORE\",\"S2-QA-1\"]},\"companyResult\":{\"text\":\"導入後の定着を収益の柱とし、既存顧客からの紹介によって新製品の継続利用と市場拡大につなげる。\",\"basis\":\"STAGE_DATA\",\"sourceRefs\":[\"S2-STORY-2\",\"S3-DEPT\",\"S3-PROJ\"]},\"goalState\":{\"text\":\"営業・開発・CSが同じ顧客状況と共通KPIを見ながら市場投入と導入後定着を進め、顧客の継続利用を起点に有償化と紹介が生じている状態。\",\"basis\":\"DERIVED\",\"sourceRefs\":[\"S2-STORY-3\",\"S2-DEC-1\",\"S3-BEH-1\",\"S3-DEPT\"]},\"obstacles\":[{\"text\":\"導入時の設定で止まり、現場の業務に組み込まれていない。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"導入企業の導入後90日までの利用状況と、現場業務への組み込み状況を確認する。\",\"sourceRefs\":[\"S2-QA-1\",\"S2-STORY-1\"]},{\"text\":\"営業・開発・CSで成功の定義と市場投入計画が共有されていない。\",\"basis\":\"STAGE_DATA\",\"verifyBy\":\"3部門が同じ顧客状況を確認し、定着基準と市場投入計画について一致しているかを確認する。\",\"sourceRefs\":[\"S3-ISSUE-1\",\"S3-ISSUE-2\",\"S3-BEH-1\"]},{\"text\":\"既存顧客からの紹介につながる定着条件と見込み顧客の条件が整理されていない可能性がある。\",\"basis\":\"HYPOTHESIS\",\"verifyBy\":\"CS部と定着基準を、営業部と見込み顧客の条件をそれぞれ確認し、紹介商談に至った条件を検証する。\",\"sourceRefs\":[\"S3-COLLAB-1\",\"S3-COLLAB-2\",\"S3-OTHER-1\"]}]},\"section2\":{\"actions\":[{\"order\":1,\"title\":\"営業・開発・CSで市場投入計画、顧客状況、成功の定義をそろえる\",\"ownerRole\":\"営業・開発・CSの合同責任者\",\"dueYm\":\"2026-12\",\"dependsOn\":[],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S2-STORY-3\",\"S3-ISSUE-1\",\"S3-ISSUE-2\",\"S3-BEH-1\"],\"supportsKpiKeys\":[\"A2\"],\"mechanism\":{\"obstacleRefs\":[2],\"stateChange\":\"部門ごとに異なる成功の定義と未共有の市場投入計画を、同じ顧客状況と共通の定着基準で判断できる状態に変える。\",\"whyItMatters\":\"顧客の継続利用に効く判断を部門横断でそろえ、導入後の問題を部門間で取りこぼさずに解消できるようにする。\"}},{\"order\":2,\"title\":\"導入後90日までの定着基準と、現場業務への組み込み手順を定める\",\"ownerRole\":\"CS部\",\"dueYm\":\"2027-01\",\"dependsOn\":[1],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-COLLAB-1\",\"S2-QA-1\",\"S3-DEPT\"],\"supportsKpiKeys\":[\"S3\",\"A1\"],\"mechanism\":{\"obstacleRefs\":[1,2],\"stateChange\":\"導入時の設定だけで止まる状態から、顧客の現場業務で自動化の効果を確認しながら使い続けられる状態へ移すための判定基準と対応手順を持つ。\",\"whyItMatters\":\"顧客の継続利用を高め、導入後の定着を収益の柱にするための直接的な条件になる。\"}},{\"order\":3,\"title\":\"定着基準に沿って導入企業の利用状況を確認し、未定着の原因に応じて設定・業務組み込みを是正する\",\"ownerRole\":\"CS部・開発部\",\"dueYm\":\"2027-03\",\"dependsOn\":[2],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S2-QA-1\",\"S2-CORE\",\"S3-DEPT\"],\"supportsKpiKeys\":[\"S3\",\"A1\"],\"mechanism\":{\"obstacleRefs\":[1],\"stateChange\":\"導入後の利用停止を早期に把握し、設定の問題と現場業務への組み込み不足を切り分けて是正する状態に変える。\",\"whyItMatters\":\"顧客が自動化の効果を確認しながら使い続けられるため、90日定着率の改善と継続収入につながる。\"}},{\"order\":4,\"title\":\"定着した既存顧客を起点に紹介条件と見込み顧客の条件をそろえ、有償化につながる市場投入を進める\",\"ownerRole\":\"営業部・CS部\",\"dueYm\":\"2027-04\",\"dependsOn\":[2,3],\"basis\":\"PROPOSAL\",\"sourceRefs\":[\"S3-COLLAB-2\",\"S3-OTHER-1\",\"S2-STORY-2\",\"S3-DEPT\"],\"supportsKpiKeys\":[\"S1\",\"S2\",\"A3\"],\"mechanism\":{\"obstacleRefs\":[3],\"stateChange\":\"定着した顧客から紹介につながる条件と、営業が追う見込み顧客の条件をそろえ、導入企業の獲得から有償化までを一貫して判断できる状態に変える。\",\"whyItMatters\":\"既存顧客の信頼と業務理解を新規獲得に活かし、導入企業数と無償トライアルから有償への転換を高める。\"}}]},\"section3\":{\"kpis\":[{\"key\":\"A1\",\"kind\":\"CUSTOMER_OUTCOME\",\"label\":\"導入後90日以内に現場業務へ組み込まれ、自動化の効果を確認できた導入企業の割合\",\"target\":80,\"unit\":\"%\",\"targetBasis\":\"AI_PROVISIONAL\",\"due\":\"2027-05\",\"owner\":\"松本 優（仮）\",\"measurement\":\"導入後90日時点で、定着基準を満たし現場業務で利用継続している導入企業数を導入企業数で割る。\",\"supportsActionOrders\":[2,3]},{\"key\":\"A2\",\"kind\":\"LEADING\",\"label\":\"営業・開発・CSが共通の顧客状況と定着基準で判定できる導入案件の割合\",\"target\":100,\"unit\":\"%\",\"targetBasis\":\"AI_PROVISIONAL\",\"due\":\"2027-02\",\"owner\":null,\"measurement\":\"対象導入案件のうち、3部門が共通の顧客状況、定着基準、市場投入計画に基づき判定できた案件の割合を確認する。\",\"supportsActionOrders\":[1]},{\"key\":\"A3\",\"kind\":\"LEADING\",\"label\":\"定着基準と紹介条件を満たす既存顧客の割合\",\"target\":60,\"unit\":\"%\",\"targetBasis\":\"AI_PROVISIONAL\",\"due\":\"2027-05\",\"owner\":null,\"measurement\":\"定着基準を満たし、紹介条件の確認まで完了した既存顧客数を対象既存顧客数で割る。\",\"supportsActionOrders\":[4]}],\"stage3Review\":[{\"stage3KpiId\":\"qc-kpi-adopt\",\"concern\":\"期限が未設定のため、仮期間内の導入企業数30社の達成時点を実行前に定める必要がある。\",\"sourceRefs\":[\"S3-KPI-qc-kpi-adopt\",\"S3-PERIOD\"]},{\"stage3KpiId\":\"qc-kpi-trial\",\"concern\":\"担当と期限が未設定のため、有償化率25%を誰がいつ判定するかを定める必要がある。\",\"sourceRefs\":[\"S3-KPI-qc-kpi-trial\"]},{\"stage3KpiId\":\"qc-kpi-retain\",\"concern\":\"期限が未設定のため、導入後90日の定着率80%を仮期間内のどの導入企業群で判定するかを定める必要がある。\",\"sourceRefs\":[\"S3-KPI-qc-kpi-retain\",\"S3-PERIOD\"]}]},\"section4\":{\"financeItems\":[{\"key\":\"F1\",\"label\":\"新製品の定着と紹介による売上増加\",\"kind\":\"REVENUE_UP\",\"method\":\"FREE\",\"inputs\":[{\"role\":\"QUANTITY\",\"label\":\"導入企業数\",\"value\":null,\"unit\":\"社\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[\"S3-KPI-qc-kpi-adopt\"]},{\"role\":\"CONVERSION_RATE\",\"label\":\"無償トライアルから有償への転換率\",\"value\":25,\"unit\":\"%\",\"basis\":\"STAGE_DATA\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[\"S3-KPI-qc-kpi-trial\"]},{\"role\":\"RETENTION_RATE\",\"label\":\"導入後90日の定着率\",\"value\":80,\"unit\":\"%\",\"basis\":\"STAGE_DATA\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[\"S3-KPI-qc-kpi-retain\"]},{\"role\":\"UNIT_PRICE\",\"label\":\"新製品の単価\",\"value\":null,\"unit\":\"未確認\",\"basis\":\"UNCONFIRMED\",\"confirmState\":\"UNCONFIRMED\",\"sourceRefs\":[]}],\"amountBasis\":\"TOTAL\",\"startYm\":\"2026-12\",\"endYm\":\"2027-05\",\"sourceNote\":\"売上260百万円、営業利益-20百万円、直近営業利益率-7.7%の財務状況を踏まえ、定着と有償化による売上への影響を確認する。導入企業数と単価が未確認のため金額は算定しない。\",\"basedOnKpiKeys\":[\"S1\",\"S2\",\"S3\"],\"freeNote\":\"導入企業数、無償トライアル数、単価、紹介商談からの成約条件を確認後、導入企業数×有償化率×単価を基本に算定する。定着率は継続利用の確認に用いる。\"}]},\"section5\":{\"responsible\":{\"name\":null,\"basis\":\"UNCONFIRMED\",\"note\":\"計画全体の責任者は入力にないため、候補者を含めて実行前に確認する。\"},\"roles\":[{\"unit\":\"営業部\",\"role\":\"見込み顧客の条件と紹介による市場投入をそろえる\",\"actionOrders\":[4]},{\"unit\":\"開発部\",\"role\":\"定着を妨げる設定・業務組み込み上の問題を是正する\",\"actionOrders\":[3]},{\"unit\":\"CS部\",\"role\":\"導入後90日の定着基準を定め、利用継続を支援する\",\"actionOrders\":[2,3,4]}],\"budget\":null,\"risks\":[{\"risk\":\"導入後の利用停止が設定以外の要因でも発生し、定着基準だけでは改善できない可能性がある。\",\"countermeasure\":\"導入企業の利用状況と現場業務への組み込み状況を確認し、原因を切り分けて対応する。\",\"confirmBy\":\"2027-03\",\"basis\":\"HYPOTHESIS\",\"sourceRefs\":[\"S2-QA-1\"]},{\"risk\":\"部門ごとの成功定義や市場投入計画の不一致が残り、顧客状況に基づく判断が分かれる可能性がある。\",\"countermeasure\":\"共通の顧客状況、定着基準、市場投入計画で判定できる案件の割合を確認する。\",\"confirmBy\":\"2027-02\",\"basis\":\"HYPOTHESIS\",\"sourceRefs\":[\"S3-ISSUE-1\",\"S3-ISSUE-2\"]},{\"risk\":\"定着した既存顧客から紹介につながる条件が確認できない可能性がある。\",\"countermeasure\":\"定着基準を満たした顧客と紹介条件の関係を確認し、見込み顧客の条件を営業部とそろえる。\",\"confirmBy\":\"2027-04\",\"basis\":\"HYPOTHESIS\",\"sourceRefs\":[\"S3-COLLAB-1\",\"S3-COLLAB-2\"]}],\"preconditions\":[\"市場投入後の導入企業、トライアル、有償化、導入後90日の定着を同じ顧客単位で把握できること。\",\"営業・開発・CSが共通の顧客状況と定着基準を確認できること。\",\"新製品の単価、対象顧客、導入企業数の集計方法を実行前に確認すること。\"]},\"verificationItems\":[{\"item\":\"市場投入後の導入企業数30社、無償トライアルから有償への転換率25%、導入後90日の定着率80%について、期限、対象期間、集計方法を確認する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2026-12\",\"sourceRefs\":[\"S3-KPI-qc-kpi-adopt\",\"S3-KPI-qc-kpi-trial\",\"S3-KPI-qc-kpi-retain\"]},{\"item\":\"計画全体の責任者と、無償トライアルから有償への転換率の担当者を確認する。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2026-12\",\"sourceRefs\":[\"S3-KPI-qc-kpi-adopt\",\"S3-KPI-qc-kpi-trial\"]},{\"item\":\"新製品の単価、対象顧客、導入企業数・トライアル数の把握方法を確認し、売上影響を算定できる状態にする。\",\"priority\":\"BEFORE_START\",\"confirmBy\":\"2026-12\",\"sourceRefs\":[\"S1-FIN\",\"S3-KPI-qc-kpi-adopt\",\"S3-KPI-qc-kpi-trial\"]},{\"item\":\"導入後90日の定着基準が、顧客の現場業務への組み込みと自動化効果の確認を適切に測れているか確認する。\",\"priority\":\"DETAIL\",\"confirmBy\":\"2027-01\",\"sourceRefs\":[\"S2-CORE\",\"S2-QA-1\",\"S3-COLLAB-1\"]},{\"item\":\"営業・開発・CSが共通の顧客状況と市場投入計画を確認できる運用方法を確認する。\",\"priority\":\"DETAIL\",\"confirmBy\":\"2027-02\",\"sourceRefs\":[\"S2-STORY-3\",\"S3-ISSUE-2\",\"S3-BEH-1\"]}]}",
+  "ok": true,
+  "executionStartable": false,
+  "plan": {
+    "period": {
+      "startYm": "2026-12",
+      "endYm": "2027-05",
+      "basis": "AI_PROVISIONAL"
+    },
+    "section1": {
+      "customerProblem": {
+        "text": "中小企業の業務担当者が、自動化の効果を自分の手で確かめながら使い続けられず、導入後に利用が止まっている。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-CORE",
+          "S2-STORY-1"
+        ]
+      },
+      "problemCause": {
+        "text": "導入時の設定で止まり、現場の業務に組み込まれていないことが、導入後に使われなくなる原因である。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-QA-1"
+        ]
+      },
+      "ourValue": {
+        "text": "既存顧客の業務に深く入り込み現場の信頼を得ている強みと、既存顧客の業務データを活かせる点を用いて、業務自動化パッケージを現場の業務に組み込む。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S3-PROJ",
+          "S2-SWOT-S"
+        ]
+      },
+      "whyChosen": {
+        "text": "既存顧客の業務理解と業務データを活かし、導入後の定着を支援することが、他社との差別化と既存顧客からの紹介につながる仮説がある。",
+        "basis": "HYPOTHESIS",
+        "sourceRefs": [
+          "S3-PROJ",
+          "S2-SWOT-S",
+          "S2-STORY-2"
+        ]
+      },
+      "customerOutcome": {
+        "text": "顧客が自動化の効果を確認でき、導入した機能を現場の業務で使い続けられる状態。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-CORE",
+          "S2-QA-1"
+        ]
+      },
+      "companyResult": {
+        "text": "導入後の定着を収益の柱とし、既存顧客からの紹介によって新製品の継続利用と市場拡大につなげる。",
+        "basis": "STAGE_DATA",
+        "sourceRefs": [
+          "S2-STORY-2",
+          "S3-DEPT",
+          "S3-PROJ"
+        ]
+      },
+      "goalState": {
+        "text": "営業・開発・CSが同じ顧客状況と共通KPIを見ながら市場投入と導入後定着を進め、顧客の継続利用を起点に有償化と紹介が生じている状態。",
+        "basis": "DERIVED",
+        "sourceRefs": [
+          "S2-STORY-3",
+          "S2-DEC-1",
+          "S3-BEH-1",
+          "S3-DEPT"
+        ]
+      },
+      "obstacles": [
+        {
+          "text": "導入時の設定で止まり、現場の業務に組み込まれていない。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "導入企業の導入後90日までの利用状況と、現場業務への組み込み状況を確認する。",
+          "sourceRefs": [
+            "S2-QA-1",
+            "S2-STORY-1"
+          ]
+        },
+        {
+          "text": "営業・開発・CSで成功の定義と市場投入計画が共有されていない。",
+          "basis": "STAGE_DATA",
+          "verifyBy": "3部門が同じ顧客状況を確認し、定着基準と市場投入計画について一致しているかを確認する。",
+          "sourceRefs": [
+            "S3-ISSUE-1",
+            "S3-ISSUE-2",
+            "S3-BEH-1"
+          ]
+        },
+        {
+          "text": "既存顧客からの紹介につながる定着条件と見込み顧客の条件が整理されていない可能性がある。",
+          "basis": "HYPOTHESIS",
+          "verifyBy": "CS部と定着基準を、営業部と見込み顧客の条件をそれぞれ確認し、紹介商談に至った条件を検証する。",
+          "sourceRefs": [
+            "S3-COLLAB-1",
+            "S3-COLLAB-2",
+            "S3-OTHER-1"
+          ]
+        }
+      ]
+    },
+    "section2": {
+      "actions": [
+        {
+          "order": 1,
+          "title": "営業・開発・CSで市場投入計画、顧客状況、成功の定義をそろえる",
+          "ownerRole": "営業・開発・CSの合同責任者",
+          "dueYm": "2026-12",
+          "dependsOn": [],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S2-STORY-3",
+            "S3-ISSUE-1",
+            "S3-ISSUE-2",
+            "S3-BEH-1"
+          ],
+          "supportsKpiKeys": [
+            "A2"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              2
+            ],
+            "stateChange": "部門ごとに異なる成功の定義と未共有の市場投入計画を、同じ顧客状況と共通の定着基準で判断できる状態に変える。",
+            "whyItMatters": "顧客の継続利用に効く判断を部門横断でそろえ、導入後の問題を部門間で取りこぼさずに解消できるようにする。"
+          }
+        },
+        {
+          "order": 2,
+          "title": "導入後90日までの定着基準と、現場業務への組み込み手順を定める",
+          "ownerRole": "CS部",
+          "dueYm": "2027-01",
+          "dependsOn": [
+            1
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-COLLAB-1",
+            "S2-QA-1",
+            "S3-DEPT"
+          ],
+          "supportsKpiKeys": [
+            "S3",
+            "A1"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              1,
+              2
+            ],
+            "stateChange": "導入時の設定だけで止まる状態から、顧客の現場業務で自動化の効果を確認しながら使い続けられる状態へ移すための判定基準と対応手順を持つ。",
+            "whyItMatters": "顧客の継続利用を高め、導入後の定着を収益の柱にするための直接的な条件になる。"
+          }
+        },
+        {
+          "order": 3,
+          "title": "定着基準に沿って導入企業の利用状況を確認し、未定着の原因に応じて設定・業務組み込みを是正する",
+          "ownerRole": "CS部・開発部",
+          "dueYm": "2027-03",
+          "dependsOn": [
+            2
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S2-QA-1",
+            "S2-CORE",
+            "S3-DEPT"
+          ],
+          "supportsKpiKeys": [
+            "S3",
+            "A1"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              1
+            ],
+            "stateChange": "導入後の利用停止を早期に把握し、設定の問題と現場業務への組み込み不足を切り分けて是正する状態に変える。",
+            "whyItMatters": "顧客が自動化の効果を確認しながら使い続けられるため、90日定着率の改善と継続収入につながる。"
+          }
+        },
+        {
+          "order": 4,
+          "title": "定着した既存顧客を起点に紹介条件と見込み顧客の条件をそろえ、有償化につながる市場投入を進める",
+          "ownerRole": "営業部・CS部",
+          "dueYm": "2027-04",
+          "dependsOn": [
+            2,
+            3
+          ],
+          "basis": "PROPOSAL",
+          "sourceRefs": [
+            "S3-COLLAB-2",
+            "S3-OTHER-1",
+            "S2-STORY-2",
+            "S3-DEPT"
+          ],
+          "supportsKpiKeys": [
+            "S1",
+            "S2",
+            "A3"
+          ],
+          "mechanism": {
+            "obstacleRefs": [
+              3
+            ],
+            "stateChange": "定着した顧客から紹介につながる条件と、営業が追う見込み顧客の条件をそろえ、導入企業の獲得から有償化までを一貫して判断できる状態に変える。",
+            "whyItMatters": "既存顧客の信頼と業務理解を新規獲得に活かし、導入企業数と無償トライアルから有償への転換を高める。"
+          }
+        }
+      ]
+    },
+    "section3": {
+      "protectedKpis": [
+        {
+          "key": "S1",
+          "origin": "STAGE3",
+          "stage3KpiId": "qc-kpi-adopt",
+          "kind": "UNCLASSIFIED",
+          "label": "市場投入後の導入企業数",
+          "target": 30,
+          "unit": "社",
+          "targetBasis": "STAGE_DATA",
+          "due": null,
+          "owner": "高橋 亮（仮）",
+          "measurement": "確定済みKPI（STAGE3）の測定方法に従う",
+          "supportsActionOrders": [],
+          "judgeCandidateYm": "2027-05"
+        },
+        {
+          "key": "S2",
+          "origin": "STAGE3",
+          "stage3KpiId": "qc-kpi-trial",
+          "kind": "UNCLASSIFIED",
+          "label": "無償トライアルから有償へ転換した率",
+          "target": 25,
+          "unit": "%",
+          "targetBasis": "STAGE_DATA",
+          "due": null,
+          "owner": null,
+          "measurement": "確定済みKPI（STAGE3）の測定方法に従う",
+          "supportsActionOrders": [],
+          "judgeCandidateYm": "2027-05"
+        },
+        {
+          "key": "S3",
+          "origin": "STAGE3",
+          "stage3KpiId": "qc-kpi-retain",
+          "kind": "UNCLASSIFIED",
+          "label": "導入後90日の定着率",
+          "target": 80,
+          "unit": "%",
+          "targetBasis": "STAGE_DATA",
+          "due": null,
+          "owner": "松本 優（仮）",
+          "measurement": "確定済みKPI（STAGE3）の測定方法に従う",
+          "supportsActionOrders": [],
+          "judgeCandidateYm": "2027-05"
+        }
+      ],
+      "proposedKpis": [
+        {
+          "key": "A1",
+          "kind": "CUSTOMER_OUTCOME",
+          "label": "導入後90日以内に現場業務へ組み込まれ、自動化の効果を確認できた導入企業の割合",
+          "target": 80,
+          "unit": "%",
+          "targetBasis": "AI_PROVISIONAL",
+          "due": "2027-05",
+          "owner": "松本 優（仮）",
+          "measurement": "導入後90日時点で、定着基準を満たし現場業務で利用継続している導入企業数を導入企業数で割る。",
+          "supportsActionOrders": [
+            2,
+            3
+          ]
+        },
+        {
+          "key": "A2",
+          "kind": "LEADING",
+          "label": "営業・開発・CSが共通の顧客状況と定着基準で判定できる導入案件の割合",
+          "target": 100,
+          "unit": "%",
+          "targetBasis": "AI_PROVISIONAL",
+          "due": "2027-02",
+          "owner": null,
+          "measurement": "対象導入案件のうち、3部門が共通の顧客状況、定着基準、市場投入計画に基づき判定できた案件の割合を確認する。",
+          "supportsActionOrders": [
+            1
+          ]
+        },
+        {
+          "key": "A3",
+          "kind": "LEADING",
+          "label": "定着基準と紹介条件を満たす既存顧客の割合",
+          "target": 60,
+          "unit": "%",
+          "targetBasis": "AI_PROVISIONAL",
+          "due": "2027-05",
+          "owner": null,
+          "measurement": "定着基準を満たし、紹介条件の確認まで完了した既存顧客数を対象既存顧客数で割る。",
+          "supportsActionOrders": [
+            4
+          ]
+        }
+      ],
+      "stage3Review": [
+        {
+          "stage3KpiId": "qc-kpi-adopt",
+          "concern": "期限が未設定のため、仮期間内の導入企業数30社の達成時点を実行前に定める必要がある。",
+          "sourceRefs": [
+            "S3-KPI-qc-kpi-adopt",
+            "S3-PERIOD"
+          ]
+        },
+        {
+          "stage3KpiId": "qc-kpi-trial",
+          "concern": "担当と期限が未設定のため、有償化率25%を誰がいつ判定するかを定める必要がある。",
+          "sourceRefs": [
+            "S3-KPI-qc-kpi-trial"
+          ]
+        },
+        {
+          "stage3KpiId": "qc-kpi-retain",
+          "concern": "期限が未設定のため、導入後90日の定着率80%を仮期間内のどの導入企業群で判定するかを定める必要がある。",
+          "sourceRefs": [
+            "S3-KPI-qc-kpi-retain",
+            "S3-PERIOD"
+          ]
+        }
+      ]
+    },
+    "section4": {
+      "financeItems": [
+        {
+          "key": "F1",
+          "label": "新製品の定着と紹介による売上増加",
+          "kind": "REVENUE_UP",
+          "method": "FREE",
+          "inputs": [
+            {
+              "role": "QUANTITY",
+              "label": "導入企業数",
+              "value": null,
+              "unit": "社",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": [
+                "S3-KPI-qc-kpi-adopt"
+              ]
+            },
+            {
+              "role": "CONVERSION_RATE",
+              "label": "無償トライアルから有償への転換率",
+              "value": 25,
+              "unit": "%",
+              "basis": "STAGE_DATA",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": [
+                "S3-KPI-qc-kpi-trial"
+              ]
+            },
+            {
+              "role": "RETENTION_RATE",
+              "label": "導入後90日の定着率",
+              "value": 80,
+              "unit": "%",
+              "basis": "STAGE_DATA",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": [
+                "S3-KPI-qc-kpi-retain"
+              ]
+            },
+            {
+              "role": "UNIT_PRICE",
+              "label": "新製品の単価",
+              "value": null,
+              "unit": "未確認",
+              "basis": "UNCONFIRMED",
+              "confirmState": "UNCONFIRMED",
+              "sourceRefs": []
+            }
+          ],
+          "amountBasis": "TOTAL",
+          "startYm": "2026-12",
+          "endYm": "2027-05",
+          "sourceNote": "売上260百万円、営業利益-20百万円、直近営業利益率-7.7%の財務状況を踏まえ、定着と有償化による売上への影響を確認する。導入企業数と単価が未確認のため金額は算定しない。",
+          "basedOnKpiKeys": [
+            "S1",
+            "S2",
+            "S3"
+          ],
+          "freeNote": "導入企業数、無償トライアル数、単価、紹介商談からの成約条件を確認後、導入企業数×有償化率×単価を基本に算定する。定着率は継続利用の確認に用いる。"
+        }
+      ]
+    },
+    "section5": {
+      "responsible": {
+        "name": null,
+        "basis": "UNCONFIRMED",
+        "note": "計画全体の責任者は入力にないため、候補者を含めて実行前に確認する。"
+      },
+      "roles": [
+        {
+          "unit": "営業部",
+          "role": "見込み顧客の条件と紹介による市場投入をそろえる",
+          "actionOrders": [
+            4
+          ]
+        },
+        {
+          "unit": "開発部",
+          "role": "定着を妨げる設定・業務組み込み上の問題を是正する",
+          "actionOrders": [
+            3
+          ]
+        },
+        {
+          "unit": "CS部",
+          "role": "導入後90日の定着基準を定め、利用継続を支援する",
+          "actionOrders": [
+            2,
+            3,
+            4
+          ]
+        }
+      ],
+      "budget": null,
+      "risks": [
+        {
+          "risk": "導入後の利用停止が設定以外の要因でも発生し、定着基準だけでは改善できない可能性がある。",
+          "countermeasure": "導入企業の利用状況と現場業務への組み込み状況を確認し、原因を切り分けて対応する。",
+          "confirmBy": "2027-03",
+          "basis": "HYPOTHESIS",
+          "sourceRefs": [
+            "S2-QA-1"
+          ]
+        },
+        {
+          "risk": "部門ごとの成功定義や市場投入計画の不一致が残り、顧客状況に基づく判断が分かれる可能性がある。",
+          "countermeasure": "共通の顧客状況、定着基準、市場投入計画で判定できる案件の割合を確認する。",
+          "confirmBy": "2027-02",
+          "basis": "HYPOTHESIS",
+          "sourceRefs": [
+            "S3-ISSUE-1",
+            "S3-ISSUE-2"
+          ]
+        },
+        {
+          "risk": "定着した既存顧客から紹介につながる条件が確認できない可能性がある。",
+          "countermeasure": "定着基準を満たした顧客と紹介条件の関係を確認し、見込み顧客の条件を営業部とそろえる。",
+          "confirmBy": "2027-04",
+          "basis": "HYPOTHESIS",
+          "sourceRefs": [
+            "S3-COLLAB-1",
+            "S3-COLLAB-2"
+          ]
+        }
+      ],
+      "preconditions": [
+        "市場投入後の導入企業、トライアル、有償化、導入後90日の定着を同じ顧客単位で把握できること。",
+        "営業・開発・CSが共通の顧客状況と定着基準を確認できること。",
+        "新製品の単価、対象顧客、導入企業数の集計方法を実行前に確認すること。"
+      ]
+    },
+    "verificationItems": [
+      {
+        "item": "市場投入後の導入企業数30社、無償トライアルから有償への転換率25%、導入後90日の定着率80%について、期限、対象期間、集計方法を確認する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2026-12",
+        "sourceRefs": [
+          "S3-KPI-qc-kpi-adopt",
+          "S3-KPI-qc-kpi-trial",
+          "S3-KPI-qc-kpi-retain"
+        ]
+      },
+      {
+        "item": "計画全体の責任者と、無償トライアルから有償への転換率の担当者を確認する。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2026-12",
+        "sourceRefs": [
+          "S3-KPI-qc-kpi-adopt",
+          "S3-KPI-qc-kpi-trial"
+        ]
+      },
+      {
+        "item": "新製品の単価、対象顧客、導入企業数・トライアル数の把握方法を確認し、売上影響を算定できる状態にする。",
+        "priority": "BEFORE_START",
+        "confirmBy": "2026-12",
+        "sourceRefs": [
+          "S1-FIN",
+          "S3-KPI-qc-kpi-adopt",
+          "S3-KPI-qc-kpi-trial"
+        ]
+      },
+      {
+        "item": "導入後90日の定着基準が、顧客の現場業務への組み込みと自動化効果の確認を適切に測れているか確認する。",
+        "priority": "DETAIL",
+        "confirmBy": "2027-01",
+        "sourceRefs": [
+          "S2-CORE",
+          "S2-QA-1",
+          "S3-COLLAB-1"
+        ]
+      },
+      {
+        "item": "営業・開発・CSが共通の顧客状況と市場投入計画を確認できる運用方法を確認する。",
+        "priority": "DETAIL",
+        "confirmBy": "2027-02",
+        "sourceRefs": [
+          "S2-STORY-3",
+          "S3-ISSUE-2",
+          "S3-BEH-1"
+        ]
+      }
+    ],
+    "responsibleSuggestion": "高橋 亮（仮）"
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "code": "KPI_DUPLICATE",
+      "path": "section3.A1",
+      "message": "「導入後90日以内に現場業務へ組み込まれ、自動化の効果を確認できた導入企業の割合」は「導入後90日の定着率」と測るものが重なっている（同じ目標値）。どちらかに統合する"
+    },
+    {
+      "severity": "warning",
+      "code": "KPI_CLASS_UNCERTAIN",
+      "path": "section3.A1",
+      "message": "「導入後90日以内に現場業務へ組み込まれ、自動化の効果を確認できた導入企業の割合」が活動か成果か判定できない（活動か成果か、この表記だけでは判定できない）。利用者が確認する"
+    },
+    {
+      "severity": "warning",
+      "code": "OWNER_UNSET",
+      "path": "section5.responsible",
+      "message": "責任者が未設定のため、実行は開始できない"
+    }
+  ],
+  "estimates": [
+    {
+      "itemKey": "F1",
+      "status": "NOT_ESTIMATED",
+      "amountYen": null,
+      "formula": null,
+      "missing": []
+    }
+  ],
+  "context": {
+    "periodBasis": null,
+    "startYm": "2026-12",
+    "endYm": null,
+    "projectTitle": "業務自動化パッケージの市場投入",
+    "departmentName": "事業企画部",
+    "ownerCandidates": [
+      "高橋 亮（仮）",
+      "松本 優（仮）"
+    ],
+    "stage3Kpis": [
+      {
+        "id": "qc-kpi-adopt",
+        "label": "市場投入後の導入企業数",
+        "target": 30,
+        "unit": "社",
+        "due": null,
+        "owner": "高橋 亮（仮）"
+      },
+      {
+        "id": "qc-kpi-trial",
+        "label": "無償トライアルから有償へ転換した率",
+        "target": 25,
+        "unit": "%",
+        "due": null,
+        "owner": null
+      },
+      {
+        "id": "qc-kpi-retain",
+        "label": "導入後90日の定着率",
+        "target": 80,
+        "unit": "%",
+        "due": null,
+        "owner": "松本 優（仮）"
+      }
+    ],
+    "sources": [
+      {
+        "ref": "S3-PERIOD",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "計画期間の根拠",
+        "text": "期限の根拠が無いため、AIが仮期間を提案する（開始 2026-12）"
+      },
+      {
+        "ref": "S3-PROJ",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "プロジェクトの目的・背景",
+        "text": "業務自動化パッケージの市場投入 ／ 既存顧客の紹介と導入後の定着支援があれば、新製品が継続的に使われる ／ 既存顧客の業務データを使える点が、他社との差になる"
+      },
+      {
+        "ref": "S1-FIN",
+        "stage": "STAGE1",
+        "role": "PRIMARY",
+        "label": "財務実績（財務制約の根拠）",
+        "text": "2025年度 売上260百万円・営業利益-20百万円 / 2024年度 売上230百万円・営業利益-28百万円。直近の営業利益率 -7.7%"
+      },
+      {
+        "ref": "S1-CAP",
+        "stage": "STAGE1",
+        "role": "SUPPORT",
+        "label": "資本効率と資本コスト",
+        "text": "ROIC 未算定%、WACC 6.1%"
+      },
+      {
+        "ref": "S2-STORY-1",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第1章 現状）",
+        "text": "第1章 現状：受注は伸びているが、導入後に使われなくなる顧客が多く、継続収入が伸びない。"
+      },
+      {
+        "ref": "S2-STORY-2",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第2章 勝ち筋）",
+        "text": "第2章 勝ち筋：導入後の定着を収益の柱に置き、既存顧客からの紹介で広げる。"
+      },
+      {
+        "ref": "S2-STORY-3",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "最終戦略の結論（第3章 体制）",
+        "text": "第3章 体制：営業・開発・CSが同じ顧客の状況を見て、共通のKPIで協働する。"
+      },
+      {
+        "ref": "S2-CORE",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "顧客にとっての価値",
+        "text": "中小企業の業務担当者が、自動化の効果を自分の手で確かめながら使い続けられること"
+      },
+      {
+        "ref": "S2-PRIO-1",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "全社の重点テーマ",
+        "text": "既存顧客の業務データを活かす製品を広げる"
+      },
+      {
+        "ref": "S2-PRIO-2",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "全社の重点テーマ",
+        "text": "導入後の定着を収益の柱にする"
+      },
+      {
+        "ref": "S2-DEC-1",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "全社の判断基準",
+        "text": "部門の成果は、顧客の継続利用に効くかで判断する"
+      },
+      {
+        "ref": "S2-DEP-1",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "部門への展開原則",
+        "text": "部門は、他部門との共通KPIで協働を示す"
+      },
+      {
+        "ref": "S2-SWOT-S",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "SWOT（強み）",
+        "text": "既存顧客の業務に深く入り込み、現場の信頼を得ている"
+      },
+      {
+        "ref": "S2-SWOT-W",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "SWOT（弱み）",
+        "text": "部門ごとに成功の定義が違い、連携が遅い"
+      },
+      {
+        "ref": "S2-SWOT-O",
+        "stage": "STAGE2",
+        "role": "SUPPORT",
+        "label": "SWOT（機会）",
+        "text": "中小企業の業務自動化の需要が続いている"
+      },
+      {
+        "ref": "S2-SWOT-T",
+        "stage": "STAGE2",
+        "role": "PRIMARY",
+        "label": "SWOT（脅威）",
+        "text": "大手の類似製品との価格競争"
+      },
+      {
+        "ref": "S2-QA-1",
+        "stage": "STAGE2",
+        "role": "EVIDENCE",
+        "label": "元の議論（第1章 現状）",
+        "text": "Q: 導入後に使われなくなる理由は何か A: 導入時の設定で止まり、現場の業務に組み込まれていない"
+      },
+      {
+        "ref": "S3-DEPT",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の役割・勝ち筋",
+        "text": "新製品を市場に出し、収益の柱に育てる ／ 新製品の市場投入と、部門をまたぐ成功の定義を揃える ／ 勝ち筋：retention ／ レバー：導入後の定着 ／ レバー：紹介による新規獲得"
+      },
+      {
+        "ref": "S3-ISSUE-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の重点課題",
+        "text": "部門ごとに成功の定義が違う"
+      },
+      {
+        "ref": "S3-ISSUE-2",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "部門の重点課題",
+        "text": "市場投入の計画が部門間で共有されていない"
+      },
+      {
+        "ref": "S3-BRIDGE-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の結論（重点テーマ）",
+        "text": "業務自動化パッケージを市場に出す"
+      },
+      {
+        "ref": "S3-BEH-1",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "STAGE3の求める行動変化",
+        "text": "週次で3部門が同じ顧客の状況を見る"
+      },
+      {
+        "ref": "S3-COLLAB-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "部門間の連携事項",
+        "text": "CS部と導入後の定着の基準を決める"
+      },
+      {
+        "ref": "S3-COLLAB-2",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "部門間の連携事項",
+        "text": "営業部と見込み顧客の条件を揃える"
+      },
+      {
+        "ref": "S3-RISK-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "すり合わせの論点",
+        "text": "開発の優先度が、営業の要望と合わないおそれ"
+      },
+      {
+        "ref": "S3-OTHER-1",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "他部門の施策（営業部）",
+        "text": "参照のみ（この計画の確定KPIではない）：既存顧客からの紹介の仕組み作り（KPI: 既存顧客からの紹介商談数）"
+      },
+      {
+        "ref": "S3-OTHER-2",
+        "stage": "STAGE3",
+        "role": "SUPPORT",
+        "label": "他部門の施策（開発部）",
+        "text": "参照のみ（この計画の確定KPIではない）：自動化機能の安定化（KPI: リリース後の重大な不具合件数）"
+      },
+      {
+        "ref": "S3-KPI-qc-kpi-adopt",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "確定済みKPI（変更不可）",
+        "text": "市場投入後の導入企業数：目標 30社、期限 未設定、担当 高橋 亮（仮）"
+      },
+      {
+        "ref": "S3-KPI-qc-kpi-trial",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "確定済みKPI（変更不可）",
+        "text": "無償トライアルから有償へ転換した率：目標 25%、期限 未設定、担当 未設定"
+      },
+      {
+        "ref": "S3-KPI-qc-kpi-retain",
+        "stage": "STAGE3",
+        "role": "PRIMARY",
+        "label": "確定済みKPI（変更不可）",
+        "text": "導入後90日の定着率：目標 80%、期限 未設定、担当 松本 優（仮）"
+      }
+    ]
+  },
+  "inputSummary": {
+    "companyName": "架空ソフトウェア株式会社（評価用）",
+    "strategySummary": "既存顧客の業務データを活かす製品で、導入後も使われ続ける事業モデルを作る。",
+    "swot": {
+      "strength": "既存顧客の業務に深く入り込み、現場の信頼を得ている",
+      "weakness": "部門ごとに成功の定義が違い、連携が遅い",
+      "opportunity": "中小企業の業務自動化の需要が続いている",
+      "threat": "大手の類似製品との価格競争"
+    },
+    "valueAnalysis": {
+      "wacc": 6.1
+    },
+    "financePL": [
+      {
+        "year": 2025,
+        "revenue": 260000000,
+        "operatingIncome": -20000000
+      },
+      {
+        "year": 2024,
+        "revenue": 230000000,
+        "operatingIncome": -28000000
+      }
+    ]
+  }
+}

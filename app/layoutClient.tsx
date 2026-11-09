@@ -1,7 +1,7 @@
 // /app/layoutClient.tsx
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import CEOChatPanel from '@/components/CEOChatPanel';
@@ -18,6 +18,7 @@ import MfaGate from '@/components/MfaGate';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { CompanyProvider } from '@/context/CompanyContext';
 import CeoPanelResizeHandle from '@/components/CeoPanelResizeHandle';
+import { CeoDrawerCloseContext } from '@/components/CeoDrawerCloseContext';
 import {
   CEO_PANEL_DOCK_MIN_VIEWPORT,
   CEO_PANEL_OPEN_STORAGE_KEY,
@@ -190,6 +191,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const [viewportWidth, setViewportWidth] = useState(0);
   const [ceoPanelWidth, setCeoPanelWidth] = useState(CEO_PANEL_WIDTH_DEFAULT);
   const [ceoPanelResizing, setCeoPanelResizing] = useState(false);
+  const [drawerCloseVisible, setDrawerCloseVisible] = useState(false);
+  const drawerCloseControl = useMemo(() => ({ setVisible: setDrawerCloseVisible }), []);
 
   useEffect(() => {
     const el = mainRef.current;
@@ -875,6 +878,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <CeoDrawerCloseContext.Provider value={drawerCloseControl}>
     <div
       className={[
         'relative min-h-dvh overflow-hidden transition-[margin]',
@@ -961,6 +965,17 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               ceoPanelOpen ? 'translate-x-0' : 'translate-x-full',
             ].join(' ')}
           >
+            {drawerCloseVisible && (
+              <div className="flex shrink-0 justify-end border-b border-black/5 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => setCeoPanelOpen(false)}
+                  className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium"
+                >
+                  閉じる
+                </button>
+              </div>
+            )}
             <CeoPanelResizeHandle
               className="hidden sm:block"
               width={ceoPanelWidth}
@@ -1018,6 +1033,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </div>
+    </CeoDrawerCloseContext.Provider>
   );
 }
 
