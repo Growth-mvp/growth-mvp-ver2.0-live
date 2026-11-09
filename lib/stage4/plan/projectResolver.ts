@@ -127,6 +127,7 @@ export type ProjectListing = {
   strategyId: string;
   departmentIndex: number;
   departmentName: string;
+  projectIndex: number;
   projectKey: string;
   stableId: string | null;
   projectTitle: string;
@@ -146,6 +147,7 @@ export function listAccessibleProjects(args: { memberships: MembershipRow[]; str
           strategyId: String(strategy.id),
           departmentIndex: di,
           departmentName: trimmed(dept.name),
+          projectIndex: pi,
           projectKey: projectKeyOf(project, di, pi),
           stableId: stableIdOf(project),
           projectTitle: trimmed(project.title),

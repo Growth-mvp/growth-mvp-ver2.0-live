@@ -1060,6 +1060,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       newProjIdx = projs.length;
 
       const newProj: any = {
+        id: cryptoRandomId(),
         title: String(title),
         okrs: [{ objective: '', owner: '', due: '' }],
         okrsV2: [],

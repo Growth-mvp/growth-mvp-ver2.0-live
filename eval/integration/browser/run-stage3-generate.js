@@ -115,8 +115,7 @@ async function createPlan(page) {
     await createPlan(page);
     const doc = page.locator(GEN);
     const t = await doc.innerText();
-    assert(t.includes('保存されません') || (await page.getByText('この文書は、画面の中でだけ修正できます。保存されません。').count()) === 1, '保存されない旨の表示がない');
-    assert((await page.getByText('AIの草案（モック）を、下に表示しています。実際のAIは接続していません。').count()) === 1, 'モックの表示がない');
+    assert((await page.getByText('AIの草案（モック）です。実際のAIは接続していません。').count()) === 1, 'モックの表示がない');
     assert(t.includes('実行の前に、現状の数値（行動1で集める数字）を確認する'), '草案の確認事項がない');
     return '草案を表示';
   });
@@ -134,11 +133,10 @@ async function createPlan(page) {
     return '規制の制約を反映';
   });
 
-  await check('作成：採用・開始の操作は出ない（今回の範囲は作成と修正だけ）', async () => {
-    assert((await page.getByRole('button', { name: 'この計画案を採用する' }).count()) === 0, '採用の操作が出ている');
-    assert((await page.getByRole('button', { name: '実行開始の確認へ進む' }).count()) === 0, '開始の操作が出ている');
-    assert((await page.locator('section[aria-label="計画案の採用"]').count()) === 0, '採用の欄が出ている');
-    return '採用・開始の操作なし';
+  await check('作成：既存の採用・実行開始の操作を保持する（保存は草案として別に行う）', async () => {
+    assert((await page.getByRole('button', { name: 'この計画案を採用する' }).count()) === 1, '採用の操作がない');
+    assert((await page.getByRole('button', { name: '実行開始の確認へ進む' }).count()) === 1, '開始の操作がない');
+    return '採用・開始の操作あり';
   });
 
   await check('修正：画面の中で文書を修正でき、反映すると文書に出る（保存はされない）', async () => {
@@ -229,7 +227,7 @@ async function createPlan(page) {
     await createPlan(noId);
     const t = await noId.locator(GEN).innerText();
     assert(t.includes('実行の前に、現状の数値（行動1で集める数字）を確認する'), '草案が出ていない');
-    assert((await noId.getByText('このプロジェクトには安定IDがないため', { exact: false }).count()) === 1, '安定IDがない旨の表示がない');
+    assert((await noId.getByText('このプロジェクトにはまだ番号（安定ID）がありません', { exact: false }).count()) === 1, '番号（安定ID）がない旨の表示がない');
     return '作成でき、保存できない旨を表示';
   });
   await check('安定IDなし：作成してもデータ（IDを含む）は書き換えない', async () => {

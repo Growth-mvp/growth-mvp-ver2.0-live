@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
@@ -16,17 +16,30 @@ import {
 import type { SavedPlanRecord } from '@/lib/stage4/plan/readModel';
 import { generateMockExecutionPlan } from '@/lib/stage4/plan/mockGenerate';
 import type { PlanIssue } from '@/lib/stage4/plan/types';
+import { assignProjectId } from '@/lib/stage4/plan/projectIdentity';
+import { persistDraft } from '@/lib/stage4/plan/persistDraft';
+import { resolveUserEdits } from '@/lib/stage4/plan/mergeUserEdits';
+import type { PlanDocActor, PlanDocKey } from '@/lib/stage4/plan/planDocumentStore';
 import {
-  INITIAL_PLAN_STATE,
+  adopt,
   applyEdit,
   computePlanView,
   discardEdit,
   enterEdit,
+  reconcileStart,
+  setCommittedValue,
   setDraftValue,
+  setRegulatory,
+  start,
+  unadopt,
+  unstart,
   type ProjectPlanState,
 } from '@/lib/stage4/planView/planState';
 import { PLAN_DOC_CSS } from './planDocStyles';
 import PlanDocument from './PlanDocument';
+import StartConfirmation from './StartConfirmation';
+import { devPlanDocumentStore } from './devPlanStore';
+import { conflictRows, entryAfterPersist, entryFromDraft, entryFromRecord, isDirty, toEdits, type PlanDocEntry } from './planDocEntry';
 
 const ROLE_LABEL: Record<string, string> = { REVENUE: '売上を伸ばす', COST: 'ムダを減らす', FUTURE: '将来の成長に備える' };
 const REASON_LABEL: Record<string, string> = {
@@ -42,12 +55,9 @@ const STATUS_LABEL: Record<Exclude<Stage3Source['status'], 'READY'>, string> = {
   NO_STRATEGY: '表示できる戦略がまだありません。',
 };
 const NO_SAVED_PLANS: SavedPlanRecord[] = [];
-const noop = () => {};
 
-type Generated =
-  | { status: 'BUSY' }
-  | { status: 'FAILED'; issues: PlanIssue[] }
-  | { status: 'READY'; bundle: Record<string, unknown>; stableId: boolean };
+type GenState = { status: 'BUSY' } | { status: 'FAILED'; issues: PlanIssue[] };
+type LoadState = { status: 'LOADING' } | { status: 'DONE' } | { status: 'FAILED'; message: string } | { status: 'DENIED' };
 
 const ymJa = (ym: string | null): string => {
   if (!ym) return '未設定';
@@ -60,9 +70,14 @@ const currentYm = (): string => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
+const newStableId = (): string => {
+  const c = (globalThis as unknown as { crypto?: { randomUUID?: () => string } }).crypto;
+  return c?.randomUUID ? c.randomUUID() : `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+};
+const POSITION = /^d(\d+)-p(\d+)$/;
 
-/* 現在の会社の戦略（ストア）を、文書型に並べる。保存はしない。AI作成はモックで、結果は画面の中だけに置く。
- * 会社・戦略が変わると、表示の状態ごと作り直す（前の選択や作成結果を残さない）。 */
+/* 現在の会社の戦略（ストア）を、文書型に並べる。保存は草案の記録だけで、STAGE3の戦略・KPI・okrsV2は変えない。
+ * 会社・戦略が変わると、表示の状態ごと作り直す（前の選択や作成・保存の状態を残さない）。 */
 export default function Stage3ReadPanel() {
   const storeCompanyId = useStrategyStore((s: any) => (s.companyId ?? null) as string | null);
   const storeStrategyId = useStrategyStore((s: any) => (s.strategyId ?? null) as string | null);
@@ -76,6 +91,7 @@ export default function Stage3ReadPanel() {
   const storeStrategyFields = useMemo(() => pickPlanStrategyFields(storeState), [storeState]);
   const userCompanyId = useUserStore((s) => s.companyId);
   const userRole = useUserStore((s) => s.role);
+  const userId = useUserStore((s) => s.user?.id ?? '');
 
   const source = useMemo(
     () =>
@@ -114,15 +130,22 @@ export default function Stage3ReadPanel() {
       </p>
     );
   }
-  return <Stage3ProjectBrowser key={`${storeCompanyId}|${storeStrategyId}`} source={source} />;
+  return <Stage3ProjectBrowser key={`${storeCompanyId}|${storeStrategyId}`} source={source} userId={userId} />;
 }
 
-function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { status: 'READY' }> }) {
+function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source, { status: 'READY' }>; userId: string }) {
+  const store = devPlanDocumentStore();
+  const actor: PlanDocActor = useMemo(
+    () => ({ userId, memberships: source.memberships.map((m) => ({ companyId: m.company_id, role: m.role })) }),
+    [userId, source.memberships]
+  );
   const [selected, setSelected] = useState<Stage3Selection | null>(null);
-  const [generated, setGenerated] = useState<Record<string, Generated>>({});
-  const [planStates, setPlanStates] = useState<Record<string, ProjectPlanState>>({});
+  const [entries, setEntries] = useState<Record<string, PlanDocEntry>>({});
+  const [loads, setLoads] = useState<Record<string, LoadState>>({});
+  const [gen, setGen] = useState<Record<string, GenState>>({});
   const tree = useMemo(() => buildStage3Tree({ memberships: source.memberships, strategies: source.strategies }), [source]);
   const companyId = source.strategies[0]?.company_id ?? '';
+  const strategyId = source.strategies[0]?.id ?? '';
   const companyLabel = source.companyLabels[companyId] ?? '企業名未設定';
   const view: Stage3ReadView | null = selected
     ? readStage3Project({
@@ -133,16 +156,36 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
       })
     : null;
 
-  const key = selected ? selectionKey(selected) : null;
-  const gen = key ? generated[key] : undefined;
-  const planState = (key && planStates[key]) || INITIAL_PLAN_STATE;
-  const planView = gen?.status === 'READY' ? computePlanView(gen.bundle, planState) : null;
+  const titleOf = (projectKey: string): string | null => {
+    for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
+    return null;
+  };
+  const keyOf = (sel: Stage3Selection): PlanDocKey | null =>
+    sel.projectKey.startsWith('id:') ? { companyId: sel.companyId, strategyId: sel.strategyId, projectId: sel.projectKey.slice(3) } : null;
+
+  const loadKey = selected && selectionKey(selected);
+  useEffect(() => {
+    if (!selected || !loadKey || loads[loadKey] || entries[loadKey]) return;
+    const key = keyOf(selected);
+    if (!key) return;
+    setLoads((p) => ({ ...p, [loadKey]: { status: 'LOADING' } }));
+    store.load(actor, key).then((out) => {
+      if (out.status === 'FOUND') {
+        setEntries((p) => ({ ...p, [loadKey]: entryFromRecord(out.record) }));
+        setLoads((p) => ({ ...p, [loadKey]: { status: 'DONE' } }));
+      } else if (out.status === 'NONE') setLoads((p) => ({ ...p, [loadKey]: { status: 'DONE' } }));
+      else if (out.status === 'DENIED') setLoads((p) => ({ ...p, [loadKey]: { status: 'DENIED' } }));
+      else setLoads((p) => ({ ...p, [loadKey]: { status: 'FAILED', message: out.message } }));
+    });
+    // 読み込みは選択が変わったときだけ行う（作成・保存の結果は画面の状態に残す）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadKey, actor]);
 
   const createPlan = (sel: Stage3Selection) => {
     const id = selectionKey(sel);
     const stableId = sel.projectKey.startsWith('id:');
     const requestedProjectId = stableId ? sel.projectKey.slice(3) : `session:${sel.projectKey}`;
-    setGenerated((prev) => ({ ...prev, [id]: { status: 'BUSY' } }));
+    setGen((prev) => ({ ...prev, [id]: { status: 'BUSY' } }));
     generateMockExecutionPlan({
       strategy: source.planStrategy,
       membershipCompanyId: source.memberships[0]?.company_id ?? '',
@@ -152,18 +195,119 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
       companyName: companyLabel,
       createdAt: new Date().toISOString(),
     }).then((r) => {
-      setGenerated((prev) => ({
-        ...prev,
-        [id]: r.status === 'READY' ? { status: 'READY', bundle: r.bundle, stableId } : { status: 'FAILED', issues: r.issues },
-      }));
-      setPlanStates((prev) => ({ ...prev, [id]: INITIAL_PLAN_STATE }));
+      if (r.status === 'READY') {
+        setEntries((p) => (p[id] ? p : { ...p, [id]: entryFromDraft(r.bundle) }));
+        setGen((p) => {
+          const next = { ...p };
+          delete next[id];
+          return next;
+        });
+      } else {
+        setGen((p) => ({ ...p, [id]: { status: 'FAILED', issues: r.issues } }));
+      }
     });
   };
 
-  const updatePlan = (fn: (p: ProjectPlanState) => ProjectPlanState) => {
-    if (!key) return;
-    setPlanStates((prev) => ({ ...prev, [key]: fn(prev[key] ?? INITIAL_PLAN_STATE) }));
+  const updateEntry = (id: string, fn: (e: PlanDocEntry) => PlanDocEntry) =>
+    setEntries((p) => (p[id] ? { ...p, [id]: fn(p[id]) } : p));
+  const updatePlan = (id: string, fn: (p: ProjectPlanState) => ProjectPlanState) =>
+    updateEntry(id, (e) => ({ ...e, plan: fn(e.plan) }));
+
+  /* 保存：IDのないプロジェクトは、ここで一度だけ既存の戦略保存（競合制御つき）で ID を付ける */
+  const save = async (sel: Stage3Selection) => {
+    const id = selectionKey(sel);
+    const entry = entries[id];
+    if (!entry) return;
+    updateEntry(id, (e) => ({ ...e, save: { status: 'SAVING' } }));
+    const fail = (message: string) => updateEntry(id, (e) => ({ ...e, save: { status: 'FAILED', message } }));
+
+    let projectId = sel.projectKey.startsWith('id:') ? sel.projectKey.slice(3) : null;
+    let targetId = id;
+    if (!projectId) {
+      const pos = POSITION.exec(sel.projectKey);
+      const title = titleOf(sel.projectKey);
+      if (!pos || title === null) return fail('プロジェクトを特定できないため、保存できませんでした。一覧を読み直してください。');
+      const st = useStrategyStore.getState() as unknown as {
+        departments: unknown;
+        setDepartments: (d: unknown[]) => void;
+        saveStrategyData: (o: { reason: string }) => Promise<{ ok: boolean }>;
+      };
+      const newId = newStableId();
+      const assigned = assignProjectId({
+        departments: st.departments,
+        departmentIndex: Number(pos[1]),
+        projectIndex: Number(pos[2]),
+        expectedTitle: title,
+        newId,
+      });
+      if (!assigned.ok) {
+        if (assigned.reason !== 'ALREADY_HAS_ID') {
+          return fail('プロジェクトを特定できないため、保存できませんでした。一覧を読み直してください。');
+        }
+        projectId = assigned.projectId ?? null;
+      } else {
+        st.setDepartments(assigned.departments as unknown[]);
+        const saved = await st.saveStrategyData({ reason: 'stage4-plan-project-id' });
+        if (!saved || saved.ok !== true) {
+          return fail('プロジェクトの番号を保存できなかったため、計画は保存していません。もう一度保存してください。');
+        }
+        projectId = newId;
+      }
+      const movedSel: Stage3Selection = { ...sel, projectKey: `id:${projectId}` };
+      targetId = selectionKey(movedSel);
+      setSelected(movedSel);
+      setEntries((p) => {
+        const next = { ...p, [targetId]: { ...entry, save: { status: 'SAVING' as const } } };
+        delete next[id];
+        return next;
+      });
+    }
+
+    const result = await persistDraft({
+      store,
+      actor,
+      key: { companyId: sel.companyId, strategyId: sel.strategyId, projectId: projectId as string },
+      aiDraft: entry.aiDraft,
+      local: entry.plan.committed,
+      adopted: entry.plan.adopted,
+      stored: entry.stored,
+    });
+    setEntries((p) => (p[targetId] ? { ...p, [targetId]: entryAfterPersist(p[targetId], result) } : p));
   };
+
+  /* 競合の解決：項目ごとに選んだ内容で、最新の版に保存し直す */
+  const saveResolved = async (sel: Stage3Selection) => {
+    const id = selectionKey(sel);
+    const entry = entries[id];
+    if (!entry || entry.save.status !== 'CONFLICT' || !keyOf(sel)) return;
+    const c = entry.save;
+    const unresolved = c.conflicts.filter((k) => !c.picks[k]);
+    if (unresolved.length > 0) return;
+    const resolved = resolveUserEdits({ base: entry.stored?.base ?? {}, local: c.local, remote: c.remote.userEdits, picks: c.picks });
+    updateEntry(id, (e) => ({ ...e, save: { status: 'SAVING' } }));
+    const result = await persistDraft({
+      store,
+      actor,
+      key: keyOf(sel) as PlanDocKey,
+      aiDraft: entry.aiDraft,
+      local: resolved,
+      adopted: entry.plan.adopted,
+      stored: { version: c.remote.version, base: c.remote.userEdits, adopted: c.remote.adopted },
+    });
+    setEntries((p) => {
+      const cur = p[id];
+      if (!cur) return p;
+      const applied = entryAfterPersist(cur, result);
+      return { ...p, [id]: result.status === 'SAVED' ? { ...applied, plan: { ...applied.plan, committed: toEdits(result.userEdits) } } : applied };
+    });
+  };
+
+  const sel = selected;
+  const id = sel ? selectionKey(sel) : null;
+  const entry = id ? entries[id] ?? null : null;
+  const load = id ? loads[id] : undefined;
+  const genState = id ? gen[id] : undefined;
+  const planView = entry ? computePlanView(entry.aiDraft, entry.plan) : null;
 
   return (
     <div className="space-y-4">
@@ -181,14 +325,14 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
                 <div className="mt-2 text-[11px] font-semibold text-zinc-500">プロジェクト</div>
                 <div className="mt-1 flex flex-col gap-1.5">
                   {dept.projects.map((p) => {
-                    const sel: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
-                    const isSelected = selected !== null && selectionKey(selected) === selectionKey(sel);
+                    const key: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
+                    const isSelected = selected !== null && selectionKey(selected) === selectionKey(key);
                     return (
                       <button
                         key={`${p.projectKey}|${p.departmentIndex}`}
                         type="button"
                         aria-pressed={isSelected}
-                        onClick={() => setSelected(sel)}
+                        onClick={() => setSelected(key)}
                         className={`block w-full rounded-lg px-2 py-1.5 text-left ${isSelected ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'}`}
                       >
                         <div className="font-semibold">{p.projectTitle}</div>
@@ -206,16 +350,28 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
       <section className="min-w-0">
         {!view && <p className="rounded-lg bg-zinc-50 p-4 text-[13px] text-zinc-700">上の一覧からプロジェクトを選ぶと、STAGE3の情報を表示します。</p>}
         {view && view.status === 'NO_DATA' && <p className="rounded-lg bg-amber-50 p-4 text-[13px] text-amber-900">{REASON_LABEL[view.reason] ?? '情報を表示できません。'}</p>}
-        {view && view.status === 'READY' && (
+        {view && view.status === 'READY' && sel && (
           <ReadOnlyProject
             key={view.key}
             view={view}
             companyLabel={companyLabel}
-            gen={gen}
-            onCreate={() => selected && createPlan(selected)}
-            planState={planState}
+            stableId={sel.projectKey.startsWith('id:')}
+            entry={entry}
             planView={planView}
-            onUpdate={updatePlan}
+            load={load}
+            gen={genState}
+            onCreate={() => createPlan(sel)}
+            onRetryLoad={() => setLoads((p) => {
+              const next = { ...p };
+              if (id) delete next[id];
+              return next;
+            })}
+            onSave={() => save(sel)}
+            onPick={(key, side) => id && updateEntry(id, (e) => (e.save.status === 'CONFLICT' ? { ...e, save: { ...e.save, picks: { ...e.save.picks, [key]: side } } } : e))}
+            onResolve={() => saveResolved(sel)}
+            onPlan={(fn) => id && updatePlan(id, fn)}
+            onView={(v) => id && updateEntry(id, (e) => ({ ...e, view: v }))}
+            version={entry?.stored && entry.save.status !== 'CONFLICT' ? entry.stored.version : null}
           />
         )}
       </section>
@@ -223,23 +379,50 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
   );
 }
 
+function saveStatusText(entry: PlanDocEntry): string {
+  const s = entry.save;
+  if (s.status === 'SAVING') return '保存しています…';
+  if (s.status === 'SAVED') return `保存済み（版 ${s.version}${s.mergedFromRemote ? '。他の人の修正を取り込みました' : ''}）`;
+  if (s.status === 'FAILED') return s.message;
+  if (s.status === 'DENIED') return 'この計画を保存する権限がありません。';
+  if (s.status === 'CONFLICT') return '他の人が先に保存しています。下で、項目ごとに選んでください。';
+  return entry.stored ? '保存済み' : '未保存の草案（AIの草案に、利用者の修正を重ねています）';
+}
+
 function ReadOnlyProject({
   view,
   companyLabel,
+  stableId,
+  entry,
+  planView,
+  load,
   gen,
   onCreate,
-  planState,
-  planView,
-  onUpdate,
+  onRetryLoad,
+  onSave,
+  onPick,
+  onResolve,
+  onPlan,
+  onView,
+  version,
 }: {
   view: Extract<Stage3ReadView, { status: 'READY' }>;
   companyLabel: string;
-  gen: Generated | undefined;
-  onCreate: () => void;
-  planState: ProjectPlanState;
+  stableId: boolean;
+  entry: PlanDocEntry | null;
   planView: ReturnType<typeof computePlanView> | null;
-  onUpdate: (fn: (p: ProjectPlanState) => ProjectPlanState) => void;
+  load: LoadState | undefined;
+  gen: GenState | undefined;
+  onCreate: () => void;
+  onRetryLoad: () => void;
+  onSave: () => void;
+  onPick: (key: string, side: 'local' | 'remote') => void;
+  onResolve: () => void;
+  onPlan: (fn: (p: ProjectPlanState) => ProjectPlanState) => void;
+  onView: (v: 'document' | 'start') => void;
+  version: number | null;
 }) {
+  const loadPending = stableId && (load === undefined || load.status === 'LOADING');
   const m = view.model;
   if (m.status !== 'READY') return null;
   const dept = m.department;
@@ -249,8 +432,10 @@ function ReadOnlyProject({
     ...m.kpis.unconfirmed.map((k) => ({ ...k, state: '入力済み（確定の印なし）' })),
     ...m.kpis.aiProvisional.map((k) => ({ ...k, state: 'AIの仮の目標（確定ではない）' })),
   ];
-  const doc = view.document;
   const errors = gen?.status === 'FAILED' ? gen.issues.filter((i) => i.severity === 'error') : [];
+  const conflicts = entry && entry.save.status === 'CONFLICT' ? conflictRows(entry) : [];
+  const saveView = entry?.save;
+  const allPicked = saveView?.status === 'CONFLICT' && saveView.conflicts.every((k) => !!saveView.picks[k]);
 
   return (
     <div className="plan-page">
@@ -334,9 +519,26 @@ function ReadOnlyProject({
           <h2 className="plan-h2">
             <span className="plan-no">3</span> 実行計画
           </h2>
-          {doc.kind === 'NO_PLAN' && !gen && <p className="plan-p">実行計画書はまだ作成されていません。</p>}
-          {doc.kind === 'NO_PLAN' && gen?.status === 'BUSY' && <p className="plan-p">作成しています（モック）…</p>}
-          {doc.kind === 'NO_PLAN' && gen?.status === 'FAILED' && (
+          {!entry && loadPending && <p className="plan-p">保存された草案を読み込んでいます…</p>}
+          {!entry && !loadPending && load?.status === 'FAILED' && (
+            <>
+              <p className="plan-p">{load.message}</p>
+              <button type="button" className="plan-btn-quiet" onClick={onRetryLoad}>
+                もう一度開く
+              </button>
+            </>
+          )}
+          {!entry && !loadPending && load?.status === 'DENIED' && <p className="plan-p">この計画を見る権限がありません。</p>}
+          {!entry && !loadPending && !gen && load?.status !== 'FAILED' && load?.status !== 'DENIED' && (
+            <>
+              <p className="plan-p">実行計画書はまだ作成されていません。</p>
+              <button type="button" className="plan-btn-primary" onClick={onCreate}>
+                AIで実行計画書を作る（モック）
+              </button>
+            </>
+          )}
+          {!entry && gen?.status === 'BUSY' && <p className="plan-p">作成しています（モック）…</p>}
+          {!entry && gen?.status === 'FAILED' && (
             <>
               <p className="plan-p">実行計画書を作れませんでした。</p>
               {errors.length > 0 && (
@@ -346,72 +548,117 @@ function ReadOnlyProject({
                   ))}
                 </ul>
               )}
+              <button type="button" className="plan-btn-primary" onClick={onCreate}>
+                もう一度作る（モック）
+              </button>
             </>
           )}
-          {doc.kind === 'NO_PLAN' && (!gen || gen.status === 'FAILED') && (
-            <button type="button" className="plan-btn-primary" onClick={onCreate}>
-              {gen?.status === 'FAILED' ? 'もう一度作る（モック）' : 'AIで実行計画書を作る（モック）'}
-            </button>
+          {entry && (
+            <p className="plan-note">
+              {saveStatusText(entry)}
+              {version !== null && ` ／ 版 ${version}`}
+              {isDirty(entry) && entry.save.status !== 'SAVING' && entry.save.status !== 'CONFLICT' && '（未保存の修正があります）'}
+            </p>
           )}
-          {doc.kind === 'NO_PLAN' && gen?.status === 'READY' && (
-            <p className="plan-note">AIの草案（モック）を、下に表示しています。実際のAIは接続していません。</p>
+          {entry && (entry.aiDraft as { mock?: unknown }).mock === true && (
+            <p className="plan-note">AIの草案（モック）です。実際のAIは接続していません。</p>
           )}
-          {doc.kind === 'SAVED_PLAN' && (
-            <p className="plan-note">保存された計画（{ymJa(doc.savedAt.slice(0, 7))}に保存）を、読み取り専用で表示しています。</p>
-          )}
-          {doc.kind === 'SAVED_PLAN' && doc.kpiChanged && (
-            <p className="plan-note">保存後に、KPIの目標が変わっています。計画は自動では作り直しません。</p>
+          {entry && !stableId && (
+            <p className="plan-note">このプロジェクトにはまだ番号（安定ID）がありません。保存するときに、番号を一度だけ付けます。</p>
           )}
         </section>
       </article>
 
-      {doc.kind === 'SAVED_PLAN' && (
-        <PlanDocument
-          bundle={doc.plan}
-          readOnly
-          mode="read"
-          committed={{}}
-          draft={{}}
-          adopted={false}
-          adoptable={false}
-          blockers={[]}
-          notice={null}
-          onEnterEdit={noop}
-          onApply={noop}
-          onDiscard={noop}
-          onDraftChange={noop}
-          onAdopt={noop}
-          onUnadopt={noop}
-          onOpenStart={noop}
-        />
-      )}
-
-      {doc.kind === 'NO_PLAN' && gen?.status === 'READY' && planView && (
+      {entry && planView && (
         <div>
-          <p className="plan-note">
-            この文書は、画面の中でだけ修正できます。保存されません。
-            {!gen.stableId && 'このプロジェクトには安定IDがないため、保存できるようになるまで、この文書は画面を閉じると消えます。'}
-          </p>
-          <PlanDocument
-            bundle={gen.bundle}
-            mode={planState.mode}
-            committed={planState.committed}
-            draft={planState.draft}
-            adopted={planState.adopted}
-            adoptable={planView.d.adoption.adoptable}
-            blockers={planView.d.adoption.blockers}
-            notice={planState.notice}
-            showAdoption={false}
-            onEnterEdit={() => onUpdate(enterEdit)}
-            onApply={() => onUpdate(applyEdit)}
-            onDiscard={() => onUpdate(discardEdit)}
-            onDraftChange={(k, v) => onUpdate((p) => setDraftValue(p, k, v))}
-            onAdopt={noop}
-            onUnadopt={noop}
-            onOpenStart={noop}
-          />
+          {entry.save.status === 'CONFLICT' && (
+            <section className="plan-next" aria-label="保存の競合">
+              <h2 className="plan-h3">他の人が先に保存しました（最新は版 {entry.save.remote.version}）</h2>
+              <p className="plan-note">項目ごとに、どちらの修正を残すか選んでから、保存し直してください。どちらも失われません。</p>
+              <ul className="plan-list">
+                {conflicts.map((c) => (
+                  <li key={c.key}>
+                    <div>{c.label}</div>
+                    <div>あなたの修正：{c.yours}</div>
+                    <div>他の人の修正：{c.theirs}</div>
+                    <button
+                      type="button"
+                      className="plan-btn-quiet"
+                      aria-pressed={entry.save.status === 'CONFLICT' && entry.save.picks[c.key] === 'local'}
+                      onClick={() => onPick(c.key, 'local')}
+                    >
+                      あなたの修正を残す
+                    </button>
+                    <button
+                      type="button"
+                      className="plan-btn-quiet"
+                      aria-pressed={entry.save.status === 'CONFLICT' && entry.save.picks[c.key] === 'remote'}
+                      onClick={() => onPick(c.key, 'remote')}
+                    >
+                      他の人の修正を残す
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="plan-btn-primary" onClick={onResolve} disabled={!allPicked}>
+                選んだ内容で保存し直す
+              </button>
+            </section>
+          )}
+          {entry.view === 'start' ? (
+            <StartConfirmation
+              bundle={entry.aiDraft}
+              plan={entry.plan}
+              view={planView}
+              onEdit={(key, value) => onPlan((p) => setCommittedValue(p, key, value))}
+              onRegulatory={(r) => onPlan((p) => setRegulatory(p, r))}
+              onStart={() => onPlan((p) => start(p, planView.gate.startable))}
+              onUnstart={() => onPlan(unstart)}
+              onBack={() => onView('document')}
+            />
+          ) : (
+            <>
+              <div className="plan-toolbar" role="toolbar" aria-label="草案の保存">
+                <button
+                  type="button"
+                  className="plan-btn-primary"
+                  onClick={onSave}
+                  disabled={entry.save.status === 'SAVING' || entry.save.status === 'CONFLICT'}
+                >
+                  草案として保存
+                </button>
+              </div>
+              <PlanDocument
+                bundle={entry.aiDraft}
+                mode={entry.plan.mode}
+                committed={entry.plan.committed}
+                draft={entry.plan.draft}
+                adopted={entry.plan.adopted}
+                adoptable={planView.d.adoption.adoptable}
+                blockers={planView.d.adoption.blockers}
+                notice={entry.plan.notice}
+                onEnterEdit={() => onPlan(enterEdit)}
+                onApply={() => onPlan(applyEdit)}
+                onDiscard={() => onPlan(discardEdit)}
+                onDraftChange={(k, v) => onPlan((p) => setDraftValue(p, k, v))}
+                onAdopt={() => onPlan((p) => adopt(p, planView.d.adoption.adoptable))}
+                onUnadopt={() => onPlan(unadopt)}
+                onOpenStart={() => onView('start')}
+              />
+              {entry.plan.started && !planView.gate.startable && <Reconcile onPlan={onPlan} />}
+            </>
+          )}
+          {entry.save.status === 'FAILED' && <p role="alert" className="plan-note">{entry.save.message}</p>}
         </div>
       )}
     </div>
   );
+}
+
+/* 実行開始の条件が崩れたら、開始の状態を解除する（既存の画面の挙動） */
+function Reconcile({ onPlan }: { onPlan: (fn: (p: ProjectPlanState) => ProjectPlanState) => void }) {
+  useEffect(() => {
+    onPlan((p) => reconcileStart(p, false));
+  }, [onPlan]);
+  return null;
 }
