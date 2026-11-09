@@ -88,16 +88,17 @@ export async function generatePlanDraft(
   const strategy = deps.mapStrategy({ ...row.value, id: args.strategyId, company_id: args.companyId });
   const departments = Array.isArray(strategy.departments) ? (strategy.departments as Array<Record<string, unknown>>) : [];
   let departmentName = '';
-  let found = false;
+  let hits = 0;
   for (const d of departments) {
     const projects = Array.isArray(d.projects) ? (d.projects as Array<Record<string, unknown>>) : [];
-    if (projects.some((p) => stableIdOf(p) === args.projectId)) {
-      found = true;
-      departmentName = typeof d.name === 'string' ? d.name : '';
-      break;
-    }
+    const matched = projects.filter((p) => stableIdOf(p) === args.projectId).length;
+    if (matched > 0 && hits === 0) departmentName = typeof d.name === 'string' ? d.name : '';
+    hits += matched;
   }
-  if (!found) return { status: 'NOT_FOUND' };
+  if (hits === 0) return { status: 'NOT_FOUND' };
+  if (hits > 1) {
+    return { status: 'INVALID', messages: ['同じIDのプロジェクトが複数あるため、計画書を作れません。STAGE3でプロジェクトのIDを確認してください'] };
+  }
 
   const missing = SWOT_LABELS.filter(([k]) => {
     const v = strategy[k];

@@ -142,4 +142,14 @@ describe('実行計画書の生成（サーバーの経路）', () => {
     expect(t.calls.fail).toBe(1);
     expect(t.calls.complete).toBe(0);
   });
+
+  it('同じIDのプロジェクトが複数あれば、別の案件の計画と混ざらないよう生成せず、権利も取らない', async () => {
+    const row = strategyRow();
+    const depts = row.departments as Array<{ projects: Array<Record<string, unknown>> }>;
+    depts[depts.length - 1].projects.push({ id: RENEWAL, title: '同じIDの別案件', okrs: [] });
+    const t = gateway({ row });
+    const out = await generatePlanDraft(ctxOf(t.g), args, deps());
+    expect(out.status).toBe('INVALID');
+    expect(t.calls.claim).toBe(0);
+  });
 });

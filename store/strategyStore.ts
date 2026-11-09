@@ -26,6 +26,7 @@ import {
 } from '@/lib/strategy/departmentsMerge';
 import { checkRevisionAfterUpdate } from '@/lib/strategy/revisionCheck';
 import { REVISION_UNKNOWN_CODE, REVISION_UNKNOWN_SAVE_MESSAGE } from '@/lib/strategy/revisionUnknown';
+import { assignMissingProjectIds, findDuplicateProjectIds } from '@/lib/strategy/projectIds';
 import { appendOpportunitySuggestions } from '@/lib/swot/opportunityAppend';
 import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
 import {
@@ -912,6 +913,20 @@ function financePLForSave(s: StrategyState): { rows: FinancePLRow[]; confirmedYe
   return { rows: s.financePL, confirmedYears };
 }
 
+/* 保存の前に、IDのないプロジェクトへ新しいIDを付け、画面の状態にも同じ内容を書き戻す。
+ * 保存の内容と画面を一致させ、保存が失敗して再試行しても同じIDを使う（ここは同期処理で、途中の編集を失わない）。 */
+function commitMissingProjectIds(): void {
+  const cur = useStrategyStore.getState();
+  const { departments, assigned } = assignMissingProjectIds(Array.isArray(cur.departments) ? cur.departments : []);
+  if (assigned > 0) useStrategyStore.setState({ departments } as never);
+}
+
+/* 重複したプロジェクトIDは直さず、検出して報告する */
+function reportDuplicateProjectIds(departments: unknown): void {
+  const duplicates = findDuplicateProjectIds(Array.isArray(departments) ? departments : []);
+  if (duplicates.length > 0) console.error('[stage3:duplicate-project-id] 同じIDのプロジェクトが複数あります（自動では直しません）', duplicates);
+}
+
 function buildSavePayload(s: StrategyState) {
   const plForSave = financePLForSave(s);
   // okrsV2 サニタイズ（空labelを除外）
@@ -929,9 +944,9 @@ function buildSavePayload(s: StrategyState) {
   const normalizedDepts = (Array.isArray(s.departments) ? s.departments : []).map((d: any, dIdx: number) => ({
     ...d,
     id: d?.id ?? d?.departmentId ?? `dept_${dIdx}`,
-    projects: (Array.isArray(d?.projects) ? d.projects : []).map((p: any, pIdx: number) => ({
+    projects: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
       ...p,
-      id: p?.id ?? p?.projectId ?? `proj_${dIdx}_${pIdx}`,
+      id: p?.id ?? p?.projectId,
     })),
   }));
 
@@ -1329,7 +1344,8 @@ async function ensureParentExists(): Promise<ParentReadiness> {
       return 'ready';
     }
 
-    const payload = buildSavePayload(s);
+    commitMissingProjectIds();
+    const payload = buildSavePayload(useStrategyStore.getState() as StrategyState);
     if (isEffectivelyEmpty(payload)) {
       if (DEBUG) console.log('[strategyStore] ensureParentExists: payload effectively empty, skip');
       return 'ready';
@@ -3848,7 +3864,9 @@ export const useStrategyStore = create<StrategyState>()(
           try {
             for (let attempt = 1; attempt <= 3; attempt++) {
               if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
+              commitMissingProjectIds();
               const state = get();
+              reportDuplicateProjectIds(state.departments);
               const payload = buildSavePayload(state as StrategyState);
 
               // [DEBUG] payload に okrsV2 の ID が含まれているか確認
