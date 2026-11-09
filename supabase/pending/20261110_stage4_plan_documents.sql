@@ -136,6 +136,108 @@ create policy "stage4_plan_documents_delete"
     )
   );
 
+-- ============================================================
+-- プロジェクトIDの付与（IDのないプロジェクトに、計画書の保存時に一度だけ付ける）。
+-- strategy_data の一般の更新権限は広げない。この関数が行うのは、対象プロジェクトの id の1項目の書き換えだけ。
+-- 版番号（revision）が読んだ時と同じ時だけ書き換える。行をロックして直列化し、他の社員の同時変更は REVISION_CHANGED で拒否する。
+-- 既にIDがあれば、書き換えずにそのIDを返す（再読み込み後も同じIDを使う）。
+-- ============================================================
+create or replace function public.stage4_assign_project_identity(
+  p_company_id uuid,
+  p_strategy_id uuid,
+  p_department_index integer,
+  p_project_index integer,
+  p_expected_title text,
+  p_expected_revision integer,
+  p_new_id text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_row public.strategy_data%rowtype;
+  v_depts jsonb;
+  v_project jsonb;
+  v_existing text;
+  v_new_revision integer;
+begin
+  if v_uid is null then
+    return jsonb_build_object('status', 'FORBIDDEN');
+  end if;
+  if not exists (
+    select 1 from public.company_members cm
+    where cm.company_id = p_company_id
+      and cm.user_id = v_uid
+      and cm.role in ('admin', 'manager', 'member')
+  ) then
+    return jsonb_build_object('status', 'FORBIDDEN');
+  end if;
+
+  select * into v_row
+  from public.strategy_data s
+  where s.id = p_strategy_id and s.company_id = p_company_id
+  for update;
+  if not found then
+    return jsonb_build_object('status', 'NOT_FOUND');
+  end if;
+  if v_row.revision <> p_expected_revision then
+    return jsonb_build_object('status', 'REVISION_CHANGED', 'revision', v_row.revision);
+  end if;
+
+  v_depts := coalesce(v_row.departments, '[]'::jsonb);
+  if jsonb_typeof(v_depts) <> 'array'
+     or p_department_index < 0 or p_department_index >= jsonb_array_length(v_depts) then
+    return jsonb_build_object('status', 'NOT_FOUND');
+  end if;
+  if jsonb_typeof(v_depts -> p_department_index -> 'projects') <> 'array'
+     or p_project_index < 0
+     or p_project_index >= jsonb_array_length(v_depts -> p_department_index -> 'projects') then
+    return jsonb_build_object('status', 'NOT_FOUND');
+  end if;
+  v_project := v_depts -> p_department_index -> 'projects' -> p_project_index;
+
+  if btrim(coalesce(v_project ->> 'title', '')) <> btrim(coalesce(p_expected_title, '')) then
+    return jsonb_build_object('status', 'TITLE_CHANGED');
+  end if;
+
+  v_existing := nullif(btrim(coalesce(v_project ->> 'id', '')), '');
+  if v_existing is not null then
+    return jsonb_build_object('status', 'ASSIGNED', 'projectId', v_existing,
+                              'revision', v_row.revision, 'alreadyAssigned', true);
+  end if;
+
+  if p_new_id is null or btrim(p_new_id) = '' then
+    return jsonb_build_object('status', 'INVALID');
+  end if;
+  if exists (
+    select 1
+    from jsonb_array_elements(v_depts) d,
+         jsonb_array_elements(coalesce(d -> 'projects', '[]'::jsonb)) p
+    where p ->> 'id' = p_new_id
+  ) then
+    return jsonb_build_object('status', 'ID_IN_USE');
+  end if;
+
+  update public.strategy_data
+  set departments = jsonb_set(
+        v_depts,
+        array[p_department_index::text, 'projects', p_project_index::text, 'id'],
+        to_jsonb(p_new_id),
+        true)
+  where id = p_strategy_id and company_id = p_company_id;
+
+  select revision into v_new_revision from public.strategy_data where id = p_strategy_id;
+  return jsonb_build_object('status', 'ASSIGNED', 'projectId', p_new_id,
+                            'revision', v_new_revision, 'alreadyAssigned', false);
+end;
+$$;
+
+revoke all on function public.stage4_assign_project_identity(uuid, uuid, integer, integer, text, integer, text) from public;
+grant execute on function public.stage4_assign_project_identity(uuid, uuid, integer, integer, text, integer, text) to authenticated;
+
 -- ロールバック（適用後に戻す場合）
+-- drop function if exists public.stage4_assign_project_identity(uuid, uuid, integer, integer, text, integer, text);
 -- drop table if exists public.stage4_plan_documents;
 -- drop function if exists public.stage4_plan_documents_guard();

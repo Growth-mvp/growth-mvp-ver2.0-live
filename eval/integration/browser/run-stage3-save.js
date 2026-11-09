@@ -10,7 +10,7 @@ const { pathToFileURL } = require('url');
 const outDir = path.join(__dirname, '..', 'results-browser');
 const shotsDir = path.join(outDir, 'stage3-save-shots');
 const MOCK_COMPANY_ID = '00000000-0000-4000-8000-00000000c0de';
-const RENEWAL = { companyId: MOCK_COMPANY_ID, strategyId: 'fict-strategy-a', projectId: 'fict-proj-renewal' };
+const RENEWAL = { companyId: MOCK_COMPANY_ID, strategyId: '00000000-0000-4000-8000-0000000057a1', projectId: 'fict-proj-renewal' };
 const results = [];
 const external = [];
 const errors = [];
@@ -253,7 +253,7 @@ const kpiSnapshot = (page) =>
     assert((await stateSnapshot(noId)) === noIdBefore, '作成だけでデータが変わった');
     return '作成のみ：変更なし';
   });
-  await check('IDのないプロジェクト：保存で番号を一度だけ付け、戦略の保存（競合制御つき）を1回行う', async () => {
+  await check('IDのないプロジェクト：保存で番号を一度だけ付け、戦略全体の保存は呼ばない', async () => {
     await noId.getByRole('button', SAVE_BTN).click();
     await noId.waitForFunction(() => document.body.innerText.includes('保存済み（版 1）'), null, { timeout: 8000 });
     const dept = await noId.evaluate(() => {
@@ -262,8 +262,8 @@ const kpiSnapshot = (page) =>
       return { id: p.id ?? null, others: s.departments.flatMap((d) => d.projects.map((x) => x.id ?? null)) };
     });
     assert(typeof dept.id === 'string' && dept.id.length > 0, '番号が付いていない');
-    assert((await saveCalls(noId)) === noIdSaves + 1, `戦略の保存が ${(await saveCalls(noId)) - noIdSaves} 回`);
-    return `番号を付与（戦略保存 1 回）`;
+    assert((await saveCalls(noId)) === noIdSaves, `戦略全体の保存が ${(await saveCalls(noId)) - noIdSaves} 回呼ばれた`);
+    return `番号を付与（戦略全体の保存 0 回）`;
   });
   await check('IDのないプロジェクト：番号を付けた後も、同じ計画を再び開ける', async () => {
     await pick(noId, '点検工程の標準化');

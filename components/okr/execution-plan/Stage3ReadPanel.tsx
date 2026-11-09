@@ -16,7 +16,7 @@ import {
 import type { SavedPlanRecord } from '@/lib/stage4/plan/readModel';
 import { generateMockExecutionPlan } from '@/lib/stage4/plan/mockGenerate';
 import type { PlanIssue } from '@/lib/stage4/plan/types';
-import { assignProjectId } from '@/lib/stage4/plan/projectIdentity';
+import { ensureStableProjectId, withProjectId } from '@/lib/stage4/plan/planClient';
 import { persistDraft } from '@/lib/stage4/plan/persistDraft';
 import { resolveUserEdits } from '@/lib/stage4/plan/mergeUserEdits';
 import type { PlanDocActor, PlanDocKey } from '@/lib/stage4/plan/planDocumentStore';
@@ -38,7 +38,7 @@ import {
 import { PLAN_DOC_CSS } from './planDocStyles';
 import PlanDocument from './PlanDocument';
 import StartConfirmation from './StartConfirmation';
-import { devPlanDocumentStore } from './devPlanStore';
+import { currentPlanStoreKind, identityApiFor, planStoreFor } from './planStores';
 import { conflictRows, entryAfterPersist, entryFromDraft, entryFromRecord, isDirty, toEdits, type PlanDocEntry } from './planDocEntry';
 
 const ROLE_LABEL: Record<string, string> = { REVENUE: '売上を伸ばす', COST: 'ムダを減らす', FUTURE: '将来の成長に備える' };
@@ -134,7 +134,9 @@ export default function Stage3ReadPanel() {
 }
 
 function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source, { status: 'READY' }>; userId: string }) {
-  const store = devPlanDocumentStore();
+  const kind = currentPlanStoreKind();
+  const store = planStoreFor(kind);
+  const identityApi = identityApiFor(kind);
   const actor: PlanDocActor = useMemo(
     () => ({ userId, memberships: source.memberships.map((m) => ({ companyId: m.company_id, role: m.role })) }),
     [userId, source.memberships]
@@ -227,32 +229,18 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
       const pos = POSITION.exec(sel.projectKey);
       const title = titleOf(sel.projectKey);
       if (!pos || title === null) return fail('プロジェクトを特定できないため、保存できませんでした。一覧を読み直してください。');
-      const st = useStrategyStore.getState() as unknown as {
-        departments: unknown;
-        setDepartments: (d: unknown[]) => void;
-        saveStrategyData: (o: { reason: string }) => Promise<{ ok: boolean }>;
-      };
-      const newId = newStableId();
-      const assigned = assignProjectId({
-        departments: st.departments,
+      const ensured = await ensureStableProjectId(identityApi, {
+        companyId: sel.companyId,
+        strategyId: sel.strategyId,
         departmentIndex: Number(pos[1]),
         projectIndex: Number(pos[2]),
         expectedTitle: title,
-        newId,
+        newId: newStableId(),
       });
-      if (!assigned.ok) {
-        if (assigned.reason !== 'ALREADY_HAS_ID') {
-          return fail('プロジェクトを特定できないため、保存できませんでした。一覧を読み直してください。');
-        }
-        projectId = assigned.projectId ?? null;
-      } else {
-        st.setDepartments(assigned.departments as unknown[]);
-        const saved = await st.saveStrategyData({ reason: 'stage4-plan-project-id' });
-        if (!saved || saved.ok !== true) {
-          return fail('プロジェクトの番号を保存できなかったため、計画は保存していません。もう一度保存してください。');
-        }
-        projectId = newId;
-      }
+      if (!ensured.ok) return fail(ensured.message);
+      projectId = ensured.projectId;
+      const current = useStrategyStore.getState() as unknown as { departments: unknown };
+      useStrategyStore.setState({ departments: withProjectId(current.departments, Number(pos[1]), Number(pos[2]), projectId) } as never);
       const movedSel: Stage3Selection = { ...sel, projectKey: `id:${projectId}` };
       targetId = selectionKey(movedSel);
       setSelected(movedSel);

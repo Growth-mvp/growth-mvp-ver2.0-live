@@ -71,3 +71,6 @@ DEBUG_GUARD_CHANGES.md
 # Claude Code instruction file (changes frequently, not part of repo)
 prompt.txt
 
+
+# 検証用DB（PGlite）のビルド出力（評価専用・Git管理外）
+/eval/db/.build/

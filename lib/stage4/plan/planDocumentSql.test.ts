@@ -37,7 +37,8 @@ describe('実行計画書の保存テーブル（未適用のSQL）', () => {
   });
 
   it('削除は manager / admin だけに限る', () => {
-    const deletePolicy = active.slice(active.indexOf('create policy "stage4_plan_documents_delete"'));
+    const start = active.indexOf('create policy "stage4_plan_documents_delete"');
+    const deletePolicy = active.slice(start, active.indexOf(';', start));
     expect(deletePolicy).toContain("cm.role in ('admin', 'manager')");
     expect(deletePolicy).not.toContain("'member'");
   });

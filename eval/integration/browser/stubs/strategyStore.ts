@@ -121,7 +121,7 @@ w.__seedStage3 = (companyId: string) => {
     threat: row.threat,
     companyId,
     companyName: '架空精密計測株式会社（評価用）',
-    strategyId: 'fict-strategy-a',
+    strategyId: '00000000-0000-4000-8000-0000000057a1',
     hydrated: true,
     restoreReady: true,
     isRestoring: false,
