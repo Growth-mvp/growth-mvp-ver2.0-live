@@ -11,11 +11,57 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { z } from 'zod';
+import { resolveProjectScope, type MembershipRow, type ResolveFailure, type StrategyRow } from '@/lib/stage4/plan/projectResolver';
+import { readKpisOf } from '@/lib/stage4/plan/readModel';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
+/* 画面に返す文言。内部の例外の文字列（DBの応答・APIの詳細・スタック）は返さない */
+const PUBLIC_MESSAGE = {
+  unauthorized: '認証に失敗しました。再ログインしてください。',
+  forbidden: '対象の会社・戦略を利用する権限がありません。',
+  notFound: '対象のプロジェクトが見つかりません。保存済みの戦略にあるプロジェクト名で指定してください。',
+  ambiguous: '同じ名前のプロジェクトが複数あるため、対象を特定できません。',
+  config: '生成の設定を確認できませんでした。管理者に連絡してください。',
+  upstream: 'AIによる生成に失敗しました。時間をおいて再度お試しください。',
+  parse: 'AIの出力を読み取れませんでした。時間をおいて再度お試しください。',
+  internal: '生成に失敗しました。時間をおいて再度お試しください。',
+} as const;
+
+class RouteError extends Error {
+  constructor(readonly status: number, readonly publicMessage: string) {
+    super(publicMessage);
+    this.name = 'RouteError';
+  }
+}
+
+const RESOLVE_ERROR: Record<ResolveFailure, { status: number; message: string }> = {
+  NO_ACCESS: { status: 403, message: PUBLIC_MESSAGE.forbidden },
+  COMPANY_NOT_ACCESSIBLE: { status: 403, message: PUBLIC_MESSAGE.forbidden },
+  STRATEGY_NOT_ACCESSIBLE: { status: 403, message: PUBLIC_MESSAGE.forbidden },
+  PROJECT_NOT_FOUND: { status: 404, message: PUBLIC_MESSAGE.notFound },
+  PROJECT_AMBIGUOUS: { status: 409, message: PUBLIC_MESSAGE.ambiguous },
+};
+
+const jsonError = (status: number, error: string) => NextResponse.json({ success: false, error }, { status });
+
+/* 旧来の KPI の置き場（okrs[0].keyResults、kpis）。根拠の印は無いため、確定とは扱わず、AIには変えさせない */
+const legacyKpiLabels = (project: Record<string, unknown>): string[] => {
+  const okr0 = (Array.isArray(project.okrs) ? project.okrs[0] : undefined) as Record<string, unknown> | undefined;
+  const keyResults = Array.isArray(okr0?.keyResults) ? (okr0.keyResults as unknown[]) : [];
+  const kpis = Array.isArray(project.kpis) ? (project.kpis as unknown[]) : [];
+  return [...keyResults, ...kpis].filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((x) => x.trim());
+};
+
+const textOf = (v: unknown): string | undefined => {
+  if (typeof v === 'string') return v.trim() || undefined;
+  if (v && typeof v === 'object' && typeof (v as { statement?: unknown }).statement === 'string') {
+    return ((v as { statement: string }).statement).trim() || undefined;
+  }
+  return undefined;
+};
 
 interface ExecutionDraftRequest {
   departmentName?: string;
@@ -30,7 +76,8 @@ interface ExecutionDraftRequest {
   existingOkrsV2?: any[];
   existingOkrs?: any[];
   existingKpis?: any[];
-  sourceKpis?: string[];  // ★ STAGE3由来の固定KPI（AIが変更しない）
+  sourceKpis?: string[];  // ★ 既存のKPI（利用者が確定、または確定の印が無い入力値）。AIが変更しない。サーバーがDBから設定する
+  aiProvisionalKpis?: string[];  // AIが以前に仮に置いた目標（確定ではない）。サーバーがDBから設定する
   due?: string;
   ownerName?: string;
   companyStrategy?: string;
@@ -84,7 +131,7 @@ async function generateExecutionDraft(
   };
 
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not configured');
+    throw new RouteError(500, PUBLIC_MESSAGE.config);
   }
 
   // 現在年月日を明示的に計算
@@ -121,10 +168,13 @@ async function generateExecutionDraft(
   debugInfo.kpiDueRange = `${kpiDueLowerBound} ～ ${kpiDueUpperBound}`;
   debugInfo.stepDueRange = `${stepDueLowerBound} ～ ${stepDueUpperBound}`;
 
-  // ★ STAGE3由来の固定KPI をプロンプトに明記（AIが変更しない）
+  // ★ 既存のKPI（利用者が確定したもの、または確定の印が無い入力値）をプロンプトに明記（AIが変更しない）
   const sourceKpisText = Array.isArray(projectInfo.sourceKpis) && projectInfo.sourceKpis.length > 0
-    ? `【STAGE3で確定されたKPI（変更不可）】\n${projectInfo.sourceKpis.map((kpi, idx) => `${idx + 1}. ${kpi}`).join('\n')}\n\n★重要★ 上記のKPI名は絶対に変更・追加・削除しないでください。`
-    : '【STAGE3 KPI】未設定のため、AIで補完してください。';
+    ? `【既存のKPI（変更不可）】\n${projectInfo.sourceKpis.map((kpi, idx) => `${idx + 1}. ${kpi}`).join('\n')}\n\n★重要★ 上記のKPI名は絶対に変更・追加・削除しないでください。`
+    : '【既存のKPI】未設定のため、AIで補完してください。';
+  const aiKpisText = Array.isArray(projectInfo.aiProvisionalKpis) && projectInfo.aiProvisionalKpis.length > 0
+    ? `\n\n【以前にAIが仮に置いた目標（確定ではない。書き直してよい）】\n${projectInfo.aiProvisionalKpis.map((kpi, idx) => `${idx + 1}. ${kpi}`).join('\n')}`
+    : '';
 
   // プロジェクト情報をプロンプトに組み込む
   const projectContext = `
@@ -140,7 +190,7 @@ async function generateExecutionDraft(
 - オーナー: ${projectInfo.ownerName || '—'}
 - 役割（Revenue/Cost/Future）: ${projectInfo.role || 'REVENUE'}
 
-${sourceKpisText}
+${sourceKpisText}${aiKpisText}
 
 ${projectInfo.companyStrategy ? `【全社戦略】\n${projectInfo.companyStrategy}` : ''}
 ${projectInfo.companyTargets && projectInfo.companyTargets.length > 0 ? `【全社目標】\n${projectInfo.companyTargets.map((t: any) => `- ${t.label}: ${t.base}→${t.high || t.base} (${t.unit})`).join('\n')}` : ''}
@@ -297,7 +347,8 @@ ${REASONING_OUTPUT_FIELDS}  "kpis": [
       message: e?.message,
       code: e?.code,
     };
-    throw new Error(`OpenAI API failed: ${e?.message || 'unknown error'}`);
+    console.error('[STAGE4 API] OpenAI call failed', e?.code ?? 'unknown');
+    throw new RouteError(502, PUBLIC_MESSAGE.upstream);
   }
 
   const content = response.choices[0]?.message?.content ?? '';
@@ -345,7 +396,8 @@ ${REASONING_OUTPUT_FIELDS}  "kpis": [
     debugInfo.parsedSuccessfully = true;
   } catch (e: any) {
     debugInfo.parseError = e?.message;
-    throw new Error(`Failed to parse OpenAI response: ${e?.message || 'unknown error'}`);
+    console.error('[STAGE4 API] OpenAI response could not be read', e?.message ?? 'unknown');
+    throw new RouteError(502, PUBLIC_MESSAGE.parse);
   }
 
   return { draft: parsed, debugInfo };
@@ -353,78 +405,78 @@ ${REASONING_OUTPUT_FIELDS}  "kpis": [
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('[STAGE4 API] POST called', { hasRequest: !!request });
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, request);
+    if (!userId) return jsonError(401, PUBLIC_MESSAGE.unauthorized);
 
-    // 認証確認
-    console.log('[STAGE4 API] Checking auth...');
-    try {
-      const admin = getSupabaseAdmin();
-      console.log('[STAGE4 API] admin created:', { hasAdmin: !!admin });
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object') return jsonError(400, 'projectTitle is required');
 
-      const userId = await getAuthUserIdFromBearer(admin, request);
-      console.log('[STAGE4 API] userId from bearer:', { userId, hasUserId: !!userId });
-
-      if (!userId) {
-        console.warn('[STAGE4 API] Unauthorized: no userId');
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // メンバーシップ確認
-      console.log('[STAGE4 API] Checking membership for userId:', userId);
-      const membership = await requireMembership(admin, userId);
-      console.log('[STAGE4 API] membership:', { hasMembership: !!membership });
-
-      if (!membership) {
-        console.warn('[STAGE4 API] Forbidden: no membership');
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-      console.log('[STAGE4 API] Auth and membership OK');
-    } catch (authError: any) {
-      console.error('[STAGE4 API] Auth check error:', authError?.message, { stack: authError?.stack?.substring(0, 300) });
-      return NextResponse.json({ error: `Auth error: ${authError?.message}` }, { status: 401 });
-    }
-
-    console.log('[STAGE4 API] Parsing body...');
-    const body = await request.json();
-    const projectInfo: ExecutionDraftRequest = body;
-
-    // テスト用：PING を返す
     if (body.__ping === true || body.__ping === 'true') {
-      console.log('[STAGE4 API] PING MODE - returning pong');
-      return NextResponse.json(
-        { __pong: true, timestamp: new Date().toISOString(), message: 'API is alive' },
-        { status: 200 }
-      );
+      return NextResponse.json({ __pong: true, timestamp: new Date().toISOString(), message: 'API is alive' }, { status: 200 });
+    }
+    if (typeof body.projectTitle !== 'string' || !body.projectTitle.trim()) {
+      return jsonError(400, 'projectTitle is required');
     }
 
-    if (!projectInfo.projectTitle) {
-      return NextResponse.json(
-        { error: 'projectTitle is required' },
-        { status: 400 }
-      );
-    }
+    const { data: memberships, error: membershipError } = await admin
+      .from('company_members')
+      .select('company_id, role')
+      .eq('user_id', userId);
+    if (membershipError) throw new Error(`membership lookup failed: ${membershipError.message}`);
+    const memberRows = (memberships ?? []) as MembershipRow[];
+    if (memberRows.length === 0) return jsonError(403, PUBLIC_MESSAGE.forbidden);
 
-    console.log('[STAGE4 API] Generating draft...', { projectTitle: projectInfo.projectTitle });
-    const { draft, debugInfo } = await generateExecutionDraft(projectInfo);
+    const companyIds = Array.from(new Set(memberRows.map((m) => String(m.company_id))));
+    const { data: strategies, error: strategyError } = await admin
+      .from('strategy_data')
+      .select('id, company_id, departments')
+      .in('company_id', companyIds);
+    if (strategyError) throw new Error(`strategy lookup failed: ${strategyError.message}`);
 
-    console.log('[STAGE4 API] Success, returning draft');
-    return NextResponse.json({
-      success: true,
-      draft,
-      debugInfo,
+    const resolved = resolveProjectScope({
+      memberships: memberRows,
+      strategies: (strategies ?? []) as StrategyRow[],
+      projectTitle: body.projectTitle,
+      departmentName: typeof body.departmentName === 'string' ? body.departmentName : undefined,
+      projectId: typeof body.projectId === 'string' ? body.projectId : undefined,
+      requestedCompanyId: typeof body.companyId === 'string' ? body.companyId : undefined,
+      requestedStrategyId: typeof body.strategyId === 'string' ? body.strategyId : undefined,
     });
-  } catch (error: any) {
-    console.error('[STAGE4 API] Uncaught error:', error?.message, { stack: error?.stack });
-    return NextResponse.json(
-      {
-        success: false,
-        error: error?.message || 'Unknown error',
-        debugInfo: {
-          timestamp: new Date().toISOString(),
-          errorStack: error?.stack?.substring(0, 200),
-        },
-      },
-      { status: 500 }
-    );
+    if (!resolved.ok) {
+      const failure = RESOLVE_ERROR[resolved.reason];
+      return jsonError(failure.status, failure.message);
+    }
+
+    const project = resolved.project.project;
+    const kpis = readKpisOf(project);
+    const okr0 = (Array.isArray(project.okrs) ? project.okrs[0] : undefined) as Record<string, unknown> | undefined;
+
+    const projectInfo: ExecutionDraftRequest = {
+      departmentName: resolved.project.departmentName,
+      projectTitle: textOf(project.title) ?? body.projectTitle,
+      hypothesis: textOf(project.hypothesis),
+      rationale: textOf(project.rationale),
+      reason: textOf(project.reason),
+      kind: textOf(project.kind),
+      mainLever: textOf(project.mainLever),
+      horizon: textOf(project.horizon),
+      role: textOf(project.role) ?? 'REVENUE',
+      due: textOf(okr0?.due),
+      ownerName: textOf(okr0?.owner),
+      sourceKpis: Array.from(new Set([...legacyKpiLabels(project), ...kpis.filter((k) => k.basis !== 'AI_PROVISIONAL').map((k) => k.label)])),
+      aiProvisionalKpis: kpis.filter((k) => k.basis === 'AI_PROVISIONAL').map((k) => k.label),
+      // 会社の戦略・目標・財務は、画面から届いた値を参考に使う（DBとの照合は未実装。報告に記載）
+      companyStrategy: typeof body.companyStrategy === 'string' ? body.companyStrategy : undefined,
+      companyTargets: Array.isArray(body.companyTargets) ? body.companyTargets : undefined,
+      companyContext: body.companyContext && typeof body.companyContext === 'object' ? (body.companyContext as ExecutionCompanyContext) : undefined,
+    };
+
+    const { draft, debugInfo } = await generateExecutionDraft(projectInfo);
+    return NextResponse.json({ success: true, draft, debugInfo });
+  } catch (error: unknown) {
+    if (error instanceof RouteError) return jsonError(error.status, error.publicMessage);
+    console.error('[STAGE4 API] generation failed', error instanceof Error ? error.message : 'unknown');
+    return jsonError(500, PUBLIC_MESSAGE.internal);
   }
 }
