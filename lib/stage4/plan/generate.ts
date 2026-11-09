@@ -1,0 +1,107 @@
+import { assemblePlan } from './assemble';
+import { buildPlanContext, type PlanContext } from './context';
+import { estimateFinanceItem, type FinanceEstimate } from './finance';
+import { buildExecutionPlanPrompt } from './prompt';
+import { buildPlanSource, type RawPlanInput } from './source';
+import { PlanDraftSchema, type AssembledPlan, type PlanIssue } from './types';
+import { validatePlan } from './validate';
+import { canonicalizeRefs } from './refs';
+
+export type ExecutionPlanEngineResult = {
+  ok: boolean;
+  plan: AssembledPlan | null;
+  estimates: FinanceEstimate[];
+  issues: PlanIssue[];
+  executionStartable: boolean;
+  context: PlanContext | null;
+};
+
+function extractJson(text: string): unknown {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('JSONが見つからない');
+  return JSON.parse(text.slice(start, end + 1));
+}
+
+export async function runExecutionPlanEngine(args: {
+  raw: RawPlanInput;
+  callModel: (prompt: string) => Promise<string>;
+}): Promise<ExecutionPlanEngineResult> {
+  const { source, scope } = buildPlanSource(args.raw);
+  const ctx0 = buildPlanContext(source, scope);
+  const prompt = buildExecutionPlanPrompt(ctx0);
+
+  const fail = (issue: PlanIssue): ExecutionPlanEngineResult => ({
+    ok: false,
+    plan: null,
+    estimates: [],
+    issues: [issue],
+    executionStartable: false,
+    context: ctx0,
+  });
+
+  const text = await args.callModel(prompt);
+  let json: unknown;
+  try {
+    json = extractJson(text);
+  } catch (e) {
+    return fail({ severity: 'error', code: 'JSON_NOT_FOUND', path: '$', message: e instanceof Error ? e.message : 'JSON解析失敗' });
+  }
+
+  const parsed = PlanDraftSchema.safeParse(json);
+  if (!parsed.success) {
+    return fail({
+      severity: 'error',
+      code: 'SCHEMA_INVALID',
+      path: parsed.error.issues[0]?.path.join('.') ?? '$',
+      message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' / '),
+    });
+  }
+  const known = new Set(ctx0.sources.map((x) => x.ref));
+  const canon = canonicalizeRefs(parsed.data, known);
+  const draft = canon.value;
+
+  const issues: PlanIssue[] = [];
+  if (canon.normalized > 0) {
+    issues.push({
+      severity: 'info',
+      code: 'REF_NORMALIZED',
+      path: 'sourceRefs',
+      message: `角括弧付きの参照ID ${canon.normalized} 件を、既知の正規IDに直した（例：${canon.samples.join('、')}）`,
+    });
+  }
+  let ctx: PlanContext & { endYm: string; periodBasis: NonNullable<PlanContext['periodBasis']> };
+  if (ctx0.endYm !== null && ctx0.periodBasis !== null) {
+    if (draft.provisionalPeriod) {
+      issues.push({
+        severity: 'warning',
+        code: 'PERIOD_PROPOSAL_IGNORED',
+        path: 'provisionalPeriod',
+        message: '入力に期間の根拠があるため、AIの仮期間は使わなかった',
+      });
+    }
+    ctx = { ...ctx0, endYm: ctx0.endYm, periodBasis: ctx0.periodBasis };
+  } else {
+    if (!draft.provisionalPeriod) {
+      return fail({
+        severity: 'error',
+        code: 'PERIOD_PROPOSAL_MISSING',
+        path: 'provisionalPeriod',
+        message: '入力に期間の根拠が無いのに、AIが仮期間を提案していない',
+      });
+    }
+    ctx = { ...ctx0, endYm: draft.provisionalPeriod.endYm, periodBasis: 'AI_PROVISIONAL' };
+  }
+
+  const plan = assemblePlan(draft, ctx);
+  issues.push(...validatePlan(plan, ctx));
+
+  return {
+    ok: !issues.some((i) => i.severity === 'error'),
+    plan,
+    estimates: draft.section4.financeItems.map(estimateFinanceItem),
+    issues,
+    executionStartable: draft.section5.responsible.name !== null,
+    context: ctx,
+  };
+}

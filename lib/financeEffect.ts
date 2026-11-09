@@ -148,7 +148,7 @@ export function computeFinanceEffect(effect: FinanceEffect | null | undefined): 
 
   const sign = effect.kind === 'COST_INCREASE' ? -1 : 1;
   const result: FinanceEffectResult = {
-    status: effect.confirmed ? 'CONFIRMED' : 'DRAFT',
+    status: effect.confirmed === true ? 'CONFIRMED' : 'DRAFT',
     missing: [],
     amountYen: perPeriod,
     formula: `${formula}（${FINANCE_EFFECT_BASIS_LABEL[amountBasis]}）`,

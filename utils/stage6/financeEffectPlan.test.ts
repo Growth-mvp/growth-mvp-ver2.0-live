@@ -185,3 +185,30 @@ describe('STAGE4→6 財務効果の条件付き試算（決算3月・架空企�
     ]);
   });
 });
+
+describe('確定フラグが真偽値でない場合は試算に入らない（画面の判定と一致）', () => {
+  it('confirmed が文字列 "false" の施策は、STAGE6の試算に反映されない', () => {
+    const t = buildFinanceEffectTrial({
+      departments: [
+        dept('営業部', [
+          proj('文字列の確定フラグ', {
+            ...base,
+            confirmed: 'false',
+            kind: 'REVENUE_UP',
+            method: 'DIRECT_AMOUNT',
+            directAmountYen: 12_000_000,
+            amountBasis: 'ANNUAL',
+            startYm: '2026-06',
+          }),
+        ]),
+      ],
+      fiscalYearEnd: '3',
+      fiscalYears: FY,
+    });
+    expect(yearsOf(t)).toEqual([
+      [2026, 0, 0],
+      [2027, 0, 0],
+      [2028, 0, 0],
+    ]);
+  });
+});
