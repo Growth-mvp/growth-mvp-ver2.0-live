@@ -5,6 +5,7 @@ const CO_A = 'co-a';
 const CO_B = 'co-b';
 
 const projA1 = {
+  id: 'proj-a1',
   title: '法人顧客の新規獲得',
   hypothesis: '既存の配送先の単価を上げる',
   rationale: '単価の下落が続いている',
@@ -16,11 +17,13 @@ const projA1 = {
   ],
 };
 const projA2 = {
+  id: 'proj-a2',
   title: '配送ルートの最適化',
   role: 'COST',
   okrsV2: [{ id: 'a2-c', label: '配送時間の短縮率', target: 15, unit: '%', due: '2027-08', owner: null, targetBasis: 'USER_CONFIRMED' }],
 };
 const projB = {
+  id: 'proj-b',
   title: '法人顧客の新規獲得',
   okrsV2: [{ id: 'b-c', label: '他社だけの秘密のKPI', target: 99, unit: '件', due: '2027-01', owner: null, targetBasis: 'USER_CONFIRMED' }],
 };
@@ -95,7 +98,7 @@ describe('段階Aの読み取りモデル（buildStage4ReadModel）', () => {
 
   it('プロジェクトを切り替えると、別の計画・KPIになる（保存済みの計画も混ざらない）', () => {
     const saved: SavedPlanRecord[] = [
-      { companyId: CO_A, strategyId: 'st-a', projectKey: 'd0-p0', savedAt: '2026-11-01', kpiSnapshot: [{ label: '法人顧客の契約数', target: 10 }], plan: { note: 'プロジェクト1の計画' } },
+      { companyId: CO_A, strategyId: 'st-a', projectKey: 'id:proj-a1', savedAt: '2026-11-01', kpiSnapshot: [{ label: '法人顧客の契約数', target: 10 }], plan: { note: 'プロジェクト1の計画' } },
     ];
     const first = buildStage4ReadModel({ ...base, savedPlans: saved });
     const second = buildStage4ReadModel({ ...base, projectTitle: '配送ルートの最適化', savedPlans: saved });
@@ -106,7 +109,7 @@ describe('段階Aの読み取りモデル（buildStage4ReadModel）', () => {
 
   it('保存済みの計画は、KPIが変わっていれば変わったと示す（自動では作り直さない）', () => {
     const saved: SavedPlanRecord[] = [
-      { companyId: CO_A, strategyId: 'st-a', projectKey: 'd0-p0', savedAt: '2026-11-01', kpiSnapshot: [{ label: '法人顧客の契約数', target: 8 }, { label: '既存配送先の単価', target: 0 }], plan: {} },
+      { companyId: CO_A, strategyId: 'st-a', projectKey: 'id:proj-a1', savedAt: '2026-11-01', kpiSnapshot: [{ label: '法人顧客の契約数', target: 8 }, { label: '既存配送先の単価', target: 0 }], plan: {} },
     ];
     const m = buildStage4ReadModel({ ...base, savedPlans: saved });
     expect(m.status === 'READY' && m.savedPlan).toMatchObject({ state: 'SAVED', kpiChanged: true });

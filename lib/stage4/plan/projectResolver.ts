@@ -66,6 +66,20 @@ function projectsOf(dept: DeptLike): Array<{ project: Record<string, unknown>; p
   return list.map((p, pi) => ({ project: p, pi })).filter((x) => !!x.project);
 }
 
+/** 既存の Project 型の id を、そのまま安定IDとして使う（新しいIDは作らない）。無ければ null */
+export function stableIdOf(project: Record<string, unknown>): string | null {
+  const id = project.id;
+  if (typeof id === 'string' && id.trim()) return id.trim();
+  if (typeof id === 'number' && Number.isFinite(id)) return String(id);
+  return null;
+}
+
+/** 画面の選択キー。安定IDがあればそれを使い、無いものだけ部門と順番で区別する（読み取り画面内の暫定） */
+export function projectKeyOf(project: Record<string, unknown>, departmentIndex: number, projectIndex: number): string {
+  const id = stableIdOf(project);
+  return id ? `id:${id}` : `d${departmentIndex}-p${projectIndex}`;
+}
+
 export function resolveProjectScope(args: {
   memberships: MembershipRow[];
   strategies: StrategyRow[];
@@ -96,7 +110,7 @@ export function resolveProjectScope(args: {
           strategyId: String(strategy.id),
           departmentName: deptName,
           department: d,
-          projectKey: `d${di}-p${pi}`,
+          projectKey: projectKeyOf(p, di, pi),
           project: p,
         });
       }
@@ -114,6 +128,7 @@ export type ProjectListing = {
   departmentIndex: number;
   departmentName: string;
   projectKey: string;
+  stableId: string | null;
   projectTitle: string;
   role: string | null;
 };
@@ -131,7 +146,8 @@ export function listAccessibleProjects(args: { memberships: MembershipRow[]; str
           strategyId: String(strategy.id),
           departmentIndex: di,
           departmentName: trimmed(dept.name),
-          projectKey: `d${di}-p${pi}`,
+          projectKey: projectKeyOf(project, di, pi),
+          stableId: stableIdOf(project),
           projectTitle: trimmed(project.title),
           role: typeof project.role === 'string' ? project.role : null,
         });
@@ -151,23 +167,23 @@ export function resolveProjectByKey(args: {
 }): { ok: true; project: ResolvedProject } | { ok: false; reason: ResolveFailure } {
   const scope = accessibleStrategies(args.memberships, args.strategies, args.companyId, args.strategyId);
   if (!scope.ok) return scope;
+  const hits: ResolvedProject[] = [];
   for (const strategy of scope.strategies) {
     for (const { dept, di } of departmentsOf(strategy)) {
       for (const { project, pi } of projectsOf(dept)) {
-        if (`d${di}-p${pi}` !== args.projectKey) continue;
-        return {
-          ok: true,
-          project: {
-            companyId: String(strategy.company_id),
-            strategyId: String(strategy.id),
-            departmentName: trimmed(dept.name),
-            department: dept,
-            projectKey: args.projectKey,
-            project,
-          },
-        };
+        if (projectKeyOf(project, di, pi) !== args.projectKey) continue;
+        hits.push({
+          companyId: String(strategy.company_id),
+          strategyId: String(strategy.id),
+          departmentName: trimmed(dept.name),
+          department: dept,
+          projectKey: args.projectKey,
+          project,
+        });
       }
     }
   }
-  return { ok: false, reason: 'PROJECT_NOT_FOUND' };
+  if (hits.length === 0) return { ok: false, reason: 'PROJECT_NOT_FOUND' };
+  if (hits.length > 1) return { ok: false, reason: 'PROJECT_AMBIGUOUS' };
+  return { ok: true, project: hits[0] };
 }

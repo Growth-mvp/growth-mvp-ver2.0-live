@@ -9,6 +9,7 @@ import {
   type StrategyRow,
 } from './projectResolver';
 import { readModelFromResolved, type SavedPlanRecord, type Stage4ReadModel } from './readModel';
+import type { RawPlanStrategy } from './source';
 
 export type Stage3Selection = { companyId: string; strategyId: string; projectKey: string };
 
@@ -29,10 +30,30 @@ export type Stage3ReadView =
 
 export const selectionKey = (s: Stage3Selection): string => `${s.companyId}|${s.strategyId}|${s.projectKey}`;
 
+/* 戦略全体のうち、実行計画書の入力に使う項目（ストアのトップレベルにある名前のまま） */
+export const PLAN_STRATEGY_FIELDS = [
+  'strength',
+  'weakness',
+  'opportunity',
+  'threat',
+  'finalStory',
+  'answers2',
+  'financePL',
+  'valueAnalysis',
+  'midtermStrategy',
+  'periodEndYear',
+  'fiscalYearEnd',
+  'stage3_strategy_bridge',
+] as const;
+
+export const pickPlanStrategyFields = (state: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(PLAN_STRATEGY_FIELDS.filter((k) => state[k] !== undefined).map((k) => [k, state[k]]));
+
 export type Stage3ScopeInput = {
   storeCompanyId: string | null;
   storeStrategyId: string | null;
   storeDepartments: unknown;
+  storeStrategyFields: Record<string, unknown>;
   storeCompanyName: string | null;
   storeHydrated: boolean;
   storeRestoreReady: boolean;
@@ -46,7 +67,13 @@ export type Stage3Source =
   | { status: 'LOADING' }
   | { status: 'SCOPE_MISMATCH' }
   | { status: 'NO_STRATEGY' }
-  | { status: 'READY'; memberships: MembershipRow[]; strategies: StrategyRow[]; companyLabels: Record<string, string> };
+  | {
+      status: 'READY';
+      memberships: MembershipRow[];
+      strategies: StrategyRow[];
+      companyLabels: Record<string, string>;
+      planStrategy: RawPlanStrategy;
+    };
 
 /* 画面に載せてよいSTAGE3データかを決める。読み込み中・会社切替中は前の企業の情報を出さず、
  * ストアの企業がユーザーの現在の所属企業と一致しないときは何も出さない。 */
@@ -61,6 +88,12 @@ export function stage3SourceFromScope(i: Stage3ScopeInput): Stage3Source {
     memberships: [{ company_id: i.userCompanyId, role: i.userRole }],
     strategies: [{ id: i.storeStrategyId, company_id: i.storeCompanyId, departments: i.storeDepartments }],
     companyLabels: { [i.storeCompanyId]: i.storeCompanyName?.trim() || '企業名未設定' },
+    planStrategy: {
+      ...i.storeStrategyFields,
+      id: i.storeStrategyId,
+      company_id: i.storeCompanyId,
+      departments: i.storeDepartments,
+    } as RawPlanStrategy,
   };
 }
 

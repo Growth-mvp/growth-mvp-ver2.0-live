@@ -5,6 +5,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
   buildStage3Tree,
+  pickPlanStrategyFields,
   readStage3Project,
   selectionKey,
   stage3SourceFromScope,
@@ -13,6 +14,17 @@ import {
   type Stage3Source,
 } from '@/lib/stage4/plan/stage3Read';
 import type { SavedPlanRecord } from '@/lib/stage4/plan/readModel';
+import { generateMockExecutionPlan } from '@/lib/stage4/plan/mockGenerate';
+import type { PlanIssue } from '@/lib/stage4/plan/types';
+import {
+  INITIAL_PLAN_STATE,
+  applyEdit,
+  computePlanView,
+  discardEdit,
+  enterEdit,
+  setDraftValue,
+  type ProjectPlanState,
+} from '@/lib/stage4/planView/planState';
 import { PLAN_DOC_CSS } from './planDocStyles';
 import PlanDocument from './PlanDocument';
 
@@ -32,6 +44,11 @@ const STATUS_LABEL: Record<Exclude<Stage3Source['status'], 'READY'>, string> = {
 const NO_SAVED_PLANS: SavedPlanRecord[] = [];
 const noop = () => {};
 
+type Generated =
+  | { status: 'BUSY' }
+  | { status: 'FAILED'; issues: PlanIssue[] }
+  | { status: 'READY'; bundle: Record<string, unknown>; stableId: boolean };
+
 const ymJa = (ym: string | null): string => {
   if (!ym) return '未設定';
   const m = /^(\d{4})-(\d{1,2})/.exec(ym);
@@ -39,9 +56,13 @@ const ymJa = (ym: string | null): string => {
 };
 const targetText = (t: number | null, unit: string): string => (t === null ? '未設定' : `${t}${unit}`);
 const textOrMissing = (t: string | null, missing = '未入力'): string => t ?? missing;
+const currentYm = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
 
-/* 現在の会社の戦略（ストア）を、読み取り専用で文書型に並べる。保存・生成・修正の操作は持たない。
- * 会社・戦略が変わると、表示の状態ごと作り直す（前の選択を残さない）。 */
+/* 現在の会社の戦略（ストア）を、文書型に並べる。保存はしない。AI作成はモックで、結果は画面の中だけに置く。
+ * 会社・戦略が変わると、表示の状態ごと作り直す（前の選択や作成結果を残さない）。 */
 export default function Stage3ReadPanel() {
   const storeCompanyId = useStrategyStore((s: any) => (s.companyId ?? null) as string | null);
   const storeStrategyId = useStrategyStore((s: any) => (s.strategyId ?? null) as string | null);
@@ -51,6 +72,8 @@ export default function Stage3ReadPanel() {
   const storeRestoreReady = useStrategyStore((s: any) => s.restoreReady === true);
   const storeIsRestoring = useStrategyStore((s: any) => s.isRestoring === true);
   const storePendingCompanyId = useStrategyStore((s: any) => (s.pendingCompanyId ?? null) as string | null);
+  const storeState = useStrategyStore((s: any) => s) as Record<string, unknown>;
+  const storeStrategyFields = useMemo(() => pickPlanStrategyFields(storeState), [storeState]);
   const userCompanyId = useUserStore((s) => s.companyId);
   const userRole = useUserStore((s) => s.role);
 
@@ -60,6 +83,7 @@ export default function Stage3ReadPanel() {
         storeCompanyId,
         storeStrategyId,
         storeDepartments,
+        storeStrategyFields,
         storeCompanyName,
         storeHydrated,
         storeRestoreReady,
@@ -72,6 +96,7 @@ export default function Stage3ReadPanel() {
       storeCompanyId,
       storeStrategyId,
       storeDepartments,
+      storeStrategyFields,
       storeCompanyName,
       storeHydrated,
       storeRestoreReady,
@@ -94,6 +119,8 @@ export default function Stage3ReadPanel() {
 
 function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { status: 'READY' }> }) {
   const [selected, setSelected] = useState<Stage3Selection | null>(null);
+  const [generated, setGenerated] = useState<Record<string, Generated>>({});
+  const [planStates, setPlanStates] = useState<Record<string, ProjectPlanState>>({});
   const tree = useMemo(() => buildStage3Tree({ memberships: source.memberships, strategies: source.strategies }), [source]);
   const companyId = source.strategies[0]?.company_id ?? '';
   const companyLabel = source.companyLabels[companyId] ?? '企業名未設定';
@@ -105,6 +132,38 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
         selection: selected,
       })
     : null;
+
+  const key = selected ? selectionKey(selected) : null;
+  const gen = key ? generated[key] : undefined;
+  const planState = (key && planStates[key]) || INITIAL_PLAN_STATE;
+  const planView = gen?.status === 'READY' ? computePlanView(gen.bundle, planState) : null;
+
+  const createPlan = (sel: Stage3Selection) => {
+    const id = selectionKey(sel);
+    const stableId = sel.projectKey.startsWith('id:');
+    const requestedProjectId = stableId ? sel.projectKey.slice(3) : `session:${sel.projectKey}`;
+    setGenerated((prev) => ({ ...prev, [id]: { status: 'BUSY' } }));
+    generateMockExecutionPlan({
+      strategy: source.planStrategy,
+      membershipCompanyId: source.memberships[0]?.company_id ?? '',
+      requestedStrategyId: sel.strategyId,
+      requestedProjectId,
+      currentYm: currentYm(),
+      companyName: companyLabel,
+      createdAt: new Date().toISOString(),
+    }).then((r) => {
+      setGenerated((prev) => ({
+        ...prev,
+        [id]: r.status === 'READY' ? { status: 'READY', bundle: r.bundle, stableId } : { status: 'FAILED', issues: r.issues },
+      }));
+      setPlanStates((prev) => ({ ...prev, [id]: INITIAL_PLAN_STATE }));
+    });
+  };
+
+  const updatePlan = (fn: (p: ProjectPlanState) => ProjectPlanState) => {
+    if (!key) return;
+    setPlanStates((prev) => ({ ...prev, [key]: fn(prev[key] ?? INITIAL_PLAN_STATE) }));
+  };
 
   return (
     <div className="space-y-4">
@@ -122,14 +181,14 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
                 <div className="mt-2 text-[11px] font-semibold text-zinc-500">プロジェクト</div>
                 <div className="mt-1 flex flex-col gap-1.5">
                   {dept.projects.map((p) => {
-                    const key: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
-                    const isSelected = selected !== null && selectionKey(selected) === selectionKey(key);
+                    const sel: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
+                    const isSelected = selected !== null && selectionKey(selected) === selectionKey(sel);
                     return (
                       <button
-                        key={selectionKey(key)}
+                        key={`${p.projectKey}|${p.departmentIndex}`}
                         type="button"
                         aria-pressed={isSelected}
-                        onClick={() => setSelected(key)}
+                        onClick={() => setSelected(sel)}
                         className={`block w-full rounded-lg px-2 py-1.5 text-left ${isSelected ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'}`}
                       >
                         <div className="font-semibold">{p.projectTitle}</div>
@@ -147,13 +206,40 @@ function Stage3ProjectBrowser({ source }: { source: Extract<Stage3Source, { stat
       <section className="min-w-0">
         {!view && <p className="rounded-lg bg-zinc-50 p-4 text-[13px] text-zinc-700">上の一覧からプロジェクトを選ぶと、STAGE3の情報を表示します。</p>}
         {view && view.status === 'NO_DATA' && <p className="rounded-lg bg-amber-50 p-4 text-[13px] text-amber-900">{REASON_LABEL[view.reason] ?? '情報を表示できません。'}</p>}
-        {view && view.status === 'READY' && <ReadOnlyProject key={view.key} view={view} companyLabel={companyLabel} />}
+        {view && view.status === 'READY' && (
+          <ReadOnlyProject
+            key={view.key}
+            view={view}
+            companyLabel={companyLabel}
+            gen={gen}
+            onCreate={() => selected && createPlan(selected)}
+            planState={planState}
+            planView={planView}
+            onUpdate={updatePlan}
+          />
+        )}
       </section>
     </div>
   );
 }
 
-function ReadOnlyProject({ view, companyLabel }: { view: Extract<Stage3ReadView, { status: 'READY' }>; companyLabel: string }) {
+function ReadOnlyProject({
+  view,
+  companyLabel,
+  gen,
+  onCreate,
+  planState,
+  planView,
+  onUpdate,
+}: {
+  view: Extract<Stage3ReadView, { status: 'READY' }>;
+  companyLabel: string;
+  gen: Generated | undefined;
+  onCreate: () => void;
+  planState: ProjectPlanState;
+  planView: ReturnType<typeof computePlanView> | null;
+  onUpdate: (fn: (p: ProjectPlanState) => ProjectPlanState) => void;
+}) {
   const m = view.model;
   if (m.status !== 'READY') return null;
   const dept = m.department;
@@ -164,6 +250,7 @@ function ReadOnlyProject({ view, companyLabel }: { view: Extract<Stage3ReadView,
     ...m.kpis.aiProvisional.map((k) => ({ ...k, state: 'AIの仮の目標（確定ではない）' })),
   ];
   const doc = view.document;
+  const errors = gen?.status === 'FAILED' ? gen.issues.filter((i) => i.severity === 'error') : [];
 
   return (
     <div className="plan-page">
@@ -247,7 +334,28 @@ function ReadOnlyProject({ view, companyLabel }: { view: Extract<Stage3ReadView,
           <h2 className="plan-h2">
             <span className="plan-no">3</span> 実行計画
           </h2>
-          {doc.kind === 'NO_PLAN' && <p className="plan-p">実行計画書はまだ作成されていません。</p>}
+          {doc.kind === 'NO_PLAN' && !gen && <p className="plan-p">実行計画書はまだ作成されていません。</p>}
+          {doc.kind === 'NO_PLAN' && gen?.status === 'BUSY' && <p className="plan-p">作成しています（モック）…</p>}
+          {doc.kind === 'NO_PLAN' && gen?.status === 'FAILED' && (
+            <>
+              <p className="plan-p">実行計画書を作れませんでした。</p>
+              {errors.length > 0 && (
+                <ul className="plan-list">
+                  {errors.map((e) => (
+                    <li key={`${e.code}-${e.message}`}>{e.message}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          {doc.kind === 'NO_PLAN' && (!gen || gen.status === 'FAILED') && (
+            <button type="button" className="plan-btn-primary" onClick={onCreate}>
+              {gen?.status === 'FAILED' ? 'もう一度作る（モック）' : 'AIで実行計画書を作る（モック）'}
+            </button>
+          )}
+          {doc.kind === 'NO_PLAN' && gen?.status === 'READY' && (
+            <p className="plan-note">AIの草案（モック）を、下に表示しています。実際のAIは接続していません。</p>
+          )}
           {doc.kind === 'SAVED_PLAN' && (
             <p className="plan-note">保存された計画（{ymJa(doc.savedAt.slice(0, 7))}に保存）を、読み取り専用で表示しています。</p>
           )}
@@ -276,6 +384,33 @@ function ReadOnlyProject({ view, companyLabel }: { view: Extract<Stage3ReadView,
           onUnadopt={noop}
           onOpenStart={noop}
         />
+      )}
+
+      {doc.kind === 'NO_PLAN' && gen?.status === 'READY' && planView && (
+        <div>
+          <p className="plan-note">
+            この文書は、画面の中でだけ修正できます。保存されません。
+            {!gen.stableId && 'このプロジェクトには安定IDがないため、保存できるようになるまで、この文書は画面を閉じると消えます。'}
+          </p>
+          <PlanDocument
+            bundle={gen.bundle}
+            mode={planState.mode}
+            committed={planState.committed}
+            draft={planState.draft}
+            adopted={planState.adopted}
+            adoptable={planView.d.adoption.adoptable}
+            blockers={planView.d.adoption.blockers}
+            notice={planState.notice}
+            showAdoption={false}
+            onEnterEdit={() => onUpdate(enterEdit)}
+            onApply={() => onUpdate(applyEdit)}
+            onDiscard={() => onUpdate(discardEdit)}
+            onDraftChange={(k, v) => onUpdate((p) => setDraftValue(p, k, v))}
+            onAdopt={noop}
+            onUnadopt={noop}
+            onOpenStart={noop}
+          />
+        </div>
       )}
     </div>
   );

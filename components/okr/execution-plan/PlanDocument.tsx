@@ -11,6 +11,8 @@ export type PlanDocumentProps = {
   bundle: unknown;
   /** 読み取り専用（保存済みの計画の表示など）。修正・採用の操作を出さない */
   readOnly?: boolean;
+  /** 採用の欄を出すか（省略時は出す）。採用は保存を伴うため、保存できない文書では出さない */
+  showAdoption?: boolean;
   mode: Mode;
   committed: Edits;
   draft: Edits;
@@ -385,7 +387,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
         <footer className="plan-paper-foot">作成：AIによる草案を基に、担当者が確認・修正します。 ／ 開発用の画面内での操作のため、保存されません</footer>
       </article>
 
-      {!readOnly && (
+      {!readOnly && props.showAdoption !== false && (
       <section className="plan-next" aria-label="計画案の採用">
         <h2 className="plan-h3">計画案の採用</h2>
         {mode === 'edit' ? (

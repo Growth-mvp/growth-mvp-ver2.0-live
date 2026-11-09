@@ -108,7 +108,9 @@ export function readModelFromResolved(resolved: ResolvedProject, savedPlans: Sav
   const { project, companyId, strategyId, projectKey, departmentName, department: dept } = resolved;
   const kpis = readKpisOf(project);
   const locked = kpis.filter((k) => k.basis !== 'AI_PROVISIONAL');
-  const saved = savedPlans.find((r) => r.companyId === companyId && r.strategyId === strategyId && r.projectKey === projectKey);
+  const saved = projectKey.startsWith('id:')
+    ? savedPlans.find((r) => r.companyId === companyId && r.strategyId === strategyId && r.projectKey === projectKey)
+    : undefined;
   const savedPlan: ReadPlanState = saved
     ? {
         state: 'SAVED',

@@ -6,6 +6,13 @@ import { FINANCE_ROLES, type AiKpi, type AssembledPlan, type Claim, type Finance
 const CUSTOMER_OUTCOME = 'CUSTOMER_OUTCOME';
 const MONEY_UNITS = ['円', '百万円', '¥', '万円', '億円'];
 const REGULATORY_WORDS = /規制|法令|薬機|医療機器|安全|認証|許認可|コンプライアンス/;
+
+/** 規制・安全の制約を含む入力の参照ID（草案の障害・リスク・確認事項のどれかに反映する必要がある） */
+export function regulatoryConstraintRefs(ctx: PlanContext): string[] {
+  return ctx.sources
+    .filter((s) => (s.ref === 'S2-SWOT-T' || s.ref === 'S2-SWOT-W' || s.ref.startsWith('S3-RISK-')) && REGULATORY_WORDS.test(s.text))
+    .map((s) => s.ref);
+}
 const COMPLETION_WORDS = /完了|算出|可能日|分類済み|比較|作成|整備|開催|実施|受講|記録件数|記録の/;
 const STRONG_OUTCOME_WORDS = /削減|改善|短縮|向上|増加|増える|低減|減少|売上|利益|粗利|定着|転換|受注|継続|満足|軽減|効果|負担/;
 const DUPLICATE_LABEL_SIMILARITY = 0.12;
@@ -282,9 +289,7 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
     checkRefs(risk.sourceRefs, p);
   });
 
-  const constraintRefs = ctx.sources
-    .filter((s) => (s.ref === 'S2-SWOT-T' || s.ref === 'S2-SWOT-W' || s.ref.startsWith('S3-RISK-')) && REGULATORY_WORDS.test(s.text))
-    .map((s) => s.ref);
+  const constraintRefs = regulatoryConstraintRefs(ctx);
   const addressedRefs = new Set([
     ...obstacles.flatMap((o) => o.sourceRefs),
     ...plan.section5.risks.flatMap((r) => r.sourceRefs),

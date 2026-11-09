@@ -6,10 +6,14 @@ import growthPlan from './growth.json';
 
 export const STAGE3_SNAPSHOT_MEMBERSHIPS: MembershipRow[] = [{ company_id: 'fict-co-a', role: 'member' }];
 
-export const STAGE3_SNAPSHOT_STRATEGIES: StrategyRow[] = [
+export const STAGE3_SNAPSHOT_STRATEGIES: Array<StrategyRow & Record<string, unknown>> = [
   {
     id: 'fict-strategy-a',
     company_id: 'fict-co-a',
+    strength: '工場向けの計測器で、高い精度と長い稼働実績を持つ',
+    weakness: '医療機関の業務や購買の流れを知る社員が少ない',
+    opportunity: '院内の記録を自動化したいという医療機関の需要が増えている',
+    threat: '医療機器としての規制対応に、時間と費用がかかる',
     departments: [
       {
         id: 'dept-sales',
@@ -203,7 +207,7 @@ export const STAGE3_SNAPSHOT_SAVED_PLANS: SavedPlanRecord[] = [
   {
     companyId: 'fict-co-a',
     strategyId: 'fict-strategy-a',
-    projectKey: 'd2-p0',
+    projectKey: 'id:fict-proj-clinic-pilot',
     savedAt: '2026-10-20T09:00:00+09:00',
     kpiSnapshot: [
       { label: '試験導入に合意した医療機関数', target: 5 },

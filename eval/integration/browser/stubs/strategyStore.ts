@@ -112,8 +112,13 @@ function getState(): any {
 w.__getStrategyState = () => state;
 /* 検証用：STAGE3の保存構造（架空）を、指定した会社の戦略として注入する。開いている会社と一致させる */
 w.__seedStage3 = (companyId: string) => {
-  const dept = (STAGE3_SNAPSHOT_STRATEGIES[0] as any).departments;
+  const row = STAGE3_SNAPSHOT_STRATEGIES[0] as any;
+  const dept = row.departments;
   setState({
+    strength: row.strength,
+    weakness: row.weakness,
+    opportunity: row.opportunity,
+    threat: row.threat,
     companyId,
     companyName: '架空精密計測株式会社（評価用）',
     strategyId: 'fict-strategy-a',
