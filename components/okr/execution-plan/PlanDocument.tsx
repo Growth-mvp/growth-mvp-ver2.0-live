@@ -9,6 +9,8 @@ type Mode = PlanMode;
 
 export type PlanDocumentProps = {
   bundle: unknown;
+  /** 読み取り専用（保存済みの計画の表示など）。修正・採用の操作を出さない */
+  readOnly?: boolean;
   mode: Mode;
   committed: Edits;
   draft: Edits;
@@ -92,7 +94,9 @@ function toMonthInput(ja: string): string {
 }
 
 export default function PlanDocument(props: PlanDocumentProps) {
-  const { bundle, mode, committed, draft, adopted, adoptable, blockers, notice } = props;
+  const { bundle, committed, draft, adopted, adoptable, blockers, notice } = props;
+  const readOnly = props.readOnly === true;
+  const mode: Mode = readOnly ? 'read' : props.mode;
   const edits = mode === 'edit' ? draft : committed;
   const doc: DocModel = useMemo(() => buildDocModel(bundle, edits), [bundle, edits]);
 
@@ -109,6 +113,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
   return (
     <div className="plan-page">
       <style>{PLAN_DOC_CSS}</style>
+      {!readOnly && (
       <div className="plan-toolbar" role="toolbar" aria-label="計画書の操作">
         <div className="plan-toolbar-actions">
           {mode === 'read' ? (
@@ -130,6 +135,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
         {mode === 'read' && editCount > 0 && <div className="plan-edit-note">修正した箇所：{editCount} 件（修正しなかった箇所はそのままです）</div>}
         {notice && <div className="plan-edit-note" role="status">{notice}</div>}
       </div>
+      )}
 
       <article className="plan-paper" aria-label="実行計画書">
         <header className="plan-paper-head">
@@ -379,6 +385,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
         <footer className="plan-paper-foot">作成：AIによる草案を基に、担当者が確認・修正します。 ／ 開発用の画面内での操作のため、保存されません</footer>
       </article>
 
+      {!readOnly && (
       <section className="plan-next" aria-label="計画案の採用">
         <h2 className="plan-h3">計画案の採用</h2>
         {mode === 'edit' ? (
@@ -409,6 +416,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
           </button>
         </div>
       </section>
+      )}
     </div>
   );
 }

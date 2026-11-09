@@ -26,7 +26,7 @@ const projB = {
 };
 
 const strategies: StrategyRow[] = [
-  { id: 'st-a', company_id: CO_A, departments: [{ name: '物流営業部', strategicRole: '法人顧客を増やす', keyIssues: ['単価'], projects: [projA1, projA2] }] },
+  { id: 'st-a', company_id: CO_A, departments: [{ name: '物流営業部', mission: '法人顧客の獲得を進める', strategy: '既存配送先の単価を上げる', projects: [projA1, projA2] }] },
   { id: 'st-b', company_id: CO_B, departments: [{ name: '物流営業部', projects: [projB] }] },
 ];
 const memberA: MembershipRow[] = [{ company_id: CO_A, role: 'member' }];
@@ -83,8 +83,8 @@ describe('段階Aの読み取りモデル（buildStage4ReadModel）', () => {
     expect(m.kpis.confirmed.map((k) => k.label)).toEqual(['法人顧客の契約数']);
     expect(m.kpis.unconfirmed.map((k) => ({ label: k.label, target: k.target }))).toEqual([{ label: '既存配送先の単価', target: 0 }]);
     expect(m.kpis.aiProvisional.map((k) => k.label)).toEqual(['商談の件数']);
-    expect(m.department).toEqual({ name: '物流営業部', strategicRole: '法人顧客を増やす', keyIssues: ['単価'] });
-    expect(m.project).toEqual({ title: '法人顧客の新規獲得', hypothesis: '既存の配送先の単価を上げる', rationale: '単価の下落が続いている', role: 'REVENUE' });
+    expect(m.department).toEqual({ name: '物流営業部', mission: '法人顧客の獲得を進める', missionDescription: null, strategy: '既存配送先の単価を上げる' });
+    expect(m.project).toEqual({ title: '法人顧客の新規獲得', objective: null, hypothesis: '既存の配送先の単価を上げる', rationale: '単価の下落が続いている', role: 'REVENUE' });
   });
 
   it('他社のKPIは、どのプロジェクトの表示にも混ざらない', () => {
@@ -126,6 +126,6 @@ describe('段階Aの読み取りモデル（buildStage4ReadModel）', () => {
 describe('readKpisOf', () => {
   it('根拠の印が無いKPIも、目標・期限・担当を読み取る', () => {
     const [k] = readKpisOf({ okrsV2: [{ label: '来店数', target: 0, unit: '件', due: '2027-02-15', owner: '' }] });
-    expect(k).toEqual({ label: '来店数', target: 0, unit: '件', due: '2027-02', owner: null, basis: 'UNKNOWN' });
+    expect(k).toEqual({ label: '来店数', target: 0, unit: '件', due: '2027-02', owner: null, basis: 'UNKNOWN', origin: 'OKRS_V2' });
   });
 });

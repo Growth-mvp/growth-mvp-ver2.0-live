@@ -20,9 +20,11 @@ import {
 } from '@/lib/stage4/planView/planState';
 import { useCeoDrawerCloseButton } from '@/components/CeoDrawerCloseContext';
 import PlanDocument from './PlanDocument';
+import Stage3ReadPanel from './Stage3ReadPanel';
 import StartConfirmation from './StartConfirmation';
 
 type View = 'document' | 'start';
+type Source = 'SAMPLE' | 'STAGE3';
 
 /* 開発用の文書型実行計画書（開発環境でのみ表示される）。
  * 表示するのは保存済みの架空企業のサンプルだけ。状態はプロジェクトごとに分け、画面内に留める（保存しない）。 */
@@ -30,6 +32,7 @@ export default function DevPlanDocument() {
   const [sampleId, setSampleId] = useState<string>(SAMPLE_PLANS[0].id);
   const [states, setStates] = useState<Record<string, ProjectPlanState>>({});
   const [view, setView] = useState<View>('document');
+  const [source, setSource] = useState<Source>('SAMPLE');
   useCeoDrawerCloseButton(true);
 
   const sample = SAMPLE_PLANS.find((s) => s.id === sampleId) ?? SAMPLE_PLANS[0];
@@ -51,6 +54,29 @@ export default function DevPlanDocument() {
         開発用の表示です。架空企業の保存済みデータを使っており、実在の計画ではありません。画面内の操作は保存されません。
       </div>
 
+      <div className="flex flex-wrap gap-2" role="group" aria-label="表示する情報">
+        {(
+          [
+            ['SAMPLE', '計画書のサンプル'],
+            ['STAGE3', 'STAGE3の実プロジェクト（読み取り専用）'],
+          ] as Array<[Source, string]>
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={source === id}
+            onClick={() => setSource(id)}
+            className={`rounded-full px-4 py-1.5 text-[13px] font-semibold ${source === id ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {source === 'STAGE3' ? (
+        <Stage3ReadPanel />
+      ) : (
+        <>
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-[13px] text-zinc-700">
           <span className="whitespace-nowrap">プロジェクト選択</span>
@@ -118,6 +144,8 @@ export default function DevPlanDocument() {
           onUnadopt={() => update(unadopt)}
           onOpenStart={() => setView('start')}
         />
+      )}
+        </>
       )}
     </div>
   );
