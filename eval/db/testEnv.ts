@@ -75,7 +75,7 @@ export type TestEnv = {
   close: () => Promise<void>;
 };
 
-export async function createTestEnv(): Promise<TestEnv> {
+export async function createTestEnv(opts: { apiEnabled?: boolean } = {}): Promise<TestEnv> {
   const { db, close, raw } = await openDb();
   await raw.exec(fs.readFileSync(path.join(ROOT, 'eval/db/standin.sql'), 'utf8'));
   await raw.exec(fs.readFileSync(path.join(ROOT, 'supabase/pending/20261110_stage4_plan_documents.sql'), 'utf8'));
@@ -105,7 +105,7 @@ export async function createTestEnv(): Promise<TestEnv> {
       return m ? m[1] : null;
     },
     gatewayFor: (_req, userId) => new PgliteGateway(db, userId),
-    enabled: true,
+    enabled: opts.apiEnabled ?? true,
     generation: {
       currentYm: () => '2026-11',
       mapStrategy: mapStrategyRow,

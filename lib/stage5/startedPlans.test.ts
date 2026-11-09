@@ -2,7 +2,7 @@ import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage
 import { generateMockExecutionPlan } from '@/lib/stage4/plan/mockGenerate';
 import type { PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
 import type { RawPlanStrategy } from '@/lib/stage4/plan/source';
-import { startedPlanView } from './startedPlans';
+import { loadStartedPlans, startedPlanView } from './startedPlans';
 
 const CO = 'fict-co-a';
 const ST = 'fict-strategy-a';
@@ -83,5 +83,42 @@ describe('STAGE5 の実行開始済み計画の読み取り', () => {
   it('利用者の修正（項目の値）は、表示に反映される', () => {
     const edited = view(record({ userEdits: { 'action:1:title': '修正後の実施事項名' } as PlanDocRecord['userEdits'] }));
     expect(edited!.actions[0].title).toBe('修正後の実施事項名');
+  });
+});
+
+describe('STAGE5 の読み込み（公開前の保護）', () => {
+  const item = (projectId: string) => ({ key: { ...KEY, projectId }, departmentName: '設計部', projectTitle: projectId });
+
+  it('APIが無効（DISABLED）なら、要求は1回で止まり、残りは読まない', async () => {
+    const load = jest.fn(async () => ({ status: 'DISABLED' as const }));
+    const out = await loadStartedPlans({ items: [item('a'), item('b'), item('c')], load });
+    expect(out).toEqual({ views: [], failed: 0, disabled: true });
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('開始済みだけを表示し、未開始・他社（DENIED）は黙って外し、失敗は件数で返す', async () => {
+    const started = record({ key: { ...KEY, projectId: 'started' } });
+    const outcomes: Record<string, unknown> = {
+      started: { status: 'FOUND', record: started },
+      notstarted: { status: 'FOUND', record: record({ key: { ...KEY, projectId: 'notstarted' }, startInfo: null }) },
+      denied: { status: 'DENIED' },
+      broken: { status: 'FAILED', message: 'x' },
+    };
+    const load = jest.fn(async (k: PlanDocKey) => outcomes[k.projectId] as never);
+    const out = await loadStartedPlans({ items: [item('started'), item('notstarted'), item('denied'), item('broken')], load });
+    expect(out.disabled).toBe(false);
+    expect(out.views.map((v) => v.key.projectId)).toEqual(['started']);
+    expect(out.failed).toBe(1);
+    expect(load).toHaveBeenCalledTimes(4);
+  });
+
+  it('読み込みの例外は失敗として数え、以降の項目は読む', async () => {
+    const load = jest.fn(async (k: PlanDocKey) => {
+      if (k.projectId === 'boom') throw new Error('network');
+      return { status: 'NONE' as const };
+    });
+    const out = await loadStartedPlans({ items: [item('boom'), item('ok')], load });
+    expect(out.failed).toBe(1);
+    expect(load).toHaveBeenCalledTimes(2);
   });
 });

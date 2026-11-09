@@ -2,7 +2,7 @@
  * 書き込みはしない。STAGE3の確定KPIと、計画書の提案KPI（未確定）は区別して表す。
  * 未確認の財務効果は、STAGE5には出さない（確定値として扱わない）。 */
 import { buildDocModel, type Edits } from '@/lib/stage4/planView/documentModel';
-import type { PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
+import type { LoadOutcome, PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
 
 export type StartedPlanKpi = { label: string; target: string; due: string; owner: string; confirmed: boolean; statusLabel: string };
 export type StartedPlanAction = { no: number; title: string; content: string; due: string; owner: string };
@@ -56,4 +56,34 @@ export function startedPlanView(args: {
     })),
     actions: doc.actions.map((a) => ({ no: a.no, title: a.title, content: a.content, due: a.due, owner: a.owner })),
   };
+}
+
+export type StartedPlanItem = { key: PlanDocKey; departmentName: string; projectTitle: string };
+export type StartedPlansLoad = { views: StartedPlanView[]; failed: number; disabled: boolean };
+
+/* 1件ずつ読み、公開前（API無効）と分かったら残りを読まない（無効な間は要求を1回で止める） */
+export async function loadStartedPlans(args: {
+  items: StartedPlanItem[];
+  load: (key: PlanDocKey) => Promise<LoadOutcome>;
+}): Promise<StartedPlansLoad> {
+  const views: StartedPlanView[] = [];
+  let failed = 0;
+  for (const item of args.items) {
+    let out: LoadOutcome;
+    try {
+      out = await args.load(item.key);
+    } catch {
+      failed += 1;
+      continue;
+    }
+    if (out.status === 'DISABLED') return { views: [], failed: 0, disabled: true };
+    if (out.status === 'FAILED') {
+      failed += 1;
+      continue;
+    }
+    if (out.status !== 'FOUND') continue;
+    const view = startedPlanView({ expected: item.key, departmentName: item.departmentName, projectTitle: item.projectTitle, record: out.record });
+    if (view) views.push(view);
+  }
+  return { views, failed, disabled: false };
 }

@@ -45,6 +45,7 @@ export type PlanDocActor = { userId: string; memberships: Array<{ companyId: str
 export type LoadOutcome =
   | { status: 'FOUND'; record: PlanDocRecord }
   | { status: 'NONE' }
+  | { status: 'DISABLED' }
   | { status: 'DENIED' }
   | { status: 'FAILED'; message: string };
 

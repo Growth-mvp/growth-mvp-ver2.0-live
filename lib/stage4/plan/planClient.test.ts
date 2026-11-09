@@ -83,6 +83,11 @@ describe('API経由の保存先（結果を画面の型に変える）', () => {
     expect(called).toBe(false);
   });
 
+  it('読み込み：公開前（APIが無効の503）は、失敗ではなく無効として返す', async () => {
+    const disabled = createRemotePlanStore({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(503, { status: 'DISABLED' }) as never });
+    expect((await disabled.load(ACTOR, KEY)).status).toBe('DISABLED');
+  });
+
   it('保存：409 は競合、403 は権限なし、通信の失敗は保存できなかった', async () => {
     const conflict = createRemotePlanStore({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(409, { status: 'CONFLICT', current: { version: 2 } }) as never });
     expect((await conflict.update(ACTOR, KEY, 1, { userEdits: {} } as never)).status).toBe('CONFLICT');

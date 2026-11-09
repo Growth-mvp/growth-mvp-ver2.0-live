@@ -5,14 +5,18 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { currentPlanStoreKind, planStoreFor } from '@/components/okr/execution-plan/planStores';
+import type { PlanStoreKind } from '@/lib/stage4/plan/planClient';
 import type { PlanDocActor, PlanDocKey } from '@/lib/stage4/plan/planDocumentStore';
-import { startedPlanView, type StartedPlanView } from '@/lib/stage5/startedPlans';
+import { loadStartedPlans, type StartedPlanView } from '@/lib/stage5/startedPlans';
 import { effectiveProjectId, findDuplicateProjectIds } from '@/lib/strategy/projectIds';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 
 type Item = { key: PlanDocKey; departmentName: string; projectTitle: string; duplicated: boolean };
-type Loaded = { views: StartedPlanView[]; failed: number; duplicated: string[] };
+type Loaded = { disabled: true } | { disabled: false; views: StartedPlanView[]; failed: number; duplicated: string[] };
+
+/* 公開前（APIが無効と分かった）後は、このページの表示の間は再び要求しない */
+let planApiDisabled = false;
 
 const dateText = (iso: string) => {
   const d = new Date(iso);
@@ -47,46 +51,41 @@ export function StartedPlansPanel() {
   }, [departments, companyId, strategyId]);
 
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  /* 保存先はAPI（remote）のときだけ表示する。既定のブラウザ内の保存先では、既存利用者の画面を変えない */
+  const [kind, setKind] = useState<PlanStoreKind | null>(null);
+  useEffect(() => setKind(currentPlanStoreKind()), []);
 
   useEffect(() => {
-    if (!companyId || !strategyId || !userId || !role) {
+    if (kind !== 'remote' || !companyId || !strategyId || !userId || !role) {
       setLoaded(null);
+      return;
+    }
+    if (planApiDisabled) {
+      setLoaded({ disabled: true });
       return;
     }
     let cancelled = false;
     const items = JSON.parse(itemsJson) as Item[];
-    const store = planStoreFor(currentPlanStoreKind());
+    const store = planStoreFor('remote');
     const actor: PlanDocActor = { userId, memberships: [{ companyId, role }] };
     const duplicated = items.filter((i) => i.duplicated).map((i) => i.projectTitle);
-    Promise.all(
-      items
-        .filter((i) => !i.duplicated)
-        .map(async (item) => {
-          try {
-            const out = await store.load(actor, item.key);
-            if (out.status !== 'FOUND') return { view: null, failed: false };
-            return {
-              view: startedPlanView({ expected: item.key, departmentName: item.departmentName, projectTitle: item.projectTitle, record: out.record }),
-              failed: false,
-            };
-          } catch {
-            return { view: null, failed: true };
-          }
-        })
-    ).then((results) => {
+    loadStartedPlans({
+      items: items.filter((i) => !i.duplicated),
+      load: (key) => store.load(actor, key),
+    }).then((result) => {
       if (cancelled) return;
-      setLoaded({
-        views: results.flatMap((r) => (r.view ? [r.view] : [])),
-        failed: results.filter((r) => r.failed).length,
-        duplicated,
-      });
+      if (result.disabled) planApiDisabled = true;
+      setLoaded(result.disabled ? { disabled: true } : { disabled: false, views: result.views, failed: result.failed, duplicated });
     });
     return () => {
       cancelled = true;
     };
-  }, [itemsJson, companyId, strategyId, userId, role]);
+  }, [kind, itemsJson, companyId, strategyId, userId, role]);
 
+  if (kind !== 'remote') return null;
   if (!companyId || !strategyId) return null;
+  if (loaded?.disabled) return null;
+  const ready = loaded && !loaded.disabled ? loaded : null;
 
   return (
     <section aria-label="実行計画" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -95,22 +94,22 @@ export function StartedPlansPanel() {
         <p className="text-xs text-slate-500">読み取り専用です。この画面から計画や進捗・実績は変更しません。</p>
       </header>
 
-      {loaded === null && <p className="text-sm text-slate-500">読み込み中…</p>}
+      {ready === null && <p className="text-sm text-slate-500">読み込み中…</p>}
 
-      {loaded && loaded.duplicated.length > 0 && (
+      {ready && ready.duplicated.length > 0 && (
         <p className="mb-3 rounded-lg bg-amber-50 p-2 text-sm text-amber-800">
-          同じIDのプロジェクトがあるため、次の計画は表示していません：{loaded.duplicated.join('、')}（STAGE3で確認してください）
+          同じIDのプロジェクトがあるため、次の計画は表示していません：{ready.duplicated.join('、')}（STAGE3で確認してください）
         </p>
       )}
-      {loaded && loaded.failed > 0 && (
+      {ready && ready.failed > 0 && (
         <p className="mb-3 rounded-lg bg-rose-50 p-2 text-sm text-rose-800">一部の計画を読み込めませんでした。画面を開き直してください。</p>
       )}
-      {loaded && loaded.views.length === 0 && loaded.failed === 0 && (
+      {ready && ready.views.length === 0 && ready.failed === 0 && (
         <p className="text-sm text-slate-500">実行開始済みの計画はまだありません。</p>
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {loaded?.views.map((v) => (
+        {ready?.views.map((v) => (
           <article key={`${v.key.projectId}-${v.startedVersion}`} className="rounded-xl border border-slate-200 p-4">
             <p className="text-xs text-slate-500">{v.departmentName}</p>
             <h3 className="text-base font-semibold text-slate-800">{v.projectTitle}</h3>

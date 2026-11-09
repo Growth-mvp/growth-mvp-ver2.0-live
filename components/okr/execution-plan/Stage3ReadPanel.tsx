@@ -188,7 +188,7 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
       if (out.status === 'FOUND') {
         setEntries((p) => ({ ...p, [loadKey]: entryFromRecord(out.record) }));
         setLoads((p) => ({ ...p, [loadKey]: { status: 'DONE' } }));
-      } else if (out.status === 'NONE') setLoads((p) => ({ ...p, [loadKey]: { status: 'DONE' } }));
+      } else if (out.status === 'NONE' || out.status === 'DISABLED') setLoads((p) => ({ ...p, [loadKey]: { status: 'DONE' } }));
       else if (out.status === 'DENIED') setLoads((p) => ({ ...p, [loadKey]: { status: 'DENIED' } }));
       else setLoads((p) => ({ ...p, [loadKey]: { status: 'FAILED', message: out.message } }));
     });

@@ -107,6 +107,23 @@ async function openPage(context, label, w = 1440, h = 900) {
   return page;
 }
 
+/* STAGE5 の実行画面を開く（同じ戦略の内容を、検証用DBから読み込んだ状態で表示する） */
+async function openExecPage(context, label, w = 1440, h = 900) {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: w, height: h });
+  page.on('pageerror', (e) => errors.push(`${label} pageerror ${e.message}`));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    if (m.text().includes('ERR_FILE_NOT_FOUND') || m.text().includes('Failed to load resource')) return;
+    errors.push(`${label} console ${m.text()}`);
+  });
+  await page.goto(pathToFileURL(path.join(outDir, 'exec.html')).href + '?planStore=remote');
+  await page.waitForTimeout(1200);
+  await page.evaluate((id) => window.__seedStage3(id), MOCK_COMPANY_ID);
+  await loadStrategyFromDb(page);
+  return page;
+}
+
 /* 戦略の内容を検証用DBから読み込む（再読み込みと同じ：保存されている番号も含めて読む） */
 async function loadStrategyFromDb(page) {
   const row = await env.strategyRow(STRATEGY_A);
@@ -334,7 +351,44 @@ const recordRegulatory = async (page) => {
     return '採用・開始・規制・履歴';
   });
 
-  /* ---- 10. 対象の変更：別のプロジェクトを開いても、この計画の記録は混ざらない ---- */
+  /* ---- 9b. STAGE5：実行開始済みの計画を、実行画面で読み取り専用に確認（デスクトップ・タブレット） ---- */
+  const s5ApiBefore = apiLog.length;
+  const s5OkrBefore = JSON.stringify((await env.strategyRow(STRATEGY_A)).departments.map((d) => d.projects.map((p) => p.okrsV2 ?? null)));
+  for (const w of [1440, 1024, 768]) {
+    await check(`STAGE5へ移動（${w}px）：実行開始済みの計画が、目的・担当・実施事項・KPIつきで表示される`, async () => {
+      const p = await openExecPage(aliceCtx, `STAGE5 ${w}px`, w, 900);
+      try {
+        const panel = p.locator('section[aria-label="実行計画"]');
+        await panel.waitFor({ timeout: 10000 });
+        await panel.getByText('既存顧客の保守契約更新').first().waitFor({ timeout: 10000 });
+        const text = await panel.innerText();
+        assert(text.includes('実行計画（STAGE4・実行開始済み）'), '見出しが無い');
+        assert(text.includes('取り組む理由'), '目的が無い');
+        assert(text.includes('実施事項'), '実施事項が無い');
+        assert(text.includes('担当：'), '担当が無い');
+        assert((await panel.locator('tbody tr').count()) > 0, 'KPIが無い');
+        assert((await p.getByRole('button', { name: /既存顧客の保守契約更新/ }).count()) > 0, '既存の実行画面のカードが消えた');
+        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert(overflow <= 1, `横にはみ出している（${overflow}px）`);
+        await panel.screenshot({ path: path.join(shotsDir, `stage5-plan-${w}.png`) });
+        return '目的・担当・実施事項・KPIあり、既存のカードあり、はみ出しなし';
+      } finally {
+        await p.close();
+      }
+    });
+  }
+  await check('STAGE5は読み取り専用：実行画面の表示で、計画の保存・採用・開始の要求は出ない', async () => {
+    const writes = apiLog.slice(s5ApiBefore).filter((c) => c.method !== 'GET');
+    assert(writes.length === 0, `書き込みの要求が出た（${writes.length}件）`);
+    return `要求 ${apiLog.length - s5ApiBefore}件（すべて読み取り）`;
+  });
+  await check('STAGE5の既存データ（KPI・実績・okrsV2）は、表示の前後で変わらない', async () => {
+    const after = JSON.stringify((await env.strategyRow(STRATEGY_A)).departments.map((d) => d.projects.map((p) => p.okrsV2 ?? null)));
+    assert(after === s5OkrBefore, 'okrsV2 が変わった');
+    return 'okrsV2 不変';
+  });
+
+  /* ---- 10.対象の変更：別のプロジェクトを開いても、この計画の記録は混ざらない ---- */
   await check('対象の変更：別のプロジェクトでは記録が出ず、戻すと同じ記録に戻る', async () => {
     await pick(alice, '点検工程の標準化');
     await alice.waitForTimeout(300);
