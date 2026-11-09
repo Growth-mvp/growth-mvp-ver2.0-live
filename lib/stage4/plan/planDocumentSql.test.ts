@@ -52,7 +52,8 @@ describe('実行計画書の保存テーブル（未適用のSQL）', () => {
 
   it('版番号は1ずつしか進まず、AI草案・キー・作成者は変えられない', () => {
     expect(active).toContain('version must advance by one');
-    expect(active).toContain('key, ai draft and creator are immutable');
+    expect(active).toContain('key and creator are immutable');
+    expect(active).toContain('ai draft is immutable');
     expect(active).toContain('new.ai_draft <> old.ai_draft');
   });
 

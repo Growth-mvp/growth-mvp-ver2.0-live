@@ -1,13 +1,17 @@
 -- ============================================================
--- 【未適用】新STAGE4の実行計画書（草案）を、プロジェクト単位で保存するテーブル。
+-- 【未適用】新STAGE4の実行計画書（草案）を、プロジェクト単位で保存する表と、その操作履歴。
 -- このファイルは supabase/migrations の外に置いてある。レビューの後、テスト用DBで検証してから適用する。
 -- 本番DBへの適用、マイグレーションへの登録は、別の承認の後に行う。
 --
--- 目的: 社員が作成・修正した草案を、会社・戦略・プロジェクト（安定ID）で一意に保存する。
+-- 目的: 生成した草案・利用者の修正・採用・実行開始を、会社・戦略・プロジェクト（安定ID）で一意に保存する。
 -- 理由: generated_plans は会社・戦略・読者層（audience）単位の銀行向け計画書で、プロジェクト単位にできない。
 --       strategy_data は STAGE1〜3 のデータで、社員ごとの草案を置くと RLS（manager/admin 制御）と衝突する。
 --       execution_plans は STAGE5 の実行計画の既存の名前なので使わない。
+-- 状態: GENERATING（生成中）→ DRAFT（草案あり）。生成に失敗したら GENERATION_FAILED（再試行できる）。
+--       草案（DRAFT）は、作った後に ai_draft を変えられない。草案からは GENERATING 以外へ戻らない。
 -- 競合制御: version（版番号）。更新は「読んだ版番号と同じ時だけ」行い、違えば 0 件になる（競合）。
+-- 採用・開始: 利用者の修正内容が変わったら、採用と開始は自動で解除される（トリガー）。
+-- 操作履歴: stage4_plan_document_events に、トリガーが追記する（利用者からは書き換え・削除できない）。
 -- ============================================================
 
 create table if not exists public.stage4_plan_documents (
@@ -15,22 +19,29 @@ create table if not exists public.stage4_plan_documents (
   company_id uuid not null references public.companies(id) on delete cascade,
   strategy_id uuid not null references public.strategy_data(id) on delete cascade,
   project_id text not null check (length(btrim(project_id)) > 0),
+  status text not null default 'DRAFT' check (status in ('GENERATING', 'DRAFT', 'GENERATION_FAILED')),
   version integer not null default 1 check (version >= 1),
-  ai_draft jsonb not null,
+  ai_draft jsonb not null default '{}'::jsonb,
   user_edits jsonb not null default '{}'::jsonb,
   adopted boolean not null default false,
+  adoption jsonb,
+  regulatory jsonb not null default '{}'::jsonb,
+  started boolean not null default false,
+  start_info jsonb,
   created_by uuid not null,
   updated_by uuid not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint stage4_plan_documents_project_key unique (company_id, strategy_id, project_id)
+  constraint stage4_plan_documents_project_key unique (company_id, strategy_id, project_id),
+  constraint stage4_plan_documents_adoption_chk check (adopted = (adoption is not null)),
+  constraint stage4_plan_documents_start_chk check (started = (start_info is not null) and (not started or adopted))
 );
 
 create index if not exists stage4_plan_documents_company_idx
   on public.stage4_plan_documents (company_id, strategy_id);
 
 -- 戦略が会社のものであること、プロジェクトがその戦略の中にあることを、書き込みのたびに確かめる。
--- AI草案（ai_draft）と作成者は、作った後に変えられないようにする。版番号は 1 ずつだけ増やす。
+-- 状態の順序（生成中 → 草案 / 失敗）、版番号、草案の不変、採用と開始の解除を、データベースの側で強制する。
 create or replace function public.stage4_plan_documents_guard()
 returns trigger
 language plpgsql
@@ -51,23 +62,66 @@ begin
       raise exception 'stage4_plan_documents: project is not in the strategy of the company'
         using errcode = '42501';
     end if;
+    if new.status = 'DRAFT' and new.ai_draft = '{}'::jsonb then
+      raise exception 'stage4_plan_documents: a draft needs its AI content'
+        using errcode = '23514';
+    end if;
     new.version := 1;
+    new.adopted := false;
+    new.adoption := null;
+    new.started := false;
+    new.start_info := null;
     return new;
   end if;
 
   if new.company_id <> old.company_id
      or new.strategy_id <> old.strategy_id
      or new.project_id <> old.project_id
-     or new.ai_draft <> old.ai_draft
      or new.created_by <> old.created_by
      or new.created_at <> old.created_at then
-    raise exception 'stage4_plan_documents: key, AI draft and creator are immutable'
+    raise exception 'stage4_plan_documents: key and creator are immutable'
       using errcode = '42501';
   end if;
-  if new.version <> old.version + 1 then
+
+  if old.status = 'DRAFT' then
+    if new.status <> 'DRAFT' then
+      raise exception 'stage4_plan_documents: a draft cannot return to generation'
+        using errcode = '42501';
+    end if;
+    if new.ai_draft <> old.ai_draft then
+      raise exception 'stage4_plan_documents: AI draft is immutable'
+        using errcode = '42501';
+    end if;
+  elsif old.status = 'GENERATING' then
+    if new.status not in ('DRAFT', 'GENERATION_FAILED') then
+      raise exception 'stage4_plan_documents: invalid generation transition'
+        using errcode = '42501';
+    end if;
+  elsif old.status = 'GENERATION_FAILED' then
+    if new.status <> 'GENERATING' then
+      raise exception 'stage4_plan_documents: a failed generation can only be retried'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  if new.status is distinct from old.status then
+    if new.version <> old.version then
+      raise exception 'stage4_plan_documents: a status change keeps the version'
+        using errcode = '40001';
+    end if;
+  elsif new.version <> old.version + 1 then
     raise exception 'stage4_plan_documents: version must advance by one'
       using errcode = '40001';
   end if;
+
+  -- 利用者の修正が変わったら、採用と実行開始を解除する（採用時点の内容と一致しなくなるため）
+  if new.status <> 'DRAFT' or new.user_edits is distinct from old.user_edits then
+    new.adopted := false;
+    new.adoption := null;
+    new.started := false;
+    new.start_info := null;
+  end if;
+
   new.updated_at := now();
   return new;
 end;
@@ -78,7 +132,114 @@ create trigger stage4_plan_documents_guard_trg
   before insert or update on public.stage4_plan_documents
   for each row execute function public.stage4_plan_documents_guard();
 
+-- 操作履歴（追記のみ）。利用者は読めるが、書き換え・削除はできない。書き込みはトリガーだけが行う。
+create table if not exists public.stage4_plan_document_events (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid not null references public.stage4_plan_documents(id) on delete cascade,
+  company_id uuid not null,
+  strategy_id uuid not null,
+  project_id text not null,
+  action text not null check (action in (
+    'GENERATION_STARTED', 'GENERATED', 'GENERATION_FAILED', 'GENERATION_RETRIED',
+    'SAVED', 'ADOPTED', 'ADOPTION_CANCELLED', 'ADOPTION_RESET',
+    'REGULATORY_RECORDED', 'STARTED', 'START_CANCELLED', 'START_RESET')),
+  version integer not null,
+  actor_user_id uuid,
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists stage4_plan_document_events_doc_idx
+  on public.stage4_plan_document_events (document_id, created_at);
+
+create or replace function public.stage4_plan_documents_audit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor uuid := coalesce(auth.uid(), new.updated_by);
+begin
+  if tg_op = 'INSERT' then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
+    values (new.id, new.company_id, new.strategy_id, new.project_id,
+            case when new.status = 'GENERATING' then 'GENERATION_STARTED' else 'GENERATED' end,
+            new.version, v_actor);
+    return new;
+  end if;
+
+  if new.status is distinct from old.status then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
+    values (new.id, new.company_id, new.strategy_id, new.project_id,
+            case
+              when old.status = 'GENERATING' and new.status = 'DRAFT' then 'GENERATED'
+              when old.status = 'GENERATING' and new.status = 'GENERATION_FAILED' then 'GENERATION_FAILED'
+              else 'GENERATION_RETRIED'
+            end,
+            new.version, v_actor);
+  end if;
+
+  if new.user_edits is distinct from old.user_edits then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+    values (new.id, new.company_id, new.strategy_id, new.project_id, 'SAVED', new.version, v_actor,
+            jsonb_build_object('items', (select count(*) from jsonb_object_keys(new.user_edits))));
+    if old.adopted then
+      insert into public.stage4_plan_document_events
+        (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+      values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTION_RESET', new.version, v_actor,
+              jsonb_build_object('reason', 'EDITED'));
+    end if;
+    if old.started then
+      insert into public.stage4_plan_document_events
+        (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+      values (new.id, new.company_id, new.strategy_id, new.project_id, 'START_RESET', new.version, v_actor,
+              jsonb_build_object('reason', 'EDITED'));
+    end if;
+  elsif old.adopted and not new.adopted then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
+    values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTION_CANCELLED', new.version, v_actor);
+  end if;
+
+  if not old.adopted and new.adopted then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+    values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTED', new.version, v_actor,
+            jsonb_build_object('by', new.adoption ->> 'by', 'at', new.adoption ->> 'at'));
+  end if;
+
+  if old.regulatory is distinct from new.regulatory then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
+    values (new.id, new.company_id, new.strategy_id, new.project_id, 'REGULATORY_RECORDED', new.version, v_actor);
+  end if;
+
+  if not old.started and new.started then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+    values (new.id, new.company_id, new.strategy_id, new.project_id, 'STARTED', new.version, v_actor,
+            jsonb_build_object('by', new.start_info ->> 'by', 'at', new.start_info ->> 'at'));
+  elsif old.started and not new.started and new.user_edits is not distinct from old.user_edits then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id)
+    values (new.id, new.company_id, new.strategy_id, new.project_id, 'START_CANCELLED', new.version, v_actor);
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists stage4_plan_documents_audit_trg on public.stage4_plan_documents;
+create trigger stage4_plan_documents_audit_trg
+  after insert or update on public.stage4_plan_documents
+  for each row execute function public.stage4_plan_documents_audit();
+
 alter table public.stage4_plan_documents enable row level security;
+alter table public.stage4_plan_document_events enable row level security;
 
 -- 同じ会社の所属者（member / manager / admin）は、閲覧・作成・修正ができる（草案の共同編集）。
 -- 削除は manager / admin だけ。他社の行は、どの操作でも見えない・書けない。
@@ -133,6 +294,17 @@ create policy "stage4_plan_documents_delete"
       where cm.company_id = stage4_plan_documents.company_id
         and cm.user_id = auth.uid()
         and cm.role in ('admin', 'manager')
+    )
+  );
+
+-- 操作履歴は、同じ会社の所属者だけが読める。書き込みの方針は作らない（トリガーだけが書く）。
+create policy "stage4_plan_document_events_select"
+  on public.stage4_plan_document_events for select
+  using (
+    exists (
+      select 1 from public.company_members cm
+      where cm.company_id = stage4_plan_document_events.company_id
+        and cm.user_id = auth.uid()
     )
   );
 
@@ -239,5 +411,7 @@ grant execute on function public.stage4_assign_project_identity(uuid, uuid, inte
 
 -- ロールバック（適用後に戻す場合）
 -- drop function if exists public.stage4_assign_project_identity(uuid, uuid, integer, integer, text, integer, text);
+-- drop table if exists public.stage4_plan_document_events;
 -- drop table if exists public.stage4_plan_documents;
 -- drop function if exists public.stage4_plan_documents_guard();
+-- drop function if exists public.stage4_plan_documents_audit();

@@ -394,7 +394,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
           <p className="plan-note">修正を反映してから、採用できます。</p>
         ) : adopted ? (
           <p className="plan-p">
-            採用済み（画面内の状態）
+            採用済み
             <button type="button" className="plan-btn-quiet" onClick={props.onUnadopt}>
               採用を取り消す
             </button>

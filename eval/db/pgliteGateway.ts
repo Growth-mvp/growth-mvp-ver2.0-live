@@ -1,8 +1,9 @@
 /* PlanGateway の検証用実装（PGlite＝ローカルのPostgreSQL）。
  * 1回の操作を1つのトランザクションとし、利用者のJWTクレーム（auth.uid()の元）を設定して、authenticated の役割で実行する。
  * 行単位の権限（RLS）とトリガーは、データベース側の規則がそのまま効く。 */
-import type { GatewayFailure, GatewayResult, IdentityRpcResult, PlanGateway } from '@/lib/stage4/plan/planService';
-import type { PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
+import type { ClaimResult, GatewayFailure, GatewayResult, IdentityRpcResult, PlanGateway, PlanPatch } from '@/lib/stage4/plan/planService';
+import type { PlanDocEvent, PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
+import { JSONB_COLUMNS, patchColumns, rowToEvent, rowToRecord } from '@/lib/stage4/plan/planRecordMapping';
 
 export type Tx = {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -18,23 +19,12 @@ export function failureOf(err: unknown): GatewayFailure {
   return 'ERROR';
 }
 
-const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
-
-function toRecord(row: Record<string, unknown>): PlanDocRecord {
-  return {
-    key: { companyId: String(row.company_id), strategyId: String(row.strategy_id), projectId: String(row.project_id) },
-    version: Number(row.version),
-    aiDraft: row.ai_draft as Record<string, unknown>,
-    userEdits: (row.user_edits ?? {}) as PlanDocRecord['userEdits'],
-    adopted: row.adopted === true,
-    updatedAt: iso(row.updated_at),
-    updatedBy: String(row.updated_by),
-  };
-}
+type Row = Record<string, unknown>;
 
 export class PgliteGateway implements PlanGateway {
   constructor(private readonly db: Db, private readonly userId: string) {}
 
+  /* 利用者の権限で1つの操作を実行する（失敗は結果として返し、例外は外に出さない） */
   private async asUser<T>(fn: (tx: Tx) => Promise<T>): Promise<GatewayResult<T>> {
     try {
       const value = await this.db.transaction(async (tx) => {
@@ -58,49 +48,103 @@ export class PgliteGateway implements PlanGateway {
     });
   }
 
-  async findPlan(key: { companyId: string; strategyId: string; projectId: string }) {
+  async findPlan(key: PlanDocKey): Promise<GatewayResult<PlanDocRecord | null>> {
     return this.asUser(async (tx) => {
-      const { rows } = await tx.query(
+      const { rows } = await tx.query<Row>(
         'select * from stage4_plan_documents where company_id = $1 and strategy_id = $2 and project_id = $3',
         [key.companyId, key.strategyId, key.projectId]
       );
-      return rows[0] ? toRecord(rows[0]) : null;
+      return rows[0] ? rowToRecord(rows[0]) : null;
     });
   }
 
-  async insertPlan(key: { companyId: string; strategyId: string; projectId: string }, input: { aiDraft: Record<string, unknown>; userEdits: Record<string, unknown>; adopted: boolean }, userId: string) {
+  async listEvents(key: PlanDocKey): Promise<GatewayResult<PlanDocEvent[]>> {
     return this.asUser(async (tx) => {
-      const { rows } = await tx.query(
-        `insert into stage4_plan_documents
-           (company_id, strategy_id, project_id, ai_draft, user_edits, adopted, created_by, updated_by)
-         values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $7)
-         returning *`,
-        [key.companyId, key.strategyId, key.projectId, JSON.stringify(input.aiDraft), JSON.stringify(input.userEdits), input.adopted, userId]
+      const { rows } = await tx.query<Row>(
+        `select e.action, e.version, e.actor_user_id, e.created_at, e.payload
+           from stage4_plan_document_events e
+           join stage4_plan_documents d on d.id = e.document_id
+          where d.company_id = $1 and d.strategy_id = $2 and d.project_id = $3
+          order by e.created_at, e.id`,
+        [key.companyId, key.strategyId, key.projectId]
       );
-      return toRecord(rows[0]);
+      return rows.map(rowToEvent);
     });
   }
 
-  async updatePlan(key: { companyId: string; strategyId: string; projectId: string }, expectedVersion: number, input: { userEdits: Record<string, unknown>; adopted: boolean }, userId: string) {
-    return this.asUser(async (tx) => {
-      const { rows } = await tx.query(
-        `update stage4_plan_documents
-            set version = $5, user_edits = $6::jsonb, adopted = $7, updated_by = $8
-          where company_id = $1 and strategy_id = $2 and project_id = $3 and version = $4
+  async claimGeneration(key: PlanDocKey, userId: string): Promise<GatewayResult<ClaimResult>> {
+    const inserted = await this.asUser(async (tx) => {
+      const { rows } = await tx.query<Row>(
+        `insert into stage4_plan_documents (company_id, strategy_id, project_id, status, created_by, updated_by)
+         values ($1, $2, $3, 'GENERATING', $4, $4) returning *`,
+        [key.companyId, key.strategyId, key.projectId, userId]
+      );
+      return rows[0];
+    });
+    if (inserted.ok) return { ok: true, value: { claimed: true, record: rowToRecord(inserted.value) } };
+    if (inserted.code !== 'DUPLICATE') return { ok: false, code: inserted.code };
+
+    const retried = await this.asUser(async (tx) => {
+      const { rows } = await tx.query<Row>(
+        `update stage4_plan_documents set status = 'GENERATING', updated_by = $4
+          where company_id = $1 and strategy_id = $2 and project_id = $3 and status = 'GENERATION_FAILED'
           returning *`,
-        [key.companyId, key.strategyId, key.projectId, expectedVersion, expectedVersion + 1, JSON.stringify(input.userEdits), input.adopted, userId]
+        [key.companyId, key.strategyId, key.projectId, userId]
       );
-      return rows[0] ? toRecord(rows[0]) : null;
+      return rows[0] ?? null;
+    });
+    if (!retried.ok) return { ok: false, code: retried.code };
+    if (retried.value) return { ok: true, value: { claimed: true, record: rowToRecord(retried.value) } };
+
+    const existing = await this.findPlan(key);
+    if (!existing.ok || !existing.value) return { ok: false, code: 'ERROR' };
+    return { ok: true, value: { claimed: false, existing: existing.value } };
+  }
+
+  async completeGeneration(key: PlanDocKey, userId: string, aiDraft: Record<string, unknown>) {
+    return this.asUser(async (tx) => {
+      const { rows } = await tx.query<Row>(
+        `update stage4_plan_documents set status = 'DRAFT', ai_draft = $5::jsonb, updated_by = $4
+          where company_id = $1 and strategy_id = $2 and project_id = $3 and status = 'GENERATING'
+          returning *`,
+        [key.companyId, key.strategyId, key.projectId, userId, JSON.stringify(aiDraft)]
+      );
+      return rows[0] ? rowToRecord(rows[0]) : null;
     });
   }
 
-  async readStrategy(companyId: string, strategyId: string) {
+  async failGeneration(key: PlanDocKey, userId: string) {
     return this.asUser(async (tx) => {
-      const { rows } = await tx.query<{ departments: unknown; revision: number }>(
-        'select departments, revision from strategy_data where id = $1 and company_id = $2',
-        [strategyId, companyId]
+      const { rows } = await tx.query<Row>(
+        `update stage4_plan_documents set status = 'GENERATION_FAILED', updated_by = $4
+          where company_id = $1 and strategy_id = $2 and project_id = $3 and status = 'GENERATING'
+          returning *`,
+        [key.companyId, key.strategyId, key.projectId, userId]
       );
-      return rows[0] ? { revision: Number(rows[0].revision), departments: rows[0].departments } : null;
+      return rows[0] ? rowToRecord(rows[0]) : null;
+    });
+  }
+
+  async updatePlan(key: PlanDocKey, expectedVersion: number, patch: PlanPatch, userId: string): Promise<GatewayResult<PlanDocRecord | null>> {
+    const cols: Record<string, unknown> = { ...patchColumns(patch, userId), version: expectedVersion + 1 };
+    const names = Object.keys(cols);
+    const sets = names.map((c, i) => `${c} = $${i + 5}${JSONB_COLUMNS.has(c) ? '::jsonb' : ''}`).join(', ');
+    const values = names.map((c) => (JSONB_COLUMNS.has(c) && cols[c] !== null ? JSON.stringify(cols[c]) : cols[c]));
+    return this.asUser(async (tx) => {
+      const { rows } = await tx.query<Row>(
+        `update stage4_plan_documents set ${sets}
+          where company_id = $1 and strategy_id = $2 and project_id = $3 and version = $4 and status = 'DRAFT'
+          returning *`,
+        [key.companyId, key.strategyId, key.projectId, expectedVersion, ...values]
+      );
+      return rows[0] ? rowToRecord(rows[0]) : null;
+    });
+  }
+
+  async readStrategyRow(companyId: string, strategyId: string) {
+    return this.asUser(async (tx) => {
+      const { rows } = await tx.query<Row>('select * from strategy_data where id = $1 and company_id = $2', [strategyId, companyId]);
+      return rows[0] ?? null;
     });
   }
 

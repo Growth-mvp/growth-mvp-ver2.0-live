@@ -1,4 +1,6 @@
-import { createPlanApi } from './planApi';
+import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
+import { generateMockExecutionPlan } from './mockGenerate';
+import { createPlanApi, type PlanApiDeps } from './planApi';
 import type { GatewayResult, PlanGateway } from './planService';
 import type { PlanDocRecord } from './planDocumentStore';
 
@@ -8,30 +10,56 @@ const USER = '00000000-0000-4000-8000-00000000a11c';
 const NEW_ID = '00000000-0000-4000-8000-0000000001d1';
 
 const ok = <T,>(value: T): GatewayResult<T> => ({ ok: true, value });
-const rec = (version: number): PlanDocRecord => ({
+
+/* 生成の対象になる戦略（架空・SWOTつき）と、エンジンの検証を通った草案 */
+const strategyRow = () => ({ ...JSON.parse(JSON.stringify(STAGE3_SNAPSHOT_STRATEGIES[0])), id: ST, company_id: CO, revision: 3 });
+let bundle: Record<string, unknown> = {};
+beforeAll(async () => {
+  const r = await generateMockExecutionPlan({ strategy: strategyRow() as never, membershipCompanyId: CO, requestedStrategyId: ST, requestedProjectId: 'fict-proj-renewal', currentYm: '2026-11', companyName: '架空', createdAt: '2026-11-10T00:00:00.000Z' });
+  if (r.status !== 'READY') throw new Error('mock draft must be ready');
+  bundle = r.bundle;
+});
+const rec = (version: number, status: PlanDocRecord['status'] = 'DRAFT'): PlanDocRecord => ({
   key: { companyId: CO, strategyId: ST, projectId: 'p-1' },
   version,
-  aiDraft: {},
+  aiDraft: bundle,
   userEdits: {},
   adopted: false,
   updatedAt: '2026-11-10T00:00:00.000Z',
   updatedBy: USER,
+  status,
+  adoption: null,
+  startInfo: null,
 });
 
 function gateway(over: Partial<PlanGateway> = {}): PlanGateway {
   return {
     membershipRole: async () => ok<string | null>('member'),
     findPlan: async () => ok<PlanDocRecord | null>(null),
-    insertPlan: async () => ok(rec(1)),
+    listEvents: async () => ok([]),
+    claimGeneration: async () => ok({ claimed: true as const, record: rec(1, 'GENERATING') }),
+    completeGeneration: async () => ok<PlanDocRecord | null>(rec(1)),
+    failGeneration: async () => ok<PlanDocRecord | null>(null),
     updatePlan: async () => ok<PlanDocRecord | null>(rec(2)),
-    readStrategy: async () => ok(null),
+    readStrategyRow: async () => ok(strategyRow()),
     assignIdentity: async () => ok({ status: 'ASSIGNED', projectId: NEW_ID, revision: 2, alreadyAssigned: false }),
     ...over,
   } as PlanGateway;
 }
 
-const api = (g: PlanGateway, verified: string | null = USER) =>
-  createPlanApi({ verifyUser: async () => verified, gatewayFor: () => g });
+const deps = (g: PlanGateway, over: Partial<PlanApiDeps> = {}): PlanApiDeps => ({
+  verifyUser: async () => USER,
+  gatewayFor: () => g,
+  generationEnabled: true,
+  generation: {
+    currentYm: () => '2026-11',
+    mapStrategy: (row) => row as never,
+    modelFor: async () => async () => ({ text: 'not json' }),
+  },
+  now: () => '2026-11-10T00:00:00.000Z',
+  ...over,
+});
+const api = (g: PlanGateway, over: Partial<PlanApiDeps> = {}) => createPlanApi(deps(g, over));
 
 const req = (method: string, path: string, body?: unknown, search = '') =>
   new Request(`http://api.test/api/stage4/${path}${search}`, {
@@ -40,58 +68,118 @@ const req = (method: string, path: string, body?: unknown, search = '') =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-const draftBody = { companyId: CO, strategyId: ST, projectId: 'p-1', aiDraft: { mock: true }, userEdits: { a: 'x' }, adopted: false };
+const key = { companyId: CO, strategyId: ST, projectId: 'p-1' };
+const SEARCH = `?companyId=${CO}&strategyId=${ST}&projectId=p-1`;
 
 describe('入口の認証と入力の検査', () => {
   it('認証されていなければ 401（どの操作でも、データベースに触れない）', async () => {
     let called = false;
     const g = gateway({ findPlan: async () => ((called = true), ok(null)) });
-    const res = await api(g, null).plans(req('GET', 'plan-documents', undefined, `?companyId=${CO}&strategyId=${ST}&projectId=p-1`));
+    const res = await api(g, { verifyUser: async () => null }).plans(req('GET', 'plan-documents', undefined, SEARCH));
     expect(res.status).toBe(401);
     expect(called).toBe(false);
   });
 
   it('入力が正しくなければ 400', async () => {
-    const res = await api(gateway()).plans(req('POST', 'plan-documents', { ...draftBody, companyId: 'not-a-uuid' }));
+    const res = await api(gateway()).plans(req('PUT', 'plan-documents', { ...key, companyId: 'not-a-uuid', expectedVersion: 1, userEdits: {} }));
     expect(res.status).toBe(400);
     const bad = await api(gateway()).identity(req('POST', 'project-identity', { companyId: CO }));
     expect(bad.status).toBe(400);
   });
 
-  it('対応していない方法は 405', async () => {
-    const res = await api(gateway()).plans(req('DELETE', 'plan-documents'));
+  it('草案をクライアントから作る経路は無い（POST は 405）', async () => {
+    const res = await api(gateway()).plans(req('POST', 'plan-documents', { ...key, aiDraft: { x: 1 }, userEdits: {}, adopted: true }));
     expect(res.status).toBe(405);
   });
 });
 
-describe('草案の読み書きの結果を、HTTPの状態に変える', () => {
-  it('読み込み：見つかれば 200 FOUND、無ければ 200 NONE、他社は 403', async () => {
-    const q = `?companyId=${CO}&strategyId=${ST}&projectId=p-1`;
-    const found = await api(gateway({ findPlan: async () => ok(rec(2)) })).plans(req('GET', 'plan-documents', undefined, q));
+describe('草案の読み込みと修正の保存', () => {
+  it('読み込み：見つかれば 200 FOUND（履歴つき）、無ければ 200 NONE、他社は 403', async () => {
+    const found = await api(gateway({ findPlan: async () => ok(rec(2)) })).plans(req('GET', 'plan-documents', undefined, SEARCH));
     expect(found.status).toBe(200);
     expect((await found.json()).status).toBe('FOUND');
-    const none = await api(gateway()).plans(req('GET', 'plan-documents', undefined, q));
+    const none = await api(gateway()).plans(req('GET', 'plan-documents', undefined, SEARCH));
     expect((await none.json()).status).toBe('NONE');
-    const denied = await api(gateway({ membershipRole: async () => ok(null) })).plans(req('GET', 'plan-documents', undefined, q));
+    const denied = await api(gateway({ membershipRole: async () => ok(null) })).plans(req('GET', 'plan-documents', undefined, SEARCH));
     expect(denied.status).toBe(403);
   });
 
-  it('新規作成：201 SAVED。同じキーが既にあれば 409 CONFLICT（最新の内容を返す）', async () => {
-    const saved = await api(gateway()).plans(req('POST', 'plan-documents', draftBody));
-    expect(saved.status).toBe(201);
-    const conflict = await api(gateway({ insertPlan: async () => ({ ok: false, code: 'DUPLICATE' }), findPlan: async () => ok(rec(4)) })).plans(req('POST', 'plan-documents', draftBody));
-    expect(conflict.status).toBe(409);
-    expect((await conflict.json()).current.version).toBe(4);
-  });
-
-  it('版番号つき更新：200 SAVED、版番号が違えば 409、保存の失敗は 500（失敗として返す）', async () => {
-    const put = (version: number) => req('PUT', 'plan-documents', { ...draftBody, expectedVersion: version });
+  it('修正の保存：200。版番号が違えば 409（最新の内容つき）。生成中は 409（NOT_READY）', async () => {
+    const put = (version: number) => req('PUT', 'plan-documents', { ...key, expectedVersion: version, userEdits: { a: 'x' } });
     expect((await api(gateway()).plans(put(1))).status).toBe(200);
     const stale = await api(gateway({ updatePlan: async () => ok(null), findPlan: async () => ok(rec(3)) })).plans(put(1));
     expect(stale.status).toBe(409);
-    const failed = await api(gateway({ updatePlan: async () => ({ ok: false, code: 'ERROR' }) })).plans(put(1));
-    expect(failed.status).toBe(500);
-    expect((await failed.json()).status).toBe('FAILED');
+    expect((await stale.json()).status).toBe('CONFLICT');
+    const generating = await api(gateway({ updatePlan: async () => ok(null), findPlan: async () => ok(rec(1, 'GENERATING')) })).plans(put(1));
+    expect((await generating.json()).status).toBe('NOT_READY');
+  });
+});
+
+describe('AI生成（POST …/generate）', () => {
+  const gen = (g: PlanGateway, over: Partial<PlanApiDeps> = {}) =>
+    api(g, over).generate(req('POST', 'plan-documents/generate', { ...key, projectId: 'fict-proj-renewal' }));
+
+  it('生成が無効なら 503（既定では使わない）', async () => {
+    const res = await gen(gateway(), { generationEnabled: false });
+    expect(res.status).toBe(503);
+  });
+
+  it('草案が既にあれば 200 EXISTS（AIを呼ばない）', async () => {
+    let modelCalled = false;
+    const res = await gen(gateway({ claimGeneration: async () => ok({ claimed: false as const, existing: rec(1) }) }), {
+      generation: {
+        currentYm: () => '2026-11',
+        mapStrategy: (row) => row as never,
+        modelFor: async () => {
+          modelCalled = true;
+          return async () => ({ text: '' });
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('EXISTS');
+    expect(modelCalled).toBe(false);
+  });
+
+  it('生成中の別の操作があれば 409（IN_PROGRESS）', async () => {
+    const res = await gen(gateway({ claimGeneration: async () => ok({ claimed: false as const, existing: rec(1, 'GENERATING') }) }));
+    expect(res.status).toBe(409);
+  });
+
+  it('入力が正しくなければ 400', async () => {
+    const res = await api(gateway()).generate(req('POST', 'plan-documents/generate', { companyId: CO }));
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('採用・規制の記録・開始・取り消し（POST …/transition）', () => {
+  it('入力が正しくなければ 400', async () => {
+    const res = await api(gateway()).transition(req('POST', 'plan-documents/transition', { ...key, action: 'BOGUS', expectedVersion: 1 }));
+    expect(res.status).toBe(400);
+  });
+
+  it('採用：草案が採用できれば 200、版番号が違えば 409', async () => {
+    const adopt = (version: number) => req('POST', 'plan-documents/transition', { ...key, action: 'ADOPT', expectedVersion: version });
+    const ok200 = await api(gateway({ findPlan: async () => ok(rec(1)) })).transition(adopt(1));
+    expect(ok200.status).toBe(200);
+    expect((await ok200.json()).record.version).toBe(2);
+    const conflict = await api(gateway({ findPlan: async () => ok(rec(3)) })).transition(adopt(1));
+    expect(conflict.status).toBe(409);
+  });
+
+  it('開始の条件が足りなければ 422（理由つき）', async () => {
+    const res = await api(gateway({ findPlan: async () => ok(rec(1)) })).transition(
+      req('POST', 'plan-documents/transition', { ...key, action: 'START', expectedVersion: 1 })
+    );
+    expect(res.status).toBe(422);
+    expect((await res.json()).blockers.length).toBeGreaterThan(0);
+  });
+
+  it('規制・安全の記録が不完全なら 400', async () => {
+    const res = await api(gateway({ findPlan: async () => ok(rec(1)) })).transition(
+      req('POST', 'plan-documents/transition', { ...key, action: 'RECORD_REGULATORY', expectedVersion: 1, regulatory: { decision: 'NOT_APPLICABLE' } })
+    );
+    expect(res.status).toBe(400);
   });
 });
 
@@ -110,9 +198,7 @@ describe('番号の付与の結果を、HTTPの状態に変える', () => {
   });
 
   it('読み取りは、版番号と各プロジェクトの番号を返す', async () => {
-    const g = gateway({
-      readStrategy: async () => ok({ revision: 9, departments: [{ projects: [{ id: 'p-a', title: '案件' }] }] }),
-    });
+    const g = gateway({ readStrategyRow: async () => ok({ revision: 9, departments: [{ projects: [{ id: 'p-a', title: '案件' }] }] }) });
     const res = await api(g).identity(req('GET', 'project-identity', undefined, `?companyId=${CO}&strategyId=${ST}`));
     expect(res.status).toBe(200);
     const body2 = await res.json();

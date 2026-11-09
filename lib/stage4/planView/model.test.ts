@@ -28,8 +28,8 @@ describe('規制・安全の記録', () => {
     expect(regulatoryComplete({ ...complete, confirmedOn: '2026/11/09' })).toBe(false);
   });
 
-  it('根拠は必須ではない（空でも完了できる）', () => {
-    expect(regulatoryComplete({ ...complete, basis: '' })).toBe(true);
+  it('判断根拠が空なら完了としない', () => {
+    expect(regulatoryComplete({ ...complete, basis: '' })).toBe(false);
   });
 
   it('空の記録は完了しない', () => {
@@ -66,8 +66,12 @@ describe('実行開始の条件', () => {
     expect(r.blockers.join(' ')).toContain('開始を保留');
   });
 
-  it('規制の項目が無い計画では、規制の記録は開始の条件にならない', () => {
-    expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: EMPTY_REGULATORY }).startable).toBe(true);
+  it('規制の項目が無い計画でも、該当性の記録が無いと開始できない', () => {
+    expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: EMPTY_REGULATORY }).startable).toBe(false);
+  });
+
+  it('規制の項目が無い計画で、該当しないと記録すれば開始できる', () => {
+    expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: complete }).startable).toBe(true);
   });
 
   it('主要な実行条件が残っていれば、件数を示して開始できない', () => {

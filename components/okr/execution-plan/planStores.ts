@@ -6,6 +6,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import type { PlanDocumentStore } from '@/lib/stage4/plan/planDocumentStore';
 import {
   createRemoteIdentityApi,
+  createRemotePlanOps,
   createRemotePlanStore,
   planStoreKindFrom,
   withProjectId,
@@ -74,4 +75,8 @@ function createLocalIdentityApi(): IdentityApi {
 
 export function identityApiFor(kind: PlanStoreKind): IdentityApi {
   return kind === 'remote' ? createRemoteIdentityApi(apiOptions()) : createLocalIdentityApi();
+}
+
+export function remotePlanOps() {
+  return createRemotePlanOps(apiOptions());
 }

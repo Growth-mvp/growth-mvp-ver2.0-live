@@ -171,14 +171,14 @@ async function runDesktop(browser) {
     await adopt.waitFor({ state: 'visible', timeout: 5000 });
     assert(await adopt.isEnabled(), '採用できない');
     await adopt.click();
-    assert((await page.getByText('採用済み（画面内の状態）').count()) === 1, '採用の表示が出ない');
+    assert((await page.getByText('採用済み').count()) === 1, '採用の表示が出ない');
     return '採用できた（未確認の事項は残ったまま）';
   });
 
   await check(`${label}：実行開始は、別の画面で条件を確かめてから行う`, async () => {
     await page.getByRole('button', { name: '実行開始の確認', exact: true }).click();
     await page.getByRole('heading', { name: '実行開始の確認' }).waitFor({ timeout: 5000 });
-    const start = page.getByRole('button', { name: '実行を開始する（画面内の状態）' });
+    const start = page.getByRole('button', { name: '実行を開始する' });
     assert(await start.isDisabled(), '条件がそろう前に開始できてしまう');
     await page.screenshot({ path: path.join(shotsDir, '11-desktop-start.png') });
     return '条件がそろうまで開始できない';
@@ -197,11 +197,11 @@ async function runDesktop(browser) {
     for (let i = 0; i < n; i++) {
       if (!(await boxes.nth(i).isChecked())) await boxes.nth(i).check();
     }
-    const blocked = page.getByText('規制・安全の確認（判断内容・確認者・確認日）を記録してください');
+    const blocked = page.getByText('規制・安全の確認（判断内容・判断根拠・確認者・確認日）を記録してください');
     if ((await blocked.count()) === 0) {
       return `主要な実行条件 ${n} 件を確認（この計画には規制・安全の確認事項がないため、この検査は対象外）`;
     }
-    const start = page.getByRole('button', { name: '実行を開始する（画面内の状態）' });
+    const start = page.getByRole('button', { name: '実行を開始する' });
     assert(await start.isDisabled(), 'チェックだけで規制・安全を満たしてしまう');
     return `主要な実行条件 ${n} 件にチェック。規制・安全の記録が無いので開始できない`;
   });
@@ -210,14 +210,15 @@ async function runDesktop(browser) {
     const radios = page.locator('input[name="regulatory-decision"]');
     if ((await radios.count()) === 0) return '規制・安全の確認事項なし（対象外）';
     await radios.nth(1).check();
-    await page.locator('label', { hasText: '判断の内容' }).locator('textarea').fill('所定の手続きを確認した');
+    await page.locator('label', { hasText: '判断内容' }).locator('textarea').fill('所定の手続きを確認した');
+    await page.locator('label', { hasText: '判断根拠' }).locator('textarea').fill('所定の手続きの一覧で該当を確認');
     await page.locator('label', { hasText: '確認者' }).locator('input').fill('検証担当（架空）');
     await page.locator('input[type="date"]').fill('2027-01-15');
-    const start = page.getByRole('button', { name: '実行を開始する（画面内の状態）' });
+    const start = page.getByRole('button', { name: '実行を開始する' });
     await start.waitFor({ state: 'visible' });
     assert(await start.isEnabled(), '記録を入れても開始できない');
     await start.click();
-    assert((await page.getByText('実行開始（画面内の状態）').count()) === 1, '開始の表示が出ない');
+    assert((await page.getByText('実行開始済み').count()) === 1, '開始の表示が出ない');
     return '記録をそろえて、画面内で開始';
   });
 

@@ -69,13 +69,25 @@ describe('番号の付与（画面の手順）', () => {
 });
 
 describe('API経由の保存先（結果を画面の型に変える）', () => {
-  it('作成：201 は保存済み、409 は競合、403 は権限なし、通信の失敗は保存できなかった', async () => {
-    const created = createRemotePlanStore({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(201, { status: 'SAVED', record: { version: 1 } }) as never });
-    expect((await created.create(ACTOR, KEY, { aiDraft: {}, userEdits: {}, adopted: false })).status).toBe('SAVED');
+  it('作成：草案は生成の経路だけが作るため、画面からの作成は通信せず権限なしを返す', async () => {
+    let called = false;
+    const store = createRemotePlanStore({
+      baseUrl: 'http://x',
+      getToken: TOKEN,
+      fetchFn: (async () => {
+        called = true;
+        return new Response('{}', { status: 201 });
+      }) as never,
+    });
+    expect((await store.create(ACTOR, KEY, { aiDraft: {}, userEdits: {}, adopted: false })).status).toBe('DENIED');
+    expect(called).toBe(false);
+  });
+
+  it('保存：409 は競合、403 は権限なし、通信の失敗は保存できなかった', async () => {
     const conflict = createRemotePlanStore({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(409, { status: 'CONFLICT', current: { version: 2 } }) as never });
-    expect((await conflict.create(ACTOR, KEY, { aiDraft: {}, userEdits: {}, adopted: false })).status).toBe('CONFLICT');
+    expect((await conflict.update(ACTOR, KEY, 1, { userEdits: {} } as never)).status).toBe('CONFLICT');
     const denied = createRemotePlanStore({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(403, { status: 'DENIED' }) as never });
-    expect((await denied.create(ACTOR, KEY, { aiDraft: {}, userEdits: {}, adopted: false })).status).toBe('DENIED');
+    expect((await denied.update(ACTOR, KEY, 1, { userEdits: {} } as never)).status).toBe('DENIED');
     const down = createRemotePlanStore({
       baseUrl: 'http://x',
       getToken: TOKEN,
@@ -83,7 +95,7 @@ describe('API経由の保存先（結果を画面の型に変える）', () => {
         throw new TypeError('network');
       }) as never,
     });
-    expect(await down.create(ACTOR, KEY, { aiDraft: {}, userEdits: {}, adopted: false })).toEqual({ status: 'FAILED', message: SAVE_FAILED });
+    expect(await down.update(ACTOR, KEY, 1, { userEdits: {} } as never)).toEqual({ status: 'FAILED', message: SAVE_FAILED });
   });
 
   it('読み込み：FOUND と NONE を区別する。トークンが無ければ通信しない', async () => {

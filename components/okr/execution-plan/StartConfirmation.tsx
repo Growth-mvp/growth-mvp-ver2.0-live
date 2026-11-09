@@ -86,16 +86,17 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
 
       <section className={SECTION_CARD}>
         <h4 className="text-[14px] font-bold text-zinc-900">② 規制・安全の確認</h4>
-        {regulatoryTasks.length === 0 ? (
-          <div className="text-[13px] text-zinc-700">この計画には、規制・安全に関する未確認事項はありません。</div>
-        ) : (
-          <div className="space-y-3">
+        <div className="space-y-3">
+          {regulatoryTasks.length === 0 ? (
+            <p className="text-[13px] text-zinc-700">計画書に規制・安全に関わる項目は見当たりません。該当するかを判断し、記録してください。</p>
+          ) : (
             <ul className="list-disc pl-5 text-[13px] text-zinc-800">
               {regulatoryTasks.map((t) => (
                 <li key={t.id}>{t.title}</li>
               ))}
             </ul>
-            <fieldset className="space-y-2">
+          )}
+          <fieldset className="space-y-2">
               <legend className="text-[13px] font-semibold text-zinc-800">判断内容</legend>
               {DECISIONS.map((dec) => (
                 <label key={dec} className="flex items-center gap-2 text-[13px]">
@@ -111,7 +112,7 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
               ))}
             </fieldset>
             <label className="block space-y-1 text-[13px]">
-              <span className="font-semibold text-zinc-800">判断の内容（何をもって判断したか）</span>
+              <span className="font-semibold text-zinc-800">判断内容</span>
               <textarea value={reg.judgement} onChange={(e) => setReg({ judgement: e.target.value })} rows={2} className={INPUT} />
             </label>
             <div className="grid gap-3 md:grid-cols-2">
@@ -125,16 +126,15 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
               </label>
             </div>
             <label className="block space-y-1 text-[13px]">
-              <span className="font-semibold text-zinc-800">根拠（任意）</span>
+              <span className="font-semibold text-zinc-800">判断根拠（何を根拠に判断したか）</span>
               <textarea value={reg.basis} onChange={(e) => setReg({ basis: e.target.value })} rows={2} className={INPUT} />
             </label>
             <div className={`text-[12px] ${regulatoryComplete(reg) ? 'text-emerald-700' : 'text-amber-800'}`}>
               {regulatoryComplete(reg)
                 ? '規制・安全の記録が揃っています。'
-                : '判断内容・確認者・確認日を記録すると、この項目は完了します。「未確認」の場合は開始を保留します。'}
+                : '判断内容・判断根拠・確認者・確認日を記録すると、この項目は完了します。「未確認」の場合は開始を保留します。'}
             </div>
-          </div>
-        )}
+        </div>
       </section>
 
       <section className={SECTION_CARD}>
@@ -165,7 +165,7 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
           ))}
         </ul>
         <div className="rounded-lg bg-zinc-50 p-3 text-[12px] text-zinc-600">
-          この画面では、開始は画面内の状態です。保存・STAGE5への引き継ぎは行いません。
+          実行開始は採用とは別に記録されます。この画面からSTAGE5へは引き継ぎません。
         </div>
       </section>
 
@@ -173,14 +173,14 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
         <div className="flex flex-wrap items-center gap-3">
           {started && gate.startable ? (
             <span className="text-[13px] font-semibold text-emerald-700">
-              実行開始（画面内の状態）
+              実行開始済み
               <button type="button" className="ml-3 text-[12px] font-normal text-zinc-600 underline" onClick={onUnstart}>
                 開始を取り消す
               </button>
             </span>
           ) : (
             <button type="button" className={BUTTON_PRIMARY} disabled={!gate.startable} onClick={onStart}>
-              実行を開始する（画面内の状態）
+              実行を開始する
             </button>
           )}
         </div>

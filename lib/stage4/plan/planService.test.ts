@@ -1,9 +1,8 @@
 import {
   assignProjectIdentity,
-  createPlan,
   loadPlan,
   readStrategyProjects,
-  updatePlan,
+  saveEdits,
   type GatewayResult,
   type IdentityRpcResult,
   type PlanGateway,
@@ -13,7 +12,7 @@ import type { PlanDocRecord } from './planDocumentStore';
 
 const CO = 'co-a';
 const KEY = { companyId: CO, strategyId: 'st-a', projectId: 'p-1' };
-const rec = (version: number): PlanDocRecord => ({
+const rec = (version: number, status: PlanDocRecord['status'] = 'DRAFT'): PlanDocRecord => ({
   key: KEY,
   version,
   aiDraft: { mock: true },
@@ -21,6 +20,9 @@ const rec = (version: number): PlanDocRecord => ({
   adopted: false,
   updatedAt: '2026-11-10T00:00:00.000Z',
   updatedBy: 'u',
+  status,
+  adoption: null,
+  startInfo: null,
 });
 
 /* 権限の確認と、各操作の結果だけを決められる最小のゲートウェイ */
@@ -29,9 +31,12 @@ function fakeGateway(over: Partial<PlanGateway> & { role?: string | null } = {})
   return {
     membershipRole: async () => ok(over.role === undefined ? 'member' : over.role),
     findPlan: async () => ok(null),
-    insertPlan: async () => ok(rec(1)),
+    listEvents: async () => ok([]),
+    claimGeneration: async () => ok({ claimed: true, record: rec(1, 'GENERATING') }),
+    completeGeneration: async () => ok(rec(1)),
+    failGeneration: async () => ok(null),
     updatePlan: async () => ok(rec(2)),
-    readStrategy: async () => ok(null),
+    readStrategyRow: async () => ok(null),
     assignIdentity: async () => ok<IdentityRpcResult>({ status: 'ASSIGNED', projectId: 'new', revision: 2, alreadyAssigned: false }),
     ...over,
   } as PlanGateway;
@@ -51,8 +56,7 @@ describe('権限（会社への所属は、データベースの役割で確か�
   it('所属していない（役割が無い）利用者は、読み書きも番号の付与もできない', async () => {
     const g = fakeGateway({ role: null });
     expect(await loadPlan(ctx(g), KEY)).toEqual({ status: 'DENIED' });
-    expect(await createPlan(ctx(g), KEY, { aiDraft: {}, userEdits: {}, adopted: false })).toEqual({ status: 'DENIED' });
-    expect(await updatePlan(ctx(g), KEY, 1, { userEdits: {}, adopted: false })).toEqual({ status: 'DENIED' });
+    expect(await saveEdits(ctx(g), KEY, 1, {})).toEqual({ status: 'DENIED' });
     expect((await assignProjectIdentity(ctx(g), identity())).status).toBe('DENIED');
     expect((await readStrategyProjects(ctx(g), CO, 'st-a')).status).toBe('DENIED');
   });
@@ -62,33 +66,53 @@ describe('権限（会社への所属は、データベースの役割で確か�
   });
 });
 
-describe('草案の作成と更新', () => {
-  it('同じキーの二重作成は、競合として最新の内容を返す', async () => {
+describe('草案の読み込み', () => {
+  it('草案があれば、操作の履歴と一緒に返す', async () => {
     const g = fakeGateway({
-      insertPlan: async () => ({ ok: false, code: 'DUPLICATE' }),
       findPlan: async () => ({ ok: true, value: rec(3) }),
+      listEvents: async () => ({ ok: true, value: [{ action: 'SAVED', version: 3, actorUserId: 'u', at: 'x', payload: {} }] }),
     });
-    const out = await createPlan(ctx(g), KEY, { aiDraft: {}, userEdits: {}, adopted: false });
-    expect(out.status === 'CONFLICT' && out.current.version).toBe(3);
+    const out = await loadPlan(ctx(g), KEY);
+    expect(out.status === 'FOUND' && out.record.events?.map((e) => e.action)).toEqual(['SAVED']);
   });
 
-  it('データベースが拒否した作成は DENIED（他社の紐づけなど）', async () => {
-    const g = fakeGateway({ insertPlan: async () => ({ ok: false, code: 'FORBIDDEN' }) });
-    expect(await createPlan(ctx(g), KEY, { aiDraft: {}, userEdits: {}, adopted: false })).toEqual({ status: 'DENIED' });
+  it('草案が無ければ NONE', async () => {
+    expect(await loadPlan(ctx(fakeGateway()), KEY)).toEqual({ status: 'NONE' });
+  });
+});
+
+describe('修正の保存（採用や開始の状態は変えられない）', () => {
+  it('修正だけを、読んだ版番号と一致した時に保存する', async () => {
+    let sent: unknown = null;
+    const g = fakeGateway({
+      updatePlan: async (_k, _v, patch) => {
+        sent = patch;
+        return { ok: true, value: rec(2) };
+      },
+    });
+    const out = await saveEdits(ctx(g), KEY, 1, { a: 'x' });
+    expect(out.status).toBe('SAVED');
+    expect(sent).toEqual({ userEdits: { a: 'x' } });
   });
 
-  it('版番号が合わない更新（0件）は、対象があれば競合、無ければ対象なし', async () => {
-    const conflict = fakeGateway({ updatePlan: async () => ({ ok: true, value: null }), findPlan: async () => ({ ok: true, value: rec(2) }) });
-    const out = await updatePlan(ctx(conflict), KEY, 1, { userEdits: {}, adopted: false });
+  it('版番号が合わなければ、最新の内容を返す（競合）', async () => {
+    const g = fakeGateway({ updatePlan: async () => ({ ok: true, value: null }), findPlan: async () => ({ ok: true, value: rec(2) }) });
+    const out = await saveEdits(ctx(g), KEY, 1, {});
     expect(out.status === 'CONFLICT' && out.current.version).toBe(2);
-    const missing = fakeGateway({ updatePlan: async () => ({ ok: true, value: null }), findPlan: async () => ({ ok: true, value: null }) });
-    expect(await updatePlan(ctx(missing), KEY, 1, { userEdits: {}, adopted: false })).toEqual({ status: 'NOT_FOUND' });
   });
 
-  it('通信や保存の失敗は、失敗として返す（成功とは見せない）', async () => {
-    const g = fakeGateway({ updatePlan: async () => ({ ok: false, code: 'ERROR' }) });
-    const out = await updatePlan(ctx(g), KEY, 1, { userEdits: {}, adopted: false });
-    expect(out.status).toBe('FAILED');
+  it('生成中の計画は、修正の保存を受け付けない（NOT_READY）', async () => {
+    const g = fakeGateway({ updatePlan: async () => ({ ok: true, value: null }), findPlan: async () => ({ ok: true, value: rec(1, 'GENERATING') }) });
+    expect((await saveEdits(ctx(g), KEY, 1, {})).status).toBe('NOT_READY');
+  });
+
+  it('対象が無ければ NOT_FOUND、データベースが拒否すれば DENIED、通信の失敗は失敗として返す', async () => {
+    const missing = fakeGateway({ updatePlan: async () => ({ ok: true, value: null }), findPlan: async () => ({ ok: true, value: null }) });
+    expect((await saveEdits(ctx(missing), KEY, 1, {})).status).toBe('NOT_FOUND');
+    const forbidden = fakeGateway({ updatePlan: async () => ({ ok: false, code: 'FORBIDDEN' }) });
+    expect((await saveEdits(ctx(forbidden), KEY, 1, {})).status).toBe('DENIED');
+    const down = fakeGateway({ updatePlan: async () => ({ ok: false, code: 'ERROR' }) });
+    expect((await saveEdits(ctx(down), KEY, 1, {})).status).toBe('FAILED');
   });
 });
 
@@ -119,7 +143,7 @@ describe('番号の付与（データベースの関数の結果を、画面の�
 describe('戦略の読み取り（番号の確認に使う）', () => {
   it('各プロジェクトの位置・名称・番号（無ければ null）を返す', async () => {
     const g = fakeGateway({
-      readStrategy: async () => ({
+      readStrategyRow: async () => ({
         ok: true,
         value: {
           revision: 7,
@@ -143,7 +167,7 @@ describe('戦略の読み取り（番号の確認に使う）', () => {
   });
 
   it('戦略が見つからなければ NOT_FOUND', async () => {
-    const g = fakeGateway({ readStrategy: async () => ({ ok: true, value: null }) });
+    const g = fakeGateway({ readStrategyRow: async () => ({ ok: true, value: null }) });
     expect(await readStrategyProjects(ctx(g), CO, 'st-a')).toEqual({ status: 'NOT_FOUND' });
   });
 });

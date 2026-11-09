@@ -83,6 +83,11 @@
       "modelRole": "reasoning",
       "maxCompletionTokens": 8000,
       "jsonMode": false
+    },
+    "stage4PlanDraft": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 8000,
+      "jsonMode": false
     }
   }
 }

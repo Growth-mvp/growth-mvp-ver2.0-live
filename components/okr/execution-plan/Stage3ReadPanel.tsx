@@ -38,8 +38,20 @@ import {
 import { PLAN_DOC_CSS } from './planDocStyles';
 import PlanDocument from './PlanDocument';
 import StartConfirmation from './StartConfirmation';
-import { currentPlanStoreKind, identityApiFor, planStoreFor } from './planStores';
-import { conflictRows, entryAfterPersist, entryFromDraft, entryFromRecord, isDirty, toEdits, type PlanDocEntry } from './planDocEntry';
+import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
+import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
+import {
+  EVENT_LABEL,
+  conflictRows,
+  entryAfterPersist,
+  entryAfterTransition,
+  entryFromDraft,
+  entryFromRecord,
+  isDirty,
+  toEdits,
+  type PlanDocEntry,
+  type ServerState,
+} from './planDocEntry';
 
 const ROLE_LABEL: Record<string, string> = { REVENUE: '売上を伸ばす', COST: 'ムダを減らす', FUTURE: '将来の成長に備える' };
 const REASON_LABEL: Record<string, string> = {
@@ -137,6 +149,7 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
   const kind = currentPlanStoreKind();
   const store = planStoreFor(kind);
   const identityApi = identityApiFor(kind);
+  const ops = kind === 'remote' ? remotePlanOps() : null;
   const actor: PlanDocActor = useMemo(
     () => ({ userId, memberships: source.memberships.map((m) => ({ companyId: m.company_id, role: m.role })) }),
     [userId, source.memberships]
@@ -183,7 +196,78 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadKey, actor]);
 
+  const remoteIssue = (message: string): PlanIssue => ({ severity: 'error', code: 'REMOTE', path: '$', message });
+
+  /* 作成（API）：作成の記録を置くために、番号が無ければ先に付与する（この操作のあと、サーバーが草案を作る） */
+  const createRemote = async (sel: Stage3Selection) => {
+    if (!ops) return;
+    let targetId = selectionKey(sel);
+    setGen((prev) => ({ ...prev, [targetId]: { status: 'BUSY' } }));
+    const failWith = (id: string, message: string) => setGen((prev) => ({ ...prev, [id]: { status: 'FAILED', issues: [remoteIssue(message)] } }));
+    let projectId = sel.projectKey.startsWith('id:') ? sel.projectKey.slice(3) : null;
+    if (!projectId) {
+      const pos = POSITION.exec(sel.projectKey);
+      const title = titleOf(sel.projectKey);
+      if (!pos || title === null) return failWith(targetId, 'プロジェクトを特定できないため、作成できませんでした。一覧を読み直してください。');
+      const ensured = await ensureStableProjectId(identityApi, {
+        companyId: sel.companyId,
+        strategyId: sel.strategyId,
+        departmentIndex: Number(pos[1]),
+        projectIndex: Number(pos[2]),
+        expectedTitle: title,
+        newId: newStableId(),
+      });
+      if (!ensured.ok) return failWith(targetId, ensured.message);
+      projectId = ensured.projectId;
+      const current = useStrategyStore.getState() as unknown as { departments: unknown };
+      useStrategyStore.setState({ departments: withProjectId(current.departments, Number(pos[1]), Number(pos[2]), projectId) } as never);
+      const movedSel: Stage3Selection = { ...sel, projectKey: `id:${projectId}` };
+      targetId = selectionKey(movedSel);
+      setSelected(movedSel);
+      setGen((prev) => ({ ...prev, [targetId]: { status: 'BUSY' } }));
+    }
+    const out = await ops.generate({ companyId: sel.companyId, strategyId: sel.strategyId, projectId });
+    if (out.status === 'CREATED' || out.status === 'EXISTS') {
+      setEntries((p) => ({ ...p, [targetId]: entryFromRecord(out.record) }));
+      setGen((prev) => {
+        const next = { ...prev };
+        delete next[targetId];
+        return next;
+      });
+      return;
+    }
+    if (out.status === 'INVALID') {
+      return setGen((prev) => ({ ...prev, [targetId]: { status: 'FAILED', issues: out.messages.map(remoteIssue) } }));
+    }
+    if (out.status === 'MODEL_FAILED') return failWith(targetId, out.message);
+    if (out.status === 'IN_PROGRESS') return failWith(targetId, '他の人がこの計画を作成中です。しばらくしてから開いてください。');
+    if (out.status === 'DISABLED') return failWith(targetId, '実行計画書の作成は現在利用できません。');
+    if (out.status === 'DENIED') return failWith(targetId, 'この計画を作成する権限がありません。');
+    return failWith(targetId, '草案を作れませんでした。もう一度お試しください。');
+  };
+
+  /* 採用・規制の記録・開始・取り消し（API）：保存されていない修正があれば、先に保存してもらう */
+  const transitionRemote = async (sel: Stage3Selection, action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => {
+    const id = selectionKey(sel);
+    const entry = entries[id];
+    const key = keyOf(sel);
+    if (!ops || !entry || !key || !entry.stored) return;
+    const note = (message: string) => updateEntry(id, (e) => ({ ...e, notice: message }));
+    if (isDirty(entry) && (action === 'ADOPT' || action === 'START' || action === 'RECORD_REGULATORY')) {
+      return note('修正を草案として保存してから、操作してください。');
+    }
+    const out = await ops.transition(key, entry.stored.version, action, regulatory);
+    if (out.status === 'OK') return setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record) } : p));
+    if (out.status === 'CONFLICT') {
+      return setEntries((p) => (p[id] ? { ...p, [id]: { ...entryFromRecord(out.current), notice: '他の人が先に変更しました。最新の内容を表示しています。' } } : p));
+    }
+    if (out.status === 'BLOCKED') return note(`まだ実行できません：${out.blockers.join('、')}`);
+    if (out.status === 'INVALID') return note(out.message);
+    return note('操作を記録できませんでした。画面を読み直してから、もう一度お試しください。');
+  };
+
   const createPlan = (sel: Stage3Selection) => {
+    if (ops) return void createRemote(sel);
     const id = selectionKey(sel);
     const stableId = sel.projectKey.startsWith('id:');
     const requestedProjectId = stableId ? sel.projectKey.slice(3) : `session:${sel.projectKey}`;
@@ -359,6 +443,8 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
             onResolve={() => saveResolved(sel)}
             onPlan={(fn) => id && updatePlan(id, fn)}
             onView={(v) => id && updateEntry(id, (e) => ({ ...e, view: v }))}
+            remote={ops !== null}
+            onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
             version={entry?.stored && entry.save.status !== 'CONFLICT' ? entry.stored.version : null}
           />
         )}
@@ -393,6 +479,8 @@ function ReadOnlyProject({
   onPlan,
   onView,
   version,
+  remote,
+  onTransition,
 }: {
   view: Extract<Stage3ReadView, { status: 'READY' }>;
   companyLabel: string;
@@ -409,6 +497,8 @@ function ReadOnlyProject({
   onPlan: (fn: (p: ProjectPlanState) => ProjectPlanState) => void;
   onView: (v: 'document' | 'start') => void;
   version: number | null;
+  remote: boolean;
+  onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
 }) {
   const loadPending = stableId && (load === undefined || load.status === 'LOADING');
   const m = view.model;
@@ -600,8 +690,8 @@ function ReadOnlyProject({
               view={planView}
               onEdit={(key, value) => onPlan((p) => setCommittedValue(p, key, value))}
               onRegulatory={(r) => onPlan((p) => setRegulatory(p, r))}
-              onStart={() => onPlan((p) => start(p, planView.gate.startable))}
-              onUnstart={() => onPlan(unstart)}
+              onStart={() => (remote ? onTransition('START') : onPlan((p) => start(p, planView.gate.startable)))}
+              onUnstart={() => (remote ? onTransition('UNSTART') : onPlan(unstart))}
               onBack={() => onView('document')}
             />
           ) : (
@@ -629,13 +719,20 @@ function ReadOnlyProject({
                 onApply={() => onPlan(applyEdit)}
                 onDiscard={() => onPlan(discardEdit)}
                 onDraftChange={(k, v) => onPlan((p) => setDraftValue(p, k, v))}
-                onAdopt={() => onPlan((p) => adopt(p, planView.d.adoption.adoptable))}
-                onUnadopt={() => onPlan(unadopt)}
+                onAdopt={() => (remote ? onTransition('ADOPT') : onPlan((p) => adopt(p, planView.d.adoption.adoptable)))}
+                onUnadopt={() => (remote ? onTransition('UNADOPT') : onPlan(unadopt))}
                 onOpenStart={() => onView('start')}
               />
               {entry.plan.started && !planView.gate.startable && <Reconcile onPlan={onPlan} />}
             </>
           )}
+          {remote && entry.view === 'start' && (
+            <button type="button" className="plan-btn-primary" onClick={() => onTransition('RECORD_REGULATORY', entry.plan.regulatory)}>
+              規制・安全の判断を記録する
+            </button>
+          )}
+          {entry.notice && <p role="status" className="plan-note">{entry.notice}</p>}
+          {remote && entry.server && <ServerRecords server={entry.server} />}
           {entry.save.status === 'FAILED' && <p role="alert" className="plan-note">{entry.save.message}</p>}
         </div>
       )}
@@ -649,4 +746,46 @@ function Reconcile({ onPlan }: { onPlan: (fn: (p: ProjectPlanState) => ProjectPl
     onPlan((p) => reconcileStart(p, false));
   }, [onPlan]);
   return null;
+}
+
+const dateText = (at: string): string => (at ? at.slice(0, 16).replace('T', ' ') : '');
+const shortUser = (id: string): string => (id ? `…${id.slice(-4)}` : '不明');
+
+/* 採用・実行開始・規制の記録と、操作の履歴（サーバーが保存した内容を、そのまま表示する） */
+function ServerRecords({ server }: { server: ServerState }) {
+  const reg = server.regulatory;
+  return (
+    <section className="plan-section" aria-label="採用・実行開始の記録">
+      <h2 className="plan-h3">採用・実行開始の記録</h2>
+      <ul className="plan-list">
+        <li>
+          {server.adoption
+            ? `採用：版 ${server.adoption.version}（採用者 ${shortUser(server.adoption.byUserId)}、${dateText(server.adoption.at)}）`
+            : '採用：まだ採用していません'}
+        </li>
+        <li>
+          {server.startInfo
+            ? `実行開始：版 ${server.startInfo.version}（開始者 ${shortUser(server.startInfo.byUserId)}、${dateText(server.startInfo.at)}）`
+            : '実行開始：まだ開始していません'}
+        </li>
+        <li>
+          {reg.decision
+            ? `規制・安全：${REGULATORY_DECISION_LABEL[reg.decision]}（確認者 ${reg.confirmer || '未入力'}、確認日 ${reg.confirmedOn || '未入力'}）`
+            : '規制・安全：未記録'}
+        </li>
+      </ul>
+      <h3 className="plan-h3">操作の記録</h3>
+      {server.events.length === 0 ? (
+        <p className="plan-note">まだ記録はありません。</p>
+      ) : (
+        <ol className="plan-list">
+          {server.events.map((e, i) => (
+            <li key={`${e.at}-${i}`}>
+              {dateText(e.at)}　{EVENT_LABEL[e.action] ?? e.action}（版 {e.version}）
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
 }

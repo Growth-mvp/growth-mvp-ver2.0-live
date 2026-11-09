@@ -27,6 +27,12 @@ describe('草案の画面の状態', () => {
     expect(isDirty(changed)).toBe(true);
   });
 
+  it('保存先が項目の順を変えて返しても、同じ修正なら未保存とは扱わない', () => {
+    const e = entryFromRecord(record(2, { 'action:1:title': '案', responsible: '山田' }));
+    const reordered = { ...e, plan: { ...e.plan, committed: { responsible: '山田', 'action:1:title': '案' } } };
+    expect(isDirty(reordered)).toBe(false);
+  });
+
   it('保存に成功すると版を更新し、保存中に入力した修正は失わない（統合が無い場合）', () => {
     const e = { ...entryFromDraft(DRAFT), plan: { ...entryFromDraft(DRAFT).plan, committed: { a: '保存中の入力' } } };
     const after = entryAfterPersist(e, { status: 'SAVED', stored: { version: 1, base: { a: '送った内容' }, adopted: false }, userEdits: { a: '送った内容' }, adopted: false, mergedFromRemote: false });

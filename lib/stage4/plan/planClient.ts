@@ -1,7 +1,7 @@
 /* ブラウザ側の保存先（API経由）と、プロジェクトの番号を付ける手順。画面はここを使う。
  * 保存先は「開発用のブラウザ内」と「API（永続化）」を切り替えられる。番号の付与は、戦略の版番号を見てから行う。 */
 import type { UserEdits } from './mergeUserEdits';
-import type { LoadOutcome, PlanDocKey, PlanDocumentStore, WriteOutcome } from './planDocumentStore';
+import type { LoadOutcome, PlanDocKey, PlanDocRecord, PlanDocumentStore, WriteOutcome } from './planDocumentStore';
 import { SAVE_FAILED } from './planService';
 
 export type PlanStoreKind = 'local' | 'remote';
@@ -67,14 +67,9 @@ export function createRemotePlanStore(o: ApiOptions): PlanDocumentStore {
       return { status: 'FAILED', message: LOAD_FAILED };
     },
 
-    async create(_actor, key, input): Promise<WriteOutcome> {
-      const r = await request(o, 'POST', '/api/stage4/plan-documents', {
-        ...key,
-        aiDraft: input.aiDraft,
-        userEdits: input.userEdits,
-        adopted: input.adopted,
-      });
-      return writeOutcome(r, 201);
+    /* 草案は生成の経路だけが作る（クライアントからは作らない） */
+    async create(): Promise<WriteOutcome> {
+      return { status: 'DENIED' };
     },
 
     async update(_actor, key, expectedVersion, input): Promise<WriteOutcome> {
@@ -82,7 +77,6 @@ export function createRemotePlanStore(o: ApiOptions): PlanDocumentStore {
         ...key,
         expectedVersion,
         userEdits: input.userEdits,
-        adopted: input.adopted,
       });
       return writeOutcome(r, 200);
     },
@@ -195,3 +189,53 @@ export function withProjectId(departments: unknown, departmentIndex: number, pro
 }
 
 export type { UserEdits };
+
+export type GenerateResult =
+  | { status: 'CREATED' | 'EXISTS'; record: PlanDocRecord }
+  | { status: 'IN_PROGRESS' | 'DISABLED' | 'NOT_FOUND' | 'DENIED' | 'FAILED' }
+  | { status: 'INVALID'; messages: string[] }
+  | { status: 'MODEL_FAILED'; message: string };
+
+export type TransitionResult =
+  | { status: 'OK'; record: PlanDocRecord }
+  | { status: 'CONFLICT'; current: PlanDocRecord }
+  | { status: 'BLOCKED'; blockers: string[] }
+  | { status: 'INVALID'; message: string }
+  | { status: 'NOT_FOUND' | 'NOT_READY' | 'DENIED' | 'FAILED' };
+
+export type TransitionAction = 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART';
+
+/* 生成と採用・開始の操作の窓口。結果は、サーバーが決めたものをそのまま画面の型にする */
+export function createRemotePlanOps(o: ApiOptions) {
+  return {
+    async generate(key: PlanDocKey): Promise<GenerateResult> {
+      const r = await request(o, 'POST', '/api/stage4/plan-documents/generate', key);
+      if (!r) return { status: 'FAILED' };
+      const body = r.json as Record<string, unknown>;
+      if ((r.status === 201 || r.status === 200) && (body.status === 'CREATED' || body.status === 'EXISTS')) {
+        return { status: body.status as 'CREATED' | 'EXISTS', record: body.record as PlanDocRecord };
+      }
+      if (r.status === 409) return { status: 'IN_PROGRESS' };
+      if (r.status === 422) return { status: 'INVALID', messages: (body.messages as string[]) ?? [] };
+      if (r.status === 502) return { status: 'MODEL_FAILED', message: String(body.message ?? '') };
+      if (r.status === 503) return { status: 'DISABLED' };
+      if (r.status === 404) return { status: 'NOT_FOUND' };
+      if (r.status === 403) return { status: 'DENIED' };
+      return { status: 'FAILED' };
+    },
+
+    async transition(key: PlanDocKey, expectedVersion: number, action: TransitionAction, regulatory?: unknown): Promise<TransitionResult> {
+      const r = await request(o, 'POST', '/api/stage4/plan-documents/transition', { ...key, expectedVersion, action, regulatory });
+      if (!r) return { status: 'FAILED' };
+      const body = r.json as Record<string, unknown>;
+      if (r.status === 200 && body.status === 'OK') return { status: 'OK', record: body.record as PlanDocRecord };
+      if (r.status === 409 && body.status === 'CONFLICT') return { status: 'CONFLICT', current: body.current as PlanDocRecord };
+      if (r.status === 422) return { status: 'BLOCKED', blockers: (body.blockers as string[]) ?? [] };
+      if (r.status === 400) return { status: 'INVALID', message: String(body.message ?? '入力を確認してください') };
+      if (r.status === 404) return { status: 'NOT_FOUND' };
+      if (r.status === 409) return { status: 'NOT_READY' };
+      if (r.status === 403) return { status: 'DENIED' };
+      return { status: 'FAILED' };
+    },
+  };
+}

@@ -28,6 +28,7 @@ export function regulatoryComplete(r: RegulatoryRecord): boolean {
     r.decision !== null &&
     r.decision !== 'UNCONFIRMED' &&
     r.judgement.trim() !== '' &&
+    r.basis.trim() !== '' &&
     r.confirmer.trim() !== '' &&
     DATE_PATTERN.test(r.confirmedOn)
   );
@@ -46,11 +47,11 @@ export function startGate(input: StartInput): { startable: boolean; blockers: st
   const blockers: string[] = [];
   if (!input.adopted) blockers.push('先に計画案を採用してください');
   if (!input.responsibleConfirmed) blockers.push('実行責任者を確定してください');
-  if (input.hasRegulatoryItems && !regulatoryComplete(input.regulatory)) {
+  if (!regulatoryComplete(input.regulatory)) {
     blockers.push(
       input.regulatory.decision === 'UNCONFIRMED'
         ? '規制・安全は「未確認」のため、開始を保留しています'
-        : '規制・安全の確認（判断内容・確認者・確認日）を記録してください'
+        : '規制・安全の確認（判断内容・判断根拠・確認者・確認日）を記録してください'
     );
   }
   if (input.keyConditionsOpen > 0) blockers.push(`主要な実行条件の確認が ${input.keyConditionsOpen} 件残っています`);

@@ -1,18 +1,24 @@
 /* 保留中のSQL（supabase/pending）を、ローカルDB（PGlite）で実際に動かして確かめる。
  * 本番DB・本番の接続設定・実OpenAI・マイグレーションには触れない。結果は表で出し、1つでも失敗すれば終了コード1。 */
-import { createTestEnv, IDS, type TestEnv } from './testEnv';
+import { IDS, createTestEnv, mapStrategyRow, type TestEnv } from './testEnv';
 import { PgliteGateway, type Db } from './pgliteGateway';
-import {
-  assignProjectIdentity,
-  createPlan,
-  loadPlan,
-  readStrategyProjects,
-  updatePlan,
-  type ServiceContext,
-} from '@/lib/stage4/plan/planService';
+import { createMockModel } from '@/lib/stage4/plan/mockGenerate';
+import { generatePlanDraft, type GenerateDeps } from '@/lib/stage4/plan/planGenerate';
+import { assignProjectIdentity, loadPlan, readStrategyProjects, saveEdits, type ServiceContext } from '@/lib/stage4/plan/planService';
+import { transitionPlan } from '@/lib/stage4/plan/planTransitions';
 
 type Row = Record<string, unknown>;
 const results: Array<{ name: string; ok: boolean; detail: string }> = [];
+const NOW = '2026-11-09T09:00:00.000Z';
+const ALICE = IDS.alice;
+const BOB = IDS.bob;
+const CAROL = IDS.carol;
+const MANAGER = IDS.manager;
+const CO = IDS.companyA;
+const ST = IDS.strategyA;
+const RENEWAL = 'fict-proj-renewal';
+const INSPECTION = 'fict-proj-inspection';
+const PILOT = 'fict-proj-clinic-pilot';
 
 function check(name: string, ok: boolean, detail = '') {
   results.push({ name, ok, detail });
@@ -20,7 +26,7 @@ function check(name: string, ok: boolean, detail = '') {
 }
 
 /* 利用者の権限で SQL を実行する（RLS を効かせる）。失敗時はエラーコードを返す */
-async function asUser(db: Db, userId: string, text: string, params: unknown[] = []): Promise<{ rows: Row[] } | { error: string; message: string }> {
+async function asUser(db: Db, userId: string, text: string, params: unknown[] = []): Promise<{ rows: Row[] } | { error: string }> {
   try {
     return await db.transaction(async (tx) => {
       await tx.query("select set_config('request.jwt.claim.sub', $1, true)", [userId]);
@@ -29,148 +35,257 @@ async function asUser(db: Db, userId: string, text: string, params: unknown[] = 
       return { rows };
     });
   } catch (e) {
-    const err = e as { code?: string; message?: string };
-    return { error: String(err.code ?? ''), message: String(err.message ?? '') };
+    return { error: String((e as { code?: string }).code ?? '') };
   }
 }
 
 const ctxOf = (db: Db, userId: string): ServiceContext => ({ userId, gateway: new PgliteGateway(db, userId) });
-const PLAN_KEY = { companyId: IDS.companyA, strategyId: IDS.strategyA, projectId: 'fict-proj-renewal' };
+const KEY = (projectId: string) => ({ companyId: CO, strategyId: ST, projectId });
 
 async function main() {
   const env: TestEnv = await createTestEnv();
   const db = env.db;
+  const okrsOf = async () => {
+    const rows = (await env.strategyRow(ST)).departments as Array<{ projects: Array<{ id?: string; okrsV2?: unknown }> }>;
+    return JSON.stringify(rows.flatMap((d) => d.projects.map((p) => p.okrsV2 ?? null)));
+  };
+  const okrsBefore = await okrsOf();
 
-  /* 1. テーブルと一意制約 */
-  const table = await env.sql("select to_regclass('public.stage4_plan_documents') is not null as ok");
-  check('テーブルが作成される', table[0].ok === true);
+  let modelCalls = 0;
+  const genDeps: GenerateDeps = {
+    now: () => NOW,
+    currentYm: () => '2026-11',
+    mapStrategy: mapStrategyRow,
+    modelFor: async (raw) => {
+      const mock = createMockModel(raw);
+      return async (prompt) => {
+        modelCalls += 1;
+        return mock(prompt);
+      };
+    },
+  };
+  const gen = (userId: string, projectId: string) =>
+    generatePlanDraft(ctxOf(db, userId), { companyId: CO, strategyId: ST, projectId, companyName: '架空' }, genDeps);
 
-  const first = await createPlan(ctxOf(db, IDS.alice), PLAN_KEY, { aiDraft: { note: 'AI草案' }, userEdits: { 'action:1:title': '初版' }, adopted: false });
-  check('新規作成：社員が草案を作成できる（版1）', first.status === 'SAVED' && first.record.version === 1);
-  const dup = await createPlan(ctxOf(db, IDS.alice), PLAN_KEY, { aiDraft: { note: 'AI草案' }, userEdits: {}, adopted: false });
-  check('一意制約：同じ企業・戦略・プロジェクトの二重作成は競合として返す', dup.status === 'CONFLICT');
-  const rawDup = await env.sql(
-    "select count(*)::int as n from stage4_plan_documents where company_id = $1 and strategy_id = $2 and project_id = $3",
-    [IDS.companyA, IDS.strategyA, PLAN_KEY.projectId]
+  /* ---- 1. 表と制約 ---- */
+  const tables = await env.sql(
+    "select to_regclass('public.stage4_plan_documents') is not null as docs, to_regclass('public.stage4_plan_document_events') is not null as events"
   );
-  check('一意制約：同じキーの行は1件だけ', rawDup[0].n === 1);
+  check('表：草案の表と、操作履歴の表が作られる', tables[0].docs === true && tables[0].events === true);
+  const badStatus = await env
+    .sql("insert into stage4_plan_documents (company_id, strategy_id, project_id, status, created_by, updated_by) values ($1,$2,'fict-proj-renewal','BOGUS',$3,$3)", [CO, ST, ALICE])
+    .then(
+      () => 'accepted',
+      (e) => String((e as { code?: string }).code ?? e)
+    );
+  check('制約：未知の状態は保存できない（23514）', badStatus === '23514', badStatus);
 
-  /* 2. RLSによる企業間の分離 */
-  const carolRead = await asUser(db, IDS.carol, 'select count(*)::int as n from stage4_plan_documents where company_id = $1', [IDS.companyA]);
-  check('RLS：他社の社員は、他社の計画を1件も見られない', 'rows' in carolRead && carolRead.rows[0].n === 0);
-  const carolLoad = await loadPlan(ctxOf(db, IDS.carol), PLAN_KEY);
-  check('他社の計画へのアクセス：読み込みは拒否される（DENIED）', carolLoad.status === 'DENIED');
-  const carolWrite = await createPlan(ctxOf(db, IDS.carol), PLAN_KEY, { aiDraft: {}, userEdits: {}, adopted: false });
-  check('他社の計画へのアクセス：作成は拒否される（DENIED）', carolWrite.status === 'DENIED');
-  const carolRaw = await asUser(db, IDS.carol, 'insert into stage4_plan_documents (company_id, strategy_id, project_id, ai_draft, created_by, updated_by) values ($1,$2,$3,$4::jsonb,$5,$5) returning id', [IDS.companyA, IDS.strategyA, 'fict-proj-renewal', '{}', IDS.carol]);
-  check('RLS：他社の会社のIDで直接書き込むと、データベースが拒否する', 'error' in carolRaw && carolRaw.error === '42501', 'error' in carolRaw ? carolRaw.error : 'no error');
+  /* ---- 2. AI生成（サーバーの経路）：二重生成の防止と、別のプロジェクトへの混入の防止 ---- */
+  const first = await gen(ALICE, RENEWAL);
+  check('生成：利用者がプロジェクトを選んで草案を作る（DRAFT・版1）', first.status === 'CREATED' && first.record.status === 'DRAFT' && first.record.version === 1, first.status);
+  check('生成：草案にはAIの出力と計画の内容が入る', first.status === 'CREATED' && typeof first.record.aiDraft.rawOutput === 'string' && first.record.aiDraft.generatedBy === 'SERVER');
+  check('生成：モデルの呼び出しは1回だけ', modelCalls === 1, `calls=${modelCalls}`);
 
-  /* 3. 社員による閲覧・更新 */
-  const bobLoad = await loadPlan(ctxOf(db, IDS.bob), PLAN_KEY);
-  check('社員による閲覧：同じ会社の別の社員が、草案を読める', bobLoad.status === 'FOUND' && bobLoad.record.version === 1);
-  const bobUpdate = await updatePlan(ctxOf(db, IDS.bob), PLAN_KEY, 1, { userEdits: { 'action:1:title': 'bobの修正' }, adopted: false });
-  check('社員による更新：別の社員が、版1から版2へ更新できる', bobUpdate.status === 'SAVED' && bobUpdate.record.version === 2);
+  const again = await gen(ALICE, RENEWAL);
+  check('二重生成：草案がある間は、同じプロジェクトを再生成しない（EXISTS）', again.status === 'EXISTS' && modelCalls === 1, `calls=${modelCalls}`);
+  const otherMember = await gen(BOB, RENEWAL);
+  check('二重生成：同じ会社の別の社員でも、再生成しない（既存の草案を返す）', otherMember.status === 'EXISTS' && modelCalls === 1);
+  const denied = await gen(CAROL, RENEWAL);
+  check('他社：別の会社の社員は、生成もできない（DENIED）・モデルを呼ばない', denied.status === 'DENIED' && modelCalls === 1);
+  const missing = await gen(ALICE, 'no-such-project');
+  check('照合：戦略にないプロジェクトは生成しない（NOT_FOUND）', missing.status === 'NOT_FOUND' && modelCalls === 1);
+  const second = await gen(ALICE, INSPECTION);
+  check('混入防止：別のプロジェクトは別の草案になり、最初の草案は変わらない', second.status === 'CREATED' && modelCalls === 2);
+  const renewalRows = await env.sql('select project_id, version, status from stage4_plan_documents where company_id = $1 and strategy_id = $2 order by project_id', [CO, ST]);
+  check('混入防止：草案の行はプロジェクトごとに1つずつ', renewalRows.length === 2 && renewalRows.every((r) => r.status === 'DRAFT' && r.version === 1), JSON.stringify(renewalRows));
 
-  /* 4. 版番号による競合の検出 */
-  const stale = await updatePlan(ctxOf(db, IDS.alice), PLAN_KEY, 1, { userEdits: { 'action:1:title': 'aliceの修正' }, adopted: false });
-  check('競合：古い版番号での更新は競合として拒否し、最新の内容を返す', stale.status === 'CONFLICT' && stale.current.version === 2 && (stale.current.userEdits as Row)['action:1:title'] === 'bobの修正');
-  const rawStale = await asUser(db, IDS.alice, 'update stage4_plan_documents set version = 3, updated_by = $4 where company_id=$1 and strategy_id=$2 and project_id=$3 and version = 1 returning id', [IDS.companyA, IDS.strategyA, PLAN_KEY.projectId, IDS.alice]);
-  check('競合：データベース側でも、版番号が合わない更新は0件になる', 'rows' in rawStale && rawStale.rows.length === 0);
+  /* 生成中の状態：他の人が生成中なら、二重に呼ばない */
+  const claimer = new PgliteGateway(db, ALICE);
+  const claimed = await claimer.claimGeneration(KEY(PILOT), ALICE);
+  check('生成の権利：最初の人が権利を取れる', claimed.ok && claimed.value.claimed === true);
+  const inProgress = await gen(BOB, PILOT);
+  check('二重生成：生成中の計画は、別の社員が開始しても、モデルを呼ばない（IN_PROGRESS）', inProgress.status === 'IN_PROGRESS' && modelCalls === 2);
+  const midEdit = await saveEdits(ctxOf(db, BOB), KEY(PILOT), 1, { x: 'y' });
+  check('生成中：生成中の計画は、修正の保存を受け付けない（NOT_READY）', midEdit.status === 'NOT_READY', midEdit.status);
+  await claimer.failGeneration(KEY(PILOT), ALICE);
+  const retried = await gen(BOB, PILOT);
+  check('生成の再試行：失敗した生成は、もう一度作れる', retried.status === 'CREATED' && modelCalls === 3, retried.status);
 
-  /* 5. 不正な紐づけの拒否（トリガー） */
-  const badProject = await asUser(db, IDS.alice, 'insert into stage4_plan_documents (company_id, strategy_id, project_id, ai_draft, created_by, updated_by) values ($1,$2,$3,$4::jsonb,$5,$5)', [IDS.companyA, IDS.strategyA, 'no-such-project', '{}', IDS.alice]);
-  check('不正な紐づけ：戦略にないプロジェクトへの作成を拒否する', 'error' in badProject && badProject.error === '42501', 'error' in badProject ? badProject.error : 'no error');
-  const crossCompany = await asUser(db, IDS.carol, 'insert into stage4_plan_documents (company_id, strategy_id, project_id, ai_draft, created_by, updated_by) values ($1,$2,$3,$4::jsonb,$5,$5)', [IDS.companyB, IDS.strategyA, 'fict-proj-renewal', '{}', IDS.carol]);
-  check('不正な紐づけ：他社の戦略への紐づけを、トリガーが拒否する（所属の確認をすり抜けない）', 'error' in crossCompany && crossCompany.error === '42501', 'error' in crossCompany ? crossCompany.error : 'no error');
+  /* 生成の失敗：草案のある計画では、失敗の試行は起きない（利用者の修正を守る） */
+  env.failNextModelCall();
+  const noRetry = await gen(ALICE, PILOT);
+  check('生成：草案がある計画は、再生成を試みない（EXISTS）', noRetry.status === 'EXISTS' && modelCalls === 3);
 
-  /* 6. 更新の整合性（トリガー） */
-  const changeDraft = await asUser(db, IDS.alice, "update stage4_plan_documents set ai_draft = '{\"x\":1}'::jsonb, updated_by = auth.uid() where project_id = 'fict-proj-renewal' returning id");
-  check('整合性：AI草案は作成後に変えられない', 'error' in changeDraft && changeDraft.error === '42501', 'error' in changeDraft ? changeDraft.error : 'no error');
-  const skipVersion = await asUser(db, IDS.alice, "update stage4_plan_documents set version = version + 2, updated_by = auth.uid() where project_id = 'fict-proj-renewal' returning id");
-  check('整合性：版番号は1つずつしか進まない', 'error' in skipVersion && skipVersion.error === '40001', 'error' in skipVersion ? skipVersion.error : 'no error');
+  /* ---- 3. 読み込み・修正の保存・版番号による競合 ---- */
+  const loaded = await loadPlan(ctxOf(db, BOB), KEY(RENEWAL));
+  check('読み込み：同じ会社の別の社員が、草案と操作の履歴を読める', loaded.status === 'FOUND' && loaded.record.events !== undefined && loaded.record.events.length >= 2);
+  const saved = await saveEdits(ctxOf(db, BOB), KEY(RENEWAL), 1, { 'action:1:title': 'bobの修正：集め方を決める' });
+  check('修正の保存：版1から版2へ（社員B）', saved.status === 'SAVED' && saved.record.version === 2, saved.status);
+  const stale = await saveEdits(ctxOf(db, ALICE), KEY(RENEWAL), 1, { 'action:1:title': 'aliceの修正' });
+  check('競合：古い版からの保存は CONFLICT（最新の内容を返す）', stale.status === 'CONFLICT' && stale.current.version === 2);
+  const badDraft = await asUser(db, ALICE, "update stage4_plan_documents set ai_draft = '{\"x\":1}'::jsonb, updated_by = auth.uid() where project_id = $1", [RENEWAL]);
+  check('AI草案：作った後は、利用者も変えられない（42501）', 'error' in badDraft && badDraft.error === '42501');
+  const skip = await asUser(db, ALICE, 'update stage4_plan_documents set version = version + 2, updated_by = auth.uid() where project_id = $1', [RENEWAL]);
+  check('版番号：1つずつしか進まない（40001）', 'error' in skip && skip.error === '40001');
+  const reopen = await asUser(db, ALICE, "update stage4_plan_documents set status = 'GENERATING', updated_by = auth.uid() where project_id = $1", [RENEWAL]);
+  check('状態：草案からは生成中に戻せない（42501）', 'error' in reopen && reopen.error === '42501');
 
-  /* 7. 削除の権限 */
-  const memberDelete = await asUser(db, IDS.alice, 'delete from stage4_plan_documents where project_id = $1 returning id', ['fict-proj-renewal']);
-  check('削除権限：member は削除できない（0件）', 'rows' in memberDelete && memberDelete.rows.length === 0);
-  const managerDelete = await asUser(db, IDS.manager, 'delete from stage4_plan_documents where project_id = $1 returning id', ['fict-proj-renewal']);
-  check('削除権限：manager は削除できる（1件）', 'rows' in managerDelete && managerDelete.rows.length === 1);
+  /* ---- 4. 採用：記録・同時変更・編集による解除 ---- */
+  const adopt1 = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), 2, 'ADOPT', { now: NOW });
+  check(
+    '採用：利用者が草案を採用すると、採用者・日時・対象の版が残る',
+    adopt1.status === 'OK' && adopt1.record.adoption?.byUserId === ALICE && adopt1.record.adoption?.version === 2,
+    adopt1.status === 'BLOCKED' ? adopt1.blockers.join(' / ') : adopt1.status
+  );
+  const adopt2 = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), 3, 'ADOPT', { now: NOW });
+  check('採用：既に採用済みなら、何も変えない（二重に採用しても記録は1つ）', adopt2.status === 'OK' && adopt2.record.adoption?.version === 2);
+  const adoptEvents = await env.sql(
+    "select e.action from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 and e.action = 'ADOPTED'",
+    [RENEWAL]
+  );
+  check('操作履歴：採用が記録される（ADOPTED）', adoptEvents.length === 1);
+  const adoptRow = await env.sql('select adopted, adoption from stage4_plan_documents where project_id = $1', [RENEWAL]);
+  check('採用の状態：草案の行に採用の記録が残る', adoptRow[0].adopted === true && adoptRow[0].adoption !== null);
+  check('採用は、AI提案KPIの確定ではない：STAGE3のKPI（okrsV2）は変わらない', (await okrsOf()) === okrsBefore);
 
-  /* 8. プロジェクトの番号の付与（IDのないプロジェクト） */
-  const before = await env.strategyRow(IDS.strategyA);
+  const bobEdit = await saveEdits(ctxOf(db, BOB), KEY(RENEWAL), 3, { 'action:1:title': 'bobの修正：採用後の変更' });
+  check('採用後の変更：別の社員が採用後に修正すると、採用は自動で解除される', bobEdit.status === 'SAVED' && bobEdit.record.adoption === null && bobEdit.record.adopted === false, bobEdit.status);
+  const resetEvents = await env.sql(
+    "select e.action from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 and e.action = 'ADOPTION_RESET'",
+    [RENEWAL]
+  );
+  check('操作履歴：採用の解除が記録される（ADOPTION_RESET）', resetEvents.length === 1);
+  const staleAdopt = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), 2, 'ADOPT', { now: NOW });
+  check('採用の競合：古い画面からの採用は CONFLICT（採用後に変わった内容は採用しない）', staleAdopt.status === 'CONFLICT' && staleAdopt.current.version === 4, staleAdopt.status);
+
+  /* ---- 5. 実行条件・規制・開始 ---- */
+  const reAdoptBefore = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), 4, 'ADOPT', { now: NOW });
+  check('採用（再）：最新の版で採用し直せる', reAdoptBefore.status === 'OK' && reAdoptBefore.record.adoption?.version === 4, reAdoptBefore.status);
+  const noStart = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), 5, 'START', { now: NOW });
+  check(
+    '開始：実行責任者と実行前の確認が未完了なら、開始できない（BLOCKED）',
+    noStart.status === 'BLOCKED' && noStart.blockers.length > 0,
+    noStart.status === 'BLOCKED' ? noStart.blockers.join(' / ') : noStart.status
+  );
+  const invalidReg = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), 5, 'RECORD_REGULATORY', {
+    regulatory: { decision: 'NOT_APPLICABLE', judgement: '', basis: '', confirmer: '', confirmedOn: '' },
+    now: NOW,
+  });
+  check('規制・安全：判断・根拠・確認者・確認日がなければ記録できない（INVALID）', invalidReg.status === 'INVALID');
+  const uncertain = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), 5, 'RECORD_REGULATORY', {
+    regulatory: { decision: 'UNCONFIRMED', judgement: '', basis: '', confirmer: '', confirmedOn: '' },
+    now: NOW,
+  });
+  check('規制・安全：未確認のままでも記録できるが、開始はできない', uncertain.status === 'OK');
+  const confirmedReg = {
+    decision: 'NOT_APPLICABLE',
+    judgement: '医療機器の製造販売には当たらず、既存の運用の範囲で足りる',
+    basis: '社内の薬機法の該当性チェック表（2026年11月）',
+    confirmer: '法務 山田',
+    confirmedOn: '2026-11-08',
+  };
+  const regVersion = uncertain.status === 'OK' ? uncertain.record.version : 5;
+  const reg = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), regVersion, 'RECORD_REGULATORY', { regulatory: confirmedReg, now: NOW });
+  check('規制・安全：判断・根拠・確認者・確認日を記録する', reg.status === 'OK' && reg.record.regulatory?.confirmer === '法務 山田', reg.status);
+
+  const withResponsible = await saveEdits(ctxOf(db, ALICE), KEY(RENEWAL), reg.status === 'OK' ? reg.record.version : 6, {
+    'action:1:title': 'bobの修正：採用後の変更',
+    responsible: '鈴木一郎（仮）',
+    'task:verify-1': true,
+  });
+  check('実行条件：実行責任者と実行前の確認を、利用者の編集として保存する', withResponsible.status === 'SAVED', withResponsible.status);
+  const reAdopt = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), withResponsible.status === 'SAVED' ? withResponsible.record.version : 0, 'ADOPT', { now: NOW });
+  check('採用（条件の後）：条件を満たした版を採用する', reAdopt.status === 'OK', reAdopt.status === 'BLOCKED' ? reAdopt.blockers.join(' / ') : reAdopt.status);
+  const startVersion = reAdopt.status === 'OK' ? reAdopt.record.version : 0;
+  const started = await transitionPlan(ctxOf(db, ALICE), KEY(RENEWAL), startVersion, 'START', { now: NOW });
+  check(
+    '実行開始：採用済み・条件確認済み・規制の記録ありで開始できる（開始者・日時・版が残る）',
+    started.status === 'OK' && started.record.startInfo?.byUserId === ALICE && started.record.startInfo?.version === startVersion,
+    started.status === 'BLOCKED' ? started.blockers.join(' / ') : started.status
+  );
+  const startEvents = await env.sql(
+    "select e.action from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 and e.action = 'STARTED'",
+    [RENEWAL]
+  );
+  check('操作履歴：開始が記録される（STARTED）', startEvents.length === 1);
+
+  const bobAfterStart = await saveEdits(ctxOf(db, BOB), KEY(RENEWAL), started.status === 'OK' ? started.record.version : 0, { 'action:1:title': '開始後の変更' });
+  check('開始後の変更：修正すると、採用と開始は解除される', bobAfterStart.status === 'SAVED' && bobAfterStart.record.startInfo === null && bobAfterStart.record.adoption === null);
+  const startResetEvents = await env.sql(
+    "select e.action from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 and e.action = 'START_RESET'",
+    [RENEWAL]
+  );
+  check('操作履歴：開始の解除が記録される（START_RESET）', startResetEvents.length === 1);
+
+  /* ---- 6. 権限・追記専用の履歴・他社 ---- */
+  const carolLoad = await loadPlan(ctxOf(db, CAROL), KEY(RENEWAL));
+  check('他社：別の会社の社員は、草案を読めない（DENIED）', carolLoad.status === 'DENIED');
+  const carolAdopt = await transitionPlan(ctxOf(db, CAROL), KEY(RENEWAL), 6, 'ADOPT', { now: NOW });
+  check('他社：別の会社の社員は、採用できない（DENIED）', carolAdopt.status === 'DENIED');
+  const carolEvents = await asUser(db, CAROL, 'select id from stage4_plan_document_events where company_id = $1', [CO]);
+  check('他社：別の会社の社員は、操作の履歴を1件も読めない', 'rows' in carolEvents && carolEvents.rows.length === 0);
+  const eventUpdate = await asUser(db, ALICE, "update stage4_plan_document_events set action = 'SAVED' returning id");
+  check('履歴の改ざん：利用者は操作の履歴を書き換えられない（0件）', 'rows' in eventUpdate && eventUpdate.rows.length === 0);
+  const eventDelete = await asUser(db, MANAGER, 'delete from stage4_plan_document_events returning id');
+  check('履歴の削除：管理者でも履歴を削除できない（0件）', 'rows' in eventDelete && eventDelete.rows.length === 0);
+  const memberDelete = await asUser(db, ALICE, 'delete from stage4_plan_documents where project_id = $1 returning id', [RENEWAL]);
+  check('削除権限：member は草案を削除できない（0件）', 'rows' in memberDelete && memberDelete.rows.length === 0);
+  const crossRow = await asUser(
+    db,
+    CAROL,
+    "insert into stage4_plan_documents (company_id, strategy_id, project_id, status, ai_draft, created_by, updated_by) values ($1,$2,$3,'GENERATING','{}'::jsonb,$4,$4)",
+    [IDS.companyB, ST, RENEWAL, CAROL]
+  );
+  check('他社の紐づけ：別の会社の戦略への生成の行は作れない（42501）', 'error' in crossRow && crossRow.error === '42501');
+
+  /* ---- 7. 生成の履歴 ---- */
+  const hist = await env.sql(
+    "select e.action from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 order by e.created_at, e.id",
+    [PILOT]
+  );
+  const actions = hist.map((h) => h.action as string);
+  check(
+    '操作履歴：生成の開始・失敗・再試行・完了が残る',
+    actions.includes('GENERATION_STARTED') && actions.includes('GENERATION_FAILED') && actions.includes('GENERATION_RETRIED') && actions.includes('GENERATED'),
+    actions.join(' → ')
+  );
+
+  /* ---- 8. 番号付与：旧い保存経路が番号を消さないか（モック） ---- */
+  const before = await env.strategyRow(ST);
   const depts = JSON.parse(JSON.stringify(before.departments)) as Array<{ projects: Array<Record<string, unknown>> }>;
   delete depts[1].projects[0].id;
-  delete depts[0].projects[1].id;
   await env.setStrategyA(depts);
-  const withoutId = await env.strategyRow(IDS.strategyA);
-  const kpiOf = (d: unknown) => JSON.stringify((d as Array<{ projects: Array<{ okrsV2?: unknown }> }>).map((x) => x.projects.map((p) => p.okrsV2 ?? null)));
-  const kpiBefore = kpiOf(withoutId.departments);
-
-  const view = await readStrategyProjects(ctxOf(db, IDS.alice), IDS.companyA, IDS.strategyA);
-  const target = view.status === 'FOUND' ? view.projects.find((p) => p.departmentIndex === 1 && p.projectIndex === 0) : undefined;
-  check('番号付与：読み取りで、番号のないプロジェクトと戦略の版番号が見える', view.status === 'FOUND' && !!target && target.projectId === null);
-  const newId = '00000000-0000-4000-8000-0000000001d1';
-  const assigned = await assignProjectIdentity(ctxOf(db, IDS.alice), {
-    companyId: IDS.companyA, strategyId: IDS.strategyA, departmentIndex: 1, projectIndex: 0,
-    expectedTitle: '点検工程の標準化', expectedRevision: view.status === 'FOUND' ? view.revision : -1, newId,
+  const withoutId = await env.strategyRow(ST);
+  const view = await readStrategyProjects(ctxOf(db, ALICE), CO, ST);
+  const idNew = '00000000-0000-4000-8000-0000000001e1';
+  const assigned = await assignProjectIdentity(ctxOf(db, ALICE), {
+    companyId: CO,
+    strategyId: ST,
+    departmentIndex: 1,
+    projectIndex: 0,
+    expectedTitle: '点検工程の標準化',
+    expectedRevision: view.status === 'FOUND' ? view.revision : -1,
+    newId: idNew,
   });
-  check('番号付与：版番号が一致すれば、番号が付き、版番号は1だけ進む', assigned.status === 'ASSIGNED' && assigned.projectId === newId && assigned.revision === withoutId.revision + 1);
+  check('番号付与：IDのないプロジェクトに番号を付ける', assigned.status === 'ASSIGNED' && assigned.projectId === idNew);
+  const afterAssign = await env.strategyRow(ST);
+  const legacy = await env.sql('update strategy_data set departments = $2::jsonb where id = $1 and revision = $3 returning id', [
+    ST,
+    JSON.stringify(withoutId.departments),
+    withoutId.revision,
+  ]);
+  check('旧い保存経路：番号の付与より前の版で、番号のない内容を書き戻すと拒否される（版番号が合わない）', legacy.length === 0);
+  const afterLegacy = await env.strategyRow(ST);
+  const keptId = (afterLegacy.departments as Array<{ projects: Array<{ id?: string }> }>)[1].projects[0].id;
+  check('旧い保存経路：番号は消えない', keptId === idNew && afterLegacy.revision === afterAssign.revision);
+  const idPlan = await gen(ALICE, idNew);
+  check('番号の後：その番号のプロジェクトは、生成の照合で見つかる（NOT_FOUND ではない）', idPlan.status !== 'NOT_FOUND', idPlan.status);
 
-  const after = await env.strategyRow(IDS.strategyA);
-  const expected = JSON.parse(JSON.stringify(withoutId.departments)) as Array<{ projects: Array<Record<string, unknown>> }>;
-  expected[1].projects[0].id = newId;
-  const canon = (v: unknown): string => JSON.stringify(v, (_k, val) => (val && typeof val === 'object' && !Array.isArray(val) ? Object.keys(val).sort().reduce<Record<string, unknown>>((o, kk) => ((o[kk] = (val as Record<string, unknown>)[kk]), o), {}) : val));
-  check('番号付与：戦略の他の内容は変わらない（対象の番号の1項目だけが変わる）', canon(after.departments) === canon(expected));
-  const kpiAfter = kpiOf(after.departments);
-  check('番号付与：STAGE3のKPI（okrsV2）は変わらない', kpiBefore === kpiAfter);
+  check('STAGE3のKPI（okrsV2）は、この検証の全体で変わらない', (await okrsOf()) === okrsBefore);
 
-  const again = await assignProjectIdentity(ctxOf(db, IDS.bob), {
-    companyId: IDS.companyA, strategyId: IDS.strategyA, departmentIndex: 1, projectIndex: 0,
-    expectedTitle: '点検工程の標準化', expectedRevision: after.revision, newId: '00000000-0000-4000-8000-0000000001d2',
-  });
-  check('番号付与：既に番号がある場合は、書き換えずにそのIDを返す（再読み込み後も同じ）', again.status === 'ASSIGNED' && again.alreadyAssigned === true && again.projectId === newId);
-  const afterAgain = await env.strategyRow(IDS.strategyA);
-  check('番号付与：既にある番号の再確認では、版番号は変わらない', afterAgain.revision === after.revision);
-
-  const stalePatch = await assignProjectIdentity(ctxOf(db, IDS.bob), {
-    companyId: IDS.companyA, strategyId: IDS.strategyA, departmentIndex: 0, projectIndex: 0,
-    expectedTitle: '既存顧客の保守契約更新', expectedRevision: before.revision, newId: '00000000-0000-4000-8000-0000000001d3',
-  });
-  check('同時変更：古い版番号での付与は、REVISION_CHANGED として拒否する', stalePatch.status === 'REVISION_CHANGED');
-
-  const wrongTitle = await assignProjectIdentity(ctxOf(db, IDS.alice), {
-    companyId: IDS.companyA, strategyId: IDS.strategyA, departmentIndex: 0, projectIndex: 1,
-    expectedTitle: '名前が違う案件', expectedRevision: afterAgain.revision, newId: '00000000-0000-4000-8000-0000000001d4',
-  });
-  check('番号付与：画面で見ていた名前と違う場合は付けない（TITLE_CHANGED）', wrongTitle.status === 'TITLE_CHANGED');
-
-  const dupId = await assignProjectIdentity(ctxOf(db, IDS.alice), {
-    companyId: IDS.companyA, strategyId: IDS.strategyA, departmentIndex: 0, projectIndex: 1,
-    expectedTitle: '新規顧客開拓', expectedRevision: afterAgain.revision, newId: 'fict-proj-renewal',
-  });
-  check('番号付与：同じ番号が既に別のプロジェクトにある場合は付けない（ID_IN_USE）', dupId.status === 'ID_IN_USE');
-
-  const outsider = await assignProjectIdentity(ctxOf(db, IDS.carol), {
-    companyId: IDS.companyA, strategyId: IDS.strategyA, departmentIndex: 0, projectIndex: 1,
-    expectedTitle: '新規顧客開拓', expectedRevision: afterAgain.revision, newId: '00000000-0000-4000-8000-0000000001d5',
-  });
-  check('番号付与：他社の社員は付けられない（DENIED）', outsider.status === 'DENIED');
-
-  const directUpdate = await asUser(db, IDS.alice, "update strategy_data set departments = departments where id = $1 returning id", [IDS.strategyA]);
-  check('戦略の一般の更新：member は戦略を直接書き換えられない（番号付与の関数を通す必要がある）', 'rows' in directUpdate && directUpdate.rows.length === 0);
-
-  /* 9. 番号の付与の後の保存 */
-  const newKey = { companyId: IDS.companyA, strategyId: IDS.strategyA, projectId: newId };
-  const saved = await createPlan(ctxOf(db, IDS.alice), newKey, { aiDraft: { note: '番号付与の後の草案' }, userEdits: { 'action:1:title': '番号の後' }, adopted: false });
-  check('番号付与の後：その番号で草案を保存できる（版1）', saved.status === 'SAVED' && saved.record.version === 1);
-  const reloaded = await loadPlan(ctxOf(db, IDS.manager), newKey);
-  check('再読み込み：番号の付いた草案を、別の社員（マネージャー）が読める', reloaded.status === 'FOUND');
-
-  /* 10. 権限の付与：別の会社の番号の付与も拒否 */
-  const crossAssign = await assignProjectIdentity(ctxOf(db, IDS.carol), {
-    companyId: IDS.companyB, strategyId: IDS.strategyA, departmentIndex: 0, projectIndex: 0,
-    expectedTitle: '既存顧客の保守契約更新', expectedRevision: 0, newId: '00000000-0000-4000-8000-0000000001d6',
-  });
-  check('番号付与：別の会社のIDを指定しても、戦略の所属が一致しないため付けない', crossAssign.status === 'NOT_FOUND');
+  /* ---- 9. 後片付け：管理者の削除（履歴は草案に従属して消える） ---- */
+  const managerDelete = await asUser(db, MANAGER, 'delete from stage4_plan_documents where project_id = $1 returning id', [RENEWAL]);
+  check('削除権限：manager は草案を削除できる（1件）', 'rows' in managerDelete && managerDelete.rows.length === 1);
 
   await env.close();
   const failed = results.filter((r) => !r.ok);

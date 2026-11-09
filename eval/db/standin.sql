@@ -34,6 +34,10 @@ create table company_members (
 create table strategy_data (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
+  strength text,
+  weakness text,
+  opportunity text,
+  threat text,
   departments jsonb not null default '[]'::jsonb,
   revision integer not null default 0
 );

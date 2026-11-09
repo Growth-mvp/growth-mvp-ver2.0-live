@@ -1,8 +1,9 @@
 /* 実行計画書の永続化の本体（サーバー側）。
  * 認証された利用者の会社への所属を、データベースから読んだ役割で確かめてから、ゲートウェイ経由で読み書きする。
  * ゲートウェイは利用者の権限のもとで動く（行単位の権限は、データベース側の規則で強制される）。 */
+import type { RegulatoryRecord } from '../planView/model';
 import type { UserEdits } from './mergeUserEdits';
-import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
+import type { AdoptionInfo, PlanDocEvent, PlanDocKey, PlanDocRecord, StartInfo } from './planDocumentStore';
 import { ALLOWED_ROLES, stableIdOf } from './projectResolver';
 
 export const SAVE_FAILED = '保存できませんでした。編集内容はこの画面に残っています。もう一度保存してください。';
@@ -26,28 +27,29 @@ export type IdentityRpcResult = {
   alreadyAssigned?: boolean;
 };
 
-export type StrategyView = {
-  revision: number;
-  departments: unknown;
+/* 草案の更新で書き換える項目だけを表す（省略した項目は変えない） */
+export type PlanPatch = {
+  userEdits?: UserEdits;
+  adoption?: AdoptionInfo | null;
+  regulatory?: RegulatoryRecord;
+  startInfo?: StartInfo | null;
 };
+
+export type ClaimResult = { claimed: true; record: PlanDocRecord } | { claimed: false; existing: PlanDocRecord };
 
 /** 利用者の権限のもとで行う読み書き。実装は、Supabase（本番）や検証用のデータベースなど */
 export interface PlanGateway {
   membershipRole(userId: string, companyId: string): Promise<GatewayResult<string | null>>;
   findPlan(key: PlanDocKey): Promise<GatewayResult<PlanDocRecord | null>>;
-  insertPlan(
-    key: PlanDocKey,
-    input: { aiDraft: Record<string, unknown>; userEdits: UserEdits; adopted: boolean },
-    userId: string
-  ): Promise<GatewayResult<PlanDocRecord>>;
-  /** 版番号が一致した時だけ更新する。一致しなければ value が null */
-  updatePlan(
-    key: PlanDocKey,
-    expectedVersion: number,
-    input: { userEdits: UserEdits; adopted: boolean },
-    userId: string
-  ): Promise<GatewayResult<PlanDocRecord | null>>;
-  readStrategy(companyId: string, strategyId: string): Promise<GatewayResult<StrategyView | null>>;
+  listEvents(key: PlanDocKey): Promise<GatewayResult<PlanDocEvent[]>>;
+  /** 生成の権利を取る。同じキーが生成中・草案ありなら取らない。生成に失敗した行だけ、再び取れる */
+  claimGeneration(key: PlanDocKey, userId: string): Promise<GatewayResult<ClaimResult>>;
+  /** 生成中の行に、生成した草案を入れて、草案の状態にする */
+  completeGeneration(key: PlanDocKey, userId: string, aiDraft: Record<string, unknown>): Promise<GatewayResult<PlanDocRecord | null>>;
+  failGeneration(key: PlanDocKey, userId: string): Promise<GatewayResult<PlanDocRecord | null>>;
+  /** 版番号と状態（草案）が一致した時だけ更新する。一致しなければ value が null */
+  updatePlan(key: PlanDocKey, expectedVersion: number, patch: PlanPatch, userId: string): Promise<GatewayResult<PlanDocRecord | null>>;
+  readStrategyRow(companyId: string, strategyId: string): Promise<GatewayResult<Record<string, unknown> | null>>;
   assignIdentity(args: {
     companyId: string;
     strategyId: string;
@@ -61,19 +63,60 @@ export interface PlanGateway {
 
 export type ServiceContext = { userId: string; gateway: PlanGateway };
 
+const FAILED_READ = '読み込めませんでした。もう一度開いてください。';
+
+export async function allowed(ctx: ServiceContext, companyId: string): Promise<'OK' | 'DENIED' | 'FAILED'> {
+  const r = await ctx.gateway.membershipRole(ctx.userId, companyId);
+  if (!r.ok) return 'FAILED';
+  return r.value !== null && ALLOWED_ROLES.includes(r.value) ? 'OK' : 'DENIED';
+}
+
 export type LoadOutcome =
   | { status: 'FOUND'; record: PlanDocRecord }
   | { status: 'NONE' }
   | { status: 'DENIED' }
   | { status: 'FAILED'; message: string };
 
+export async function loadPlan(ctx: ServiceContext, key: PlanDocKey): Promise<LoadOutcome> {
+  const access = await allowed(ctx, key.companyId);
+  if (access === 'DENIED') return { status: 'DENIED' };
+  if (access === 'FAILED') return { status: 'FAILED', message: FAILED_READ };
+  const r = await ctx.gateway.findPlan(key);
+  if (!r.ok) return { status: 'FAILED', message: FAILED_READ };
+  if (!r.value) return { status: 'NONE' };
+  const events = await ctx.gateway.listEvents(key);
+  return { status: 'FOUND', record: { ...r.value, events: events.ok ? events.value : [] } };
+}
+
 export type WriteOutcome =
   | { status: 'SAVED'; record: PlanDocRecord }
   | { status: 'CONFLICT'; current: PlanDocRecord }
   | { status: 'NOT_FOUND' }
+  | { status: 'NOT_READY'; current: PlanDocRecord }
   | { status: 'DENIED' }
   | { status: 'FAILED'; message: string };
 
+/* 利用者の修正だけを保存する（採用や開始の状態は、ここでは変えられない） */
+export async function saveEdits(
+  ctx: ServiceContext,
+  key: PlanDocKey,
+  expectedVersion: number,
+  userEdits: UserEdits
+): Promise<WriteOutcome> {
+  const access = await allowed(ctx, key.companyId);
+  if (access === 'DENIED') return { status: 'DENIED' };
+  if (access === 'FAILED') return { status: 'FAILED', message: SAVE_FAILED };
+  const r = await ctx.gateway.updatePlan(key, expectedVersion, { userEdits }, ctx.userId);
+  if (!r.ok) return r.code === 'FORBIDDEN' ? { status: 'DENIED' } : { status: 'FAILED', message: SAVE_FAILED };
+  if (r.value) return { status: 'SAVED', record: r.value };
+  const current = await ctx.gateway.findPlan(key);
+  if (!current.ok) return { status: 'FAILED', message: SAVE_FAILED };
+  if (!current.value) return { status: 'NOT_FOUND' };
+  if (current.value.status && current.value.status !== 'DRAFT') return { status: 'NOT_READY', current: current.value };
+  return { status: 'CONFLICT', current: current.value };
+}
+
+/* プロジェクトの番号（安定ID）を、対象の1項目だけ付与する。戦略の他の項目は書き換えない */
 export type IdentityOutcome =
   | { status: 'ASSIGNED'; projectId: string; revision: number; alreadyAssigned: boolean }
   | { status: 'REVISION_CHANGED'; revision: number }
@@ -81,69 +124,6 @@ export type IdentityOutcome =
   | { status: 'DENIED' }
   | { status: 'FAILED'; message: string };
 
-export type StrategyProjectsOutcome =
-  | {
-      status: 'FOUND';
-      revision: number;
-      projects: Array<{ departmentIndex: number; projectIndex: number; title: string; projectId: string | null }>;
-    }
-  | { status: 'NOT_FOUND' }
-  | { status: 'DENIED' }
-  | { status: 'FAILED'; message: string };
-
-async function allowed(ctx: ServiceContext, companyId: string): Promise<'OK' | 'DENIED' | 'FAILED'> {
-  const r = await ctx.gateway.membershipRole(ctx.userId, companyId);
-  if (!r.ok) return 'FAILED';
-  return r.value !== null && ALLOWED_ROLES.includes(r.value) ? 'OK' : 'DENIED';
-}
-
-export async function loadPlan(ctx: ServiceContext, key: PlanDocKey): Promise<LoadOutcome> {
-  const access = await allowed(ctx, key.companyId);
-  if (access === 'DENIED') return { status: 'DENIED' };
-  if (access === 'FAILED') return { status: 'FAILED', message: SAVE_FAILED };
-  const r = await ctx.gateway.findPlan(key);
-  if (!r.ok) return { status: 'FAILED', message: '読み込めませんでした。もう一度開いてください。' };
-  return r.value ? { status: 'FOUND', record: r.value } : { status: 'NONE' };
-}
-
-export async function createPlan(
-  ctx: ServiceContext,
-  key: PlanDocKey,
-  input: { aiDraft: Record<string, unknown>; userEdits: UserEdits; adopted: boolean }
-): Promise<WriteOutcome> {
-  const access = await allowed(ctx, key.companyId);
-  if (access === 'DENIED') return { status: 'DENIED' };
-  if (access === 'FAILED') return { status: 'FAILED', message: SAVE_FAILED };
-  const r = await ctx.gateway.insertPlan(key, input, ctx.userId);
-  if (r.ok) return { status: 'SAVED', record: r.value };
-  if (r.code === 'DUPLICATE') {
-    const current = await ctx.gateway.findPlan(key);
-    if (current.ok && current.value) return { status: 'CONFLICT', current: current.value };
-    return { status: 'FAILED', message: SAVE_FAILED };
-  }
-  if (r.code === 'FORBIDDEN') return { status: 'DENIED' };
-  return { status: 'FAILED', message: SAVE_FAILED };
-}
-
-export async function updatePlan(
-  ctx: ServiceContext,
-  key: PlanDocKey,
-  expectedVersion: number,
-  input: { userEdits: UserEdits; adopted: boolean }
-): Promise<WriteOutcome> {
-  const access = await allowed(ctx, key.companyId);
-  if (access === 'DENIED') return { status: 'DENIED' };
-  if (access === 'FAILED') return { status: 'FAILED', message: SAVE_FAILED };
-  const r = await ctx.gateway.updatePlan(key, expectedVersion, input, ctx.userId);
-  if (!r.ok) return r.code === 'FORBIDDEN' ? { status: 'DENIED' } : { status: 'FAILED', message: SAVE_FAILED };
-  if (r.value) return { status: 'SAVED', record: r.value };
-  const current = await ctx.gateway.findPlan(key);
-  if (!current.ok) return { status: 'FAILED', message: SAVE_FAILED };
-  if (!current.value) return { status: 'NOT_FOUND' };
-  return { status: 'CONFLICT', current: current.value };
-}
-
-/* プロジェクトの番号（安定ID）を、対象の1項目だけ付与する。戦略の他の項目は書き換えない */
 export async function assignProjectIdentity(
   ctx: ServiceContext,
   args: {
@@ -172,6 +152,16 @@ export async function assignProjectIdentity(
 }
 
 /* 戦略の版番号と、各プロジェクトの番号（あれば）。番号を付ける前に、画面が見ている対象を確かめるために使う */
+export type StrategyProjectsOutcome =
+  | {
+      status: 'FOUND';
+      revision: number;
+      projects: Array<{ departmentIndex: number; projectIndex: number; title: string; projectId: string | null }>;
+    }
+  | { status: 'NOT_FOUND' }
+  | { status: 'DENIED' }
+  | { status: 'FAILED'; message: string };
+
 export async function readStrategyProjects(
   ctx: ServiceContext,
   companyId: string,
@@ -180,7 +170,7 @@ export async function readStrategyProjects(
   const access = await allowed(ctx, companyId);
   if (access === 'DENIED') return { status: 'DENIED' };
   if (access === 'FAILED') return { status: 'FAILED', message: SAVE_FAILED };
-  const r = await ctx.gateway.readStrategy(companyId, strategyId);
+  const r = await ctx.gateway.readStrategyRow(companyId, strategyId);
   if (!r.ok) return { status: 'FAILED', message: SAVE_FAILED };
   if (!r.value) return { status: 'NOT_FOUND' };
   const depts = Array.isArray(r.value.departments) ? (r.value.departments as Array<{ projects?: unknown }>) : [];
@@ -192,5 +182,5 @@ export async function readStrategyProjects(
       projectId: stableIdOf(p),
     }))
   );
-  return { status: 'FOUND', revision: r.value.revision, projects };
+  return { status: 'FOUND', revision: Number(r.value.revision), projects };
 }

@@ -3,6 +3,7 @@
  * キーは会社・戦略・プロジェクトID（安定ID）。配列位置や名称は使わない。版番号による楽観ロックを行う。 */
 import { ALLOWED_ROLES, stableIdOf, type StrategyRow } from './projectResolver';
 import type { UserEdits } from './mergeUserEdits';
+import type { RegulatoryRecord } from '@/lib/stage4/planView/model';
 
 export type PlanDocKey = { companyId: string; strategyId: string; projectId: string };
 
@@ -16,6 +17,27 @@ export type PlanDocRecord = {
   adopted: boolean;
   updatedAt: string;
   updatedBy: string;
+  /** 2Z：状態（生成中・草案・生成失敗）。ローカル保存先では常に草案 */
+  status?: PlanDocStatus;
+  /** 採用の記録（採用者・採用日時・採用時の版・採用時点の修正）。採用していなければ null */
+  adoption?: AdoptionInfo | null;
+  /** 実行開始の記録（開始者・開始日時・開始時の版）。開始していなければ null */
+  startInfo?: StartInfo | null;
+  /** 規制・安全の判断の記録（該当性・根拠・確認者・確認日） */
+  regulatory?: RegulatoryRecord;
+  /** 操作履歴（新しい順ではなく、発生順） */
+  events?: PlanDocEvent[];
+};
+
+export type PlanDocStatus = "GENERATING" | "DRAFT" | "GENERATION_FAILED";
+export type AdoptionInfo = { version: number; byUserId: string; at: string; edits: UserEdits };
+export type StartInfo = { version: number; byUserId: string; at: string };
+export type PlanDocEvent = {
+  action: string;
+  version: number;
+  actorUserId: string | null;
+  at: string;
+  payload: Record<string, unknown>;
 };
 
 export type PlanDocActor = { userId: string; memberships: Array<{ companyId: string; role: string }> };

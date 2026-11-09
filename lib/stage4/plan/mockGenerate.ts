@@ -5,7 +5,7 @@ import { buildPlanContext, type PlanContext } from './context';
 import { addMonths } from './period';
 import { runExecutionPlanEngine, type ExecutionPlanEngineResult } from './generate';
 import { stableIdOf } from './projectResolver';
-import { buildPlanSource, type RawPlanStrategy } from './source';
+import { buildPlanSource, type RawPlanInput, type RawPlanStrategy } from './source';
 import type { PlanDraft, PlanIssue } from './types';
 import { regulatoryConstraintRefs } from './validate';
 
@@ -210,4 +210,14 @@ export async function generateMockExecutionPlan(args: {
     const message = e instanceof Error ? e.message : '作成できませんでした';
     return { status: 'FAILED', issues: [{ severity: 'error', code: 'SCOPE_INVALID', path: '$', message }] };
   }
+}
+
+/* 検証用のモデル呼び出し：入力から決まる草案を返す（実際のAIは呼ばない） */
+export function createMockModel(raw: RawPlanInput): (prompt: string) => Promise<{ text: string; finishReason: string; model: string }> {
+  const { source, scope } = buildPlanSource(raw);
+  const ctx0 = buildPlanContext(source, scope);
+  const endFromInput = ctx0.endYm !== null;
+  const endYm = ctx0.endYm ?? addMonths(ctx0.startYm, MOCK_PROVISIONAL_MONTHS);
+  const text = JSON.stringify(buildMockDraft(ctx0, endYm, endFromInput));
+  return async () => ({ text, finishReason: "MOCK", model: "mock" });
 }
