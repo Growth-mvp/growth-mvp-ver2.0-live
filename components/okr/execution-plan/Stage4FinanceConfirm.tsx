@@ -4,10 +4,12 @@ import { FINANCE_EFFECT_BASIS_LABEL } from '@/lib/financeEffect';
 import {
   applyFinanceAnswers,
   confirmBlockers,
+  periodOutsidePlanNote,
   type ConfirmContext,
   type FinanceAnswers,
   type FinanceEffectDraft,
   type FinanceWriteAction,
+  type PlanPeriod,
 } from '@/lib/stage4/planView/financeBridge';
 import type { FinanceWriteResult } from '@/lib/stage4/planView/financeBridgeStore';
 import type { FinanceEffect, SpendAmountBasis } from '@/types/strategy';
@@ -34,19 +36,32 @@ function DraftCard({
   draft,
   saved,
   ctx,
+  planPeriod,
   writable,
   onWrite,
 }: {
   draft: FinanceEffectDraft;
   saved: FinanceEffect | undefined;
   ctx: ConfirmContext;
+  planPeriod: PlanPeriod | null;
   writable: boolean;
   onWrite: (candidate: FinanceEffect, action: FinanceWriteAction) => Promise<FinanceWriteResult>;
 }) {
-  const [answers, setAnswers] = useState<FinanceAnswers>({
-    startYm: draft.base.startYm ?? '',
-    endYm: draft.base.endYm ?? '',
-  });
+  const [answers, setAnswers] = useState<FinanceAnswers>(() =>
+    saved
+      ? {
+          amountBasis: saved.amountBasis,
+          startYm: saved.startYm ?? '',
+          endYm: saved.endYm ?? '',
+          meetingBasisConfirmed: saved.meetingBasisConfirmed,
+          isIncremental: saved.isIncremental,
+          operatingIncomeEffectYen: saved.operatingIncomeEffectYen,
+          opIncomeIncludesAddCost: saved.opIncomeIncludesAddCost,
+          revenueKind: saved.revenueKind,
+          overlapNote: saved.overlapNote,
+        }
+      : { startYm: draft.base.startYm ?? '', endYm: draft.base.endYm ?? '' },
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const candidate = applyFinanceAnswers(draft, answers);
@@ -146,6 +161,26 @@ function DraftCard({
           />
         </label>
       )}
+      {isRevenue && (
+        <label>
+          売上の区分
+          <select
+            aria-label={`${draft.label}の売上の区分`}
+            value={answers.revenueKind ?? ''}
+            disabled={!writable || locked}
+            onChange={(e) =>
+              setAnswers((a) => ({
+                ...a,
+                revenueKind: (e.target.value || undefined) as FinanceAnswers['revenueKind'],
+              }))
+            }
+          >
+            <option value="">未回答</option>
+            <option value="PAID_DEVELOPMENT">有償開発（開発費の受注）</option>
+            <option value="MASS_PRODUCTION">量産（製品の販売）</option>
+          </select>
+        </label>
+      )}
       {isRevenue && answers.operatingIncomeEffectYen !== undefined && ctx.hasCostEffect && (
         <label>
           営業利益増分は、同じ案件の追加費用を差し引いた後の値ですか（STAGE3の本文には、追加費用を差し引いた営業利益増分として書かれている例もあります）
@@ -177,6 +212,9 @@ function DraftCard({
           />
         </label>
       )}
+      {periodOutsidePlanNote(candidate, planPeriod) && (
+        <p role="note" className="plan-note">{periodOutsidePlanNote(candidate, planPeriod)}</p>
+      )}
       <div className="plan-toolbar">
         <button type="button" className="plan-btn-quiet" disabled={!writable || locked || busy} onClick={() => run('SAVE_DRAFT')}>
           草案として保存
@@ -200,6 +238,7 @@ export function Stage4FinanceConfirm({
   drafts,
   saved,
   overlapCount,
+  planPeriod = null,
   writable,
   reasonNotWritable,
   onWrite,
@@ -207,6 +246,7 @@ export function Stage4FinanceConfirm({
   drafts: FinanceEffectDraft[];
   saved: FinanceEffect[];
   overlapCount: number;
+  planPeriod?: PlanPeriod | null;
   writable: boolean;
   reasonNotWritable?: string;
   onWrite: (candidate: FinanceEffect, action: FinanceWriteAction) => Promise<FinanceWriteResult>;
@@ -228,6 +268,11 @@ export function Stage4FinanceConfirm({
       <p className="plan-note">
         参考試算の数値から、財務効果の草案を作ります。内容を確認して「確認」を押したものだけ、STAGE6のPL・CFに反映されます。投資額は財務効果ではなく投資計画で扱うため、ここでは確認しません。
       </p>
+      {planPeriod && (
+        <p className="plan-note">
+          実行計画の期間：{planPeriod.startYm}〜{planPeriod.endYm}（参考。計上期間は利用者が入力し、自動では設定しません）
+        </p>
+      )}
       {!writable && reasonNotWritable && <p className="plan-note">{reasonNotWritable}</p>}
       {drafts.length === 0 && <p className="plan-note">財務効果の草案は、参考試算の数値がそろうと表示されます。</p>}
       {drafts.map((draft) => (
@@ -236,6 +281,7 @@ export function Stage4FinanceConfirm({
           draft={draft}
           saved={saved.find((e) => e.kind === draft.kind)}
           ctx={ctx}
+          planPeriod={planPeriod}
           writable={writable}
           onWrite={onWrite}
         />

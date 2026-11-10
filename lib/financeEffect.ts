@@ -258,6 +258,7 @@ export function normalizeFinanceEffect(raw: unknown): FinanceEffect | undefined 
   for (const key of ['isIncremental', 'meetingBasisConfirmed', 'opIncomeIncludesAddCost'] as const) {
     if (typeof r[key] === 'boolean') out[key] = r[key] as boolean;
   }
+  if (r.revenueKind === 'PAID_DEVELOPMENT' || r.revenueKind === 'MASS_PRODUCTION') out.revenueKind = r.revenueKind;
   const answers = readQuestionAnswers(r.questionAnswers);
   if (answers) out.questionAnswers = answers;
   return out;
@@ -336,6 +337,7 @@ const CONFIRMATION_MATERIAL_KEYS = [
   'isIncremental',
   'meetingBasisConfirmed',
   'opIncomeIncludesAddCost',
+  'revenueKind',
   'scopeNote',
   'sourceNote',
   'source',

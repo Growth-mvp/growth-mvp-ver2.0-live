@@ -42,10 +42,15 @@ describe('Stage4FinanceConfirm（第5章の財務効果の確認）', () => {
 
   it('単位と年度がそろうと確認ボタンが有効になり、CONFIRM を渡す', async () => {
     const onWrite = jest.fn(async () => ({ ok: true as const, outcome: 'confirmed' }));
-    const saved = [{ ...drafts().find((d) => d.kind === 'COST_INCREASE')!.base, amountBasis: 'ANNUAL', confirmed: false }] as any[];
+    const saved = [
+      { ...drafts().find((d) => d.kind === 'COST_INCREASE')!.base, amountBasis: 'ANNUAL', startYm: '2026-04', endYm: '2027-03', confirmed: false },
+    ] as any[];
     render(<Stage4FinanceConfirm drafts={drafts()} saved={saved} overlapCount={0} writable onWrite={onWrite} />);
     const card = screen.getByLabelText('追加費用の財務効果');
     fireEvent.change(card.querySelector('select')!, { target: { value: 'ANNUAL' } });
+    const months = card.querySelectorAll('input[type="month"]');
+    fireEvent.change(months[0], { target: { value: '2026-04' } });
+    fireEvent.change(months[1], { target: { value: '2027-03' } });
     const confirm = card.querySelectorAll('button')[1] as HTMLButtonElement;
     expect(confirm.disabled).toBe(false);
     fireEvent.click(confirm);
@@ -87,5 +92,25 @@ describe('Stage4FinanceConfirm（第5章の財務効果の確認）', () => {
     );
     expect(screen.getByText('採用・開始済みの計画書では、財務効果の確認を変更できません。')).toBeTruthy();
     screen.getAllByRole('button').forEach((b) => expect((b as HTMLButtonElement).disabled).toBe(true));
+  });
+  it('保存済みの草案を再読み込みしたら、保存した内容で入力欄が戻り、同じ内容で確認できる', () => {
+    const revenue = drafts().find((d) => d.kind === 'REVENUE_UP')!;
+    const savedRevenue = {
+      ...revenue.base,
+      amountBasis: 'ANNUAL',
+      startYm: '2026-12',
+      endYm: '2027-05',
+      isIncremental: true,
+      operatingIncomeEffectYen: 9_000_000,
+      opIncomeIncludesAddCost: true,
+      revenueKind: 'PAID_DEVELOPMENT',
+      confirmed: false,
+    } as any;
+    render(<Stage4FinanceConfirm drafts={[revenue]} saved={[savedRevenue]} overlapCount={0} writable onWrite={jest.fn()} />);
+    const card = screen.getByLabelText('売上増加（参考試算の売上）の財務効果');
+    expect((card.querySelector('select') as HTMLSelectElement).value).toBe('ANNUAL');
+    expect((screen.getByLabelText('売上増加（参考試算の売上）の開始年月') as HTMLInputElement).value).toBe('2026-12');
+    expect((screen.getByLabelText('売上増加（参考試算の売上）の営業利益の増分') as HTMLInputElement).value).toBe('9');
+    expect((screen.getByLabelText('売上増加（参考試算の売上）の売上の区分') as HTMLSelectElement).value).toBe('PAID_DEVELOPMENT');
   });
 });

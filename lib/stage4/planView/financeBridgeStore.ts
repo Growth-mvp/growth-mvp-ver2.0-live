@@ -25,6 +25,11 @@ export function findProjectPositionById(departments: unknown, projectId: string)
 }
 
 const CHANGED = '会社または戦略が切り替わったため、保存されませんでした。画面を読み込み直してから、もう一度お試しください。';
+const SWITCH_REASONS = new Set(['scope_changed', 'company_switching', 'company_scope_missing']);
+const SKIPPED_MESSAGES: Record<string, string> = {
+  revision_anomaly: '版の整合性を確認できないため、保存を止めています。画面を読み直してから、もう一度お試しください。',
+  pending_queued: '前の保存が終わってから、もう一度お試しください。',
+};
 
 /**
  * 施策の財務効果を、既存の確認ロジック（ガード）と既存の保存（saveStrategyData）で書く。
@@ -64,6 +69,9 @@ export async function writeFinanceEffectToProject(args: {
   if (!result?.skipped && now.companyId === args.companyId && now.strategyId === args.strategyId) {
     useStrategyStore.setState({ departments: prevDepartments } as never);
   }
-  if (result?.skipped) return { ok: false, message: CHANGED };
+  if (result?.skipped) {
+    if (SWITCH_REASONS.has(result.reason)) return { ok: false, message: CHANGED };
+    return { ok: false, message: SKIPPED_MESSAGES[result.reason as string] ?? '保存されませんでした。もう一度お試しください。' };
+  }
   return { ok: false, message: '財務効果を保存できませんでした。もう一度お試しください。' };
 }

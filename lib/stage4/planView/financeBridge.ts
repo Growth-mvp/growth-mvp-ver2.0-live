@@ -24,6 +24,7 @@ export type FinanceAnswers = {
   isIncremental?: boolean;
   operatingIncomeEffectYen?: number;
   opIncomeIncludesAddCost?: boolean;
+  revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION';
   overlapNote?: string;
 };
 
@@ -106,8 +107,6 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
       confirmed: false,
       sourceNote: sourceNoteOf([addCost]),
     };
-    if (startYm) base.startYm = startYm;
-    if (endYm) base.endYm = endYm;
     drafts.push({ kind: 'COST_INCREASE', label: '追加費用', fromAi: fromAiOf([addCost]), base });
   }
 
@@ -132,6 +131,7 @@ export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceA
     if (answers.opIncomeIncludesAddCost !== undefined && e.operatingIncomeEffectYen !== undefined) {
       e.opIncomeIncludesAddCost = answers.opIncomeIncludesAddCost;
     }
+    if (answers.revenueKind) e.revenueKind = answers.revenueKind;
   }
   if (answers.overlapNote?.trim()) e.overlapNote = answers.overlapNote.trim();
   return e;
@@ -149,6 +149,9 @@ export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): str
     .map((c) => `${c.label}が未確認`);
   if (effect.amountBasis !== 'TOTAL' && !effect.endYm) {
     reasons.push('計上の終了年月（未入力だと、後の年度まで計上されます）が未確認');
+  }
+  if (effect.kind === 'REVENUE_UP' && !effect.revenueKind) {
+    reasons.push('売上の区分（有償開発か量産か）が未確認');
   }
   if (effect.kind === 'REVENUE_UP' && effect.operatingIncomeEffectYen !== undefined) {
     if (ctx.hasCostEffect && effect.opIncomeIncludesAddCost === undefined) {
@@ -218,4 +221,21 @@ export function planFinanceEffectWrite(args: {
     outcome,
     patch: { financeEffects: additional.map((e, i) => (i === idx - 1 ? next : e)) },
   };
+}
+
+export type PlanPeriod = { startYm: string; endYm: string };
+
+/** 計画書の期間の表示（"2026-12 〜 2027-05"）を、年月の範囲にする。読めなければ null */
+export function periodOfLabel(label: string | null | undefined): PlanPeriod | null {
+  const m = /^(\d{4}-\d{2}) 〜 (\d{4}-\d{2})$/.exec(label ?? '');
+  return m ? { startYm: m[1], endYm: m[2] } : null;
+}
+
+/** 財務効果の計上期間が、実行計画の期間の外にあるときの注意（自動では変えない） */
+export function periodOutsidePlanNote(effect: FinanceEffect, plan: PlanPeriod | null): string | null {
+  if (!plan || !effect.startYm) return null;
+  const startsBefore = effect.startYm < plan.startYm;
+  const endsAfter = !!effect.endYm && effect.endYm > plan.endYm;
+  if (!startsBefore && !endsAfter) return null;
+  return `計上期間（${effect.startYm}〜${effect.endYm ?? '未入力'}）が、実行計画の期間（${plan.startYm}〜${plan.endYm}）の外にあります。根拠を確認してください`;
 }

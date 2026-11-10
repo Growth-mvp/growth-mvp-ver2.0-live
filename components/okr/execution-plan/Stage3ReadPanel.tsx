@@ -41,7 +41,7 @@ import StartConfirmation from './StartConfirmation';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
-import { buildFinanceEffectDrafts } from '@/lib/stage4/planView/financeBridge';
+import { buildFinanceEffectDrafts, periodOfLabel } from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
 import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
@@ -224,7 +224,9 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
         ? '計画書を読み込んでいます。'
         : selectedEntry.plan.adopted || selectedEntry.plan.started
           ? '採用・開始済みの計画書では、財務効果の確認を変更できません。'
-          : undefined;
+          : isDirty(selectedEntry)
+            ? '計画書の修正が保存されていません。計画書の「草案として保存」を押してから、財務効果を確認してください（財務効果は保存済みの前提で計算します）。'
+            : undefined;
   const financeWritable = !financeReason;
   const writeFinance = async (candidate: FinanceEffect, action: 'SAVE_DRAFT' | 'CONFIRM') => {
     if (!selected || !financeProjectId) return { ok: false as const, message: '施策を特定できないため、保存しませんでした。' };
@@ -236,16 +238,6 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
       action,
     });
   };
-  const financeSection: ReactNode = selected ? (
-    <Stage4FinanceConfirm
-      drafts={financeDrafts}
-      saved={financeSaved}
-      overlapCount={financeOverlap}
-      writable={financeWritable}
-      reasonNotWritable={financeReason}
-      onWrite={writeFinance}
-    />
-  ) : undefined;
 
   const titleOf = (projectKey: string): string | null => {
     for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
@@ -510,6 +502,17 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
   const load = id ? loads[id] : undefined;
   const genState = id ? gen[id] : undefined;
   const planView = entry ? computePlanView(entry.aiDraft, entry.plan) : null;
+  const financeSection: ReactNode = selected ? (
+    <Stage4FinanceConfirm
+      drafts={financeDrafts}
+      saved={financeSaved}
+      overlapCount={financeOverlap}
+      planPeriod={periodOfLabel(planView?.d.period.label)}
+      writable={financeWritable}
+      reasonNotWritable={financeReason}
+      onWrite={writeFinance}
+    />
+  ) : undefined;
 
   return (
     <div className="space-y-4">

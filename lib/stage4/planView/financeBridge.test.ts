@@ -1,5 +1,6 @@
 import { findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
+import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
 import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
 import { estimateProjectImpact, type ImpactEstimate } from './impactEstimate';
 import {
@@ -8,6 +9,8 @@ import {
   confirmBlockers,
   fiscalYearEndYm,
   fiscalYearStartYm,
+  periodOfLabel,
+  periodOutsidePlanNote,
   planFinanceEffectWrite,
   type ConfirmContext,
   type FinanceAnswers,
@@ -137,13 +140,12 @@ describe('財務効果の草案（参考試算から）', () => {
 });
 
 describe('確認の判定（営業利益増分・計上期間・重複）', () => {
+  const PERIOD = { startYm: '2026-12', endYm: '2027-05' };
+  const revAnswers = { amountBasis: 'ANNUAL' as const, isIncremental: true, meetingBasisConfirmed: true, revenueKind: 'PAID_DEVELOPMENT' as const, startYm: PERIOD.startYm, endYm: PERIOD.endYm };
+  const costAnswers = { amountBasis: 'TOTAL' as const, startYm: PERIOD.startYm, endYm: PERIOD.endYm };
+
   it('営業利益増分を入力すると、追加費用を差し引いた後かどうかが決まるまで確認しない', () => {
-    const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), {
-      amountBasis: 'ANNUAL',
-      isIncremental: true,
-      meetingBasisConfirmed: true,
-      operatingIncomeEffectYen: 3 * M,
-    });
+    const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, operatingIncomeEffectYen: 3 * M });
     expect(confirmBlockers(rev, ctx(0, { hasCostEffect: true }))).toEqual([
       expect.stringContaining('追加費用を差し引いた後の値か'),
     ]);
@@ -151,14 +153,12 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
 
   it('営業利益増分に追加費用が含まれると答えたら、追加費用は別に確定しない', () => {
     const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), {
-      amountBasis: 'ANNUAL',
-      isIncremental: true,
-      meetingBasisConfirmed: true,
+      ...revAnswers,
       operatingIncomeEffectYen: 3 * M,
       opIncomeIncludesAddCost: true,
     });
     expect(confirmBlockers(rev, ctx(0, { hasCostEffect: true }))).toEqual([]);
-    const cost = applyFinanceAnswers(costDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL' });
+    const cost = applyFinanceAnswers(costDraft(), costAnswers);
     expect(confirmBlockers(cost, ctx(0, { revenueOpIncludesAddCost: true }))).toEqual([
       expect.stringContaining('この追加費用は別に確定しません'),
     ]);
@@ -166,9 +166,7 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
 
   it('追加費用が確定済みなら、営業利益増分を「含む」にする確認は拒否する', () => {
     const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), {
-      amountBasis: 'ANNUAL',
-      isIncremental: true,
-      meetingBasisConfirmed: true,
+      ...revAnswers,
       operatingIncomeEffectYen: 3 * M,
       opIncomeIncludesAddCost: true,
     });
@@ -177,21 +175,36 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
     ]);
   });
 
+  it('売上の区分（有償開発か量産か）が未確認なら、売上は確認しない', () => {
+    const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, revenueKind: undefined });
+    expect(confirmBlockers(rev, ctx())).toEqual([expect.stringContaining('売上の区分（有償開発か量産か）が未確認')]);
+    const typed = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, revenueKind: 'MASS_PRODUCTION' });
+    expect(typed.revenueKind).toBe('MASS_PRODUCTION');
+    expect(confirmBlockers(typed, ctx())).toEqual([]);
+  });
+
+  it('追加費用の発生期間は、売上の期間から自動では設定せず、利用者が入力するまで確認しない', () => {
+    const cost = costDraft({ startYear: 2027, endYear: 2027 });
+    expect(cost.base.startYm).toBeUndefined();
+    expect(cost.base.endYm).toBeUndefined();
+    expect(confirmBlockers(applyFinanceAnswers(cost, { amountBasis: 'TOTAL' }), ctx())).toEqual([expect.stringContaining('効果の開始月')]);
+  });
+
   it('年額・月額は終了年月が無いと確認しない（後の年度まで両年度に計上されるため）', () => {
-    const noEnd = applyFinanceAnswers(revenueDraft({ startYear: 2027 }), { amountBasis: 'ANNUAL', isIncremental: true, meetingBasisConfirmed: true });
+    const noEnd = applyFinanceAnswers(revenueDraft({ startYear: 2027 }), { ...revAnswers, endYm: undefined });
     expect(noEnd.endYm).toBeUndefined();
     expect(confirmBlockers(noEnd, ctx())).toEqual([expect.stringContaining('計上の終了年月')]);
   });
 
   it('一回限りの効果は、終了年月が無くても確認できる', () => {
-    const once = applyFinanceAnswers(costDraft({ startYear: 2027 }), { amountBasis: 'TOTAL' });
+    const once = applyFinanceAnswers(costDraft(), { amountBasis: 'TOTAL', startYm: PERIOD.startYm });
     expect(confirmBlockers(once, ctx())).toEqual([]);
   });
 
   it('重複の可能性がある効果は、説明が無いと確認を保留する', () => {
-    const cost = applyFinanceAnswers(costDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL' });
+    const cost = applyFinanceAnswers(costDraft(), costAnswers);
     expect(confirmBlockers(cost, ctx(1))).toEqual([expect.stringContaining('重複していない理由')]);
-    expect(confirmBlockers(applyFinanceAnswers(costDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL', overlapNote: '対象が別' }), ctx(1))).toEqual([]);
+    expect(confirmBlockers(applyFinanceAnswers(costDraft(), { ...costAnswers, overlapNote: '対象が別' }), ctx(1))).toEqual([]);
   });
 
   it('同じ種類・同じ算定方法で期間が重なる別の施策を、重複の候補として出す', () => {
@@ -245,7 +258,8 @@ describe('STAGE6の統合計算（経路B）と二重計上', () => {
         ...over,
       }),
     );
-  const costConfirmed = () => confirmed(applyFinanceAnswers(costDraft({ startYear: 2026, endYear: 2026 }), { amountBasis: 'ANNUAL' }));
+  const costConfirmed = () =>
+    confirmed(applyFinanceAnswers(costDraft(), { amountBasis: 'ANNUAL', startYm: '2025-04', endYm: '2026-03' }));
 
   const base = outlookOf(departmentsWith());
   const baseOp = (fy: number) => yearOf(base, fy).plan.operatingIncomeYen!;
@@ -300,5 +314,57 @@ describe('STAGE6の統合計算（経路B）と二重計上', () => {
     const reloaded = normalizeFinanceEffect(JSON.parse(JSON.stringify(saved)))!;
     expect(reloaded).toMatchObject({ opIncomeIncludesAddCost: false, operatingIncomeEffectYen: 3 * M, endYm: '2026-03', confirmed: true });
     expect(outlookOf(departmentsWith({ revenue: reloaded })).unifiedPl).toEqual(outlookOf(departmentsWith({ revenue: saved })).unifiedPl);
+  });
+
+  it('実行計画の期間（2026年12月〜2027年5月）に合わせた年額の売上は、FY2027に4か月分（20）、FY2028に2か月分（10）を配分する', () => {
+    const revenue = confirmed(
+      applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2028 }), {
+        amountBasis: 'ANNUAL',
+        isIncremental: true,
+        meetingBasisConfirmed: true,
+        revenueKind: 'PAID_DEVELOPMENT',
+        startYm: '2026-12',
+        endYm: '2027-05',
+      }),
+    );
+    const trial = buildFinanceEffectTrial({ departments: departmentsWith({ revenue }), fiscalYearEnd: '3', fiscalYears: [2027, 2028] });
+    expect(trial.years.find((y) => y.fiscalYear === 2027)!.revenueYen).toBe(20 * M);
+    expect(trial.years.find((y) => y.fiscalYear === 2028)!.revenueYen).toBe(10 * M);
+  });
+
+  it('STAGE3の営業利益増分9百万円（粗利15−追加費用6）を「含む」と答えると、追加費用は二重に控除せず、営業利益は9百万円の年額どおりに配分される', () => {
+    const revenue = confirmed(
+      applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2028 }), {
+        amountBasis: 'ANNUAL',
+        isIncremental: true,
+        meetingBasisConfirmed: true,
+        revenueKind: 'PAID_DEVELOPMENT',
+        startYm: '2026-12',
+        endYm: '2027-05',
+        operatingIncomeEffectYen: 9 * M,
+        opIncomeIncludesAddCost: true,
+      }),
+    );
+    const o = outlookOf(departmentsWith({ revenue }));
+    const base27 = yearOf(base, 2027).plan.operatingIncomeYen!;
+    expect(yearOf(o, 2027).plan.operatingIncomeYen! - base27).toBe(3 * M);
+    expect(yearOf(o, 2027).effect.costIncreaseYen).toBe(0);
+  });
+});
+
+describe('実行計画の期間との整合', () => {
+  it('計画書の期間の表示を、年月の範囲にする', () => {
+    expect(periodOfLabel('2026-12 〜 2027-05')).toEqual({ startYm: '2026-12', endYm: '2027-05' });
+    expect(periodOfLabel('未設定')).toBeNull();
+    expect(periodOfLabel(undefined)).toBeNull();
+  });
+
+  it('計上期間が実行計画の期間の外にあると注意を出す（自動では変えない）', () => {
+    const plan = { startYm: '2026-12', endYm: '2027-05' };
+    const early = { ...revenueDraft({ startYear: 2027, endYear: 2027 }).base, startYm: '2026-04', endYm: '2027-03' } as FinanceEffect;
+    expect(periodOutsidePlanNote(early, plan)).toContain('実行計画の期間');
+    const inside = { ...early, startYm: '2026-12', endYm: '2027-05' } as FinanceEffect;
+    expect(periodOutsidePlanNote(inside, plan)).toBeNull();
+    expect(periodOutsidePlanNote(inside, null)).toBeNull();
   });
 });

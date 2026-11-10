@@ -56,6 +56,9 @@ async function createPlan(page) {
   }
   await page.getByText('業績への貢献（参考試算）').first().waitFor({ timeout: 10000 });
   await sleep(300);
+  const save = page.getByRole('toolbar', { name: '草案の保存' }).getByRole('button', { name: '草案として保存' });
+  if (await save.count()) await save.click();
+  await sleep(500);
 }
 
 const card = (page, label) => page.locator(`[aria-label="${label}"]`);
@@ -118,6 +121,7 @@ const stage6Text = async (page) => {
   await check('4', '営業利益増分は「含まない」（追加費用は別に差し引く）と答えると、売上の草案を保存し、確認できる', async () => {
     const c = card(page, REVENUE_CARD);
     await c.getByLabel('売上増加（参考試算の売上）の営業利益増分と追加費用').selectOption('no');
+    await c.getByLabel('売上増加（参考試算の売上）の売上の区分').selectOption('PAID_DEVELOPMENT');
     await c.getByRole('button', { name: '草案として保存' }).click();
     await page.getByText('草案として保存しました。').first().waitFor({ timeout: 5000 });
     const afterDraft = await stored(page);

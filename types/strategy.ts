@@ -629,6 +629,8 @@ export type FinanceEffect = {
   meetingBasisConfirmed?: boolean;
   /** 営業利益増分（売上増加）が、同じ案件の追加費用を差し引いた後の値か（利用者が確認。true なら追加費用を別に控除しない） */
   opIncomeIncludesAddCost?: boolean;
+  /** 売上の区分（利用者が確認）。有償開発の受注か、量産品の売上か */
+  revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION';
   /** AIの質問への回答（未回答と「まだ分からない」を区別する）。未設定の項目は既存フィールドから推定する */
   questionAnswers?: FinanceEffectQuestionAnswers;
 };
