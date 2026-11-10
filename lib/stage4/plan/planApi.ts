@@ -3,7 +3,7 @@
  * 草案（AI内容）はクライアントから受け取らない。作るのはサーバーの生成経路だけ。 */
 import { z } from 'zod';
 
-import { generatePlanDraft, type GenerateDeps } from './planGenerate';
+import { generatePlanDraft, previewPlanDraft, type GenerateDeps } from './planGenerate';
 import { TRANSITION_ACTIONS, transitionPlan } from './planTransitions';
 import {
   SAVE_FAILED,
@@ -156,6 +156,36 @@ export function createPlanApi(deps: PlanApiDeps) {
     }
   }
 
+  /* 再生成のプレビュー（POST …/preview）：保存せず、新しい案だけを返す */
+  async function preview(req: Request): Promise<Response> {
+    if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+    const auth = await withUser(req);
+    if ('error' in auth) return auth.error;
+
+    const parsed = Key.safeParse(await readJson(req));
+    if (!parsed.success) return json(400, { error: 'Invalid input' });
+    const { companyId, strategyId, projectId } = parsed.data;
+    const out = await previewPlanDraft(
+      auth.ctx,
+      { companyId, strategyId, projectId, companyName: deps.companyNameOf?.(companyId) ?? '' },
+      { ...deps.generation, now: deps.generation.now ?? now }
+    );
+    switch (out.status) {
+      case 'PREVIEW':
+        return json(200, { status: 'PREVIEW', draft: out.draft });
+      case 'NOT_FOUND':
+        return json(404, { status: 'NOT_FOUND' });
+      case 'DENIED':
+        return json(403, { status: 'DENIED' });
+      case 'INVALID':
+        return json(422, { status: 'INVALID', messages: out.messages });
+      case 'MODEL_FAILED':
+        return json(502, { status: 'MODEL_FAILED', message: out.message });
+      default:
+        return json(500, { status: 'FAILED', message: out.message });
+    }
+  }
+
   /* 採用・規制の記録・実行開始・取り消し（POST …/transition） */
   async function transition(req: Request): Promise<Response> {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -229,6 +259,7 @@ export function createPlanApi(deps: PlanApiDeps) {
   return {
     plans: (req: Request) => (deps.enabled ? plans(req) : off()),
     generate: (req: Request) => (deps.enabled ? generate(req) : off()),
+    preview: (req: Request) => (deps.enabled ? preview(req) : off()),
     transition: (req: Request) => (deps.enabled ? transition(req) : off()),
     identity: (req: Request) => (deps.enabled ? identity(req) : off()),
   };

@@ -200,6 +200,12 @@ export type GenerateResult =
   | { status: 'INVALID'; messages: string[] }
   | { status: 'MODEL_FAILED'; message: string };
 
+export type PreviewResult =
+  | { status: 'PREVIEW'; draft: Record<string, unknown> }
+  | { status: 'DISABLED' | 'NOT_FOUND' | 'DENIED' | 'FAILED' }
+  | { status: 'INVALID'; messages: string[] }
+  | { status: 'MODEL_FAILED'; message: string };
+
 export type TransitionResult =
   | { status: 'OK'; record: PlanDocRecord }
   | { status: 'CONFLICT'; current: PlanDocRecord }
@@ -220,6 +226,20 @@ export function createRemotePlanOps(o: ApiOptions) {
         return { status: body.status as 'CREATED' | 'EXISTS', record: body.record as PlanDocRecord };
       }
       if (r.status === 409) return { status: 'IN_PROGRESS' };
+      if (r.status === 422) return { status: 'INVALID', messages: (body.messages as string[]) ?? [] };
+      if (r.status === 502) return { status: 'MODEL_FAILED', message: String(body.message ?? '') };
+      if (r.status === 503) return { status: 'DISABLED' };
+      if (r.status === 404) return { status: 'NOT_FOUND' };
+      if (r.status === 403) return { status: 'DENIED' };
+      return { status: 'FAILED' };
+    },
+
+    /* 再生成のプレビュー。保存はされない。結果の案は、画面の中だけで比べる */
+    async preview(key: PlanDocKey): Promise<PreviewResult> {
+      const r = await request(o, 'POST', '/api/stage4/plan-documents/preview', key);
+      if (!r) return { status: 'FAILED' };
+      const body = r.json as Record<string, unknown>;
+      if (r.status === 200 && body.status === 'PREVIEW') return { status: 'PREVIEW', draft: body.draft as Record<string, unknown> };
       if (r.status === 422) return { status: 'INVALID', messages: (body.messages as string[]) ?? [] };
       if (r.status === 502) return { status: 'MODEL_FAILED', message: String(body.message ?? '') };
       if (r.status === 503) return { status: 'DISABLED' };

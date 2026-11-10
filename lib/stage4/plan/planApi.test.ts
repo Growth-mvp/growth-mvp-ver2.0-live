@@ -275,3 +275,50 @@ describe('保存テーブルが無い環境（本番の未導入）', () => {
     expect((await res.json()).status).toBe('NONE');
   });
 });
+
+describe('再生成のプレビュー（POST …/preview）', () => {
+  const previewReq = () => req('POST', 'plan-documents/preview', { ...key, projectId: 'fict-proj-renewal' });
+  const writes = () => {
+    const calls = { n: 0 };
+    const count = async () => {
+      calls.n += 1;
+      return ok(null as never);
+    };
+    return {
+      calls,
+      g: gateway({
+        claimGeneration: count as never,
+        completeGeneration: count as never,
+        failGeneration: count as never,
+        updatePlan: count as never,
+      }),
+    };
+  };
+  const mockModelFor = async (raw: never) => {
+    const { createMockModel } = await import('./mockGenerate');
+    const m = createMockModel(raw);
+    return async (prompt: string) => m(prompt);
+  };
+
+  it('無効なら 503（既定では使わない）', async () => {
+    const res = await api(gateway(), { enabled: false }).preview(previewReq());
+    expect(res.status).toBe(503);
+  });
+
+  it('新しい案を 200 PREVIEW で返し、保存（権利・完了・失敗・更新）は一切しない', async () => {
+    const w = writes();
+    const res = await api(w.g, {
+      generation: { currentYm: () => '2026-11', mapStrategy: (row) => row as never, modelFor: mockModelFor as never },
+    }).preview(previewReq());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe('PREVIEW');
+    expect(body.draft.generatedBy).toBe('SERVER');
+    expect(w.calls.n).toBe(0);
+  });
+
+  it('入力が正しくなければ 400', async () => {
+    const res = await api(gateway()).preview(req('POST', 'plan-documents/preview', { companyId: CO }));
+    expect(res.status).toBe(400);
+  });
+});

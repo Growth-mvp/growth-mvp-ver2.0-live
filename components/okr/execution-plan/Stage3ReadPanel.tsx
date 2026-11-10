@@ -41,6 +41,8 @@ import StartConfirmation from './StartConfirmation';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import { applyPreview, comparePreview, type PreviewEdits } from '@/lib/stage4/planView/regenPreview';
+import { RegenPanel, type RegenState } from './RegenPanel';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import {
   EVENT_LABEL,
@@ -318,6 +320,59 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
   const updatePlan = (id: string, fn: (p: ProjectPlanState) => ProjectPlanState) =>
     updateEntry(id, (e) => ({ ...e, plan: fn(e.plan) }));
 
+  /* AIでもう一度作る：新しい案を保存せずに取り、現在の計画書と比べる。反映は画面の修正として入るだけ（保存は既存の操作） */
+  const [regen, setRegen] = useState<Record<string, RegenState>>({});
+  const regenStart = async (sel: Stage3Selection) => {
+    const id = selectionKey(sel);
+    const entry = entries[id];
+    const key = keyOf(sel);
+    if (!ops || !entry || !key || !entry.stored) return;
+    setRegen((p) => ({ ...p, [id]: { status: 'BUSY' } }));
+    const out = await ops.preview(key);
+    if (out.status === 'PREVIEW') {
+      const rows = comparePreview({ currentBundle: entry.aiDraft, committed: entry.plan.committed as PreviewEdits, newBundle: out.draft });
+      return setRegen((p) => ({ ...p, [id]: { status: 'READY', rows, selected: [] } }));
+    }
+    const message =
+      out.status === 'INVALID'
+        ? `新しい案を作れませんでした：${out.messages.join('、')}`
+        : out.status === 'MODEL_FAILED'
+          ? out.message
+          : out.status === 'DISABLED'
+            ? '新しい案の作成は現在利用できません。'
+            : out.status === 'DENIED'
+              ? 'この計画を作り直す権限がありません。'
+              : '新しい案を作れませんでした。現在の計画書はそのままです。';
+    setRegen((p) => ({ ...p, [id]: { status: 'FAILED', message } }));
+  };
+  const regenToggle = (id: string, itemId: string) =>
+    setRegen((p) => {
+      const s = p[id];
+      if (!s || s.status !== 'READY') return p;
+      const selected = s.selected.includes(itemId) ? s.selected.filter((x) => x !== itemId) : [...s.selected, itemId];
+      return { ...p, [id]: { ...s, selected } };
+    });
+  const regenApply = (id: string) => {
+    const s = regen[id];
+    if (!s || s.status !== 'READY') return;
+    updatePlan(id, (p) => ({
+      ...p,
+      committed: applyPreview(p.committed as PreviewEdits, s.rows, s.selected) as typeof p.committed,
+      notice: '新しい案の内容を反映しました（未保存）。確認して「草案として保存」を押してください。',
+    }));
+    setRegen((p) => {
+      const next = { ...p };
+      delete next[id];
+      return next;
+    });
+  };
+  const regenCancel = (id: string) =>
+    setRegen((p) => {
+      const next = { ...p };
+      delete next[id];
+      return next;
+    });
+
   /* 保存：IDのないプロジェクトは、ここで一度だけ既存の戦略保存（競合制御つき）で ID を付ける */
   const save = async (sel: Stage3Selection) => {
     const id = selectionKey(sel);
@@ -463,6 +518,11 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
             onResolve={() => saveResolved(sel)}
             onPlan={(fn) => id && updatePlan(id, fn)}
             onView={(v) => id && updateEntry(id, (e) => ({ ...e, view: v }))}
+            regen={id ? regen[id] : undefined}
+            onRegenStart={() => sel && regenStart(sel)}
+            onRegenToggle={(itemId) => id && regenToggle(id, itemId)}
+            onRegenApply={() => id && regenApply(id)}
+            onRegenCancel={() => id && regenCancel(id)}
             remote={ops !== null}
             onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
             version={entry?.stored && entry.save.status !== 'CONFLICT' ? entry.stored.version : null}
@@ -502,6 +562,11 @@ function ReadOnlyProject({
   remote,
   onTransition,
   impactEstimate,
+  regen,
+  onRegenStart,
+  onRegenToggle,
+  onRegenApply,
+  onRegenCancel,
 }: {
   view: Extract<Stage3ReadView, { status: 'READY' }>;
   companyLabel: string;
@@ -521,6 +586,11 @@ function ReadOnlyProject({
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
   impactEstimate: ImpactEstimate | null;
+  regen: RegenState | undefined;
+  onRegenStart: () => void;
+  onRegenToggle: (itemId: string) => void;
+  onRegenApply: () => void;
+  onRegenCancel: () => void;
 }) {
   const loadPending = stableId && (load === undefined || load.status === 'LOADING');
   const m = view.model;
@@ -730,6 +800,17 @@ function ReadOnlyProject({
                   草案として保存
                 </button>
               </div>
+              {remote && entry.plan.mode === 'read' && !entry.plan.adopted && !entry.plan.started && (
+                <div className="plan-regen">
+                  {regen ? (
+                    <RegenPanel state={regen} onToggle={onRegenToggle} onApply={onRegenApply} onCancel={onRegenCancel} />
+                  ) : (
+                    <button type="button" className="plan-btn-quiet" onClick={onRegenStart}>
+                      AIでもう一度作る
+                    </button>
+                  )}
+                </div>
+              )}
               <PlanDocument
                 bundle={entry.aiDraft}
                 mode={entry.plan.mode}

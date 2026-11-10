@@ -1,6 +1,6 @@
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { createMockModel } from './mockGenerate';
-import { generatePlanDraft, type GenerateDeps } from './planGenerate';
+import { generatePlanDraft, previewPlanDraft, type GenerateDeps } from './planGenerate';
 import type { GatewayResult, PlanGateway, ServiceContext } from './planService';
 import type { PlanDocRecord } from './planDocumentStore';
 import type { RawPlanStrategy } from './source';
@@ -161,5 +161,47 @@ describe('実行計画書の生成（サーバーの経路）', () => {
     const out = await generatePlanDraft(ctxOf(t.g), args, deps());
     expect(out.status).toBe('INVALID');
     expect(t.calls.claim).toBe(0);
+  });
+});
+
+describe('再生成のプレビュー（保存しない）', () => {
+  it('新しい案を返すが、権利も取らず、何も書かない（既存の草案は変えない）', async () => {
+    const t = gateway({ claim: { existing: rec('DRAFT') } });
+    const out = await previewPlanDraft(ctxOf(t.g), args, deps());
+    expect(out.status).toBe('PREVIEW');
+    if (out.status === 'PREVIEW') expect(out.draft.generatedBy).toBe('SERVER');
+    expect(t.calls.claim).toBe(0);
+    expect(t.calls.complete).toBe(0);
+    expect(t.calls.fail).toBe(0);
+  });
+
+  it('モデルが失敗しても、保存された計画書の状態は変えない（失敗の記録もしない）', async () => {
+    const t = gateway({ claim: { existing: rec('DRAFT') } });
+    const out = await previewPlanDraft(
+      ctxOf(t.g),
+      args,
+      deps({ modelFor: async () => async () => { throw new Error('boom'); } })
+    );
+    expect(out.status).toBe('MODEL_FAILED');
+    expect(t.calls.fail).toBe(0);
+    expect(t.calls.complete).toBe(0);
+  });
+
+  it('モデルの出力が検証できなければ、理由だけを返し、何も書かない', async () => {
+    const t = gateway();
+    const out = await previewPlanDraft(
+      ctxOf(t.g),
+      args,
+      deps({ modelFor: async () => async () => ({ text: '{}', finishReason: 'stop', model: 'x' }) })
+    );
+    expect(out.status).toBe('INVALID');
+    expect(t.calls.claim).toBe(0);
+    expect(t.calls.fail).toBe(0);
+  });
+
+  it('所属していなければ DENIED（AIも呼ばない）', async () => {
+    const t = gateway({ role: null });
+    const out = await previewPlanDraft(ctxOf(t.g), args, deps({ modelFor: async () => { throw new Error('not called'); } }));
+    expect(out.status).toBe('DENIED');
   });
 });
