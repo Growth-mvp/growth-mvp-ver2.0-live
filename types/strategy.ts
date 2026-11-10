@@ -627,6 +627,8 @@ export type FinanceEffect = {
   isIncremental?: boolean;
   /** AI提案の「対象顧客数」を商談数として扱ってよいか（利用者が確認） */
   meetingBasisConfirmed?: boolean;
+  /** 営業利益増分（売上増加）が、同じ案件の追加費用を差し引いた後の値か（利用者が確認。true なら追加費用を別に控除しない） */
+  opIncomeIncludesAddCost?: boolean;
   /** AIの質問への回答（未回答と「まだ分からない」を区別する）。未設定の項目は既存フィールドから推定する */
   questionAnswers?: FinanceEffectQuestionAnswers;
 };

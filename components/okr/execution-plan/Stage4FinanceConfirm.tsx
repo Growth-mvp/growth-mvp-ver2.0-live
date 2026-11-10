@@ -4,6 +4,7 @@ import { FINANCE_EFFECT_BASIS_LABEL } from '@/lib/financeEffect';
 import {
   applyFinanceAnswers,
   confirmBlockers,
+  type ConfirmContext,
   type FinanceAnswers,
   type FinanceEffectDraft,
   type FinanceWriteAction,
@@ -32,13 +33,13 @@ function statusOf(saved: FinanceEffect | undefined): string {
 function DraftCard({
   draft,
   saved,
-  overlapCount,
+  ctx,
   writable,
   onWrite,
 }: {
   draft: FinanceEffectDraft;
   saved: FinanceEffect | undefined;
-  overlapCount: number;
+  ctx: ConfirmContext;
   writable: boolean;
   onWrite: (candidate: FinanceEffect, action: FinanceWriteAction) => Promise<FinanceWriteResult>;
 }) {
@@ -49,7 +50,8 @@ function DraftCard({
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const candidate = applyFinanceAnswers(draft, answers);
-  const blockers = confirmBlockers(candidate, overlapCount);
+  const blockers = confirmBlockers(candidate, ctx);
+  const overlapCount = ctx.overlapCount;
   const isRevenue = draft.kind === 'REVENUE_UP';
   const aiSource = draft.base.source === 'AI_PROPOSED';
   const locked = saved?.confirmed === true;
@@ -95,7 +97,7 @@ function DraftCard({
         />
       </label>
       <label>
-        終了年月（任意）
+        終了年月（一回限り以外は必須。未入力だと後の年度まで計上されます）
         <input
           type="month"
           aria-label={`${draft.label}の終了年月`}
@@ -144,6 +146,26 @@ function DraftCard({
           />
         </label>
       )}
+      {isRevenue && answers.operatingIncomeEffectYen !== undefined && ctx.hasCostEffect && (
+        <label>
+          営業利益増分は、同じ案件の追加費用を差し引いた後の値ですか（STAGE3の本文には、追加費用を差し引いた営業利益増分として書かれている例もあります）
+          <select
+            aria-label={`${draft.label}の営業利益増分と追加費用`}
+            value={answers.opIncomeIncludesAddCost === undefined ? '' : answers.opIncomeIncludesAddCost ? 'yes' : 'no'}
+            disabled={!writable || locked}
+            onChange={(e) =>
+              setAnswers((a) => ({
+                ...a,
+                opIncomeIncludesAddCost: e.target.value === '' ? undefined : e.target.value === 'yes',
+              }))
+            }
+          >
+            <option value="">未回答</option>
+            <option value="yes">含む（追加費用を差し引いた後。追加費用は別に差し引かない）</option>
+            <option value="no">含まない（追加費用は別に差し引く）</option>
+          </select>
+        </label>
+      )}
       {overlapCount > 0 && (
         <label>
           同じ効果の可能性がある他の施策（{overlapCount}件）について、重複していない理由
@@ -189,6 +211,15 @@ export function Stage4FinanceConfirm({
   reasonNotWritable?: string;
   onWrite: (candidate: FinanceEffect, action: FinanceWriteAction) => Promise<FinanceWriteResult>;
 }) {
+  const revenueSaved = saved.find((e) => e.kind === 'REVENUE_UP');
+  const costSaved = saved.find((e) => e.kind === 'COST_INCREASE');
+  const ctx: ConfirmContext = {
+    overlapCount,
+    hasCostEffect: drafts.some((d) => d.kind === 'COST_INCREASE') || !!costSaved,
+    costConfirmed: costSaved?.confirmed === true,
+    revenueOpIncludesAddCost:
+      revenueSaved?.opIncomeIncludesAddCost === true && typeof revenueSaved.operatingIncomeEffectYen === 'number',
+  };
   return (
     <section aria-labelledby="stage4-finance-confirm" className="plan-impact-estimate">
       <h3 id="stage4-finance-confirm" className="plan-h3">
@@ -204,7 +235,7 @@ export function Stage4FinanceConfirm({
           key={`${draft.kind}|${JSON.stringify(draft.base)}`}
           draft={draft}
           saved={saved.find((e) => e.kind === draft.kind)}
-          overlapCount={overlapCount}
+          ctx={ctx}
           writable={writable}
           onWrite={onWrite}
         />

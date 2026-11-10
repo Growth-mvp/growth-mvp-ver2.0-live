@@ -167,6 +167,20 @@ function html(title, bundleName) {
   fs.writeFileSync(path.join(outDir, 'flow-exec.html'), html('STAGE5 実行画面 流れの検証', 'flow-exec-bundle.js'));
   await esbuild.build({
     ...COMMON,
+    entryPoints: [path.join(__dirname, 'finance-flow-entry.tsx')],
+    outfile: path.join(outDir, 'finance-flow-bundle.js'),
+    plugins: [stubPlugin(FLOW_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'finance-flow.html'), html('STAGE4 第5章の財務効果 流れの検証', 'finance-flow-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'finance-stage6-entry.tsx')],
+    outfile: path.join(outDir, 'finance-stage6-bundle.js'),
+    plugins: [stubPlugin(FLOW_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'finance-stage6.html'), html('STAGE6 財務計画（経路B）の流れの検証', 'finance-stage6-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
     entryPoints: [path.join(__dirname, 'shell-entry.tsx')],
     outfile: path.join(outDir, 'shell-bundle.js'),
     plugins: [stubPlugin(SHELL_STUB_MAP)],

@@ -23,7 +23,16 @@ export type FinanceAnswers = {
   meetingBasisConfirmed?: boolean;
   isIncremental?: boolean;
   operatingIncomeEffectYen?: number;
+  opIncomeIncludesAddCost?: boolean;
   overlapNote?: string;
+};
+
+/** 確認の判定に使う、同じ案件の他の効果の状態 */
+export type ConfirmContext = {
+  overlapCount: number;
+  hasCostEffect: boolean;
+  costConfirmed: boolean;
+  revenueOpIncludesAddCost: boolean;
 };
 
 export type FinanceWriteAction = 'SAVE_DRAFT' | 'CONFIRM';
@@ -120,17 +129,39 @@ export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceA
     if (typeof answers.operatingIncomeEffectYen === 'number' && Number.isFinite(answers.operatingIncomeEffectYen)) {
       e.operatingIncomeEffectYen = answers.operatingIncomeEffectYen;
     }
+    if (answers.opIncomeIncludesAddCost !== undefined && e.operatingIncomeEffectYen !== undefined) {
+      e.opIncomeIncludesAddCost = answers.opIncomeIncludesAddCost;
+    }
   }
   if (answers.overlapNote?.trim()) e.overlapNote = answers.overlapNote.trim();
   return e;
 }
 
-/** 確認できない理由（空なら確認できる）。重複の可能性がある効果は、利用者の説明がないと保留する */
-export function confirmBlockers(effect: FinanceEffect, overlapCount: number): string[] {
+/**
+ * 確認できない理由（空なら確認できる）。
+ * - 計上の終了年月が無い年額・月額は、後の年度まで両年度に計上されるため、終了年月の確認を要する
+ * - 営業利益増分は、同じ案件の追加費用を差し引いた後かどうかが決まるまで確認しない（二重控除を防ぐ）
+ * - 重複の可能性がある効果は、利用者の説明がないと保留する
+ */
+export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): string[] {
   const reasons = candidateChecks(effect)
     .filter((c) => c.blocking && !c.done)
     .map((c) => `${c.label}が未確認`);
-  if (overlapCount > 0 && !effect.overlapNote?.trim()) {
+  if (effect.amountBasis !== 'TOTAL' && !effect.endYm) {
+    reasons.push('計上の終了年月（未入力だと、後の年度まで計上されます）が未確認');
+  }
+  if (effect.kind === 'REVENUE_UP' && effect.operatingIncomeEffectYen !== undefined) {
+    if (ctx.hasCostEffect && effect.opIncomeIncludesAddCost === undefined) {
+      reasons.push('営業利益増分が、同じ案件の追加費用を差し引いた後の値か（含む／含まない）が未確認');
+    }
+    if (effect.opIncomeIncludesAddCost === true && ctx.costConfirmed) {
+      reasons.push('追加費用は確定済みのため、営業利益増分は追加費用を差し引く前の値に直してください');
+    }
+  }
+  if (effect.kind === 'COST_INCREASE' && ctx.revenueOpIncludesAddCost) {
+    reasons.push('売上増加の営業利益増分に追加費用が含まれているため、この追加費用は別に確定しません');
+  }
+  if (ctx.overlapCount > 0 && !effect.overlapNote?.trim()) {
     reasons.push('同じ効果の可能性がある他の施策について、重複していない理由を入力する（重複が判定できないため保留）');
   }
   return reasons;
