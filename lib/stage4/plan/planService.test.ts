@@ -79,6 +79,13 @@ describe('草案の読み込み', () => {
   it('草案が無ければ NONE', async () => {
     expect(await loadPlan(ctx(fakeGateway()), KEY)).toEqual({ status: 'NONE' });
   });
+
+  it('生成に失敗した、または作成中の行は、草案ではないので NONE（作り直せるように）', async () => {
+    for (const status of ['GENERATION_FAILED', 'GENERATING'] as const) {
+      const g = fakeGateway({ findPlan: async () => ({ ok: true, value: rec(1, status) }) });
+      expect(await loadPlan(ctx(g), KEY)).toEqual({ status: 'NONE' });
+    }
+  });
 });
 
 describe('修正の保存（採用や開始の状態は変えられない）', () => {

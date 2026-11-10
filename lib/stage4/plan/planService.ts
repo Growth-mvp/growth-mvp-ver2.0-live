@@ -83,7 +83,7 @@ export async function loadPlan(ctx: ServiceContext, key: PlanDocKey): Promise<Lo
   if (access === 'FAILED') return { status: 'FAILED', message: FAILED_READ };
   const r = await ctx.gateway.findPlan(key);
   if (!r.ok) return { status: 'FAILED', message: FAILED_READ };
-  if (!r.value) return { status: 'NONE' };
+  if (!r.value || (r.value.status ?? 'DRAFT') !== 'DRAFT') return { status: 'NONE' };
   const events = await ctx.gateway.listEvents(key);
   return { status: 'FOUND', record: { ...r.value, events: events.ok ? events.value : [] } };
 }
