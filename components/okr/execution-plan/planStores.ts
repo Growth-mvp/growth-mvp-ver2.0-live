@@ -14,7 +14,7 @@ import {
   type PlanStoreKind,
   type ProjectView,
 } from '@/lib/stage4/plan/planClient';
-import { isLocalStage4DocumentScreen } from '@/lib/stage4/plan/localScreen';
+import { isStage4DocumentScreenEnabled } from '@/lib/stage4/plan/documentScreenFlag';
 import { safeGetSession } from '@/utils/supabase/client';
 
 import { devPlanDocumentStore } from './devPlanStore';
@@ -23,7 +23,7 @@ const overrideOf = <T,>(key: string): T | undefined =>
   typeof window === 'undefined' ? undefined : ((window as unknown as Record<string, unknown>)[key] as T | undefined);
 
 export function currentPlanStoreKind(): PlanStoreKind {
-  if (isLocalStage4DocumentScreen()) return 'remote';
+  if (isStage4DocumentScreenEnabled()) return 'remote';
   const search = typeof window === 'undefined' ? '' : window.location.search;
   return planStoreKindFrom(search, process.env.NEXT_PUBLIC_STAGE4_PLAN_STORE);
 }

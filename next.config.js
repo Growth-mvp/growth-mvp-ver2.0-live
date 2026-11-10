@@ -13,7 +13,7 @@ const localConnectSrc = localSupabaseOrigin
   ? ` ${localSupabaseOrigin} ${localSupabaseOrigin.replace(/^http/, 'ws')}`
   : '';
 
-const localStage4DocumentScreen = process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_STAGE4_DOCUMENT_SCREEN === 'true';
+const stage4DocumentScreen = process.env.NEXT_PUBLIC_STAGE4_DOCUMENT_SCREEN === 'true';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -39,8 +39,8 @@ const nextConfig = {
         destination: '/report',
         permanent: false,
       },
-      // ローカルで新STAGE4を通常画面にする間は、旧STAGE4の入力フォームへの直接アクセスを新画面へ送る
-      ...(localStage4DocumentScreen ? [{ source: '/stage4', destination: '/okr', permanent: false }] : []),
+      // 新STAGE4を通常画面にしている間は、旧STAGE4の入力フォームへの直接アクセスを新画面へ送る
+      ...(stage4DocumentScreen ? [{ source: '/stage4', destination: '/okr', permanent: false }] : []),
     ];
   },
 

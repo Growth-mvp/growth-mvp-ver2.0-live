@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { currentPlanStoreKind, planStoreFor } from '@/components/okr/execution-plan/planStores';
+import { isStage4DocumentScreenEnabled } from '@/lib/stage4/plan/documentScreenFlag';
 import type { PlanStoreKind } from '@/lib/stage4/plan/planClient';
 import type { PlanDocActor, PlanDocKey } from '@/lib/stage4/plan/planDocumentStore';
 import { loadStartedPlans, type StartedPlanView } from '@/lib/stage5/startedPlans';
@@ -59,7 +60,7 @@ export function StartedPlansPanel() {
   useEffect(() => setKind(currentPlanStoreKind()), []);
 
   useEffect(() => {
-    if (kind !== 'remote' || !companyId || !strategyId || !userId || !role) {
+    if (kind !== 'remote' || !isStage4DocumentScreenEnabled() || !companyId || !strategyId || !userId || !role) {
       setLoaded(null);
       return;
     }
@@ -87,7 +88,7 @@ export function StartedPlansPanel() {
     };
   }, [kind, itemsJson, companyId, strategyId, userId, role]);
 
-  if (kind !== 'remote') return null;
+  if (kind !== 'remote' || !isStage4DocumentScreenEnabled()) return null;
   if (!companyId || !strategyId) return null;
   if (loaded?.disabled) return null;
   if (loaded && 'unavailable' in loaded) {

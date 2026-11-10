@@ -74,7 +74,7 @@ import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
 import { FinanceEffectSection } from '@/components/okr/FinanceEffectSection';
 import { FinancialDialoguePanel } from '@/components/okr/FinancialDialoguePanel';
 import { buildExecutionCompanyContext } from '@/lib/stage4/companyContext';
-import { isLocalStage4DocumentScreen } from '@/lib/stage4/plan/localScreen';
+import { isStage4DocumentScreenEnabled } from '@/lib/stage4/plan/documentScreenFlag';
 import { ASSUMPTION_BASIS_LABEL, CAUSAL_LABEL, type AssumptionBasis } from '@/lib/stage4/draftPromptSections';
 import { provenanceAfterEdit, provenanceAfterPreset, provenanceConfirm, reasoningFromDraft } from '@/lib/stage4/provenance';
 import { SavedReasoningSection } from '@/components/okr/SavedReasoningSection';
@@ -154,8 +154,8 @@ const DevPlanDocument =
     ? null
     : lazy(() => import('@/components/okr/execution-plan/DevPlanDocument'));
 
-/* ローカル開発で新STAGE4を通常のSTAGE4として表示する（isLocalStage4DocumentScreen が真のときだけ使う） */
-const Stage4DocumentScreen = isLocalStage4DocumentScreen()
+/* 公開フラグ（NEXT_PUBLIC_STAGE4_DOCUMENT_SCREEN=true）のときだけ、新STAGE4を通常のSTAGE4として表示する */
+const Stage4DocumentScreen = isStage4DocumentScreenEnabled()
   ? lazy(() => import('@/components/okr/execution-plan/Stage4DocumentScreen'))
   : null;
 
@@ -5513,7 +5513,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
   /* ============================================================
    * return: SIMPLE_FORM フラグで表示を切り替え
    * ========================================================== */
-  if (Stage4DocumentScreen && isLocalStage4DocumentScreen()) {
+  if (Stage4DocumentScreen && isStage4DocumentScreenEnabled()) {
     return (
       <main className="min-h-screen bg-zinc-50">
         <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
