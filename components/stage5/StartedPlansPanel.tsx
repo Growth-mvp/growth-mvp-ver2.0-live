@@ -1,14 +1,17 @@
 'use client';
 
-/* STAGE5 の実行計画（STAGE4で実行開始済みのもの）を読み取り専用で表示する。
- * 書き込みはしない。プロジェクトIDで照合し、IDが重複しているプロジェクトの計画は表示しない。 */
+/* STAGE5 の実行計画（STAGE4で実行開始済みのもの）を表示する。計画の内容は変えない。
+ * 実施事項の進捗・成果・紐づくKRだけを記録する。プロジェクトIDで照合し、IDが重複しているプロジェクトの計画は表示しない。 */
 import { useEffect, useMemo, useState } from 'react';
 
 import { currentPlanStoreKind, planStoreFor } from '@/components/okr/execution-plan/planStores';
 import { isStage4DocumentScreenEnabled } from '@/lib/stage4/plan/documentScreenFlag';
 import type { PlanStoreKind } from '@/lib/stage4/plan/planClient';
 import type { PlanDocActor, PlanDocKey } from '@/lib/stage4/plan/planDocumentStore';
+import { findProjectPositionById } from '@/lib/stage4/planView/financeBridgeStore';
+import { progressOf, type ActionProgressRecord } from '@/lib/stage5/actionProgress';
 import { loadStartedPlans, type StartedPlanView } from '@/lib/stage5/startedPlans';
+import { ActionProgressEditor, type LinkableKr } from '@/components/stage5/ActionProgressEditor';
 import { effectiveProjectId, findDuplicateProjectIds } from '@/lib/strategy/projectIds';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
@@ -26,6 +29,27 @@ const dateText = (iso: string) => {
   const d = new Date(iso);
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString('ja-JP') : '';
 };
+
+function progressFor(departments: unknown, projectId: string): { progress: Record<string, ActionProgressRecord>; krs: LinkableKr[] } {
+  const found = findProjectPositionById(departments, projectId);
+  const project = found?.project as Record<string, unknown> | undefined;
+  const okrs = Array.isArray(project?.okrsV2) ? (project?.okrsV2 as Array<Record<string, unknown>>) : [];
+  const krs: LinkableKr[] = okrs
+    .filter((k) => typeof k.id === 'string' && k.id !== '')
+    .map((k) => {
+      const actual = k.actual as { value?: unknown; asOf?: unknown } | undefined;
+      return {
+        id: k.id as string,
+        label: typeof k.label === 'string' ? k.label : '',
+        target: typeof k.target === 'number' && Number.isFinite(k.target) ? k.target : null,
+        unit: typeof k.unit === 'string' ? k.unit : '',
+        due: typeof k.due === 'string' ? k.due : null,
+        actual: typeof actual?.value === 'number' ? actual.value : null,
+        asOf: typeof actual?.asOf === 'string' ? actual.asOf : null,
+      };
+    });
+  return { progress: progressOf(project), krs };
+}
 
 export function StartedPlansPanel() {
   const companyId = useStrategyStore((st) => (st as unknown as { companyId?: string }).companyId ?? '');
@@ -105,7 +129,7 @@ export function StartedPlansPanel() {
     <section aria-label="実行計画" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <header className="mb-3">
         <h2 className="text-lg font-semibold text-slate-800">実行計画（STAGE4・実行開始済み）</h2>
-        <p className="text-xs text-slate-500">読み取り専用です。この画面から計画や進捗・実績は変更しません。</p>
+        <p className="text-xs text-slate-500">計画は読み取り専用です。この画面では実施事項の進捗・成果・紐づくKRを記録できます。</p>
       </header>
 
       {ready === null && <p className="text-sm text-slate-500">読み込み中…</p>}
@@ -167,20 +191,17 @@ export function StartedPlansPanel() {
               </table>
             </div>
 
-            <h4 className="mt-3 text-sm font-semibold text-slate-700">実施事項</h4>
-            <ol className="mt-1 space-y-1 text-sm text-slate-700">
-              {v.actions.map((a) => (
-                <li key={a.no}>
-                  <span className="font-medium">{a.no}. {a.title}</span>
-                  {a.content && <span className="block text-xs text-slate-600">{a.content}</span>}
-                  <span className="block text-xs text-slate-500">
-                    期限：{a.due}　担当：{a.owner}
-                  </span>
-                  {a.deliverable && <span className="block text-xs text-slate-600">成果物：{a.deliverable}</span>}
-                  {a.exitCondition && <span className="block text-xs text-slate-600">次に進める条件：{a.exitCondition}</span>}
-                </li>
-              ))}
-            </ol>
+            <h4 className="mt-3 text-sm font-semibold text-slate-700">実施事項と進捗</h4>
+            <ActionProgressEditor
+              companyId={v.key.companyId}
+              strategyId={v.key.strategyId}
+              projectId={v.key.projectId}
+              userId={userId}
+              actions={v.actions}
+              allowedKeys={v.actions.map((a) => a.actionKey).filter((k) => k !== '')}
+              progress={progressFor(departments, v.key.projectId).progress}
+              krs={progressFor(departments, v.key.projectId).krs}
+            />
           </article>
         ))}
       </div>

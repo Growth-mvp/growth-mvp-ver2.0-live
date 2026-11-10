@@ -3,10 +3,13 @@
  * 未確認の財務効果は、STAGE5には出さない（確定値として扱わない）。 */
 import { buildDocModel, type Edits } from '@/lib/stage4/planView/documentModel';
 import type { LoadOutcome, PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
+import { actionKeysFor } from './actionProgress';
 
 export type StartedPlanKpi = { label: string; target: string; due: string; owner: string; confirmed: boolean; statusLabel: string };
 export type StartedPlanAction = {
   no: number;
+  /** 実施事項の安定キー（開始日時と、開始時点のAI草案の行動から作る。並び替えや修正で変わらない） */
+  actionKey: string;
   title: string;
   content: string;
   due: string;
@@ -41,6 +44,7 @@ export function startedPlanView(args: {
   if (!sameKey(record.key, args.expected)) return null;
 
   const doc = buildDocModel(record.aiDraft, record.userEdits as Edits);
+  const keyByOrder = new Map(actionKeysFor(record.startInfo.at, record.aiDraft).map((x) => [x.order, x.key]));
   return {
     key: args.expected,
     departmentName: args.departmentName,
@@ -64,6 +68,7 @@ export function startedPlanView(args: {
     })),
     actions: doc.actions.map((a) => ({
       no: a.no,
+      actionKey: keyByOrder.get(a.no) ?? '',
       title: a.title,
       content: a.content,
       due: a.due,

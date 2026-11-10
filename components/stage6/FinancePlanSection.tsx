@@ -31,6 +31,7 @@ import { FinanceSummary } from './FinanceSummary';
 import { FinanceOutlookCharts } from './FinanceOutlookCharts';
 import { FinanceEffectProjectList } from './FinanceEffectProjectList';
 import Stage4ScenarioPanel from './Stage4ScenarioPanel';
+import { KrPlanActualPanel } from './KrPlanActualPanel';
 import { buildOutlookCharts } from './financeOutlookChartModel';
 import { FundingDemandSection } from './FundingDemandSection';
 import { BaseScenarioPanel } from './BaseScenarioPanel';
@@ -463,6 +464,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
             {companyId && strategyId && (
               <Stage4ScenarioPanel companyId={companyId} strategyId={strategyId} departments={departments} />
             )}
+            <KrPlanActualPanel departments={departments} />
           </div>
         )}
 
