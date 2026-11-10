@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next-stage4-local/
 /out/
 
 # production

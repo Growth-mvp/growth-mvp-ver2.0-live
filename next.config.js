@@ -17,6 +17,9 @@ const localStage4DocumentScreen = process.env.NODE_ENV !== 'production' && proce
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // 新STAGE4用の開発サーバーは出力先を分け、既存の開発サーバーと .next を共有しない
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
   // ✅ ビルド中はESLintエラーを無視（公開を優先）
   eslint: { ignoreDuringBuilds: true },
 

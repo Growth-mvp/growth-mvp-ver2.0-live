@@ -57,6 +57,7 @@ const env = {
   OPENAI_API_KEY: 'local-mock-not-used',
   NEXT_PUBLIC_STAGE4_DOCUMENT_SCREEN: 'true',
   NEXT_PUBLIC_STAGE4_PLAN_STORE: 'remote',
+  NEXT_DIST_DIR: '.next-stage4-local',
 };
 
 console.log('新STAGE4（ローカル）を起動します: http://localhost:3000/okr');
