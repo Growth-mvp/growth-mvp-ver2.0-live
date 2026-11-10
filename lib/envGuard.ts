@@ -66,9 +66,26 @@ export function supabaseRefFromUrl(url: string | undefined): string | null {
   }
 }
 
+/** 開発環境で、自分のマシン上のローカルSupabaseだけを指す（本番へは届かない）URL */
+function isLoopbackUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+  } catch {
+    return false;
+  }
+}
+
 export function checkSupabaseTarget(input: SupabaseTargetInput): SupabaseTargetResult {
   if (!input.appEnv || !(APP_ENVS as readonly string[]).includes(input.appEnv)) {
     return { ok: false, reason: 'invalid_app_env' };
+  }
+
+  if (input.appEnv === 'development' && input.urls.every((u) => isLoopbackUrl(u.value))) {
+    if (!input.productionRef) return { ok: false, reason: 'missing_production_ref' };
+    if (!input.expectedRef) return { ok: false, reason: 'missing_expected_ref' };
+    return { ok: true, ref: 'local' };
   }
 
   const refs: { name: string; ref: string }[] = [];

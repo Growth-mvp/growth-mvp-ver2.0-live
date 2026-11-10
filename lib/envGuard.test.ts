@@ -50,6 +50,34 @@ describe('supabaseRefFromUrl', () => {
   });
 });
 
+describe('checkSupabaseTarget（開発環境のローカルSupabase）', () => {
+  const localUrl = 'http://127.0.0.1:55421';
+  const localInput = (over: Partial<{ appEnv: string; urls: ReturnType<typeof both>; expectedRef: string; productionRef: string }> = {}) => ({
+    appEnv: 'development',
+    urls: both(localUrl, localUrl),
+    expectedRef: 'local',
+    productionRef: PROD,
+    ...over,
+  });
+
+  it('開発環境で、両方の URL が自分のマシン（127.0.0.1）なら通す', () => {
+    expect(checkSupabaseTarget(localInput())).toEqual({ ok: true, ref: 'local' });
+  });
+
+  it('ローカルと本番の URL が混在するなら拒否する', () => {
+    expect(checkSupabaseTarget(localInput({ urls: both(prodUrl, localUrl) })).ok).toBe(false);
+  });
+
+  it('ローカルの URL でも、本番の ref が無ければ拒否する', () => {
+    expect(checkSupabaseTarget(localInput({ productionRef: '' }))).toEqual({ ok: false, reason: 'missing_production_ref' });
+  });
+
+  it('ステージングや本番ではローカルの URL を許さない', () => {
+    expect(checkSupabaseTarget(localInput({ appEnv: 'staging' })).ok).toBe(false);
+    expect(checkSupabaseTarget(localInput({ appEnv: 'production' })).ok).toBe(false);
+  });
+});
+
 describe('checkSupabaseTarget（URL と ref の関係）', () => {
   it('サーバーとブラウザの URL が同じ期待するプロジェクトなら通す', () => {
     expect(checkSupabaseTarget(targetInput())).toEqual({ ok: true, ref: STAGING });

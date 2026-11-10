@@ -8,10 +8,11 @@ import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { buildStateFromDbRow } from '@/utils/supabase/strategy';
 
+import { createMockModel } from './mockGenerate';
 import { createPlanApi } from './planApi';
 import { createSupabasePlanGateway } from './planGatewaySupabase';
 import type { ModelReply } from './planGenerate';
-import type { RawPlanStrategy } from './source';
+import type { RawPlanInput, RawPlanStrategy } from './source';
 
 const bearerOf = (req: Request): string | null => {
   const auth = req.headers.get('authorization') || '';
@@ -56,7 +57,10 @@ export const stage4PlanApi = createPlanApi({
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     },
-    mapStrategy: (row) => buildStateFromDbRow(row) as unknown as RawPlanStrategy,
-    modelFor: async () => openAiCall,
+    mapStrategy: (row) => ({ ...buildStateFromDbRow(row), id: row.id, company_id: row.company_id }) as unknown as RawPlanStrategy,
+    modelFor: async (raw: RawPlanInput) =>
+      process.env.STAGE4_PLAN_MODEL_MOCK === 'true' && process.env.NODE_ENV !== 'production'
+        ? createMockModel(raw)
+        : openAiCall,
   },
 });
