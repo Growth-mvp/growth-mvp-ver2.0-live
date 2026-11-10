@@ -69,6 +69,7 @@ import {
   type DiffItem,
   type DraftBaseKey,
 } from './_lib/okrModels';
+import { isDraftProjectMatch, isDraftTargetSelected } from './_lib/generatedDraftTarget';
 
 import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
 import { FinanceEffectSection } from '@/components/okr/FinanceEffectSection';
@@ -943,6 +944,10 @@ const [editingMilestoneIdx, setEditingMilestoneIdx] = useState<number | null>(nu
    * プロジェクト選択（左→右）
    * ========================================================== */
   const [selected, setSelected] = useState<{ deptIdx: number; projIdx: number } | null>(null);
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
   const [devPlanOpen, setDevPlanOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'objective' | 'kr' | 'plan'>('kr');
 
@@ -1633,10 +1638,19 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setGeneratedDraft(null);
     setGenerationError('会社が切り替わったため、AI案を破棄しました。現在の会社で再度生成してください。');
   }, []);
+  const generatedDraftProjectIdRef = useRef<string>('');
   const isGeneratedDraftCurrent = useCallback((): boolean => {
     const scope = generatedDraftScopeRef.current;
     return !!scope && isSaveScopeCurrent(scope);
   }, []);
+  const clearGeneratedDraft = useCallback(() => {
+    generatedDraftScopeRef.current = null;
+    generatedDraftProjectIdRef.current = '';
+    setGeneratedDraft(null);
+  }, []);
+  useEffect(() => {
+    clearGeneratedDraft();
+  }, [selected?.deptIdx, selected?.projIdx, clearGeneratedDraft]);
 
   const generateExecutionDraft = useCallback(
     async (dIdx: number, pIdx: number) => {
@@ -1653,6 +1667,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         setGenerationError('会社・戦略の確認が完了していません。画面を再読み込みしてから再度お試しください。');
         return;
       }
+      const draftProjectId = String((proj as any)?.id ?? '');
 
       setIsGenerating(true);
       setGenerationError(null);
@@ -1791,6 +1806,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           discardStaleDraft();
           return;
         }
+        // 応答待ちの間にプロジェクトが切り替わっていたら、そのプロジェクトには書かない
+        if (!isDraftTargetSelected(dIdx, pIdx, selectedRef.current)) return;
 
         // 生成結果を画面に反映
         // ★ ポイント：既存データを無条件に上書きしない。追記・補完の方針
@@ -1803,6 +1820,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             discardStaleDraft();
             return;
           }
+          if (!isDraftTargetSelected(dIdx, pIdx, selectedRef.current)) return;
         }
 
         // 2. role を更新（既存値がない場合のみ）
@@ -1820,7 +1838,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
             const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
             const proj = projects[pIdx];
-            if (!proj) return prev;
+            if (!proj || !isDraftProjectMatch(draftProjectId, proj)) return prev;
 
             const existingOkrsV2 = ensureArray(proj.okrsV2);
 
@@ -1848,6 +1866,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
         // 生成結果をプレビューに設定（sourceKpis を含める）
         generatedDraftScopeRef.current = scope;
+        generatedDraftProjectIdRef.current = draftProjectId;
         setGeneratedDraft({ ...draft, sourceKpis });
         setGenerationSuccess(true);
         setGenerationError(null);
@@ -1944,7 +1963,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
             const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
             const proj = projects[pIdx];
-            if (!proj) return prev;
+            if (!proj || !isDraftProjectMatch(generatedDraftProjectIdRef.current, proj)) return prev;
 
             const merged = mergeGeneratedKpisIntoOkrsV2(ensureArray(proj.okrsV2), sourceKpis, draft.kpis);
             updatedKpisCount = merged.updatedCount;
