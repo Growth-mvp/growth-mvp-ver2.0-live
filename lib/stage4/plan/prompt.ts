@@ -101,21 +101,29 @@ const FINANCE_RULES = `## 財務入力（section4）
   - DIRECT_AMOUNT：DIRECT_AMOUNT
 - 上の方式に当てはまらない項目（歩留まり、原価率、回収期間、投資額など）は method を "FREE" にし、freeNote に算定の考え方と、金額を作れない理由（不足している入力）を書く。FREE の項目は金額を作らず、入力を保持する。
 - 数量と単価で表せる効果（例：導入件数 × 有償化の割合 × 単価）は、方式 QUANTITY_UNIT_PRICE を選び、根拠のある仮定の値（単価・数量）は basis HYPOTHESIS で value に入れる。仮定は仮説であり、確定値ではない。
+- 方式が FREE の項目も、算定式に必要なデータ（数量・単価・原価・受注率・利益率など）を inputs に label 付きで列挙する。値が不明なら value を null、basis と confirmState を UNCONFIRMED にする。freeNote には、算定式（例：利益 = 売上 − 原価）と、不足しているデータを分けて書く。
+- 役割の選び方：利益率・原価率は COST_RATE、受注率は CONVERSION_RATE（または WIN_RATE）、歩留まりは YIELD_RATE、それ以外（粗利、投資額、回収期間、固定費など）は OTHER とし、label に具体名を書く。
 - 算定に使う入力の value は、入力情報から確認できる場合だけ数値。推定しかできないものは basis を HYPOTHESIS にして数値を書いてよい。根拠が無い場合は value を null、basis を UNCONFIRMED、confirmState を UNCONFIRMED にする。
 - 金額（円）そのものは書かない。エンジンが入力から計算する。
 - confirmState は UNCONFIRMED（根拠なし）か AI_PROPOSED（AIの提案）だけを書く。USER_CONFIRMED は書かない（確認は利用者だけが行う）。
 - 顧客の売上増加と、自社の売上増加を混同しない。顧客の売上の変化は CUSTOMER_OUTCOME の KPI で示し、財務項目の根拠にしない。`;
 
+const START_ORDER_RULE = (ctx: PlanContext) =>
+  `- 開始前の確認事項（verificationItems の priority が BEFORE_START）の confirmBy は、開始月 ${ctx.startYm} 以前にする。開始月より後に必要な確認は priority を DETAIL にする。
+- 最初の行動（order 1）の期限は、開始月 ${ctx.startYm} 以降にする。`;
+
 function periodSection(ctx: PlanContext): string {
   if (ctx.endYm !== null) {
     return `- 計画期間：${ctx.startYm} 〜 ${ctx.endYm}（根拠：入力情報の期限）
 - すべての dueYm・due・confirmBy・startYm・endYm はこの範囲内。
-- provisionalPeriod は必ず null（期間の根拠があるため、仮期間を書かない）。`;
+- provisionalPeriod は必ず null（期間の根拠があるため、仮期間を書かない）。
+${START_ORDER_RULE(ctx)}`;
   }
   const lo = addMonths(ctx.startYm, PROVISIONAL_MIN_MONTHS - 1);
   const hi = addMonths(ctx.startYm, PROVISIONAL_MAX_MONTHS - 1);
   return `- 入力情報に計画期間の根拠が無い。provisionalPeriod に { "endYm": "YYYY-MM", "reason": "理由" } を書く（endYm は ${lo} 〜 ${hi} の範囲）。
-- 開始は ${ctx.startYm}。すべての dueYm・due・confirmBy・startYm・endYm は、開始から仮の終了までの範囲内。`;
+- 開始は ${ctx.startYm}。すべての dueYm・due・confirmBy・startYm・endYm は、開始から仮の終了までの範囲内。
+${START_ORDER_RULE(ctx)}`;
 }
 
 export function buildExecutionPlanPrompt(ctx: PlanContext): string {
@@ -148,11 +156,12 @@ ${renderPrinciples(PLAN_ENGINE_PRINCIPLES)}
 ## 入力情報（sourceRefs には、この表の ID だけを書く。例：S2-CORE。角括弧や説明は付けない）
 ${sourceLines.join('\n')}
 
-## 確定済みKPI（S キー・プログラムが保持。出力しない）
+## STAGE3入力KPI（S キー・プログラムが保持。出力しない）
+正式な承認の記録がないKPIは「確定」とは扱わない。内容・目標値・期限・担当は変えられない。
 ${protectedLines.length ? protectedLines.join('\n') : '（なし）'}
-- 確定KPIは出力に含めない。行動や財務の根拠として参照するときは S キーを使う（supportsKpiKeys・basedOnKpiKeys）。
-- 確定KPIの内容・目標値・期限は変えられない。戦略との矛盾に気づいた場合は、section3.stage3Review に stage3KpiId と concern を書く（変更はしない）。
-- 追加KPI（kpis）は A1, A2 … のキーで書く。既存KPI（確定KPI）と同じ内容や名前にしない。他部門のKPIと同じものも作らない。
+- STAGE3入力KPIは出力に含めない。行動や財務の根拠として参照するときは S キーを使う（supportsKpiKeys・basedOnKpiKeys）。
+- STAGE3入力KPIの内容・目標値・期限・担当は変えられない。戦略との矛盾に気づいた場合は、section3.stage3Review に stage3KpiId と concern を書く（変更はしない）。
+- 追加KPI（kpis）は A1, A2 … のキーで書く。AI提案・未確認として書き、「確定」「確認済み」とは書かない（targetBasis は AI_PROVISIONAL か null）。STAGE3入力KPIと同じ内容や名前にしない。他部門のKPIと同じものも作らない。
 - 追加KPIの目標値は targetBasis を "AI_PROVISIONAL" にする（確認済みとして扱わない）。
 - 必要な先行KPI（LEADING）のみ追加する。活動の回数を成果KPIの代わりにしない。
 

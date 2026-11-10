@@ -188,6 +188,28 @@ describe('validatePlan（期待出力と、違反の検出）', () => {
       expect(codes(p)).toContain('FREE_NOTE_MISSING');
     });
 
+    it('自由項目（FREE）なのに、算定に必要な入力が1つも列挙されていないとエラー', () => {
+      const p = plan();
+      p.section4.financeItems[0].method = 'FREE';
+      p.section4.financeItems[0].freeNote = '算定式：利益 = 売上 − 原価（原価が不足）';
+      p.section4.financeItems[0].inputs = [];
+      expect(codes(p)).toContain('FINANCE_INPUTS_MISSING');
+    });
+
+    it('開始前の確認事項の期限が、計画の開始月より後だとエラー', () => {
+      const p = plan();
+      p.verificationItems[0].priority = 'BEFORE_START';
+      p.verificationItems[0].confirmBy = endYm;
+      expect(codes(p)).toContain('BEFORE_START_AFTER_START');
+    });
+
+    it('開始前の確認事項の期限が、開始月と同じなら通る', () => {
+      const p = plan();
+      p.verificationItems[0].priority = 'BEFORE_START';
+      p.verificationItems[0].confirmBy = ctx.startYm;
+      expect(codes(p)).not.toContain('BEFORE_START_AFTER_START');
+    });
+
     it('方式に必要な役割が無いと警告（算定できない理由が見える）', () => {
       const p = plan();
       p.section4.financeItems[0].inputs = p.section4.financeItems[0].inputs.filter((i) => i.role !== 'WIN_RATE');

@@ -38,7 +38,7 @@ describe('runExecutionPlanEngine', () => {
     expect(prompt).toContain('S1（stage3KpiId: fx-kpi-proposals）');
     expect(prompt).toContain('計画期間：2026-12 〜 2027-05');
     expect(prompt).toContain('budget は必ず null');
-    expect(prompt).toContain('確定KPIは出力に含めない');
+    expect(prompt).toContain('STAGE3入力KPIは出力に含めない');
   });
 
   it('AIが確定KPIを出力した場合は、契約違反（SCHEMA_INVALID）で失敗する', async () => {

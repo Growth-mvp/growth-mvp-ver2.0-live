@@ -239,6 +239,9 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
     if (f.method === 'FREE' && !f.freeNote) {
       issues.push(err('FREE_NOTE_MISSING', p, '算定式に入らない項目なのに、算定の考え方（freeNote）が無い'));
     }
+    if (f.method === 'FREE' && f.inputs.length === 0) {
+      issues.push(err('FINANCE_INPUTS_MISSING', p, '算定に必要なデータ（数量・単価・原価・受注率など）が列挙されていない。不明なら value を null で列挙する'));
+    }
     const roles = f.inputs.map((i) => i.role);
     const dup = roles.filter((r, i) => r !== 'OTHER' && roles.indexOf(r) !== i);
     for (const d of new Set(dup)) issues.push(warn('FINANCE_DUPLICATE_ROLE', p, `役割 ${d} の入力が重複している`));
@@ -312,6 +315,9 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
     checkRefs(v.sourceRefs, p);
     if (v.confirmBy !== null && !inPeriod(v.confirmBy)) {
       issues.push(err('DUE_OUT_OF_PERIOD', p, `確認期限 ${v.confirmBy} が計画期間の外`));
+    }
+    if (v.priority === 'BEFORE_START' && v.confirmBy !== null && v.confirmBy > startYm) {
+      issues.push(err('BEFORE_START_AFTER_START', p, `開始前の確認事項の期限 ${v.confirmBy} が、計画の開始月 ${startYm} より後になっている`));
     }
   });
   plan.verificationItems.forEach((a, i) =>
