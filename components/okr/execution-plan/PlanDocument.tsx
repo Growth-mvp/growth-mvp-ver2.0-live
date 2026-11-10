@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { buildDocModel, type DocModel, type Edits, type EditValue } from '@/lib/stage4/planView/documentModel';
 import type { ImpactEstimate, ParamKey } from '@/lib/stage4/planView/impactEstimate';
 import type { PlanMode } from '@/lib/stage4/planView/planState';
@@ -21,6 +21,8 @@ export type PlanDocumentProps = {
   impactEstimate?: ImpactEstimate | null;
   /** 参考試算の前提の修正（保存は計画書の修正として行う）。無ければ修正欄を出さない */
   onImpactEdit?: (key: ParamKey, value: number | null) => void;
+  /** 第5章の下に出す財務効果の確認欄（STAGE6へ反映する操作）。計画書の保存状態とは別に扱う */
+  financeSection?: ReactNode;
   mode: Mode;
   committed: Edits;
   draft: Edits;
@@ -324,6 +326,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
           <h3 className="plan-h3">自社の売上・利益への貢献</h3>
           <EditableBlock {...editable(doc.impact.companyResult.key, '自社の売上・利益への貢献', doc.impact.companyResult.text)} />
           {props.impactEstimate && <ImpactEstimateBlock estimate={props.impactEstimate} onEdit={props.onImpactEdit} />}
+          {props.financeSection}
           <h3 className="plan-h3">財務効果の算定</h3>
           <ul className="plan-list">
             {doc.impact.financeLines.map((f) => (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
@@ -41,6 +41,11 @@ import StartConfirmation from './StartConfirmation';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import { buildFinanceEffectDrafts } from '@/lib/stage4/planView/financeBridge';
+import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
+import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
+import type { FinanceEffect } from '@/types/strategy';
+import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
 import { applyPreview, comparePreview, type PreviewEdits } from '@/lib/stage4/planView/regenPreview';
 import { RegenPanel, type RegenState } from './RegenPanel';
 import { PLAN_OPERATION_GUIDE, planStatusOf } from '@/lib/stage4/planView/planStatus';
@@ -198,6 +203,49 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
       hypothesis: hypothesisOf(draft?.plan?.section4?.financeItems),
     });
   }, [selected, source, selectedEntry]);
+
+  const storeDepartmentsNow = useStrategyStore((s: any) => s.departments as unknown);
+  const storeFiscalYearEnd = useStrategyStore((s: any) => (s.fiscalYearEnd ?? undefined) as string | undefined);
+  const storeCompanyNow = useStrategyStore((s: any) => (s.companyId ?? null) as string | null);
+  const storeStrategyNow = useStrategyStore((s: any) => (s.strategyId ?? null) as string | null);
+  const financeProjectId = selected && selected.projectKey.startsWith('id:') ? selected.projectKey.slice(3) : null;
+  const financePos = financeProjectId ? findProjectPositionById(storeDepartmentsNow, financeProjectId) : null;
+  const financeDrafts = impactEstimate ? buildFinanceEffectDrafts({ estimate: impactEstimate, fiscalYearEnd: storeFiscalYearEnd }) : [];
+  const financeSaved: FinanceEffect[] = financePos
+    ? [financePos.project.financeEffect, ...(financePos.project.financeEffects ?? [])].filter((e): e is FinanceEffect => !!e)
+    : [];
+  const financeOverlap = financePos ? findFinanceEffectOverlapCandidates(storeDepartmentsNow, financePos.dIdx, financePos.pIdx).length : 0;
+  const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
+  const financeReason: string | undefined = !financeProjectId || !financePos
+    ? 'この施策はまだ識別子がありません。「草案として保存」を行うと識別子が作られ、ここから財務効果を確認できます。'
+    : !financeScopeMatches
+      ? '表示中の会社・戦略が切り替わったため、ここからは保存できません。画面を読み込み直してください。'
+      : !selectedEntry
+        ? '計画書を読み込んでいます。'
+        : selectedEntry.plan.adopted || selectedEntry.plan.started
+          ? '採用・開始済みの計画書では、財務効果の確認を変更できません。'
+          : undefined;
+  const financeWritable = !financeReason;
+  const writeFinance = async (candidate: FinanceEffect, action: 'SAVE_DRAFT' | 'CONFIRM') => {
+    if (!selected || !financeProjectId) return { ok: false as const, message: '施策を特定できないため、保存しませんでした。' };
+    return writeFinanceEffectToProject({
+      companyId: selected.companyId,
+      strategyId: selected.strategyId,
+      projectId: financeProjectId,
+      candidate,
+      action,
+    });
+  };
+  const financeSection: ReactNode = selected ? (
+    <Stage4FinanceConfirm
+      drafts={financeDrafts}
+      saved={financeSaved}
+      overlapCount={financeOverlap}
+      writable={financeWritable}
+      reasonNotWritable={financeReason}
+      onWrite={writeFinance}
+    />
+  ) : undefined;
 
   const titleOf = (projectKey: string): string | null => {
     for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
@@ -510,6 +558,7 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
             view={view}
             companyLabel={companyLabel}
             impactEstimate={impactEstimate}
+            financeSection={financeSection}
             stableId={sel.projectKey.startsWith('id:')}
             entry={entry}
             planView={planView}
@@ -570,6 +619,7 @@ function ReadOnlyProject({
   remote,
   onTransition,
   impactEstimate,
+  financeSection,
   regen,
   onRegenStart,
   onRegenToggle,
@@ -594,6 +644,7 @@ function ReadOnlyProject({
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
   impactEstimate: ImpactEstimate | null;
+  financeSection: ReactNode;
   regen: RegenState | undefined;
   onRegenStart: () => void;
   onRegenToggle: (itemId: string) => void;
@@ -773,6 +824,7 @@ function ReadOnlyProject({
                 notice={entry.plan.notice}
                 persisted={remote}
                 impactEstimate={impactEstimate}
+                financeSection={financeSection}
                 onImpactEdit={
                   remote && !entry.plan.adopted && !entry.plan.started
                     ? (k, v) => onPlan((p) => setCommittedValue(p, `${IMPACT_EDIT_PREFIX}${k}`, v === null ? undefined : v))
