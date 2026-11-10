@@ -86,7 +86,7 @@ async function dumpOnFail(page, name) {
 
   const openProject = async () => {
     await page.goto(APP + '/okr', { timeout: 240000 });
-    await page.getByText('企業：' + COMPANY).first().waitFor({ timeout: 240000 });
+    await page.getByText(PROJECT_TEXT, { exact: false }).first().waitFor({ timeout: 120000 }).catch(async (e) => { await page.screenshot({ path: path.join(outDir, 'fail-open.png'), fullPage: true }); await dumpOnFail(page, 'fail-open'); throw e; });
     await page.getByText(PROJECT_TEXT, { exact: false }).first().click();
     const heading = page.getByRole('heading', { name: '業績への貢献（参考試算）' }).filter({ visible: true }).first();
     const make = page.getByRole('button', { name: 'AIで実行計画書を作る' }).filter({ visible: true }).first();
@@ -103,85 +103,68 @@ async function dumpOnFail(page, name) {
     record('1', 'STAGE3のプロジェクトとKRを取得し、STAGE4で実行計画を作成する', text.includes('実行計画書') ? 'PASS' : 'FAIL', '計画書を表示');
   }
 
-  /* 2. 採用 */
-  {
-    const adopt = page.getByRole('button', { name: 'この計画書を採用' }).filter({ visible: true }).first();
-    await adopt.waitFor({ timeout: 60000 }).catch(() => {});
-    if (await adopt.count()) {
-      await adopt.click({ timeout: 20000 }).catch(() => {});
-    }
-    await page.getByText('採用済み（実行は未開始）').first().waitFor({ timeout: 30000 }).catch(() => {});
-    const text = await page.evaluate(() => document.body.innerText);
-    const adopted = text.includes('採用済み');
-    record('2', 'STAGE4で計画を採用する', adopted ? 'PASS' : 'FAIL', adopted ? '採用済み' : '採用の表示がない');
-    if (!adopted) await dumpOnFail(page, 'fail-2-adopt');
-  }
-
-  /* 3. 実行開始：責任者の確定と規制・安全の判断（検証用の架空の判断）を記録し、計画書を保存して採用し直してから開始する */
+  /* 2〜5. 利用者が使う画面だけで、確定 → 保存 → 採用 → 規制・安全の判断 → 実行開始を行う（遷移APIは直接呼ばない） */
   const ok = async (fn, id, name) => { try { await fn(); return true; } catch (e) { record(id, name, 'FAIL', String(e.message).slice(0, 200)); return false; } };
+  const planDb = () => JSON.parse(sql(`select json_build_object('version', version, 'adopted', adopted, 'started', started, 'adoption', adoption is not null, 'start', start_info is not null, 'regulatoryDone', regulatory <> '{}'::jsonb) from public.stage4_plan_documents where project_id = '${PROJECT_ID}' order by updated_at desc limit 1`));
+  const bodyText = () => page.evaluate(() => document.body.innerText);
   const openStartView = async () => {
     await page.getByRole('button', { name: '実行開始の確認へ進む' }).filter({ visible: true }).first().click({ timeout: 20000 });
     await page.getByText('実行開始前の確認事項').first().waitFor({ timeout: 30000 });
     await sleep(600);
   };
-  const adoptNow = async () => {
-    const adopt = page.getByRole('button', { name: /この計画(案|書)を採用する?/ }).filter({ visible: true }).first();
-    await adopt.waitFor({ timeout: 30000 }).catch(() => {});
-    if (await adopt.count()) await adopt.click({ timeout: 20000 }).catch(() => {});
-    await page.getByText('採用済み（実行は未開始）').first().waitFor({ timeout: 30000 }).catch(() => {});
-    await sleep(800);
+  const backToDocument = async () => {
+    await page.getByRole('button', { name: '計画書に戻る' }).filter({ visible: true }).first().click({ timeout: 20000 });
+    await page.getByRole('button', { name: 'この計画書を採用' }).or(page.getByRole('button', { name: '採用を取り消す' })).first().waitFor({ timeout: 30000 });
+    await sleep(600);
   };
   const saveDraftNow = async () => {
-    const save = page.getByRole('toolbar', { name: '草案の保存' }).getByRole('button', { name: '草案として保存' });
-    if (await save.count()) await save.click({ timeout: 20000 }).catch(() => {});
-    await page.getByText(/保存済み（版/).first().waitFor({ timeout: 30000 }).catch(() => {});
+    await page.getByRole('toolbar', { name: '草案の保存' }).getByRole('button', { name: '草案として保存' }).click({ timeout: 20000 });
+    await page.getByText(/保存済み（版/).first().waitFor({ timeout: 30000 });
     await sleep(800);
   };
 
+  /* 2. 開始画面で責任者を確定し、主要な実行条件を確認して、開始画面の保存ボタンで草案を保存する */
   await openStartView();
-  await ok(() => page.getByRole('button', { name: /実行責任者として確定する/ }).click({ timeout: 20000 }), '3b1', '実行責任者を確定する');
+  await ok(() => page.getByRole('button', { name: /実行責任者として確定する/ }).click({ timeout: 20000 }), '2a', '実行責任者を確定する（開始画面）');
   await sleep(800);
   const boxes = page.locator('section').filter({ hasText: '③ 主要な実行条件' }).locator('input[type=checkbox]:not(:checked)');
   for (let i = 0; i < (await boxes.count()); i++) await boxes.nth(i).check().catch(() => {});
-  await sleep(600);
-  await page.getByRole('button', { name: '計画書に戻る' }).filter({ visible: true }).first().click({ timeout: 20000 }).catch(() => {});
-  await sleep(800);
-  await saveDraftNow();
+  await sleep(400);
+  const saved2 = await ok(saveDraftNow, '2b', '開始画面の「草案として保存」で保存する');
+  const confirmed2 = (await bodyText()).includes('確定済み：');
+  record('2', '責任者の確定と主要な実行条件を、開始画面から保存する', saved2 && confirmed2 ? 'PASS' : 'FAIL', JSON.stringify(planDb()));
+  if (!(saved2 && confirmed2)) await dumpOnFail(page, 'fail-2-save');
 
-  /* 採用・規制の判断・開始：アプリと同じ遷移API（利用者本人のセッション）で行う */
-  const planRow = () =>
-    JSON.parse(
-      sql(
-        `select json_build_object('version', version, 'adopted', adopted, 'started', started) from public.stage4_plan_documents where project_id = '${PROJECT_ID}' order by updated_at desc limit 1`,
-      ),
-    );
-  const transitionApi = async (action, regulatory) => {
-    const v = planRow().version;
-    const r = await fetch(APP + '/api/stage4/plan-documents/transition', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
-      body: JSON.stringify({ companyId: p0Company, strategyId: p0Strategy, projectId: PROJECT_ID, expectedVersion: v, action, regulatory }),
-    });
-    const body = await r.text();
-    return { status: r.status, body: body.slice(0, 200) };
-  };
-  const scope = JSON.parse(
-    sql(
-      `select json_build_object('companyId', c.id, 'strategyId', s.id) from public.strategy_data s join public.companies c on c.id = s.company_id where c.name = '${COMPANY}'`,
-    ),
-  );
-  const p0Company = scope.companyId;
-  const p0Strategy = scope.strategyId;
-  const reg = { decision: 'NOT_APPLICABLE', judgement: '検証用の架空の判断：規制・安全の対象外（本番データではない）', confirmer: '検証用 確認者', confirmedOn: '2026-11-10', basis: '検証用の架空の根拠' };
-  const t1 = await transitionApi('ADOPT');
-  const t2 = await transitionApi('RECORD_REGULATORY', reg);
-  let row = planRow();
-  if (!row.adopted) { await transitionApi('ADOPT'); row = planRow(); }
-  const t3 = await transitionApi('START');
-  row = planRow();
-  const started = row.started === true;
-  record('3', 'STAGE4で実行開始する（責任者・規制・安全の判断を記録、遷移APIで確定）', started ? 'PASS' : 'FAIL', JSON.stringify({ adopt: t1.status, regulatory: t2.status, start: t3.status, row }));
-  if (!started) await dumpOnFail(page, 'fail-3-start');
+  /* 3. 保存の後に採用する（保存で採用が解除される設計のため、採用は最後の内容確定の後） */
+  await backToDocument();
+  await ok(() => page.getByRole('button', { name: 'この計画書を採用' }).filter({ visible: true }).first().click({ timeout: 20000 }), '3a', 'この計画書を採用');
+  await page.getByRole('button', { name: '採用を取り消す' }).first().waitFor({ timeout: 30000 }).catch(() => {});
+  const adoptedDb = planDb();
+  record('3', '保存した内容を、画面から採用する', adoptedDb.adopted === true && (await bodyText()).includes('採用を取り消す') ? 'PASS' : 'FAIL', JSON.stringify(adoptedDb));
+
+  /* 4. 規制・安全の判断を、採用中の画面から記録する（記録で採用は解除されないことを確認する） */
+  await openStartView();
+  await ok(async () => {
+    await page.getByLabel('適用なし', { exact: true }).check({ timeout: 20000 });
+    await page.getByLabel('判断の内容（適用なしの場合は、その理由）').fill('検証用の架空の判断：規制・安全の対象外（本番データではない）');
+    await page.getByLabel('確認者', { exact: true }).fill('検証用 確認者');
+    await page.getByLabel('確認日').fill('2026-11-10');
+    await page.getByLabel('判断根拠（何を根拠に判断したか）').fill('検証用の架空の根拠');
+    await page.getByRole('button', { name: '規制・安全の判断を記録する' }).click({ timeout: 20000 });
+    await page.getByText('規制・安全の記録が揃っています。').first().waitFor({ timeout: 30000 });
+  }, '4a', '規制・安全の判断を入力して記録する');
+  await sleep(800);
+  const regDb = planDb();
+  record('4', '規制・安全の判断を記録しても、採用は解除されない', regDb.regulatoryDone === true && regDb.adopted === true ? 'PASS' : 'FAIL', JSON.stringify(regDb));
+
+  /* 5. 実行を開始する */
+  await ok(() => page.getByRole('button', { name: '実行を開始する' }).click({ timeout: 20000 }), '5a', '実行を開始する');
+  await page.getByText('実行開始済み').first().waitFor({ timeout: 30000 }).catch(() => {});
+  await sleep(600);
+  const startDb = planDb();
+  record('5', 'UIから実行を開始し、DBにも開始が残る', startDb.started === true && startDb.start === true ? 'PASS' : 'FAIL', JSON.stringify(startDb));
+  if (!startDb.started) await dumpOnFail(page, 'fail-5-start');
+  const started = startDb.started === true;
 
   /* 3c. STAGE6の変更前の表示（財務計画・確認済み財務効果）を控える */
   const stage6Snapshot = async () => {
@@ -284,6 +267,29 @@ async function dumpOnFail(page, name) {
     const after = dbRead();
     const changed = stage3Diff(before, after);
     record('10', '他の案件・STAGE3のKPI・業績前提は変わらない（書き込んだのは対象の案件の進捗・KR実績のみ）', changed.length === 0 ? 'PASS' : 'FAIL', `変わった案件 ${changed.length}件`);
+  }
+
+  /* P. 採用・開始の後に計画内容を実質的に変えて保存すると、採用・規制の判断・開始が解除される（再採用の保護）。UIだけで操作する */
+  {
+    await openProject();
+    await sleep(6000);
+    const editBtn = page.getByRole('button', { name: '計画書を修正する', exact: true }).first();
+    if (!(await editBtn.isVisible())) { await openProject(); await sleep(6000); }
+    const adoptedAfterReload = (await bodyText()).includes('採用を取り消す');
+    const dbBefore = planDb();
+    await editBtn.waitFor({ timeout: 60000 }).catch(async (e) => { await page.screenshot({ path: path.join(outDir, 'fail-P-open.png'), fullPage: true }); await dumpOnFail(page, 'fail-P-open'); throw e; });
+    await editBtn.click({ timeout: 20000 });
+    const target = page.locator('button.plan-edit-target:not(.plan-edit-inline)').first();
+    const label = (await target.getAttribute('aria-label')).replace(/を修正する$/, '');
+    await target.click({ timeout: 20000 });
+    await page.getByLabel(label, { exact: true }).filter({ visible: true }).first().fill('再採用の確認用に変更した文言');
+    await page.getByRole('button', { name: '修正を反映する' }).click({ timeout: 20000 });
+    await saveDraftNow();
+    const dbAfter = planDb();
+    const text = await bodyText();
+    const pass = adoptedAfterReload && dbBefore.adopted === true && dbBefore.started === true && dbAfter.adopted === false && dbAfter.started === false && dbAfter.regulatoryDone === false && text.includes('解除');
+    record('P', '採用・開始の後に内容を変えて保存すると、採用・規制・開始が解除され、画面にも説明が出る', pass ? 'PASS' : 'FAIL', JSON.stringify({ adoptedAfterReload, dbBefore, dbAfter }));
+    if (!pass) await dumpOnFail(page, 'fail-P-protection');
   }
 
   fs.writeFileSync(path.join(outDir, 'results-partial.json'), JSON.stringify({ results, pageErrors }, null, 2));

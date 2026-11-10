@@ -55,6 +55,7 @@ import {
   EVENT_LABEL,
   conflictRows,
   entryAfterPersist,
+  saveWillReset,
   entryAfterTransition,
   entryFromDraft,
   entryFromRecord,
@@ -782,6 +783,21 @@ function ReadOnlyProject({
               </button>
             </section>
           )}
+          <div className="plan-toolbar" role="toolbar" aria-label="草案の保存">
+            <button
+              type="button"
+              className="plan-btn-primary"
+              onClick={onSave}
+              disabled={entry.save.status === 'SAVING' || entry.save.status === 'CONFLICT'}
+            >
+              草案として保存
+            </button>
+          </div>
+          {remote && saveWillReset(entry) && (
+            <p role="status" className="plan-note">
+              この修正を保存すると、採用・規制の判断・実行開始は解除されます。解除後に、採用し直してください。
+            </p>
+          )}
           {entry.view === 'start' ? (
             <StartConfirmation
               bundle={entry.aiDraft}
@@ -795,16 +811,6 @@ function ReadOnlyProject({
             />
           ) : (
             <>
-              <div className="plan-toolbar" role="toolbar" aria-label="草案の保存">
-                <button
-                  type="button"
-                  className="plan-btn-primary"
-                  onClick={onSave}
-                  disabled={entry.save.status === 'SAVING' || entry.save.status === 'CONFLICT'}
-                >
-                  草案として保存
-                </button>
-              </div>
               {remote && entry.plan.mode === 'read' && !entry.plan.adopted && !entry.plan.started && (
                 <div className="plan-regen">
                   {regen ? (

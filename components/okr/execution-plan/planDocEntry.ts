@@ -2,7 +2,7 @@
 import type { UserEdits } from '@/lib/stage4/plan/mergeUserEdits';
 import type { PersistResult, StoredState } from '@/lib/stage4/plan/persistDraft';
 import type { AdoptionInfo, PlanDocEvent, PlanDocRecord, StartInfo } from '@/lib/stage4/plan/planDocumentStore';
-import { EMPTY_REGULATORY, type RegulatoryRecord } from '@/lib/stage4/planView/model';
+import { EMPTY_REGULATORY, regulatoryComplete, type RegulatoryRecord } from '@/lib/stage4/planView/model';
 import { INITIAL_PLAN_STATE, type ProjectPlanState } from '@/lib/stage4/planView/planState';
 import type { Edits } from '@/lib/stage4/planView/documentModel';
 import { listEditableItems } from '@/lib/stage4/planView/regen';
@@ -97,13 +97,34 @@ export function entryAfterTransition(entry: PlanDocEntry, record: PlanDocRecord,
   };
 }
 
+const SAVE_RESET_NOTICE = '修正を保存したため、採用・規制の判断・実行開始を解除しました。内容を確認してから、改めて採用してください。';
+
+/* 保存すると、サーバーが採用・規制の判断・実行開始を解除する（利用者の修正が変わり、かつ記録が残っている） */
+export function saveWillReset(entry: PlanDocEntry): boolean {
+  if (!entry.stored) return false;
+  const changed = canonicalJson(entry.plan.committed) !== canonicalJson(entry.stored.base);
+  const recorded = entry.plan.adopted || entry.plan.started || regulatoryComplete(entry.server?.regulatory ?? EMPTY_REGULATORY);
+  return changed && recorded;
+}
+
 export function entryAfterPersist(entry: PlanDocEntry, result: PersistResult): PlanDocEntry {
   if (result.status === 'SAVED') {
+    const { record } = result;
+    const wasRecorded = entry.plan.adopted || entry.plan.started || regulatoryComplete(entry.server?.regulatory ?? EMPTY_REGULATORY);
+    const isRecorded = record.adopted || record.startInfo != null || regulatoryComplete(record.regulatory ?? EMPTY_REGULATORY);
     return {
       ...entry,
       stored: result.stored,
-      plan: result.mergedFromRemote ? { ...entry.plan, committed: toEdits(result.userEdits), adopted: result.adopted } : { ...entry.plan, adopted: result.adopted },
-      save: { status: 'SAVED', version: result.stored.version, mergedFromRemote: result.mergedFromRemote },
+      plan: {
+        ...entry.plan,
+        ...(result.mergedFromRemote ? { committed: toEdits(record.userEdits) } : {}),
+        adopted: record.adopted,
+        started: record.startInfo != null,
+        regulatory: record.regulatory ?? EMPTY_REGULATORY,
+      },
+      save: { status: 'SAVED', version: record.version, mergedFromRemote: result.mergedFromRemote },
+      server: serverOf(record),
+      notice: wasRecorded && !isRecorded ? SAVE_RESET_NOTICE : null,
     };
   }
   if (result.status === 'CONFLICT') {

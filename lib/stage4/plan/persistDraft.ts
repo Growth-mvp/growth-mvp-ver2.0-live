@@ -6,7 +6,7 @@ import type { PlanDocActor, PlanDocKey, PlanDocRecord, PlanDocumentStore } from 
 export type StoredState = { version: number; base: UserEdits; adopted: boolean };
 
 export type PersistResult =
-  | { status: 'SAVED'; stored: StoredState; userEdits: UserEdits; adopted: boolean; mergedFromRemote: boolean }
+  | { status: 'SAVED'; stored: StoredState; record: PlanDocRecord; userEdits: UserEdits; adopted: boolean; mergedFromRemote: boolean }
   | { status: 'CONFLICT'; conflicts: string[]; remote: PlanDocRecord; local: UserEdits; adopted: boolean }
   | { status: 'FAILED'; message: string }
   | { status: 'DENIED' };
@@ -14,6 +14,7 @@ export type PersistResult =
 const toSaved = (record: PlanDocRecord, mergedFromRemote: boolean): PersistResult => ({
   status: 'SAVED',
   stored: { version: record.version, base: record.userEdits, adopted: record.adopted },
+  record,
   userEdits: record.userEdits,
   adopted: record.adopted,
   mergedFromRemote,

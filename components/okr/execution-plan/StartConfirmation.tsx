@@ -45,7 +45,13 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
         <p className="text-[12px] text-zinc-600">
           採用とは別に、次の条件を確認します。規制・安全は、確認済みのチェックだけでは完了しません。判断内容・確認者・確認日を記録します。
         </p>
-        {!plan.adopted && <div className="rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">先に計画書で「この計画案を採用する」を押してください。</div>}
+        <ol className="list-decimal space-y-1 pl-5 text-[13px] text-zinc-700">
+          <li>実行責任者と主要な実行条件を確定し、上の「草案として保存」で保存する</li>
+          <li>計画書を採用する（「計画書に戻る」から行います）</li>
+          <li>規制・安全の判断を記録する（保存済みの内容について行います）</li>
+          <li>実行を開始する</li>
+        </ol>
+        {!plan.adopted && <div className="rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">まだ採用されていません。確定と保存を済ませてから、採用してください。</div>}
         {plan.notice && <div className="rounded-lg bg-amber-50 p-3 text-[12px] text-amber-900">{plan.notice}</div>}
       </section>
 
