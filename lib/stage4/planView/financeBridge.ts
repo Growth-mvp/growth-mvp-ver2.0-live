@@ -150,6 +150,9 @@ export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): str
   if (effect.amountBasis !== 'TOTAL' && !effect.endYm) {
     reasons.push('計上の終了年月（未入力だと、後の年度まで計上されます）が未確認');
   }
+  if (effect.amountBasis === 'TOTAL' && effect.endYm) {
+    reasons.push('一回限りの金額は開始月に全額計上します（終了年月を入れると期間に按分されるため、終了年月を消してください）');
+  }
   if (effect.kind === 'REVENUE_UP' && !effect.revenueKind) {
     reasons.push('売上の区分（有償開発か量産か）が未確認');
   }

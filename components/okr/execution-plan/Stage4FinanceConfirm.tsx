@@ -91,7 +91,10 @@ function DraftCard({
           aria-label={`${draft.label}の金額の単位`}
           value={answers.amountBasis ?? ''}
           disabled={!writable || locked}
-          onChange={(e) => setAnswers((a) => ({ ...a, amountBasis: (e.target.value || undefined) as SpendAmountBasis | undefined }))}
+          onChange={(e) => {
+            const basis = (e.target.value || undefined) as SpendAmountBasis | undefined;
+            setAnswers((a) => ({ ...a, amountBasis: basis, ...(basis === 'TOTAL' ? { endYm: '' } : {}) }));
+          }}
         >
           <option value="">選んでください</option>
           {BASES.map((b) => (
@@ -112,12 +115,14 @@ function DraftCard({
         />
       </label>
       <label>
-        終了年月（一回限り以外は必須。未入力だと後の年度まで計上されます）
+        {answers.amountBasis === 'TOTAL'
+          ? '終了年月（一回限りは入力しません。開始月に全額計上します）'
+          : '終了年月（必須。未入力だと後の年度まで計上されます）'}
         <input
           type="month"
           aria-label={`${draft.label}の終了年月`}
           value={answers.endYm ?? ''}
-          disabled={!writable || locked}
+          disabled={!writable || locked || answers.amountBasis === 'TOTAL'}
           onChange={(e) => setAnswers((a) => ({ ...a, endYm: e.target.value }))}
         />
       </label>

@@ -142,7 +142,7 @@ describe('財務効果の草案（参考試算から）', () => {
 describe('確認の判定（営業利益増分・計上期間・重複）', () => {
   const PERIOD = { startYm: '2026-12', endYm: '2027-05' };
   const revAnswers = { amountBasis: 'ANNUAL' as const, isIncremental: true, meetingBasisConfirmed: true, revenueKind: 'PAID_DEVELOPMENT' as const, startYm: PERIOD.startYm, endYm: PERIOD.endYm };
-  const costAnswers = { amountBasis: 'TOTAL' as const, startYm: PERIOD.startYm, endYm: PERIOD.endYm };
+  const costAnswers = { amountBasis: 'TOTAL' as const, startYm: PERIOD.startYm };
 
   it('営業利益増分を入力すると、追加費用を差し引いた後かどうかが決まるまで確認しない', () => {
     const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, operatingIncomeEffectYen: 3 * M });
@@ -199,6 +199,11 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
   it('一回限りの効果は、終了年月が無くても確認できる', () => {
     const once = applyFinanceAnswers(costDraft(), { amountBasis: 'TOTAL', startYm: PERIOD.startYm });
     expect(confirmBlockers(once, ctx())).toEqual([]);
+  });
+
+  it('一回限りの金額に終了年月を入れると、期間に按分されるため確認しない（開始月に全額計上する）', () => {
+    const once = applyFinanceAnswers(costDraft(), { amountBasis: 'TOTAL', startYm: PERIOD.startYm, endYm: PERIOD.endYm });
+    expect(confirmBlockers(once, ctx())).toEqual([expect.stringContaining('開始月に全額計上')]);
   });
 
   it('重複の可能性がある効果は、説明が無いと確認を保留する', () => {
