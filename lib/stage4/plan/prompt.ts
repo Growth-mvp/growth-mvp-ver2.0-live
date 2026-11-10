@@ -17,6 +17,7 @@ export const ACTIVITY_VS_OUTCOME_RULES = `## 活動と成果を混同しない�
   3. どの行動によって、状況を変えるか（actions の title と stateChange）
   4. 何を測れば改善したと判断できるか（supportsKpiKeys で結びつく KPI）
   5. なぜその改善が、顧客価値や業績につながるか（whyItMatters）
+  mechanism に入れるのは obstacleRefs・stateChange・whyItMatters の3項目だけ。verifyBy は mechanism に書かない（原因の検証方法は section1.obstacles の verifyBy に書く）。
 - 根拠がない原因は、basis を HYPOTHESIS として示し、検証の行動（verifyBy）を必ず添える。
 - 活動の指標（会議の開催回数、研修の受講数、記録件数など）を、成果のKPI（COMPANY_RESULT・CUSTOMER_OUTCOME）として書かない。使うなら LEADING（先行指標）として、成果への道筋を mechanism で示す。
 - 成果の指標の例：「計測・記録に必要な作業時間の削減率」「試験導入先の負担軽減を確認できた医療機関数」。活動の語（記録・会議など）が含まれていても、状態の変化を測っていれば成果である。`;
@@ -209,6 +210,6 @@ ${FINANCE_RULES}
 - UNCONFIRMED：根拠が無く、値は null
 
 ## 出力
-JSON だけを出力する。説明やコメントは書かない。次の形に従う（値は例示）。
+JSON だけを出力する。説明やコメントは書かない。次の形に従う（値は例示）。形にないキーは、どの階層にも追加しない。
 ${OUTPUT_SHAPE}`;
 }

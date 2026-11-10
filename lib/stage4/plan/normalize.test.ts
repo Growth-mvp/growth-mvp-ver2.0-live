@@ -2,10 +2,19 @@ import { COMMERCIAL_INPUT } from '@/eval/plan/fixtures/commercial';
 import { COMMERCIAL_GOLDEN_DRAFT } from '@/eval/plan/fixtures/commercial.golden';
 import { runExecutionPlanEngine } from './generate';
 import { normalizeKnownDrift } from './normalize';
+import { PlanDraftSchema } from './types';
 
 const golden = () => JSON.parse(JSON.stringify(COMMERCIAL_GOLDEN_DRAFT));
 const errorsOf = (r: { issues: Array<{ severity: string; code: string }> }) =>
   r.issues.filter((i) => i.severity === 'error').map((i) => i.code);
+
+/** 本番で失敗した出力の形：行動の mechanism に verifyBy が入っている */
+function withMechanismVerifyBy() {
+  const d = golden();
+  d.section2.actions[0].mechanism.verifyBy = '行動の検証方法';
+  d.section2.actions[2].mechanism.verifyBy = '別の検証方法';
+  return d;
+}
 
 describe('normalizeKnownDrift（既知の余分な項目の除外）', () => {
   it('section1.problemCause.verifyBy の文字列だけを取り除き、取り除いた内容を記録する', () => {
@@ -69,6 +78,53 @@ describe('runExecutionPlanEngine（正規化の記録と、元の応答の保持
   it('対象外の場所の余分な項目は、正規化されず SCHEMA_INVALID になる', async () => {
     const d = golden();
     d.section1.customerProblem.verifyBy = 'x';
+    const r = await runExecutionPlanEngine({ raw: COMMERCIAL_INPUT, callModel: async () => JSON.stringify(d) });
+    expect(r.ok).toBe(false);
+    expect(errorsOf(r)).toEqual(['SCHEMA_INVALID']);
+    expect(r.normalizations).toEqual([]);
+  });
+});
+
+describe('行動の mechanism に入った verifyBy（本番で失敗した出力の再現と正規化）', () => {
+  it('再現：正規化の前の出力は、スキーマが mechanism の verifyBy を拒否する', () => {
+    const parsed = PlanDraftSchema.safeParse(withMechanismVerifyBy());
+    expect(parsed.success).toBe(false);
+  });
+
+  it('mechanism の verifyBy だけを取り除き、場所と内容を記録する（元の値は変えない）', () => {
+    const d = withMechanismVerifyBy();
+    const { json, applied } = normalizeKnownDrift(d);
+    expect(applied).toEqual([
+      { path: 'section2.actions[0].mechanism', key: 'verifyBy', removed: '行動の検証方法' },
+      { path: 'section2.actions[2].mechanism', key: 'verifyBy', removed: '別の検証方法' },
+    ]);
+    expect((json as any).section2.actions[0].mechanism).not.toHaveProperty('verifyBy');
+    expect((json as any).section2.actions[0].mechanism.stateChange).toBe(d.section2.actions[0].mechanism.stateChange);
+    expect(d.section2.actions[0].mechanism).toHaveProperty('verifyBy');
+  });
+
+  it('正規化の後は検証を通り、元の応答と正規化の記録が残る', async () => {
+    const d = withMechanismVerifyBy();
+    const text = JSON.stringify(d);
+    const r = await runExecutionPlanEngine({ raw: COMMERCIAL_INPUT, callModel: async () => text });
+    expect(r.ok).toBe(true);
+    expect(errorsOf(r)).toEqual([]);
+    expect(r.normalizations.map((n) => n.path)).toEqual(['section2.actions[0].mechanism', 'section2.actions[2].mechanism']);
+    expect(r.issues.filter((i) => i.code === 'SHAPE_NORMALIZED')).toHaveLength(2);
+    expect(r.rawOutput).toBe(text);
+  });
+
+  it('mechanism に verifyBy 以外の余分な項目があれば、正規化されても SCHEMA_INVALID で止まる', async () => {
+    const d = withMechanismVerifyBy();
+    d.section2.actions[1].mechanism.extra = 'x';
+    const r = await runExecutionPlanEngine({ raw: COMMERCIAL_INPUT, callModel: async () => JSON.stringify(d) });
+    expect(r.ok).toBe(false);
+    expect(errorsOf(r)).toEqual(['SCHEMA_INVALID']);
+  });
+
+  it('行動の直下に置かれた verifyBy は、対象外として SCHEMA_INVALID になる', async () => {
+    const d = golden();
+    d.section2.actions[0].verifyBy = 'x';
     const r = await runExecutionPlanEngine({ raw: COMMERCIAL_INPUT, callModel: async () => JSON.stringify(d) });
     expect(r.ok).toBe(false);
     expect(errorsOf(r)).toEqual(['SCHEMA_INVALID']);
