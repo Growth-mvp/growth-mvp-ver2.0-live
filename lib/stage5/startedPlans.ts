@@ -59,7 +59,7 @@ export function startedPlanView(args: {
 }
 
 export type StartedPlanItem = { key: PlanDocKey; departmentName: string; projectTitle: string };
-export type StartedPlansLoad = { views: StartedPlanView[]; failed: number; disabled: boolean };
+export type StartedPlansLoad = { views: StartedPlanView[]; failed: number; disabled: boolean; unavailable?: string };
 
 /* 1件ずつ読み、公開前（API無効）と分かったら残りを読まない（無効な間は要求を1回で止める） */
 export async function loadStartedPlans(args: {
@@ -77,6 +77,7 @@ export async function loadStartedPlans(args: {
       continue;
     }
     if (out.status === 'DISABLED') return { views: [], failed: 0, disabled: true };
+    if (out.status === 'UNAVAILABLE') return { views: [], failed: 0, disabled: false, unavailable: out.message };
     if (out.status === 'FAILED') {
       failed += 1;
       continue;

@@ -13,7 +13,10 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 
 type Item = { key: PlanDocKey; departmentName: string; projectTitle: string; duplicated: boolean };
-type Loaded = { disabled: true } | { disabled: false; views: StartedPlanView[]; failed: number; duplicated: string[] };
+type Loaded =
+  | { disabled: true }
+  | { disabled: false; unavailable: string }
+  | { disabled: false; views: StartedPlanView[]; failed: number; duplicated: string[] };
 
 /* 公開前（APIが無効と分かった）後は、このページの表示の間は再び要求しない */
 let planApiDisabled = false;
@@ -75,7 +78,9 @@ export function StartedPlansPanel() {
     }).then((result) => {
       if (cancelled) return;
       if (result.disabled) planApiDisabled = true;
-      setLoaded(result.disabled ? { disabled: true } : { disabled: false, views: result.views, failed: result.failed, duplicated });
+      if (result.disabled) return setLoaded({ disabled: true });
+      if (result.unavailable) return setLoaded({ disabled: false, unavailable: result.unavailable });
+      setLoaded({ disabled: false, views: result.views, failed: result.failed, duplicated });
     });
     return () => {
       cancelled = true;
@@ -85,7 +90,15 @@ export function StartedPlansPanel() {
   if (kind !== 'remote') return null;
   if (!companyId || !strategyId) return null;
   if (loaded?.disabled) return null;
-  const ready = loaded && !loaded.disabled ? loaded : null;
+  if (loaded && 'unavailable' in loaded) {
+    return (
+      <section aria-label="実行計画" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">実行計画（STAGE4・実行開始済み）</h2>
+        <p className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-800">{loaded.unavailable}</p>
+      </section>
+    );
+  }
+  const ready = loaded && !loaded.disabled && 'views' in loaded ? loaded : null;
 
   return (
     <section aria-label="実行計画" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

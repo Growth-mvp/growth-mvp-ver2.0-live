@@ -14,11 +14,16 @@ import {
   type PlanGateway,
 } from './planService';
 
+export const UNAVAILABLE_MESSAGE =
+  '新STAGE4の保存テーブルが、この環境のデータベースにまだ導入されていません。計画書の作成・保存・採用・実行開始はできません。';
+
 export type PlanApiDeps = {
   verifyUser: (req: Request) => Promise<string | null>;
   gatewayFor: (req: Request, userId: string) => PlanGateway;
   /** 新STAGE4の入口を使うか。無効なら認証・データベース・AIのいずれにも触れず 503 を返す（本番では環境変数で有効化。既定は無効） */
   enabled: boolean;
+  /** 保存テーブルがこの環境のデータベースにあるか（読み取りのみで確認する）。無ければ 503 UNAVAILABLE を返す */
+  storeAvailable?: (req: Request) => Promise<boolean>;
   generation: Omit<GenerateDeps, 'now'> & { now?: () => string };
   companyNameOf?: (companyId: string) => string;
   now?: () => string;
@@ -71,6 +76,9 @@ export function createPlanApi(deps: PlanApiDeps) {
   async function withUser(req: Request): Promise<{ ctx: { userId: string; gateway: PlanGateway } } | { error: Response }> {
     const userId = await deps.verifyUser(req);
     if (!userId) return { error: json(401, { error: 'Unauthorized' }) };
+    if (deps.storeAvailable && !(await deps.storeAvailable(req))) {
+      return { error: json(503, { status: 'UNAVAILABLE', message: UNAVAILABLE_MESSAGE }) };
+    }
     return { ctx: { userId, gateway: deps.gatewayFor(req, userId) } };
   }
 

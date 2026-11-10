@@ -69,7 +69,12 @@ const STATUS_LABEL: Record<Exclude<Stage3Source['status'], 'READY'>, string> = {
 const NO_SAVED_PLANS: SavedPlanRecord[] = [];
 
 type GenState = { status: 'BUSY' } | { status: 'FAILED'; issues: PlanIssue[] };
-type LoadState = { status: 'LOADING' } | { status: 'DONE' } | { status: 'FAILED'; message: string } | { status: 'DENIED' };
+type LoadState =
+  | { status: 'LOADING' }
+  | { status: 'DONE' }
+  | { status: 'FAILED'; message: string }
+  | { status: 'UNAVAILABLE'; message: string }
+  | { status: 'DENIED' };
 
 const ymJa = (ym: string | null): string => {
   if (!ym) return '未設定';
@@ -190,6 +195,7 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
         setLoads((p) => ({ ...p, [loadKey]: { status: 'DONE' } }));
       } else if (out.status === 'NONE' || out.status === 'DISABLED') setLoads((p) => ({ ...p, [loadKey]: { status: 'DONE' } }));
       else if (out.status === 'DENIED') setLoads((p) => ({ ...p, [loadKey]: { status: 'DENIED' } }));
+      else if (out.status === 'UNAVAILABLE') setLoads((p) => ({ ...p, [loadKey]: { status: 'UNAVAILABLE', message: out.message } }));
       else setLoads((p) => ({ ...p, [loadKey]: { status: 'FAILED', message: out.message } }));
     });
     // 読み込みは選択が変わったときだけ行う（作成・保存の結果は画面の状態に残す）
@@ -607,7 +613,12 @@ function ReadOnlyProject({
             </>
           )}
           {!entry && !loadPending && load?.status === 'DENIED' && <p className="plan-p">この計画を見る権限がありません。</p>}
-          {!entry && !loadPending && !gen && load?.status !== 'FAILED' && load?.status !== 'DENIED' && (
+          {!entry && !loadPending && load?.status === 'UNAVAILABLE' && (
+            <p role="alert" className="plan-p rounded-lg bg-amber-50 p-3 text-amber-900">
+              {load.message}
+            </p>
+          )}
+          {!entry && !loadPending && !gen && load?.status !== 'FAILED' && load?.status !== 'DENIED' && load?.status !== 'UNAVAILABLE' && (
             <>
               <p className="plan-p">実行計画書はまだ作成されていません。</p>
               <button type="button" className="plan-btn-primary" onClick={onCreate}>

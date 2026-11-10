@@ -245,3 +245,33 @@ describe('無効な間（既定）は、認証・データベース・AIのい�
     expect(touched).toBe(0);
   });
 });
+
+describe('保存テーブルが無い環境（本番の未導入）', () => {
+  const unavailable = { storeAvailable: async () => false };
+
+  it('読み込みは 503 UNAVAILABLE（理由つき）で、データベースの保存の表には触れない', async () => {
+    let touched = 0;
+    const g = gateway({ findPlan: async () => ((touched += 1), ok<PlanDocRecord | null>(null)) });
+    const res = await api(g, unavailable).plans(req('GET', 'plan-documents', undefined, SEARCH));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.status).toBe('UNAVAILABLE');
+    expect(body.message).toContain('導入されていません');
+    expect(touched).toBe(0);
+  });
+
+  it('生成・採用・保存も 503 UNAVAILABLE で、草案を作る前に止まる', async () => {
+    let touched = 0;
+    const g = gateway({ claimGeneration: async () => ((touched += 1), ok({ claimed: true as const, record: rec(1, 'GENERATING') })) });
+    const res = await api(g, unavailable).generate(req('POST', 'plan-documents/generate', { ...key, projectId: 'fict-proj-renewal' }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).status).toBe('UNAVAILABLE');
+    expect(touched).toBe(0);
+  });
+
+  it('保存テーブルがある環境では、従来どおり読み込める（確認の呼び出しだけが増える）', async () => {
+    const res = await api(gateway(), { storeAvailable: async () => true }).plans(req('GET', 'plan-documents', undefined, SEARCH));
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('NONE');
+  });
+});

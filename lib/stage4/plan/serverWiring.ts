@@ -14,6 +14,9 @@ import { createSupabasePlanGateway } from './planGatewaySupabase';
 import type { ModelReply } from './planGenerate';
 import type { RawPlanInput, RawPlanStrategy } from './source';
 
+/* テーブルが無いことを示すPostgreSQL（42P01）とPostgREST（PGRST205）のコード */
+const MISSING_TABLE_CODES = new Set(['42P01', 'PGRST205']);
+
 const bearerOf = (req: Request): string | null => {
   const auth = req.headers.get('authorization') || '';
   return auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : null;
@@ -51,6 +54,10 @@ export const stage4PlanApi = createPlanApi({
   verifyUser: (req) => getAuthUserIdFromBearer(getSupabaseAdmin(), req),
   gatewayFor: (req) => createSupabasePlanGateway(userScopedClient(req)),
   enabled: process.env.STAGE4_PLAN_API_ENABLED === 'true',
+  storeAvailable: async (req) => {
+    const { error } = await userScopedClient(req).from('stage4_plan_documents').select('id').limit(0);
+    return !error || !MISSING_TABLE_CODES.has(error.code ?? '');
+  },
   generation: {
     now: () => new Date().toISOString(),
     currentYm: () => {

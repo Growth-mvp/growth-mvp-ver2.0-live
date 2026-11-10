@@ -1,4 +1,5 @@
-// ローカルSupabaseに接続して、新STAGE4を通常のSTAGE4として開発サーバーを起動する（http://localhost:3000）。
+// テスト用：ローカルSupabase（日本製罐の複製は含まない架空のテストデータ）に接続して、新STAGE4の開発サーバーを起動する（http://localhost:3001）。
+// 通常の作業環境は `npm run dev`（http://localhost:3000、本番Supabase）。
 // 接続先は .env.stage4-local（Gitに含めない）の127.0.0.1のURLだけ。本番URLは拒否する。
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -60,8 +61,8 @@ const env = {
   NEXT_DIST_DIR: '.next-stage4-local',
 };
 
-console.log('新STAGE4（ローカル）を起動します: http://localhost:3000/okr');
-console.log('STAGE5: http://localhost:3000/execution');
+console.log('新STAGE4（テスト用・ローカルSupabase）を起動します: http://localhost:3001/okr');
+console.log('STAGE5: http://localhost:3001/execution');
 
-const child = spawn('npx', ['next', 'dev', '-p', '3000'], { cwd: root, env, stdio: 'inherit', shell: true });
+const child = spawn('npx', ['next', 'dev', '-p', '3001'], { cwd: root, env, stdio: 'inherit', shell: true });
 child.on('exit', (code) => process.exit(code ?? 0));

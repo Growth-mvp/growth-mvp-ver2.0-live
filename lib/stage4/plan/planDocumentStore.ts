@@ -46,6 +46,7 @@ export type LoadOutcome =
   | { status: 'FOUND'; record: PlanDocRecord }
   | { status: 'NONE' }
   | { status: 'DISABLED' }
+  | { status: 'UNAVAILABLE'; message: string }
   | { status: 'DENIED' }
   | { status: 'FAILED'; message: string };
 

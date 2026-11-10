@@ -64,6 +64,9 @@ export function createRemotePlanStore(o: ApiOptions): PlanDocumentStore {
       }
       if (r.status === 200 && r.json.status === 'NONE') return { status: 'NONE' };
       if (r.status === 403) return { status: 'DENIED' };
+      if (r.status === 503 && r.json.status === 'UNAVAILABLE') {
+        return { status: 'UNAVAILABLE', message: String(r.json.message ?? LOAD_FAILED) };
+      }
       if (r.status === 503) return { status: 'DISABLED' };
       return { status: 'FAILED', message: LOAD_FAILED };
     },
