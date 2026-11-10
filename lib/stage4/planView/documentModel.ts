@@ -7,6 +7,7 @@ import { toDisplayPlan, buildTasks } from '@/lib/stage4/planView/adapter';
 import { isRegulatoryTask } from '@/lib/stage4/planView/model';
 import type { FieldView, FinanceEffectView, ProposedKpiView, ProtectedKpiView, RiskView, SectionViews } from '@/lib/stage4/planView/types';
 import { listEditableItems, hashValue, type EditRecord } from '@/lib/stage4/planView/regen';
+import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 
 export type EditValue = string | number | boolean | null;
 export type Edits = Record<string, EditValue>;
@@ -127,7 +128,7 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       due: k.judge && k.judge.value ? `${ymJa(k.due)}（判定時期：${ymJa(k.judge.value)}）` : k.due ? ymJa(k.due) : '未定（STAGE3で未設定）',
       owner: k.owner && k.owner !== '未設定' ? k.owner : '未定',
       confirmed: k.confirmed,
-      statusLabel: k.confirmed ? '確定' : '入力済み（確定の印なし）',
+      statusLabel: k.confirmed ? KPI_STATE_LABEL.confirmed : KPI_STATE_LABEL.unconfirmed,
       targetKey: null,
       dueKey: null,
     })),
@@ -137,7 +138,7 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       due: ymJa(k.due.value),
       owner: k.owner.value ?? '未定',
       confirmed: false,
-      statusLabel: '提案',
+      statusLabel: KPI_STATE_LABEL.proposed,
       targetKey: k.target.key,
       dueKey: k.due.key,
     })),

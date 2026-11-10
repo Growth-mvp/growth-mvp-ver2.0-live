@@ -43,6 +43,8 @@ import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
 import { applyPreview, comparePreview, type PreviewEdits } from '@/lib/stage4/planView/regenPreview';
 import { RegenPanel, type RegenState } from './RegenPanel';
+import { PLAN_OPERATION_GUIDE, planStatusOf } from '@/lib/stage4/planView/planStatus';
+import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import {
   EVENT_LABEL,
@@ -598,97 +600,41 @@ function ReadOnlyProject({
   const dept = m.department;
   const project = m.project;
   const kpiRows = [
-    ...m.kpis.confirmed.map((k) => ({ ...k, state: '確定' })),
-    ...m.kpis.unconfirmed.map((k) => ({ ...k, state: '入力済み（確定の印なし）' })),
-    ...m.kpis.aiProvisional.map((k) => ({ ...k, state: 'AIの仮の目標（確定ではない）' })),
+    ...m.kpis.confirmed.map((k) => ({ ...k, state: KPI_STATE_LABEL.confirmed })),
+    ...m.kpis.unconfirmed.map((k) => ({ ...k, state: KPI_STATE_LABEL.unconfirmed })),
+    ...m.kpis.aiProvisional.map((k) => ({ ...k, state: KPI_STATE_LABEL.provisional })),
   ];
   const errors = gen?.status === 'FAILED' ? gen.issues.filter((i) => i.severity === 'error') : [];
   const conflicts = entry && entry.save.status === 'CONFLICT' ? conflictRows(entry) : [];
   const saveView = entry?.save;
+  const planStatus = planStatusOf({
+    hasDraft: entry !== null,
+    dirty: entry !== null && isDirty(entry),
+    adopted: entry?.plan.adopted === true,
+    started: entry?.plan.started === true,
+  });
   const allPicked = saveView?.status === 'CONFLICT' && saveView.conflicts.every((k) => !!saveView.picks[k]);
 
   return (
     <div className="plan-page">
-      <article className="plan-paper" aria-label="STAGE3の情報（読み取り専用）">
-        <header className="plan-paper-head">
-          <div className="plan-kicker">STAGE3の情報（読み取り専用）</div>
-          <h1 className="plan-title">{project.title}</h1>
-          <table className="plan-basics">
-            <tbody>
-              <tr>
-                <th>対象部門</th>
-                <td>{dept.name}</td>
-                <th>役割</th>
-                <td>{project.role ? ROLE_LABEL[project.role] ?? project.role : '未設定'}</td>
-              </tr>
-              <tr>
-                <th>部門のミッション</th>
-                <td colSpan={3}>{textOrMissing(dept.mission)}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p className="plan-company">{companyLabel}</p>
-        </header>
-
+      <section className="plan-main" aria-label="実行計画書">
         <section className="plan-section">
           <h2 className="plan-h2">
-            <span className="plan-no">1</span> 目的・背景
+            実行計画書
           </h2>
-          <h3 className="plan-h3">目的</h3>
-          <p className="plan-p">{textOrMissing(project.objective, '未入力（STAGE3で目的が入力されていません）')}</p>
-          <h3 className="plan-h3">取り組む理由</h3>
-          <p className="plan-p">{textOrMissing(project.rationale)}</p>
-          <h3 className="plan-h3">仮説</h3>
-          <p className="plan-p">{textOrMissing(project.hypothesis)}</p>
-          <h3 className="plan-h3">部門の戦略</h3>
-          <p className="plan-p">{textOrMissing(dept.strategy)}</p>
-          {dept.missionDescription && (
-            <>
-              <h3 className="plan-h3">ミッションの説明</h3>
-              <p className="plan-p">{dept.missionDescription}</p>
-            </>
-          )}
-        </section>
-
-        <section className="plan-section">
-          <h2 className="plan-h2">
-            <span className="plan-no">2</span> 目標・KPI
-          </h2>
-          {kpiRows.length === 0 ? (
-            <p className="plan-p">このプロジェクトの既存のKPIはありません。</p>
-          ) : (
-            <table className="plan-table plan-kpi-table">
-              <thead>
-                <tr>
-                  <th>指標</th>
-                  <th>目標</th>
-                  <th>期限</th>
-                  <th>担当</th>
-                  <th>状態</th>
-                </tr>
-              </thead>
-              <tbody>
-                {kpiRows.map((k, i) => (
-                  <tr key={`${k.state}-${i}-${k.label}`} className={k.state === '確定' ? 'plan-kpi-confirmed' : undefined}>
-                    <td>{k.label}</td>
-                    <td>{targetText(k.target, k.unit)}</td>
-                    <td>{ymJa(k.due)}</td>
-                    <td>{textOrMissing(k.owner, '未設定')}</td>
-                    <td>
-                      <span className="plan-tag">{k.state}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          <p className="plan-note">確定したKPIは、この画面からは変更できません（STAGE3で変更します）。</p>
-        </section>
-
-        <section className="plan-section">
-          <h2 className="plan-h2">
-            <span className="plan-no">3</span> 実行計画
-          </h2>
+          <div className="plan-status" role="status" aria-live="polite">
+            <p className="plan-status-title">現在の状態：{planStatus.title}</p>
+            <p className="plan-note">{planStatus.detail}</p>
+            <p className="plan-status-next">次に行うこと：{planStatus.next}</p>
+          </div>
+          <dl className="plan-guide">
+            {PLAN_OPERATION_GUIDE.map((g) => (
+              <div key={g.name} className="plan-guide-item">
+                <dt>{g.name}</dt>
+                <dd>{g.meaning}</dd>
+              </div>
+            ))}
+          </dl>
           {!entry && loadPending && <p className="plan-p">保存された草案を読み込んでいます…</p>}
           {!entry && !loadPending && load?.status === 'FAILED' && (
             <>
@@ -739,8 +685,7 @@ function ReadOnlyProject({
             <p className="plan-note">このプロジェクトにはまだ番号（安定ID）がありません。保存するときに、番号を一度だけ付けます。</p>
           )}
         </section>
-      </article>
-
+      </section>
       {entry && planView && (
         <div>
           {entry.save.status === 'CONFLICT' && (
@@ -843,6 +788,84 @@ function ReadOnlyProject({
           {entry.save.status === 'FAILED' && <p role="alert" className="plan-note">{entry.save.message}</p>}
         </div>
       )}
+      <details className="plan-ref">
+        <summary className="plan-ref-summary">STAGE3の参照情報（目的・背景・KPI）を開く</summary>
+      <article className="plan-paper" aria-label="STAGE3の情報（読み取り専用）">
+        <header className="plan-paper-head">
+          <div className="plan-kicker">STAGE3の情報（読み取り専用）</div>
+          <h1 className="plan-title">{project.title}</h1>
+          <table className="plan-basics">
+            <tbody>
+              <tr>
+                <th>対象部門</th>
+                <td>{dept.name}</td>
+                <th>役割</th>
+                <td>{project.role ? ROLE_LABEL[project.role] ?? project.role : '未設定'}</td>
+              </tr>
+              <tr>
+                <th>部門のミッション</th>
+                <td colSpan={3}>{textOrMissing(dept.mission)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="plan-company">{companyLabel}</p>
+        </header>
+        <section className="plan-section">
+          <h2 className="plan-h2">
+            <span className="plan-no">1</span> 目的・背景
+          </h2>
+          <h3 className="plan-h3">目的</h3>
+          <p className="plan-p">{textOrMissing(project.objective, '未入力（STAGE3で目的が入力されていません）')}</p>
+          <h3 className="plan-h3">取り組む理由</h3>
+          <p className="plan-p">{textOrMissing(project.rationale)}</p>
+          <h3 className="plan-h3">仮説</h3>
+          <p className="plan-p">{textOrMissing(project.hypothesis)}</p>
+          <h3 className="plan-h3">部門の戦略</h3>
+          <p className="plan-p">{textOrMissing(dept.strategy)}</p>
+          {dept.missionDescription && (
+            <>
+              <h3 className="plan-h3">ミッションの説明</h3>
+              <p className="plan-p">{dept.missionDescription}</p>
+            </>
+          )}
+        </section>
+
+        <section className="plan-section">
+          <h2 className="plan-h2">
+            <span className="plan-no">2</span> 目標・KPI
+          </h2>
+          {kpiRows.length === 0 ? (
+            <p className="plan-p">このプロジェクトの既存のKPIはありません。</p>
+          ) : (
+            <table className="plan-table plan-kpi-table">
+              <thead>
+                <tr>
+                  <th>指標</th>
+                  <th>目標</th>
+                  <th>期限</th>
+                  <th>担当</th>
+                  <th>状態</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kpiRows.map((k, i) => (
+                  <tr key={`${k.state}-${i}-${k.label}`} className={k.state === KPI_STATE_LABEL.confirmed ? 'plan-kpi-confirmed' : undefined}>
+                    <td>{k.label}</td>
+                    <td>{targetText(k.target, k.unit)}</td>
+                    <td>{ymJa(k.due)}</td>
+                    <td>{textOrMissing(k.owner, '未設定')}</td>
+                    <td>
+                      <span className="plan-tag">{k.state}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="plan-note">STAGE3に登録されたKPIは、この画面では変更できません。変更はSTAGE3で行います。AIの提案KPIは計画書の中に別に示します。</p>
+        </section>
+      </article>
+      </details>
     </div>
   );
 }

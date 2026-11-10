@@ -37,7 +37,7 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
     <div className="space-y-4">
       <section className={SECTION_CARD}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-[15px] font-bold text-zinc-900">実行開始の確認</h3>
+          <h3 className="text-[15px] font-bold text-zinc-900">実行開始前の確認事項</h3>
           <button type="button" className="text-[13px] text-zinc-600 underline" onClick={onBack}>
             計画書に戻る
           </button>
@@ -85,7 +85,7 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
       </section>
 
       <section className={SECTION_CARD}>
-        <h4 className="text-[14px] font-bold text-zinc-900">② 規制・安全の確認</h4>
+        <h4 className="text-[14px] font-bold text-zinc-900">② 法令・規制・安全の確認（必要か、適用なしか）</h4>
         <div className="space-y-3">
           {regulatoryTasks.length === 0 ? (
             <p className="text-[13px] text-zinc-700">計画書に規制・安全に関わる項目は見当たりません。該当するかを判断し、記録してください。</p>
@@ -97,7 +97,7 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
             </ul>
           )}
           <fieldset className="space-y-2">
-              <legend className="text-[13px] font-semibold text-zinc-800">判断内容</legend>
+              <legend className="text-[13px] font-semibold text-zinc-800">適用の判断</legend>
               {DECISIONS.map((dec) => (
                 <label key={dec} className="flex items-center gap-2 text-[13px]">
                   <input
@@ -112,7 +112,7 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
               ))}
             </fieldset>
             <label className="block space-y-1 text-[13px]">
-              <span className="font-semibold text-zinc-800">判断内容</span>
+              <span className="font-semibold text-zinc-800">判断の内容（適用なしの場合は、その理由）</span>
               <textarea value={reg.judgement} onChange={(e) => setReg({ judgement: e.target.value })} rows={2} className={INPUT} />
             </label>
             <div className="grid gap-3 md:grid-cols-2">

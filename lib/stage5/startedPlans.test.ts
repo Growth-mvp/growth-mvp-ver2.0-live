@@ -73,10 +73,10 @@ describe('STAGE5 の実行開始済み計画の読み取り', () => {
 
   it('計画書の提案KPIは「提案」と表示し、確定KPI（STAGE3由来）と区別する。財務の数値は含めない', () => {
     const v = view(record());
-    const proposed = v!.kpis.filter((k) => k.statusLabel === '提案');
+    const proposed = v!.kpis.filter((k) => k.statusLabel === 'AI提案（追加KPI）');
     const confirmed = v!.kpis.filter((k) => k.confirmed);
     expect(proposed.every((k) => k.confirmed === false)).toBe(true);
-    expect(confirmed.every((k) => k.statusLabel === '確定')).toBe(true);
+    expect(confirmed.every((k) => k.statusLabel === 'STAGE3で確定')).toBe(true);
     expect(JSON.stringify(v)).not.toMatch(/AI_ESTIMATE|NOT_CALCULATED/);
   });
 

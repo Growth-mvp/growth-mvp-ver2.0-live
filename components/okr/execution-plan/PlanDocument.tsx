@@ -233,7 +233,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
               ))}
             </tbody>
           </table>
-          <p className="plan-note">確定した目標は、この画面からは変更できません（STAGE3で変更します）。</p>
+          <p className="plan-note">STAGE3で確定した目標は、この画面では変更できません。変更はSTAGE3で行います。</p>
         </section>
 
         <section className="plan-section" aria-labelledby="sec3">
@@ -369,7 +369,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
         <details className="plan-supplement">
           <summary>補足情報（根拠・確定情報）</summary>
           <div className="plan-supplement-body">
-            <h4 className="plan-h4">確定している目標（STAGE3）</h4>
+            <h4 className="plan-h4">STAGE3で確定した目標</h4>
             <ul className="plan-list">
               {doc.goals.kpis
                 .filter((k) => k.confirmed)
@@ -381,7 +381,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
             </ul>
             {doc.supplement.stage3Notes.length > 0 && (
               <>
-                <h4 className="plan-h4">確定目標についての注意</h4>
+                <h4 className="plan-h4">STAGE3で確定した目標についての注意</h4>
                 <ul className="plan-list">
                   {doc.supplement.stage3Notes.map((n, i) => (
                     <li key={`n-${i}`}>{n}</li>
@@ -407,7 +407,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
 
       {!readOnly && props.showAdoption !== false && (
       <section className="plan-next" aria-label="計画案の採用">
-        <h2 className="plan-h3">計画案の採用</h2>
+        <h2 className="plan-h3">計画書の採用</h2>
         {mode === 'edit' ? (
           <p className="plan-note">修正を反映してから、採用できます。</p>
         ) : adopted ? (
@@ -419,7 +419,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
           </p>
         ) : (
           <button type="button" className="plan-btn-primary" onClick={props.onAdopt} disabled={!adoptable}>
-            この計画案を採用する
+            この計画書を採用
           </button>
         )}
         <p className="plan-note">未確認の事項があっても採用できます。実行の開始は、別の操作で確認します。</p>
