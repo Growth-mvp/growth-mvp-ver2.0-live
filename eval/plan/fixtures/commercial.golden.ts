@@ -58,6 +58,9 @@ export const COMMERCIAL_GOLDEN_DRAFT = {
       {
         order: 1,
         title: '見込み先がテナント売上データを提供できるかを確認する',
+        deliverable: 'テナント売上データの提供可否を記録した確認メモ',
+        exitCondition: '提供可能な見込み先が1社以上確定している',
+        valueStage: 'ORDER_INTENT',
         ownerRole: '営業部',
         dueYm: '2026-12',
         dependsOn: [],
@@ -73,6 +76,9 @@ export const COMMERCIAL_GOLDEN_DRAFT = {
       {
         order: 2,
         title: '既存の改装事例3件について、改装前後のテナント売上を整理する',
+        deliverable: '改装前後のテナント売上を並べた比較表（3件）',
+        exitCondition: '比較表で、売上の変化が3件とも数字で示せている',
+        valueStage: 'OTHER',
         ownerRole: '営業部',
         dueYm: '2026-12',
         dependsOn: [],
@@ -88,6 +94,9 @@ export const COMMERCIAL_GOLDEN_DRAFT = {
       {
         order: 3,
         title: 'テナントの売上変化を見るチェックシートを作り、社内レビューする',
+        deliverable: 'テナント売上の変化を見るチェックシート（社内レビュー済み）',
+        exitCondition: 'レビューで、設計部と営業部の合意が取れている',
+        valueStage: 'OTHER',
         ownerRole: '営業部・設計部',
         dueYm: '2027-01',
         dependsOn: [2],
@@ -103,6 +112,9 @@ export const COMMERCIAL_GOLDEN_DRAFT = {
       {
         order: 4,
         title: '見込み先の事業者3社に、チェックシートを使って提案する',
+        deliverable: '提案の記録（3社分）と、各社の反応メモ',
+        exitCondition: '3社のうち1社以上が、商談の継続に同意している',
+        valueStage: 'ORDER_INTENT',
         ownerRole: '営業部',
         dueYm: '2027-02',
         dependsOn: [1, 3],
@@ -118,6 +130,9 @@ export const COMMERCIAL_GOLDEN_DRAFT = {
       {
         order: 5,
         title: '提案への反応（判断までの日数と採否理由）を記録し、提案の型を直す',
+        deliverable: '判断までの日数と採否理由の一覧、直した提案の型',
+        exitCondition: '一覧で、採否理由の上位3つが特定できている',
+        valueStage: 'OTHER',
         ownerRole: '営業部',
         dueYm: '2027-02',
         dependsOn: [4],

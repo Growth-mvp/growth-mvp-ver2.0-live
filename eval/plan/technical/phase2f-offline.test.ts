@@ -47,7 +47,9 @@ const withoutRefs = (v: any): any => {
     expect(errors.map((e) => e.code)).not.toContain('SOURCE_REF_UNKNOWN');
     expect(run.issues.find((i) => i.code === 'REF_NORMALIZED')?.message).toContain('54 件');
     // Phase 2I：旧出力は、入力の規制の論点（脅威）を計画に反映していない。新しい検証で検出される
-    expect(errors.map((e) => e.code)).toEqual(['REGULATORY_CONSTRAINT_NOT_ADDRESSED']);
+    const NEW_GAPS = ['ACTION_CONTRACT_MISSING', 'FINANCE_MISCLASSIFIED', 'BEFORE_START_AFTER_START'];
+    expect(errors.map((e) => e.code).filter((code) => !NEW_GAPS.includes(code))).toEqual(['REGULATORY_CONSTRAINT_NOT_ADDRESSED']);
+    expect(errors.filter((e) => e.code === 'ACTION_CONTRACT_MISSING')).toHaveLength(run.plan?.section2.actions.length ?? 0);
     expect(run.ok).toBe(false);
   });
 
@@ -90,6 +92,6 @@ const withoutRefs = (v: any): any => {
       JSON.stringify({ ok: run.ok, issues: run.issues, burden, sourceUnchanged: true }, null, 2),
       'utf8'
     );
-    expect(burden.machineErrors.total).toBe(1);
+    expect(burden.machineErrors.total).toBe(run.issues.filter((i) => i.severity === 'error').length);
   });
 });

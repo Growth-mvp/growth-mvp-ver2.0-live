@@ -24,7 +24,9 @@ const cases: Array<[string, RawPlanInput, number]> = [
 ];
 /** 移行で補えない内容の欠落だけが残ることを期待する（それ以外のエラーは許さない） */
 /* REGULATORY_CONSTRAINT_NOT_ADDRESSED：旧版の成長戦略型は、入力の規制の論点を反映していない（Phase 2I の新しい検証で検出される既知の欠落） */
-const ALLOWED_CONTENT_GAPS = ['OBSTACLES_MISSING', 'MECHANISM_MISSING', 'REGULATORY_CONSTRAINT_NOT_ADDRESSED'];
+/* ACTION_CONTRACT_MISSING：旧版の実施事項には、成果物・判断条件・収益化の段階が無い（移行では補わず、欠落として検出する） */
+/* FINANCE_MISCLASSIFIED・BEFORE_START_AFTER_START：旧版の財務の分類（限界利益・投資回収）と、開始後の確認期限も、今回の検証で内容の欠落として検出される */
+const ALLOWED_CONTENT_GAPS = ['OBSTACLES_MISSING', 'MECHANISM_MISSING', 'REGULATORY_CONSTRAINT_NOT_ADDRESSED', 'ACTION_CONTRACT_MISSING', 'FINANCE_MISCLASSIFIED', 'BEFORE_START_AFTER_START'];
 
 const savedJson = (id: string) =>
   JSON.parse(readFileSync(path.join(dir, `${id}-ENGINE.json`), 'utf8')).output.match(/\{[\s\S]*\}/)[0];

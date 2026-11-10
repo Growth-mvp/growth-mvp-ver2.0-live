@@ -8,6 +8,17 @@ export type Basis = z.infer<typeof BASIS>;
 const Text = z.string().min(1).max(300);
 const StrList = z.array(z.string().min(1).max(300));
 const Ref = z.array(z.string()).max(6);
+
+/** 有償用途開発から量産受注までの段階（この順に進む） */
+export const VALUE_STAGES = [
+  'ORDER_INTENT',
+  'PAID_CONTRACT',
+  'VALIDATION',
+  'MASS_PRODUCTION_DECISION',
+  'MASS_ORDER',
+  'OTHER',
+] as const;
+export type ValueStage = (typeof VALUE_STAGES)[number];
 const KpiKey = z.string().regex(/^[SA]\d+$/, 'S（確定KPI）またはA（追加KPI）の番号');
 
 export const Stage3KpiSourceSchema = z.object({
@@ -220,6 +231,9 @@ export const PlanDraftSchema = z
                 sourceRefs: Ref,
                 supportsKpiKeys: z.array(KpiKey).max(6),
                 mechanism: MechanismSchema.nullable(),
+                deliverable: z.string().min(1).max(120).nullish(),
+                exitCondition: z.string().min(1).max(160).nullish(),
+                valueStage: z.enum(VALUE_STAGES).nullish(),
               })
               .strict()
           )
@@ -251,7 +265,7 @@ export const PlanDraftSchema = z
               .object({
                 key: z.string().regex(/^F\d+$/),
                 label: z.string().min(1).max(80),
-                kind: z.enum(['REVENUE_UP', 'COST_REDUCTION', 'COST_INCREASE']),
+                kind: z.enum(['REVENUE_UP', 'COST_REDUCTION', 'COST_INCREASE', 'NOT_FINANCIAL']),
                 method: z.enum(['FUNNEL', 'QUANTITY_UNIT_PRICE', 'DIRECT_AMOUNT', 'FREE']),
                 inputs: z.array(FinanceInputSchema).max(10),
                 amountBasis: z.enum(['TOTAL', 'MONTHLY', 'ANNUAL']),

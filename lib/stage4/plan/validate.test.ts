@@ -210,6 +210,47 @@ describe('validatePlan（期待出力と、違反の検出）', () => {
       expect(codes(p)).not.toContain('BEFORE_START_AFTER_START');
     });
 
+    it('実施事項に成果物・判断条件・段階のどれかが無いとエラー（契約項目の欠落）', () => {
+      const p = plan();
+      p.section2.actions[0].deliverable = null;
+      expect(codes(p)).toContain('ACTION_CONTRACT_MISSING');
+    });
+
+    it('収益化の段階が、先の行動より前に戻るとエラー', () => {
+      const p = plan();
+      p.section2.actions[0].valueStage = 'PAID_CONTRACT';
+      p.section2.actions[1].valueStage = 'ORDER_INTENT';
+      expect(codes(p)).toContain('STAGE_ORDER_CONFLICT');
+    });
+
+    it('実施事項が「整理する」などの語だけなら、エラー（何をするか分からない）', () => {
+      const p = plan();
+      p.section2.actions[0].title = '整理する';
+      expect(codes(p)).toContain('ACTION_TITLE_VAGUE');
+    });
+
+    it('限界利益を売上増加（REVENUE_UP）にすると、誤分類としてエラー', () => {
+      const p = plan();
+      const f = p.section4.financeItems[0];
+      f.label = '案件別の限界利益';
+      f.kind = 'REVENUE_UP';
+      expect(codes(p)).toContain('FINANCE_MISCLASSIFIED');
+    });
+
+    it('財務効果として扱わない項目（NOT_FINANCIAL）は、算定式を持てず、理由が必要', () => {
+      const p = plan();
+      const f = p.section4.financeItems[0];
+      f.label = '案件別の限界利益';
+      f.kind = 'NOT_FINANCIAL';
+      f.method = 'DIRECT_AMOUNT';
+      expect(codes(p)).toContain('NOT_FINANCIAL_METHOD_CONFLICT');
+      f.method = 'FREE';
+      f.freeNote = null;
+      expect(codes(p)).toContain('FREE_NOTE_MISSING');
+      f.freeNote = '算定式：限界利益 = 売上 − 直接原価。直接原価が不足';
+      expect(codes(p)).not.toContain('FINANCE_MISCLASSIFIED');
+    });
+
     it('方式に必要な役割が無いと警告（算定できない理由が見える）', () => {
       const p = plan();
       p.section4.financeItems[0].inputs = p.section4.financeItems[0].inputs.filter((i) => i.role !== 'WIN_RATE');

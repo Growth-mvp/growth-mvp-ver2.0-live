@@ -42,6 +42,17 @@ export const CONSTRAINT_AND_LINK_RULES = `## 重要な制約（規制・安全�
 - 追加KPIの目標値：入力の数値や既存KPIから推定できる場合のみ、targetBasis を AI_PROVISIONAL にして仮の目標値を書く。根拠が無ければ target を null にする。
 - 責任者：入力の担当候補（次の一覧）から、プロジェクトの担当・確定KPIの担当に当たる人を responsible.name に入れ、basis を PROPOSAL、note を「候補（仮）。実行前に確定が必要」にする。候補が無ければ null。`;
 
+export const ACTION_AND_VALUE_CHAIN_RULES = `## 実施事項の書き方（具体性）
+- title は、誰が何を対象に何をするかが分かる行動にする。「整理する」「検討する」「確認する」の語だけで終わらせない（例：「既存の改装事例3件の改装前後のテナント売上を比べ表にする」）。
+- deliverable は、この行動で残る成果物を書く（文書・試作仕様書・見積書・評価結果表など）。成果物が無い行動は書かない。
+- exitCondition は、次の工程へ進む判断条件を数値・状態で書く（例：「試作の評価で、基準の不良率を下回った件数が3件以上」）。判断条件が書けない行動は、行動を分けるか、確認事項にする。
+
+## 収益化までの段階（valueStage）
+- 有償用途開発の場合、収益化は次の順に進む：ORDER_INTENT（発注意思の確認）→ PAID_CONTRACT（有償契約）→ VALIDATION（試作・検証）→ MASS_PRODUCTION_DECISION（量産移行判断）→ MASS_ORDER（量産受注）。
+- 各行動に、その行動が進める段階を1つ書く。行動の order の順で段階が前に戻らないようにする（例：有償契約の後に発注意思の確認を置かない）。
+- 段階をつなぐ中間成果（例：発注意思の確認書、有償契約の締結、試作評価の結果）は、実施事項の deliverable または確認事項（verificationItems）として示す。
+- 中間成果を新しいKPIとして増やさない。STAGE3入力KPIは変えず、必要な中間成果は実施事項と確認事項で扱う。`;
+
 const OUTPUT_SHAPE = `{
   "provisionalPeriod": null,
   "section1": {
@@ -60,7 +71,10 @@ const OUTPUT_SHAPE = `{
     {
       "order": 1, "title": "", "ownerRole": "", "dueYm": "YYYY-MM", "dependsOn": [], "basis": "", "sourceRefs": [],
       "supportsKpiKeys": ["S1 または A1"],
-      "mechanism": { "obstacleRefs": [1], "stateChange": "どの状態がどう変わるか", "whyItMatters": "なぜ顧客価値や業績につながるか" }
+      "mechanism": { "obstacleRefs": [1], "stateChange": "どの状態がどう変わるか", "whyItMatters": "なぜ顧客価値や業績につながるか" },
+      "deliverable": "この行動で残す成果物（文書・試作仕様書・見積書など）",
+      "exitCondition": "次の工程へ進む判断条件（数値・状態で書く）",
+      "valueStage": "ORDER_INTENT | PAID_CONTRACT | VALIDATION | MASS_PRODUCTION_DECISION | MASS_ORDER | OTHER"
     }
   ] },
   "section3": {
@@ -71,7 +85,7 @@ const OUTPUT_SHAPE = `{
   },
   "section4": { "financeItems": [
     {
-      "key": "F1", "label": "", "kind": "REVENUE_UP | COST_REDUCTION | COST_INCREASE",
+      "key": "F1", "label": "", "kind": "REVENUE_UP | COST_REDUCTION | COST_INCREASE | NOT_FINANCIAL",
       "method": "FUNNEL | QUANTITY_UNIT_PRICE | DIRECT_AMOUNT | FREE",
       "inputs": [
         { "role": "MEETINGS", "label": "商談数", "value": null, "unit": "件", "basis": "", "confirmState": "UNCONFIRMED", "sourceRefs": [] }
@@ -102,7 +116,10 @@ const FINANCE_RULES = `## 財務入力（section4）
 - 上の方式に当てはまらない項目（歩留まり、原価率、回収期間、投資額など）は method を "FREE" にし、freeNote に算定の考え方と、金額を作れない理由（不足している入力）を書く。FREE の項目は金額を作らず、入力を保持する。
 - 数量と単価で表せる効果（例：導入件数 × 有償化の割合 × 単価）は、方式 QUANTITY_UNIT_PRICE を選び、根拠のある仮定の値（単価・数量）は basis HYPOTHESIS で value に入れる。仮定は仮説であり、確定値ではない。
 - 方式が FREE の項目も、算定式に必要なデータ（数量・単価・原価・受注率・利益率など）を inputs に label 付きで列挙する。値が不明なら value を null、basis と confirmState を UNCONFIRMED にする。freeNote には、算定式（例：利益 = 売上 − 原価）と、不足しているデータを分けて書く。
-- 役割の選び方：利益率・原価率は COST_RATE、受注率は CONVERSION_RATE（または WIN_RATE）、歩留まりは YIELD_RATE、それ以外（粗利、投資額、回収期間、固定費など）は OTHER とし、label に具体名を書く。
+- 役割は、1つの項目の中で同じ役割を2回使わない（OTHER は除く）。DIRECT_AMOUNT は金額の入力を1つだけ使い、それ以外の金額（直接原価・試作費など）は OTHER にして label に具体名を書く。
+- 役割の選び方：利益率・原価率は COST_RATE、受注率は CONVERSION_RATE（または WIN_RATE）、歩留まりは YIELD_RATE、それ以外（投資額、回収期間、固定費など）は OTHER とし、label と unit に具体名と単位を書く（例：label「案件別の直接原価」、unit「円/件」）。
+- 限界利益・粗利は、売上増加でも費用増加でもない。投資回収・回収期間・回収見込みも、売上増加・費用増加ではない。これらの項目の kind は NOT_FINANCIAL にし、method は FREE にする。freeNote に、算定に必要な入力（売上・直接原価・投資額・回収期間など）と、確認が必要な点を書く。これらは財務効果として反映せず、確認事項として残す。
+- kind が NOT_FINANCIAL の項目は、金額を作らない（value は null のままにする）。
 - 算定に使う入力の value は、入力情報から確認できる場合だけ数値。推定しかできないものは basis を HYPOTHESIS にして数値を書いてよい。根拠が無い場合は value を null、basis を UNCONFIRMED、confirmState を UNCONFIRMED にする。
 - 金額（円）そのものは書かない。エンジンが入力から計算する。
 - confirmState は UNCONFIRMED（根拠なし）か AI_PROPOSED（AIの提案）だけを書く。USER_CONFIRMED は書かない（確認は利用者だけが行う）。
@@ -140,6 +157,8 @@ export function buildExecutionPlanPrompt(ctx: PlanContext): string {
 ${ACTIVITY_VS_OUTCOME_RULES}
 
 ${CONSTRAINT_AND_LINK_RULES}
+
+${ACTION_AND_VALUE_CHAIN_RULES}
 
 ## 判断原則
 ${renderPrinciples(PLAN_ENGINE_PRINCIPLES)}

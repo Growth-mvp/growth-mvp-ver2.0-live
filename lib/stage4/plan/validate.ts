@@ -222,6 +222,38 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
     }
   });
 
+  // 3b. 実施事項：具体性と、収益化の段階の順序（発注意思→有償契約→試作・検証→量産移行判断→量産受注）
+  const STAGE_RANK: Record<string, number> = {
+    ORDER_INTENT: 1,
+    PAID_CONTRACT: 2,
+    VALIDATION: 3,
+    MASS_PRODUCTION_DECISION: 4,
+    MASS_ORDER: 5,
+  };
+  let highestRank = 0;
+  let highestOrder = 0;
+  [...actions]
+    .sort((x, y) => x.order - y.order)
+    .forEach((a) => {
+      const p = `section2.actions[${a.order}]`;
+      if (a.deliverable == null || a.exitCondition == null || a.valueStage == null) {
+        issues.push(err('ACTION_CONTRACT_MISSING', p, '実施事項に、成果物・次の工程への判断条件・収益化の段階のどれかが無い'));
+      }
+      if (/^(整理|検討|確認|調整|共有|把握)する$/.test(a.title)) {
+        issues.push(err('ACTION_TITLE_VAGUE', p, `実施事項「${a.title}」は、何をするかが分からない。対象と行う内容を書く`));
+      } else if (/(整理|検討|確認|調整|共有|把握)する$/.test(a.title) && a.title.length <= 14) {
+        issues.push(warn('ACTION_TITLE_VAGUE', p, `実施事項「${a.title}」は、語が短く具体性が低い。対象と行う内容を書く`));
+      }
+      const rank = a.valueStage ? STAGE_RANK[a.valueStage] : undefined;
+      if (rank === undefined) return;
+      if (rank < highestRank) {
+        issues.push(err('STAGE_ORDER_CONFLICT', p, `収益化の段階が、先の行動（${highestOrder}）の段階より前に戻っている`));
+      } else if (rank > highestRank) {
+        highestRank = rank;
+        highestOrder = a.order;
+      }
+    });
+
   // 4. 財務：算定式との整合、確認状態、顧客と自社の混同
   const kpiKind = new Map(all.map((k) => [k.key, k.kind]));
   plan.section4.financeItems.forEach((f) => {
@@ -241,6 +273,18 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
     }
     if (f.method === 'FREE' && f.inputs.length === 0) {
       issues.push(err('FINANCE_INPUTS_MISSING', p, '算定に必要なデータ（数量・単価・原価・受注率など）が列挙されていない。不明なら value を null で列挙する'));
+    }
+    if (f.kind === 'NOT_FINANCIAL') {
+      if (f.method !== 'FREE') {
+        issues.push(err('NOT_FINANCIAL_METHOD_CONFLICT', p, '財務効果として扱わない項目に、算定式（method）が指定されている'));
+      }
+      if (!f.freeNote) {
+        issues.push(err('FREE_NOTE_MISSING', p, '財務効果として扱わない項目なのに、理由と確認が必要な点（freeNote）が無い'));
+      }
+    }
+    const profitOrPayback = /限界利益|粗利|投資回収|回収期間|回収見込み/.test(`${f.label} ${f.sourceNote} ${f.freeNote ?? ''}`);
+    if (profitOrPayback && f.kind !== 'NOT_FINANCIAL') {
+      issues.push(err('FINANCE_MISCLASSIFIED', p, '限界利益・投資回収は、売上増加・費用増加とは別の指標。kind を NOT_FINANCIAL にし、確認事項として残す'));
     }
     const roles = f.inputs.map((i) => i.role);
     const dup = roles.filter((r, i) => r !== 'OTHER' && roles.indexOf(r) !== i);
