@@ -40,6 +40,8 @@ import PlanDocument from './PlanDocument';
 import StartConfirmation from './StartConfirmation';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
+import { estimateProjectImpact, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import {
   EVENT_LABEL,
   conflictRows,
@@ -175,6 +177,17 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
         selection: selected,
       })
     : null;
+  const impactEstimate = useMemo(() => {
+    if (!selected) return null;
+    const resolved = resolveProjectByKey({
+      memberships: source.memberships,
+      strategies: source.strategies,
+      companyId: selected.companyId,
+      strategyId: selected.strategyId,
+      projectKey: selected.projectKey,
+    });
+    return resolved.ok ? estimateProjectImpact(resolved.project.project) : null;
+  }, [selected, source]);
 
   const titleOf = (projectKey: string): string | null => {
     for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
@@ -433,6 +446,7 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
             key={view.key}
             view={view}
             companyLabel={companyLabel}
+            impactEstimate={impactEstimate}
             stableId={sel.projectKey.startsWith('id:')}
             entry={entry}
             planView={planView}
@@ -487,6 +501,7 @@ function ReadOnlyProject({
   version,
   remote,
   onTransition,
+  impactEstimate,
 }: {
   view: Extract<Stage3ReadView, { status: 'READY' }>;
   companyLabel: string;
@@ -505,6 +520,7 @@ function ReadOnlyProject({
   version: number | null;
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
+  impactEstimate: ImpactEstimate | null;
 }) {
   const loadPending = stableId && (load === undefined || load.status === 'LOADING');
   const m = view.model;
@@ -724,6 +740,7 @@ function ReadOnlyProject({
                 blockers={planView.d.adoption.blockers}
                 notice={entry.plan.notice}
                 persisted={remote}
+                impactEstimate={impactEstimate}
                 onEnterEdit={() => onPlan(enterEdit)}
                 onApply={() => onPlan(applyEdit)}
                 onDiscard={() => onPlan(discardEdit)}
