@@ -32,7 +32,14 @@ export type DocAction = {
   due: string;
   dueKey: string;
   owner: string;
+  /** 成果物。旧い草案には無いので null（その場合は「記載なし」と表示する） */
+  deliverable: string | null;
+  /** 次の工程へ進む判断条件。無ければ null */
+  exitCondition: string | null;
+  /** 収益化の段階の表示名。無ければ null */
+  stage: string | null;
 };
+
 
 export type DocModel = {
   projectTitle: string;
@@ -86,6 +93,10 @@ const textOf = (f: FieldView): string => (f.value && f.value.trim() ? f.value : 
 
 /** 財務効果を、一文の説明にする。金額が無いときは「現時点では未算定」と理由を書く（0円にはしない） */
 function financeSentence(e: FinanceEffectView): string {
+  if (e.notFinancial) {
+    const note = e.freeNote ? `${e.freeNote}` : '';
+    return `${e.label}：財務効果の算定・分類は要確認です。財務効果として自動計上していません。${note}`;
+  }
   if (e.status === 'CONFIRMED' && e.amountDisplay) {
     return `${e.label}：${e.amountDisplay}（${e.amountBasis}）。`;
   }
@@ -140,6 +151,9 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
     due: ymJa(a.due.value),
     dueKey: a.due.key,
     owner: a.ownerRole,
+    deliverable: a.deliverable ?? null,
+    exitCondition: a.exitCondition ?? null,
+    stage: a.stage ?? null,
   }));
 
   const regulatoryTitles = tasks.filter((t) => isRegulatoryTask(t)).map((t) => t.title);

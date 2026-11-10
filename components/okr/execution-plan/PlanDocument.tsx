@@ -256,6 +256,14 @@ export default function PlanDocument(props: PlanDocumentProps) {
                       <strong>{a.title}</strong>
                     )}
                     <div className="plan-owner">{a.owner}</div>
+                    <dl className="plan-action-fields">
+                      <dt>成果物</dt>
+                      <dd>{a.deliverable ?? '記載なし（この草案には成果物の記載がありません）'}</dd>
+                      <dt>次に進める条件</dt>
+                      <dd>{a.exitCondition ?? '記載なし（この草案には判断条件の記載がありません）'}</dd>
+                      <dt>収益化の段階</dt>
+                      <dd>{a.stage ?? '記載なし'}</dd>
+                    </dl>
                   </td>
                   <td>{a.content}</td>
                   <td className="plan-col-due">

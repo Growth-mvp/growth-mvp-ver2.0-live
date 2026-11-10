@@ -65,6 +65,8 @@ export type ProposedKpiView = {
 export type FinanceEffectView = {
   key: string;
   label: string;
+  /** 財務効果として扱わない（算定・分類は要確認）項目か */
+  notFinancial?: boolean;
   direction: string;
   method: string;
   status: 'CONFIRMED' | 'AI_ESTIMATE' | 'NOT_CALCULATED';
