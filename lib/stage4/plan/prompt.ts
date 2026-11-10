@@ -51,6 +51,7 @@ export const ACTION_AND_VALUE_CHAIN_RULES = `## 実施事項の書き方（具�
 - 有償用途開発の場合、収益化は次の順に進む：ORDER_INTENT（発注意思の確認）→ PAID_CONTRACT（有償契約）→ VALIDATION（試作・検証）→ MASS_PRODUCTION_DECISION（量産移行判断）→ MASS_ORDER（量産受注）。
 - 各行動に、その行動が進める段階を1つ書く。行動の order の順で段階が前に戻らないようにする（例：有償契約の後に発注意思の確認を置かない）。
 - 段階をつなぐ中間成果（例：発注意思の確認書、有償契約の締結、試作評価の結果）は、実施事項の deliverable または確認事項（verificationItems）として示す。
+- valueStage が PAID_CONTRACT（有償契約）の行動は、exitCondition に、発注書・契約書・注文書など正式な有償契約の成立を確認できる根拠を書く。顧客の意思確認、条件の確認、合意の記録だけでは、有償契約に到達したとはしない。
 - 中間成果を新しいKPIとして増やさない。STAGE3入力KPIは変えず、必要な中間成果は実施事項と確認事項で扱う。`;
 
 const OUTPUT_SHAPE = `{

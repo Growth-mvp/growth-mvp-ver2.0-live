@@ -4,6 +4,7 @@ import { classifyKpi } from './kpiClass';
 import { FINANCE_ROLES, type AiKpi, type AssembledPlan, type Claim, type FinanceRole, type PlanIssue, type ProtectedKpi } from './types';
 
 const CUSTOMER_OUTCOME = 'CUSTOMER_OUTCOME';
+const PAID_CONTRACT_EVIDENCE = /発注書|契約書|注文書|注文請書|有償開発契約/;
 const MONEY_UNITS = ['円', '百万円', '¥', '万円', '億円'];
 const REGULATORY_WORDS = /規制|法令|薬機|医療機器|安全|認証|許認可|コンプライアンス/;
 
@@ -238,6 +239,9 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
       const p = `section2.actions[${a.order}]`;
       if (a.deliverable == null || a.exitCondition == null || a.valueStage == null) {
         issues.push(err('ACTION_CONTRACT_MISSING', p, '実施事項に、成果物・次の工程への判断条件・収益化の段階のどれかが無い'));
+      }
+      if (a.valueStage === 'PAID_CONTRACT' && a.exitCondition != null && !PAID_CONTRACT_EVIDENCE.test(a.exitCondition)) {
+        issues.push(err('PAID_CONTRACT_EVIDENCE_MISSING', p, '有償契約の段階なのに、判断条件に発注書・契約書など正式な契約の根拠が無い（意思の確認や条件の確認だけでは到達としない）'));
       }
       if (/^(整理|検討|確認|調整|共有|把握)する$/.test(a.title)) {
         issues.push(err('ACTION_TITLE_VAGUE', p, `実施事項「${a.title}」は、何をするかが分からない。対象と行う内容を書く`));

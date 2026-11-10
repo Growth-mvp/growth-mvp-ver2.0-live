@@ -216,6 +216,20 @@ describe('validatePlan（期待出力と、違反の検出）', () => {
       expect(codes(p)).toContain('ACTION_CONTRACT_MISSING');
     });
 
+    it('有償契約の段階の判断条件に、発注書・契約書などの根拠が無いとエラー（意思や条件の確認では到達としない）', () => {
+      const p = plan();
+      p.section2.actions[0].valueStage = 'PAID_CONTRACT';
+      p.section2.actions[0].exitCondition = '顧客が有償開発の範囲と費用負担条件を確認し、前提がそろった状態';
+      expect(codes(p)).toContain('PAID_CONTRACT_EVIDENCE_MISSING');
+    });
+
+    it('有償契約の段階の判断条件に、発注書の受領など正式な根拠があれば通る', () => {
+      const p = plan();
+      p.section2.actions[0].valueStage = 'PAID_CONTRACT';
+      p.section2.actions[0].exitCondition = '顧客から発注書を受領し、有償開発契約が成立している';
+      expect(codes(p)).not.toContain('PAID_CONTRACT_EVIDENCE_MISSING');
+    });
+
     it('収益化の段階が、先の行動より前に戻るとエラー', () => {
       const p = plan();
       p.section2.actions[0].valueStage = 'PAID_CONTRACT';
