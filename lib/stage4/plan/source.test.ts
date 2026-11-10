@@ -3,6 +3,7 @@ import { DEEPEN_INPUT } from '@/eval/plan/fixtures/deepen';
 import { HIRE_INPUT } from '@/eval/plan/fixtures/hire';
 import { buildPlanSource } from './source';
 import { PlanScopeError } from './scope';
+import { PlanSourceSchema } from './types';
 
 describe('buildPlanSource（情報の取得と照合）', () => {
   it('商業施設: 対象プロジェクトのSTAGE3 KPIと戦略ブリッジを取り込む', () => {
@@ -12,6 +13,17 @@ describe('buildPlanSource（情報の取得と照合）', () => {
     expect(source.stage3.bridge?.keyThemes).toContain('商業施設の改装提案を強化する');
     expect(source.stage1.financeYears[0]).toMatchObject({ year: 2025, revenueMYen: 1200, operatingIncomeMYen: 60 });
     expect(source.stage1.operatingMarginPct).toBe(5);
+  });
+
+  it('番号のないSTAGE3 KPIは、順番から一時的な番号を付けて、入力の検証を通す（STAGE3は変えない）', () => {
+    const input = JSON.parse(JSON.stringify(COMMERCIAL_INPUT)) as typeof COMMERCIAL_INPUT;
+    const projects = (input.strategy.departments ?? []).flatMap(
+      (d) => (d.projects ?? []) as Array<{ okrsV2?: Array<{ id: string }> }>
+    );
+    for (const p of projects) if (p.okrsV2?.[0]) p.okrsV2[0].id = '';
+    const { source } = buildPlanSource(input);
+    expect(source.stage3.project.kpis[0]?.id).toBe('unnumbered-kpi-1');
+    expect(PlanSourceSchema.safeParse(source).success).toBe(true);
   });
 
   it('他部門の施策は、対象部門を除いて取り込む', () => {

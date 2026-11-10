@@ -622,11 +622,11 @@ function ReadOnlyProject({
             <>
               <p className="plan-p">実行計画書はまだ作成されていません。</p>
               <button type="button" className="plan-btn-primary" onClick={onCreate}>
-                AIで実行計画書を作る（モック）
+                AIで実行計画書を作る
               </button>
             </>
           )}
-          {!entry && gen?.status === 'BUSY' && <p className="plan-p">作成しています（モック）…</p>}
+          {!entry && gen?.status === 'BUSY' && <p className="plan-p">作成しています…</p>}
           {!entry && gen?.status === 'FAILED' && (
             <>
               <p className="plan-p">実行計画書を作れませんでした。</p>
@@ -638,7 +638,7 @@ function ReadOnlyProject({
                 </ul>
               )}
               <button type="button" className="plan-btn-primary" onClick={onCreate}>
-                もう一度作る（モック）
+                もう一度作る
               </button>
             </>
           )}
@@ -648,9 +648,6 @@ function ReadOnlyProject({
               {version !== null && ` ／ 版 ${version}`}
               {isDirty(entry) && entry.save.status !== 'SAVING' && entry.save.status !== 'CONFLICT' && '（未保存の修正があります）'}
             </p>
-          )}
-          {entry && (entry.aiDraft as { mock?: unknown }).mock === true && (
-            <p className="plan-note">AIの草案（モック）です。実際のAIは接続していません。</p>
           )}
           {entry && !stableId && (
             <p className="plan-note">このプロジェクトにはまだ番号（安定ID）がありません。保存するときに、番号を一度だけ付けます。</p>

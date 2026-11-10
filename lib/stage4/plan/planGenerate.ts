@@ -158,8 +158,17 @@ export async function generatePlanDraft(
       return { status: 'FAILED', message: FAILED };
     }
     return { status: 'CREATED', record: done.value };
-  } catch {
+  } catch (e) {
+    console.error('[stage4-generate] draft failed', describeError(e));
     await ctx.gateway.failGeneration(key, ctx.userId);
     return { status: 'MODEL_FAILED', message: MODEL_FAILED };
   }
+}
+
+function describeError(e: unknown): string {
+  const o = (e && typeof e === 'object' ? e : {}) as { name?: unknown; status?: unknown; code?: unknown };
+  const message = e instanceof Error ? e.message : String(e);
+  return [o.name, o.status && `status=${String(o.status)}`, o.code && `code=${String(o.code)}`, message.slice(0, 300)]
+    .filter(Boolean)
+    .join(' ');
 }

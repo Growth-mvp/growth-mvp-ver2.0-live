@@ -52,8 +52,9 @@ type RawDept = {
 
 function kpisOfProject(project: Record<string, unknown>) {
   const list = Array.isArray(project.okrsV2) ? (project.okrsV2 as Array<Record<string, unknown>>) : [];
-  return list.map((k) => ({
-    id: String(k.id ?? ''),
+  return list.map((k, i) => ({
+    // 番号のない既存のKPIは、順番から一時的な番号を付ける（STAGE3には書き戻さない）
+    id: String(k.id ?? '') || `unnumbered-kpi-${i + 1}`,
     label: str(k.label) ?? '',
     target: num(k.target),
     unit: str(k.unit) ?? '',
