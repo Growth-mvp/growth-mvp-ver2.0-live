@@ -63,12 +63,12 @@ describe('estimateProjectImpact（STAGE3の前提からの参考試算）', () =
 
   it('追加費用控除後は、6〜9を参考値として示し、確定した営業利益とは表示しない', () => {
     const e = calc(estimateProjectImpact(projectOf()));
-    const r = rowOf(e, '控除後の参考値');
+    const r = rowOf(e, '営業利益の参考値');
     expect(r.valueMJPY).toBeNull();
     expect(r.valueText).toBe('6〜9');
     expect(r.formula).toContain('12 − 6 = 6');
     expect(r.formula).toContain('15 − 6 = 9');
-    expect(r.label).not.toContain('営業利益');
+    expect(r.label).toContain('参考値');
     expect(r.note).toContain('確定した営業利益としては扱わない');
   });
 
@@ -79,9 +79,9 @@ describe('estimateProjectImpact（STAGE3の前提からの参考試算）', () =
     expect(e.warnings.some((w) => w.includes('利益貢献として対応を確認できない'))).toBe(true);
   });
 
-  it('追加費用の記載が無ければ、控除後の参考値は作らない', () => {
+  it('追加費用の記載が無ければ、営業利益の参考値は作らない', () => {
     const e = calc(estimateProjectImpact(projectOf({ impactRationale: '粗利率20%で粗利を見込む。' })));
-    expect(e.rows.some((r) => r.label.startsWith('控除後の参考値'))).toBe(false);
+    expect(e.rows.some((r) => r.label.startsWith('営業利益の参考値'))).toBe(false);
     expect(rowOf(e, '粗利益（参考試算').valueMJPY).toBe(12);
   });
 

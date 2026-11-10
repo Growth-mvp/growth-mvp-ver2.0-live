@@ -5,7 +5,15 @@ import { buildDocModel, type Edits } from '@/lib/stage4/planView/documentModel';
 import type { LoadOutcome, PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
 
 export type StartedPlanKpi = { label: string; target: string; due: string; owner: string; confirmed: boolean; statusLabel: string };
-export type StartedPlanAction = { no: number; title: string; content: string; due: string; owner: string };
+export type StartedPlanAction = {
+  no: number;
+  title: string;
+  content: string;
+  due: string;
+  owner: string;
+  deliverable: string | null;
+  exitCondition: string | null;
+};
 
 export type StartedPlanView = {
   key: PlanDocKey;
@@ -54,7 +62,15 @@ export function startedPlanView(args: {
       confirmed: k.confirmed,
       statusLabel: k.statusLabel,
     })),
-    actions: doc.actions.map((a) => ({ no: a.no, title: a.title, content: a.content, due: a.due, owner: a.owner })),
+    actions: doc.actions.map((a) => ({
+      no: a.no,
+      title: a.title,
+      content: a.content,
+      due: a.due,
+      owner: a.owner,
+      deliverable: a.deliverable ?? null,
+      exitCondition: a.exitCondition ?? null,
+    })),
   };
 }
 

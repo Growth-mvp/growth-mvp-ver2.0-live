@@ -32,6 +32,12 @@ export function createSupabasePlanGateway(client: SupabaseClient): PlanGateway {
       return { ok: true, value: data ? String((data as { role: unknown }).role) : null };
     },
 
+    async listPlans(companyId, strategyId): Promise<GatewayResult<PlanDocRecord[]>> {
+      const { data, error } = await table().select('*').eq('company_id', companyId).eq('strategy_id', strategyId);
+      if (error) return { ok: false, code: failure(error) };
+      return { ok: true, value: ((data ?? []) as Record<string, unknown>[]).map((row) => rowToRecord(row)) };
+    },
+
     async findPlan(key): Promise<GatewayResult<PlanDocRecord | null>> {
       const { data, error } = await table()
         .select('*')

@@ -35,13 +35,21 @@ describe('実行計画書の AI作成（モック）', () => {
     expect(plan.section3.proposedKpis).toEqual([]);
   });
 
-  it('費用・財務の数値は作らない（予算は null、財務の試算は無し）', async () => {
+  it('費用の数値は作らない（予算は null）。財務はAIの仮説だけで、確定の数値は作らない', async () => {
     const r = await generateMockExecutionPlan(args(base(), 'fict-proj-clinic-pilot'));
     if (r.status !== 'READY') throw new Error('READYであるべき');
-    const plan = r.bundle.plan as { section5: { budget: unknown }; section4: { financeItems: unknown[] } };
+    const plan = r.bundle.plan as {
+      section5: { budget: unknown };
+      section4: { financeItems: Array<{ inputs: Array<{ basis: string; confirmState: string }> }> };
+    };
     expect(plan.section5.budget).toBeNull();
-    expect(plan.section4.financeItems).toEqual([]);
-    expect(r.bundle.estimates).toEqual([]);
+    for (const item of plan.section4.financeItems) {
+      for (const input of item.inputs) {
+        expect(input.basis).toBe('HYPOTHESIS');
+        expect(input.confirmState).toBe('AI_PROPOSED');
+      }
+    }
+    expect((r.bundle.estimates as Array<{ status: string }>).every((e) => e.status !== 'CONFIRMED')).toBe(true);
   });
 
   it('担当者は決めず、実行は開始できない状態で返す（利用者が確認する）', async () => {

@@ -176,6 +176,8 @@ export function StartedPlansPanel() {
                   <span className="block text-xs text-slate-500">
                     期限：{a.due}　担当：{a.owner}
                   </span>
+                  {a.deliverable && <span className="block text-xs text-slate-600">成果物：{a.deliverable}</span>}
+                  {a.exitCondition && <span className="block text-xs text-slate-600">次に進める条件：{a.exitCondition}</span>}
                 </li>
               ))}
             </ol>

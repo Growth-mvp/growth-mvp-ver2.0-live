@@ -46,6 +46,38 @@ export function hasDuplicateProjectIds(strategy: RawPlanStrategy): boolean {
 }
 
 /* 入力から決まる草案。根拠のない内容は PROPOSAL（提案）か HYPOTHESIS（仮説）として出し、確定の印は付けない。 */
+/* 売上の算定の仮説（STAGE3に数値前提が無いときの、AIの仮の算定条件）。basis は HYPOTHESIS（確定ではない） */
+function mockRevenueHypothesis(ctx: PlanContext, endYm: string) {
+  const input = (role: 'MEETINGS' | 'WIN_RATE' | 'AVG_DEAL' | 'COST_RATE' | 'OTHER', label: string, value: number, unit: string) => ({
+    role,
+    label,
+    value,
+    unit,
+    basis: 'HYPOTHESIS' as const,
+    confirmState: 'AI_PROPOSED' as const,
+    sourceRefs: [] as string[],
+  });
+  return {
+    key: 'F1',
+    label: '案件の売上（仮説）',
+    kind: 'REVENUE_UP' as const,
+    method: 'FUNNEL' as const,
+    inputs: [
+      input('MEETINGS', '対象の顧客数', 10, '社'),
+      input('WIN_RATE', '受注率', 20, '%'),
+      input('AVG_DEAL', '平均受注額', 10, '百万円'),
+      input('COST_RATE', '原価率', 70, '%'),
+      input('OTHER', '案件対応の追加費用', 2, '百万円'),
+    ],
+    amountBasis: 'TOTAL' as const,
+    startYm: ctx.startYm,
+    endYm,
+    sourceNote: 'AIの仮説。STAGE3に数値前提が無いため、仮に置いた値（確認が必要）',
+    basedOnKpiKeys: [] as string[],
+    freeNote: null,
+  };
+}
+
 export function buildMockDraft(ctx: PlanContext, endYm: string, endFromInput: boolean): PlanDraft {
   const title = ctx.projectTitle;
   const kpis = protectedKpisOf(ctx);
@@ -127,7 +159,7 @@ export function buildMockDraft(ctx: PlanContext, endYm: string, endFromInput: bo
       ],
     },
     section3: { kpis: [], stage3Review: [] },
-    section4: { financeItems: [] },
+    section4: { financeItems: [mockRevenueHypothesis(ctx, endYm)] },
     section5: {
       responsible: { name: null, basis: 'UNCONFIRMED', note: '担当者は、利用者が決める' },
       roles: [],

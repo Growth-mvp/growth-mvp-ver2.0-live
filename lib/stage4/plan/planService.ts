@@ -41,6 +41,8 @@ export type ClaimResult = { claimed: true; record: PlanDocRecord } | { claimed: 
 export interface PlanGateway {
   membershipRole(userId: string, companyId: string): Promise<GatewayResult<string | null>>;
   findPlan(key: PlanDocKey): Promise<GatewayResult<PlanDocRecord | null>>;
+  /** 会社・戦略の計画書の一覧（利用者の権限のもとで読む）。STAGE6の参考シナリオに使う */
+  listPlans?(companyId: string, strategyId: string): Promise<GatewayResult<PlanDocRecord[]>>;
   listEvents(key: PlanDocKey): Promise<GatewayResult<PlanDocEvent[]>>;
   /** 生成の権利を取る。同じキーが生成中・草案ありなら取らない。生成に失敗した行だけ、再び取れる */
   claimGeneration(key: PlanDocKey, userId: string): Promise<GatewayResult<ClaimResult>>;
@@ -76,6 +78,20 @@ export type LoadOutcome =
   | { status: 'NONE' }
   | { status: 'DENIED' }
   | { status: 'FAILED'; message: string };
+
+/* 会社・戦略の草案の一覧（STAGE6の参考シナリオ用）。草案の状態のものだけ返す */
+export async function listPlans(
+  ctx: ServiceContext,
+  companyId: string,
+  strategyId: string
+): Promise<{ status: 'FOUND'; records: PlanDocRecord[] } | { status: 'DENIED' } | { status: 'FAILED'; message: string }> {
+  const access = await allowed(ctx, companyId);
+  if (access === 'DENIED') return { status: 'DENIED' };
+  if (access === 'FAILED' || !ctx.gateway.listPlans) return { status: 'FAILED', message: FAILED_READ };
+  const r = await ctx.gateway.listPlans(companyId, strategyId);
+  if (!r.ok) return { status: 'FAILED', message: FAILED_READ };
+  return { status: 'FOUND', records: r.value.filter((rec) => (rec.status ?? 'DRAFT') === 'DRAFT') };
+}
 
 export async function loadPlan(ctx: ServiceContext, key: PlanDocKey): Promise<LoadOutcome> {
   const access = await allowed(ctx, key.companyId);

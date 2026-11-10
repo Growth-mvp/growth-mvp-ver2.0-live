@@ -200,6 +200,8 @@ export type GenerateResult =
   | { status: 'INVALID'; messages: string[] }
   | { status: 'MODEL_FAILED'; message: string };
 
+export type ListResult = { status: 'FOUND'; records: PlanDocRecord[] } | { status: 'DISABLED' | 'DENIED' | 'FAILED' };
+
 export type PreviewResult =
   | { status: 'PREVIEW'; draft: Record<string, unknown> }
   | { status: 'DISABLED' | 'NOT_FOUND' | 'DENIED' | 'FAILED' }
@@ -230,6 +232,18 @@ export function createRemotePlanOps(o: ApiOptions) {
       if (r.status === 502) return { status: 'MODEL_FAILED', message: String(body.message ?? '') };
       if (r.status === 503) return { status: 'DISABLED' };
       if (r.status === 404) return { status: 'NOT_FOUND' };
+      if (r.status === 403) return { status: 'DENIED' };
+      return { status: 'FAILED' };
+    },
+
+    /* 会社・戦略の計画書の一覧（読み取りのみ） */
+    async list(companyId: string, strategyId: string): Promise<ListResult> {
+      const qs = `companyId=${encodeURIComponent(companyId)}&strategyId=${encodeURIComponent(strategyId)}`;
+      const r = await request(o, 'GET', `/api/stage4/plan-documents/list?${qs}`);
+      if (!r) return { status: 'FAILED' };
+      const body = r.json as Record<string, unknown>;
+      if (r.status === 200 && body.status === 'FOUND') return { status: 'FOUND', records: (body.records as PlanDocRecord[]) ?? [] };
+      if (r.status === 503) return { status: 'DISABLED' };
       if (r.status === 403) return { status: 'DENIED' };
       return { status: 'FAILED' };
     },

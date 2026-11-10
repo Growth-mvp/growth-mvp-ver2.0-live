@@ -40,7 +40,7 @@ import PlanDocument from './PlanDocument';
 import StartConfirmation from './StartConfirmation';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
-import { estimateProjectImpact, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
 import { applyPreview, comparePreview, type PreviewEdits } from '@/lib/stage4/planView/regenPreview';
 import { RegenPanel, type RegenState } from './RegenPanel';
 import { PLAN_OPERATION_GUIDE, planStatusOf } from '@/lib/stage4/planView/planStatus';
@@ -181,6 +181,7 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
         selection: selected,
       })
     : null;
+  const selectedEntry = selected ? entries[selectionKey(selected)] : undefined;
   const impactEstimate = useMemo(() => {
     if (!selected) return null;
     const resolved = resolveProjectByKey({
@@ -190,8 +191,13 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
       strategyId: selected.strategyId,
       projectKey: selected.projectKey,
     });
-    return resolved.ok ? estimateProjectImpact(resolved.project.project) : null;
-  }, [selected, source]);
+    if (!resolved.ok) return null;
+    const draft = selectedEntry?.aiDraft as { plan?: { section4?: { financeItems?: unknown } } } | undefined;
+    return estimateProjectImpact(resolved.project.project, {
+      edits: (selectedEntry?.plan.committed ?? {}) as Record<string, unknown>,
+      hypothesis: hypothesisOf(draft?.plan?.section4?.financeItems),
+    });
+  }, [selected, source, selectedEntry]);
 
   const titleOf = (projectKey: string): string | null => {
     for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
@@ -767,6 +773,11 @@ function ReadOnlyProject({
                 notice={entry.plan.notice}
                 persisted={remote}
                 impactEstimate={impactEstimate}
+                onImpactEdit={
+                  remote && !entry.plan.adopted && !entry.plan.started
+                    ? (k, v) => onPlan((p) => setCommittedValue(p, `${IMPACT_EDIT_PREFIX}${k}`, v === null ? undefined : v))
+                    : undefined
+                }
                 onEnterEdit={() => onPlan(enterEdit)}
                 onApply={() => onPlan(applyEdit)}
                 onDiscard={() => onPlan(discardEdit)}

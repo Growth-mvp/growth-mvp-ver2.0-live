@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { buildDocModel, type DocModel, type Edits, type EditValue } from '@/lib/stage4/planView/documentModel';
-import type { ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import type { ImpactEstimate, ParamKey } from '@/lib/stage4/planView/impactEstimate';
 import type { PlanMode } from '@/lib/stage4/planView/planState';
 import { ImpactEstimateBlock } from './ImpactEstimateBlock';
 import { PLAN_DOC_CSS } from './planDocStyles';
@@ -19,6 +19,8 @@ export type PlanDocumentProps = {
   persisted?: boolean;
   /** STAGE3の前提からの参考試算（前提が無い案件は null）。第5章の中に出す */
   impactEstimate?: ImpactEstimate | null;
+  /** 参考試算の前提の修正（保存は計画書の修正として行う）。無ければ修正欄を出さない */
+  onImpactEdit?: (key: ParamKey, value: number | null) => void;
   mode: Mode;
   committed: Edits;
   draft: Edits;
@@ -321,7 +323,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
           <p className="plan-p">{doc.goals.customerOutcome.text}</p>
           <h3 className="plan-h3">自社の売上・利益への貢献</h3>
           <EditableBlock {...editable(doc.impact.companyResult.key, '自社の売上・利益への貢献', doc.impact.companyResult.text)} />
-          {props.impactEstimate && <ImpactEstimateBlock estimate={props.impactEstimate} />}
+          {props.impactEstimate && <ImpactEstimateBlock estimate={props.impactEstimate} onEdit={props.onImpactEdit} />}
           <h3 className="plan-h3">財務効果の算定</h3>
           <ul className="plan-list">
             {doc.impact.financeLines.map((f) => (

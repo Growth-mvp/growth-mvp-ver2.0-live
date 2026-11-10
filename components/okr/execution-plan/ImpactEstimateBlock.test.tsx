@@ -18,7 +18,7 @@ describe('ImpactEstimateBlock（第5章の業績への貢献（参考試算）�
   it('参考試算の値・計算式・出所・未確認事項を表示し、STAGE6へは反映しないと明示する', () => {
     render(<ImpactEstimateBlock estimate={estimateProjectImpact(project)} />);
     expect(screen.getByRole('heading', { name: '業績への貢献（参考試算）' })).toBeTruthy();
-    expect(screen.getByText(/確定した業績予測ではなく、STAGE6には反映していません/)).toBeTruthy();
+    expect(screen.getByText(/確定した業績予測ではなく、STAGE6の正式な計画には反映していません/)).toBeTruthy();
     expect(screen.getByText('10社 × 30% × 20百万円 = 60百万円')).toBeTruthy();
     expect(screen.getByText('60百万円 × 20% = 12百万円')).toBeTruthy();
     expect(screen.getByText(/別の入力値に基づく比較値/)).toBeTruthy();

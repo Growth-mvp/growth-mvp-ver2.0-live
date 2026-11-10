@@ -4,6 +4,7 @@
 import { z } from 'zod';
 
 import { generatePlanDraft, previewPlanDraft, type GenerateDeps } from './planGenerate';
+import { listPlans } from './planService';
 import { TRANSITION_ACTIONS, transitionPlan } from './planTransitions';
 import {
   SAVE_FAILED,
@@ -156,6 +157,22 @@ export function createPlanApi(deps: PlanApiDeps) {
     }
   }
 
+  /* 会社・戦略の計画書の一覧（GET …/list）：STAGE6の参考シナリオに使う。読むだけ */
+  async function list(req: Request): Promise<Response> {
+    if (req.method !== 'GET') return json(405, { error: 'Method not allowed' });
+    const auth = await withUser(req);
+    if ('error' in auth) return auth.error;
+    const parsed = StrategyQuery.safeParse({
+      companyId: new URL(req.url).searchParams.get('companyId'),
+      strategyId: new URL(req.url).searchParams.get('strategyId'),
+    });
+    if (!parsed.success) return json(400, { error: 'Invalid input' });
+    const out = await listPlans(auth.ctx, parsed.data.companyId, parsed.data.strategyId);
+    if (out.status === 'FOUND') return json(200, { status: 'FOUND', records: out.records });
+    if (out.status === 'DENIED') return json(403, { status: 'DENIED' });
+    return json(500, { status: 'FAILED', message: out.message });
+  }
+
   /* 再生成のプレビュー（POST …/preview）：保存せず、新しい案だけを返す */
   async function preview(req: Request): Promise<Response> {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -260,6 +277,7 @@ export function createPlanApi(deps: PlanApiDeps) {
     plans: (req: Request) => (deps.enabled ? plans(req) : off()),
     generate: (req: Request) => (deps.enabled ? generate(req) : off()),
     preview: (req: Request) => (deps.enabled ? preview(req) : off()),
+    list: (req: Request) => (deps.enabled ? list(req) : off()),
     transition: (req: Request) => (deps.enabled ? transition(req) : off()),
     identity: (req: Request) => (deps.enabled ? identity(req) : off()),
   };

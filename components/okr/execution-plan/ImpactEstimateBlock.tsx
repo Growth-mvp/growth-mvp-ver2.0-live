@@ -1,20 +1,73 @@
 'use client';
 
-import type { EstimateCheck, ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import { SOURCE_LABEL, type EstimateRow, type ImpactEstimate, type ParamKey } from '@/lib/stage4/planView/impactEstimate';
 
-const CHECK_LABEL: Record<EstimateCheck, string> = {
+const CHECK_LABEL: Record<EstimateRow['check'], string> = {
   MATCHES_STAGE3: 'STAGE3と一致',
   UNCONFIRMED: '未確認',
   NOT_CALCULATED: '未算定',
 };
 
-export function ImpactEstimateBlock({ estimate }: { estimate: ImpactEstimate }) {
+function ParamInput({
+  param,
+  onEdit,
+}: {
+  param: { key: ParamKey; label: string; unit: string; value: number | null; source: keyof typeof SOURCE_LABEL };
+  onEdit: (key: ParamKey, value: number | null) => void;
+}) {
+  const isYear = param.key === 'startYear' || param.key === 'endYear';
+  return (
+    <div className="plan-param">
+      <label className="plan-param-label">
+        {param.label}（{param.unit}）
+        <input
+          key={`${param.key}-${param.value ?? 'none'}-${param.source}`}
+          type="number"
+          inputMode="decimal"
+          step={isYear ? 1 : 'any'}
+          min={0}
+          defaultValue={param.value ?? ''}
+          aria-label={`${param.label}を修正する`}
+          onBlur={(e) => {
+            const raw = e.currentTarget.value.trim();
+            const next = raw === '' ? null : Number(raw);
+            if (next !== null && !Number.isFinite(next)) return;
+            if (next === param.value) return;
+            onEdit(param.key, next);
+          }}
+        />
+      </label>
+      <span className="plan-tag">{SOURCE_LABEL[param.source]}</span>
+    </div>
+  );
+}
+
+export function ImpactEstimateBlock({
+  estimate,
+  onEdit,
+}: {
+  estimate: ImpactEstimate;
+  /** 修正の保存口。省略時は修正欄を出さない（保存できない文書） */
+  onEdit?: (key: ParamKey, value: number | null) => void;
+}) {
   return (
     <section aria-labelledby="impact-estimate" className="plan-impact-estimate">
       <h3 id="impact-estimate" className="plan-h3">
         業績への貢献（参考試算）
       </h3>
-      <p className="plan-note">既存データから算出した参考試算です。確定した業績予測ではなく、STAGE6には反映していません。</p>
+      <p className="plan-note">
+        AIの仮説や既存データから算出した参考試算です。利用者の修正は、この計画書の修正として保存されます。確定した業績予測ではなく、STAGE6の正式な計画には反映していません。
+      </p>
+      {onEdit && (
+        <details className="plan-impact-edit">
+          <summary>計算の前提を修正する（空欄にすると、元の出所の値に戻る）</summary>
+          <div className="plan-params">
+            {estimate.params.map((p) => (
+              <ParamInput key={p.key} param={p} onEdit={onEdit} />
+            ))}
+          </div>
+        </details>
+      )}
       {estimate.status === 'NOT_CALCULATED' ? (
         <p className="plan-p">未算定：{estimate.reason}</p>
       ) : (

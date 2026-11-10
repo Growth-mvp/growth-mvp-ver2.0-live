@@ -117,6 +117,7 @@ const FINANCE_RULES = `## 財務入力（section4）
   - DIRECT_AMOUNT：DIRECT_AMOUNT
 - 上の方式に当てはまらない項目（歩留まり、原価率、回収期間、投資額など）は method を "FREE" にし、freeNote に算定の考え方と、金額を作れない理由（不足している入力）を書く。FREE の項目は金額を作らず、入力を保持する。
 - 数量と単価で表せる効果（例：導入件数 × 有償化の割合 × 単価）は、方式 QUANTITY_UNIT_PRICE を選び、根拠のある仮定の値（単価・数量）は basis HYPOTHESIS で value に入れる。仮定は仮説であり、確定値ではない。
+- 売上の前提（対象の顧客数・受注率・平均受注額）が入力に無い案件は、売上効果の項目（方式 FUNNEL）に、仮の算定条件（MEETINGS・WIN_RATE・AVG_DEAL。必要なら COST_RATE・追加費用の OTHER）を basis HYPOTHESIS で入れる。sourceNote に、STAGE3に前提が無いため仮に置いたと書く。
 - 方式が FREE の項目も、算定式に必要なデータ（数量・単価・原価・受注率・利益率など）を inputs に label 付きで列挙する。値が不明なら value を null、basis と confirmState を UNCONFIRMED にする。freeNote には、算定式（例：利益 = 売上 − 原価）と、不足しているデータを分けて書く。
 - 役割は、1つの項目の中で同じ役割を2回使わない（OTHER は除く）。DIRECT_AMOUNT は金額の入力を1つだけ使い、それ以外の金額（直接原価・試作費など）は OTHER にして label に具体名を書く。
 - 役割の選び方：利益率・原価率は COST_RATE、受注率は CONVERSION_RATE（または WIN_RATE）、歩留まりは YIELD_RATE、それ以外（投資額、回収期間、固定費など）は OTHER とし、label と unit に具体名と単位を書く（例：label「案件別の直接原価」、unit「円/件」）。

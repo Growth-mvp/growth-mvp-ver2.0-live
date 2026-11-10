@@ -30,6 +30,7 @@ import { FinanceVerdictPanel } from './FinanceVerdictPanel';
 import { FinanceSummary } from './FinanceSummary';
 import { FinanceOutlookCharts } from './FinanceOutlookCharts';
 import { FinanceEffectProjectList } from './FinanceEffectProjectList';
+import Stage4ScenarioPanel from './Stage4ScenarioPanel';
 import { buildOutlookCharts } from './financeOutlookChartModel';
 import { FundingDemandSection } from './FundingDemandSection';
 import { BaseScenarioPanel } from './BaseScenarioPanel';
@@ -87,6 +88,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   const departments = useStrategyStore((s: StrategyState) =>
     Array.isArray(s.departments) ? s.departments : EMPTY_DEPARTMENTS,
   );
+  const strategyId = useStrategyStore((s: StrategyState) => s.strategyId ?? null);
   const fiscalYearEnd = useStrategyStore((s: StrategyState) => s.fiscalYearEnd);
   const companyTargets = useStrategyStore((s: StrategyState) => s.companyTargets);
   const financePL = useStrategyStore((s: StrategyState) => (Array.isArray(s.financePL) ? s.financePL : EMPTY_PL));
@@ -458,6 +460,9 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
               目標に至る補間の経路は「3. お金は足りるか」の参考情報にあります。
             </p>
             <FinanceEffectProjectList projects={effectTrial.projects} years={effectTrial.years} />
+            {companyId && strategyId && (
+              <Stage4ScenarioPanel companyId={companyId} strategyId={strategyId} departments={departments} />
+            )}
           </div>
         )}
 
