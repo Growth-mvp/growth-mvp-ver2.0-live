@@ -38,6 +38,12 @@ const SWOT_LABELS: Array<[keyof RawPlanStrategy, string]> = [
 
 const MODEL_FAILED = 'AIによる草案を作れませんでした。内容は保存されていません。もう一度お試しください。';
 const FAILED = '草案を保存できませんでした。もう一度お試しください。';
+// 関数の上限（300秒）より長く作成中のままの行は、打ち切られた生成の残りとみなす
+const STALE_GENERATION_MS = 6 * 60 * 1000;
+
+function isStale(updatedAt: string, now: string): boolean {
+  return Date.parse(now) - Date.parse(updatedAt) > STALE_GENERATION_MS;
+}
 
 /* 計画エンジンの結果を、保存する草案の形（画面と検証で同じ形）にする */
 function toRunRecord(args: {
@@ -109,8 +115,14 @@ export async function generatePlanDraft(
   }
 
   const key: PlanDocKey = { companyId: args.companyId, strategyId: args.strategyId, projectId: args.projectId };
-  const claim = await ctx.gateway.claimGeneration(key, ctx.userId);
+  let claim = await ctx.gateway.claimGeneration(key, ctx.userId);
   if (!claim.ok) return { status: 'FAILED', message: FAILED };
+  if (!claim.value.claimed && claim.value.existing.status === 'GENERATING' && isStale(claim.value.existing.updatedAt, deps.now())) {
+    const failed = await ctx.gateway.failGeneration(key, ctx.userId);
+    if (!failed.ok) return { status: 'FAILED', message: FAILED };
+    claim = await ctx.gateway.claimGeneration(key, ctx.userId);
+    if (!claim.ok) return { status: 'FAILED', message: FAILED };
+  }
   if (!claim.value.claimed) {
     const existing = claim.value.existing;
     if (existing.status === 'DRAFT') return { status: 'EXISTS', record: existing };

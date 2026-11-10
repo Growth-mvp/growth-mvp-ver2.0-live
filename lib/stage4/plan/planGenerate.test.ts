@@ -27,7 +27,7 @@ function strategyRow(overrides: Record<string, unknown> = {}): Record<string, un
 }
 
 type Calls = { claim: number; complete: number; fail: number };
-function gateway(opts: { role?: string | null; row?: Record<string, unknown> | null; claim?: 'claimed' | GatewayResult<never> | { existing: PlanDocRecord }; complete?: PlanDocRecord | null } = {}) {
+function gateway(opts: { role?: string | null; row?: Record<string, unknown> | null; claim?: 'claimed' | GatewayResult<never> | { existing: PlanDocRecord }; claimSeq?: Array<'claimed' | { existing: PlanDocRecord }>; complete?: PlanDocRecord | null } = {}) {
   const calls: Calls = { claim: 0, complete: 0, fail: 0 };
   let completed: Record<string, unknown> | null = null;
   const ok = <T,>(value: T): GatewayResult<T> => ({ ok: true, value });
@@ -36,7 +36,7 @@ function gateway(opts: { role?: string | null; row?: Record<string, unknown> | n
     readStrategyRow: async () => ok(opts.row === undefined ? strategyRow() : opts.row),
     claimGeneration: async () => {
       calls.claim += 1;
-      const c = opts.claim ?? 'claimed';
+      const c = opts.claimSeq?.shift() ?? opts.claim ?? 'claimed';
       if (c === 'claimed') return ok({ claimed: true as const, record: rec('GENERATING') });
       if (typeof c === 'object' && 'existing' in c) return ok({ claimed: false as const, existing: c.existing });
       return c as GatewayResult<never>;
@@ -106,6 +106,16 @@ describe('実行計画書の生成（サーバーの経路）', () => {
     const t = gateway({ claim: { existing: rec('GENERATING') } });
     const out = await generatePlanDraft(ctxOf(t.g), args, deps({ modelFor: async () => { throw new Error('not called'); } }));
     expect(out.status).toBe('IN_PROGRESS');
+    expect(t.calls.fail).toBe(0);
+  });
+
+  it('作成中のまま古くなった行（打ち切られた生成の残り）は、失敗として閉じてから、もう一度作る', async () => {
+    const stale = { ...rec('GENERATING'), updatedAt: '2026-11-09T00:00:00.000Z' };
+    const t = gateway({ claimSeq: [{ existing: stale }, 'claimed'] });
+    const out = await generatePlanDraft(ctxOf(t.g), args, deps());
+    expect(out.status).toBe('CREATED');
+    expect(t.calls.fail).toBe(1);
+    expect(t.calls.claim).toBe(2);
   });
 
   it('所属していなければ DENIED（権利も取らず、AIも呼ばない）', async () => {
