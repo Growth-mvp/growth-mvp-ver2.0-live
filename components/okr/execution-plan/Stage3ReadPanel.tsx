@@ -715,6 +715,7 @@ function ReadOnlyProject({
                 adoptable={planView.d.adoption.adoptable}
                 blockers={planView.d.adoption.blockers}
                 notice={entry.plan.notice}
+                persisted={remote}
                 onEnterEdit={() => onPlan(enterEdit)}
                 onApply={() => onPlan(applyEdit)}
                 onDiscard={() => onPlan(discardEdit)}

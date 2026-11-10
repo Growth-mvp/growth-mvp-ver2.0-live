@@ -7,6 +7,7 @@
     "dev:3000": "next dev -p 3000",
     "dev:3001": "next dev -p 3001",
     "dev:3002": "next dev -p 3002",
+    "dev:stage4-local": "node scripts/dev-stage4-local.mjs",
     "dev:lan": "next dev -H 0.0.0.0",
     "build": "node scripts/validate-models.mjs && next build",
     "start": "next start",
