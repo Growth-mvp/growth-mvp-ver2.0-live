@@ -41,7 +41,9 @@ function planEdits() {
   return JSON.parse(out.trim() || '{}');
 }
 async function ensureTestPassword() {
-  const uid = execFileSync('docker', ['exec', DB_CONTAINER, 'psql', '-U', 'postgres', '-d', 'postgres', '-At', '-c', "select u.id from auth.users u where u.email = '" + EMAIL + "'"], { encoding: 'utf8' }).trim();
+  const host = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname;
+  if (host !== '127.0.0.1' && host !== 'localhost') throw new Error('ローカル以外のSupabaseへは、テストユーザーのパスワードを設定しません');
+  const uid =execFileSync('docker', ['exec', DB_CONTAINER, 'psql', '-U', 'postgres', '-d', 'postgres', '-At', '-c', "select u.id from auth.users u where u.email = '" + EMAIL + "'"], { encoding: 'utf8' }).trim();
   if (!uid) throw new Error('ローカルテストユーザーがありません: ' + EMAIL);
   const r = await fetch(env.NEXT_PUBLIC_SUPABASE_URL + '/auth/v1/admin/users/' + uid, {
     method: 'PUT',
