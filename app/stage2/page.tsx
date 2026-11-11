@@ -40,6 +40,15 @@ import { extendPlanOf, isSameScope, opportunityCandidatesOf, selectedEntryOf } f
 import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
 import {
+  buildConfirmedDocumentEdits,
+  buildStrategicAssumptions,
+  findUnconfirmedChanges,
+  mergeMidtermStrategyIntoDocumentEdits,
+  pickFinancialTargets,
+  resolveStrategicAssumptions,
+  toConfirmedEdits,
+} from '@/lib/stage2/finalDocument';
+import {
   STAGE2_QUESTIONS_12,
   STAGE2_CHAPTER_LABELS,
   STAGE2_MULTI_BUSINESS_HINT,
@@ -72,30 +81,6 @@ const DEEP_DIVE_TARGET_IDS = new Set([
   'ch1-q2', // 顧客価値
   'ch1-q6', // やめること
 ]);
-
-function mergeMidtermStrategyIntoDocumentEdits(
-  edits: Stage2FinalDocumentEdits | undefined | null,
-  midtermStrategy: unknown,
-): Stage2FinalDocumentEdits | undefined {
-  const hasMidterm =
-    !!midtermStrategy &&
-    typeof midtermStrategy === 'object' &&
-    !Array.isArray(midtermStrategy);
-
-  if (!edits && !hasMidterm) return undefined;
-
-  return {
-    ...(edits ?? {}),
-    ...(hasMidterm
-      ? {
-          midtermStrategy: {
-            ...(((edits as any)?.midtermStrategy ?? {}) as Record<string, unknown>),
-            ...(midtermStrategy as Record<string, unknown>),
-          },
-        }
-      : {}),
-  } as Stage2FinalDocumentEdits;
-}
 
 /* ===================================================
  * 安定した空配列参照（Zustand selector でのメモ化バイパス防止）
@@ -2203,222 +2188,26 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const [commitStage3Failed, setCommitStage3Failed] = useState(false);
   const [commitSuccessful, setCommitSuccessful] = useState(false);
 
-  // ★ TASK A: 現状→目標 KPI ブリッジデータを計算（安全な単位推定＆多段フォールバック）
-  const kpiBridgeData = useMemo(() => {
-    const DEBUG = true; // Phase 0: Force debug to detect unit mixing
-
-    if (DEBUG) {
-      // Step 1: ソースの生データを出力（診断用）
-      const financePLSample =
-        Array.isArray(financePL) && financePL.length > 0
-          ? {
-              len: financePL.length,
-              latestYear: financePL.reduce((max: any, r: any) => (r.year > max ? r.year : max), 0),
-              keys: Object.keys(financePL[0] || {}),
-              revenue: (financePL[0] as any)?.revenue,
-              sales: (financePL[0] as any)?.sales,
-              operatingIncome: (financePL[0] as any)?.operatingIncome,
-              op: (financePL[0] as any)?.op,
-              営業利益: (financePL[0] as any)?.営業利益,
-            }
-          : { len: 0 };
-
-      const financeSummarySample =
-        Array.isArray(financeSummary) && financeSummary.length > 0
-          ? {
-              len: financeSummary.length,
-              latestYear: (() => {
-                const validRows = financeSummary.filter((r: any) => r != null && r.year != null);
-                return validRows.length > 0
-                  ? validRows.reduce((max: any, r: any) => (r.year > max ? r.year : max), -Infinity)
-                  : null;
-              })(),
-              keys: Object.keys(financeSummary[0] || {}),
-              revenue: (financeSummary[0] as any)?.revenue,
-              operating_income: (financeSummary[0] as any)?.operating_income,
-            }
-          : { len: 0 };
-
-      const metricsSummarySample = metricsSummary
-        ? {
-            exists: true,
-            keys: Object.keys(metricsSummary),
-            revenue: (metricsSummary as any)?.revenue,
-            sales: (metricsSummary as any)?.sales,
-            operatingIncome: (metricsSummary as any)?.operatingIncome,
-            op: (metricsSummary as any)?.op,
-          }
-        : { exists: false };
-
-      const targetsSample =
-        Array.isArray(companyTargets) && companyTargets.length > 0
-          ? {
-              len: companyTargets.length,
-              labels: companyTargets.map((t: any) => t.label),
-              firstTarget: companyTargets[0],
-            }
-          : { len: 0 };
-
-      console.log('[diag][kpi][sources]', {
-        financePL: financePLSample,
-        financeSummary: financeSummarySample,
-        metricsSummary: metricsSummarySample,
-        companyTargets: targetsSample,
-      });
-    }
-
-    // ★ 多段フォールバック：metricsSummary → financeSummary → financePL
-    let currentRevenue: number | null = null;
-    let currentOperatingProfit: number | null = null;
-    let revenueSource = '';
-    let opSource = '';
-    let revenueRaw: number | null = null;  // 元データ（変換前）
-    let opIncomeRaw: number | null = null; // 元データ（変換前）
-
-    // 1) metricsSummary（STAGE1 最新の指標）
-    if (metricsSummary && typeof metricsSummary === 'object') {
-      const ms = metricsSummary as Record<string, any>;
-      const revVal = ms.revenue ?? ms.sales ?? (ms as any).売上;
-      const opVal = ms.operatingIncome ?? ms.op ?? (ms as any).営業利益;
-
-      const rev = safeNumber(revVal);
-      const op = safeNumber(opVal);
-
-      if (rev !== null) {
-        revenueRaw = rev;
-        currentRevenue = toMillionYen(rev, 'unknown');
-        revenueSource = 'metricsSummary';
-      }
-
-      if (op !== null) {
-        opIncomeRaw = op;
-        currentOperatingProfit = toMillionYen(op, 'unknown');
-        opSource = 'metricsSummary';
-      }
-    }
-
-    // 2) financeSummary（ビジネスユニット別集計）- 最新年度の合計
-    if (!currentRevenue && Array.isArray(financeSummary) && financeSummary.length > 0) {
-      const validRows = financeSummary.filter((row: any) => row != null && row.year != null);
-      if (validRows.length > 0) {
-        const latest = validRows.reduce((max: any, row: any) => (row.year > max.year ? row : max));
-        const revVal = latest.revenue;
-        const rev = safeNumber(revVal);
-        if (rev !== null) {
-          revenueRaw = rev;
-          currentRevenue = toMillionYen(rev, 'unknown');
-          revenueSource = 'financeSummary';
-        }
-      }
-    }
-
-    // 3) financePL（年度別PL）- 最新年度
-    if ((!currentRevenue || !currentOperatingProfit) && Array.isArray(financePL) && financePL.length > 0) {
-      const validPLRows = financePL.filter((row: any) => row != null && row.year != null);
-      if (validPLRows.length > 0) {
-        const latestRow = validPLRows.reduce((max: any, row: any) => (row.year > max.year ? row : max));
-
-        if (!currentRevenue) {
-          const revVal = latestRow.revenue ?? (latestRow as any).sales;
-          const rev = safeNumber(revVal);
-          if (rev !== null) {
-            revenueRaw = rev;
-            currentRevenue = toMillionYen(rev, 'unknown');
-            revenueSource = 'financePL';
-          }
-        }
-
-        if (currentOperatingProfit == null) {
-          const opVal = latestRow.operatingIncome ?? (latestRow as any).op ?? (latestRow as any).営業利益;
-          const op = safeNumber(opVal);
-          if (op !== null) {
-            opIncomeRaw = op;
-            currentOperatingProfit = toMillionYen(op, 'unknown');
-            opSource = 'financePL';
-          }
-        }
-      }
-    }
-
-    // ★ Phase 1: Normalize Now values (from financePL) using inferScaleToMillion
-    const nowRevM = inferScaleToMillion(revenueRaw);
-    const nowOpM = inferScaleToMillion(opIncomeRaw);
-
-    // グラフに渡す "Now" は converted を使う（unitLabel=百万円に合わせる）
-    const chartRevenueNow = nowRevM?.converted ?? currentRevenue;
-    const chartOpNow = nowOpM?.converted ?? currentOperatingProfit;
-
-    // ★ 目標：companyTargets から label マッチで抽出
-    // 重要：業績目標の数値本体は UI/Store 上「base」。
-    //       priority(1-4) や target/value 等の揺れキーは事故源になるため、ここでは一切参照しない。
-    let targetRevenue: number | null = null;
-    let targetOperatingProfit: number | null = null;
-    let targetRevenueLabel = '';
-    let targetOpLabel = '';
-
-    if (Array.isArray(companyTargets) && companyTargets.length > 0) {
-      for (const target of companyTargets) {
-        const label = (target.label ?? '').trim().toLowerCase();
-
-        // 売上パターン
-        if (targetRevenue == null && (label.includes('売上') || label.includes('revenue') || label.includes('sales') || label.includes('top line'))) {
-          const valNum = safeNumber((target as any).base);
-          if (valNum !== null) {
-            const inferred = inferScaleToMillion(valNum);
-            targetRevenue = inferred?.converted ?? toMillionYen(valNum, 'unknown');
-            targetRevenueLabel = target.label ?? '';
-            if (DEBUG) console.log('[KPI] companyTargets revenue:', { raw: valNum, converted: targetRevenue, unit: (target as any).unit, scale: inferred });
-          }
-        }
-
-        // 営業利益パターン
-        if (
-          targetOperatingProfit == null &&
-          (label.includes('営業利益') || label.includes('operating profit') || label === 'op' || label.includes('operating income'))
-        ) {
-          const valNum = safeNumber((target as any).base);
-          if (valNum !== null) {
-            const inferred = inferScaleToMillion(valNum);
-            targetOperatingProfit = inferred?.converted ?? toMillionYen(valNum, 'unknown');
-            targetOpLabel = target.label ?? '';
-            if (DEBUG) console.log('[KPI] companyTargets op:', { raw: valNum, converted: targetOperatingProfit, unit: (target as any).unit, scale: inferred });
-          }
-        }
-      }
-    }
-
-    if (DEBUG) {
-      // Phase 0: Unit audit logs in specified format
-      console.log(
-        '[stage2][unit-audit] revenueRaw=' + revenueRaw + ' opIncomeRaw=' + opIncomeRaw + ' source=' + revenueSource + '/' + opSource
-      );
-      console.log(
-        '[stage2][unit-audit] chartRevenueNow=' + chartRevenueNow + ' chartRevenueTarget=' + targetRevenue + ' (unitLabel=百万円)'
-      );
-      console.log(
-        '[stage2][unit-audit] chartOpNow=' + chartOpNow + ' chartOpTarget=' + targetOperatingProfit + ' (unitLabel=百万円)'
-      );
-      console.log(
-        '[stage2][unit-audit] absRevenueRaw=' + (revenueRaw !== null ? Math.abs(revenueRaw) : 'null') +
-          ' absOpIncomeRaw=' + (opIncomeRaw !== null ? Math.abs(opIncomeRaw) : 'null')
-      );
-      console.log(
-        '[stage2][unit-audit] typeOfRevenueRaw=' + typeof revenueRaw + ' typeOfOpIncomeRaw=' + typeof opIncomeRaw
-      );
-    }
-
-    // ★ TASK A-1: 表示用に百万円フォーマット（Now は Phase1で inferScaleToMillion 済み）
-    return {
-      revenue: {
-        current: chartRevenueNow,
-        target: targetRevenue,
-      },
-      operatingProfit: {
-        current: chartOpNow,
-        target: targetOperatingProfit,
-      },
-    };
-  }, [financePL, financeSummary, metricsSummary, companyTargets]);
+  const financialTargets = useMemo(() => pickFinancialTargets(companyTargets), [companyTargets]);
+  const documentSwotData = useMemo(
+    () => ({
+      strengths: strength ? [strength] : [],
+      weaknesses: weakness ? [weakness] : [],
+      opportunities: opportunity ? [opportunity] : [],
+      threats: threat ? [threat] : [],
+    }),
+    [strength, weakness, opportunity, threat],
+  );
+  const documentEditsForView = editingDocumentEdits ?? stage2FinalDocumentEdits;
+  const unconfirmedChanges = findUnconfirmedChanges({
+    finalStoryFinal: finalStoryFinalRaw,
+    finalStoryEdited: finalStoryEditedRaw,
+    edits: stage2FinalDocumentEdits,
+    midtermStrategy,
+    aiGeneratedConclusion: stage2FinalGeneratedConclusion,
+  });
+  const hasUnconfirmedChanges =
+    unconfirmedChanges.chapters || unconfirmedChanges.document || unconfirmedChanges.midtermStrategy;
 
   // ★ TASK A-2: Final タブの表示モード（auto / draft / edited / final）
   const [storyViewMode, setStoryViewMode] = useState<'auto' | 'draft' | 'edited' | 'final'>('auto');
@@ -2429,8 +2218,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     if (storyViewMode === 'edited') return finalStoryEditedRaw || EMPTY_ARR;
     if (storyViewMode === 'final') return finalStoryFinalRaw || EMPTY_ARR;
 
-    // auto：従来通り final > edited > draft の優先順
-    if (finalStoryFinalRaw && finalStoryFinalRaw.length > 0) return finalStoryFinalRaw;
+    // auto：確定版を優先。ただし確定後に保存された本文編集（未確定）があれば、それを表示し再確定の対象にする
+    if (finalStoryFinalRaw && finalStoryFinalRaw.length > 0) {
+      return unconfirmedChanges.chapters && finalStoryEditedRaw ? finalStoryEditedRaw : finalStoryFinalRaw;
+    }
     if (finalStoryEditedRaw && finalStoryEditedRaw.length > 0) return finalStoryEditedRaw;
     if (finalStoryDraftRaw && finalStoryDraftRaw.length > 0) return finalStoryDraftRaw;
     return EMPTY_ARR;
@@ -3802,10 +3593,23 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // Step 1: STAGE3へ引き渡し（戦略展開ブリッジ生成）
       setCommittingStatus('STAGE3へ引き渡しています...');
 
-      const bridgeDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(
+      const draftDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(
         editingDocumentEdits ?? stage2FinalDocumentEdits,
         midtermStrategy,
       );
+      const confirmedDocumentEdits = buildConfirmedDocumentEdits({
+        edits: draftDocumentEdits,
+        aiGeneratedConclusion: stage2FinalGeneratedConclusion,
+        assumptions: resolveStrategicAssumptions(
+          draftDocumentEdits?.assumptions,
+          buildStrategicAssumptions({
+            swotSuggestions,
+            swotData: documentSwotData,
+            midtermStrategy: draftDocumentEdits?.midtermStrategy,
+          }),
+        ),
+        confirmedAt: new Date().toISOString(),
+      });
 
       let bridgeResult: any;
       try {
@@ -3814,7 +3618,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           json: {
             finalStoryFinal: finalStoryToSave,
             companyId,
-            stage2FinalDocumentEdits: bridgeDocumentEdits,
+            stage2FinalDocumentEdits: confirmedDocumentEdits,
           },
         });
 
@@ -3853,9 +3657,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       useStrategyStore.setState((s: any) => ({
         ...s,
         finalStoryFinal: finalStoryToSave,
+        finalStoryEdited: finalStoryToSave,
         finalStory: finalStoryToSave,
         stage3_strategy_bridge: bridgeResult,
-        stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 確定時も最新の編集値を保存
+        stage2FinalDocumentEdits: confirmedDocumentEdits,
+        midtermStrategy: confirmedDocumentEdits.midtermStrategy ?? s.midtermStrategy,
         dirty: true,
         version: (s.version ?? 0) + 1,
       }));
@@ -3966,7 +3772,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     editingStory,
     editingDocumentEdits,
     stage2FinalDocumentEdits,
+    stage2FinalGeneratedConclusion,
     midtermStrategy,
+    swotSuggestions,
+    documentSwotData,
     companyId,
     strategyId,
     userId,
@@ -3995,7 +3804,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       }
 
       const bridgeDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(
-        editingDocumentEdits ?? stage2FinalDocumentEdits,
+        toConfirmedEdits(stage2FinalDocumentEdits),
         midtermStrategy,
       );
 
@@ -4029,7 +3838,6 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     committingFinalStory,
     finalStoryFinalRaw,
     editingStory,
-    editingDocumentEdits,
     stage2FinalDocumentEdits,
     midtermStrategy,
     companyId,
@@ -4304,7 +4112,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   <>
                     {/* ★ ステータスバッジ + 表示モード切替 */}
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      {finalStoryFinalRaw && finalStoryFinalRaw.length > 0 ? (
+                      {finalStoryFinalRaw && finalStoryFinalRaw.length > 0 && hasUnconfirmedChanges ? (
+                        <div className="inline-block bg-amber-100 xl:dark:bg-amber-900/30 border border-amber-300 xl:dark:border-amber-700 rounded-lg px-4 py-2">
+                          <p className="text-sm font-medium text-amber-700 xl:dark:text-amber-300">⚠️ 変更内容は未確定です（確定版は変更されていません。「確定」を押すと確定版に反映されます）</p>
+                        </div>
+                      ) : finalStoryFinalRaw && finalStoryFinalRaw.length > 0 ? (
                         <div className="inline-block bg-emerald-100 xl:dark:bg-emerald-900/30 border border-emerald-300 xl:dark:border-emerald-700 rounded-lg px-4 py-2">
                           <p className="text-sm font-medium text-emerald-700 xl:dark:text-emerald-300">✓ 確定済み</p>
                         </div>
@@ -4337,27 +4149,29 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                         {/* ★ STEP12: 戦略書プレビュー内で、結論直後に数値目標を表示 */}
                         <StrategyStoryPreview
                           story={editingStory.length > 0 ? editingStory : displayingStory}
-                          finalized={!!(finalStoryFinalRaw && finalStoryFinalRaw.length > 0)}
+                          finalized={!!(finalStoryFinalRaw && finalStoryFinalRaw.length > 0) && !hasUnconfirmedChanges}
                           companyName={companyName}
-                          midtermStrategy={midtermStrategy}
-                          financialTargets={kpiBridgeData}
+                          midtermStrategy={documentEditsForView?.midtermStrategy ?? midtermStrategy}
+                          financialTargets={financialTargets}
                           swotSuggestions={swotSuggestions}
-                          swotData={{
-                            strengths: strength ? [strength] : [],
-                            weaknesses: weakness ? [weakness] : [],
-                            opportunities: opportunity ? [opportunity] : [],
-                            threats: threat ? [threat] : [],
-                          }}
+                          swotData={documentSwotData}
                           businessSegments={businessSegments}
                           segmentPL={segmentPL}
                           valueAnalysis={storeValueAnalysis}
                           businessPortfolio={businessPortfolio}
-                          isEditMode={storyEditMode}
-                          stage2FinalDocumentEdits={editingDocumentEdits ?? stage2FinalDocumentEdits}
-                          onDocumentEditsChange={(edits) => {
-                            setEditingDocumentEdits(edits);
-                          }}
+                          conclusionDraft={documentEditsForView?.conclusion}
+                          assumptionsDraft={documentEditsForView?.assumptions}
                           aiGeneratedConclusion={stage2FinalGeneratedConclusion}
+                          isEditMode={storyEditMode}
+                          onConclusionChange={(conclusion) => {
+                            setEditingDocumentEdits({ ...documentEditsForView, conclusion });
+                          }}
+                          onAssumptionsChange={(assumptions) => {
+                            setEditingDocumentEdits({ ...documentEditsForView, assumptions });
+                          }}
+                          onMidtermStrategyChange={(midtermStrategy) => {
+                            setEditingDocumentEdits({ ...documentEditsForView, midtermStrategy });
+                          }}
                         />
                       </div>
                     }
@@ -4421,7 +4235,6 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             const savePayload = {
                               ...storeState,
                               finalStoryEdited: editingStory,
-                              finalStory: editingStory,
                               stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy),
                             };
 

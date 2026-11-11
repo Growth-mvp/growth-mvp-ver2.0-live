@@ -30,6 +30,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { captureSaveScope, isSaveScopeCurrent, type SaveScope } from '@/lib/strategy/saveScope';
+import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import {
   DEPT_PROPOSAL_ITEMS,
   buildDeptProposals,
@@ -2562,7 +2563,7 @@ function CascadePageContent() {
     // finalStoryEdited/finalStoryDraft は生成のソースとして使用しない
     const finalStoryData = st.finalStoryFinal;
     const bridgeSourceEdits = {
-      ...(st.stage2FinalDocumentEdits || {}),
+      ...(toConfirmedEdits(st.stage2FinalDocumentEdits) || {}),
       ...(st.midtermStrategy ? { midtermStrategy: st.midtermStrategy } : {}),
     };
     const hasBridgeSourceEdits = Object.keys(bridgeSourceEdits).length > 0;
@@ -3471,7 +3472,7 @@ useEffect(() => {
         // ★STEP7: STAGE2中計設計（midtermStrategy）を追加（存在する場合のみ）
         ...(s?.midtermStrategy ? { midtermStrategy: s.midtermStrategy } : {}),
         // ★STAGE2補助セクション編集（stage2FinalDocumentEdits）を追加（存在する場合のみ）
-        ...(s?.stage2FinalDocumentEdits ? { stage2FinalDocumentEdits: s.stage2FinalDocumentEdits } : {}),
+        ...(s?.stage2FinalDocumentEdits ? { stage2FinalDocumentEdits: toConfirmedEdits(s.stage2FinalDocumentEdits) } : {}),
       };
 
       // ★TASK 1: 送信前にfinalStoryが含まれているか確認

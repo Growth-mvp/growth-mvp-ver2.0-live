@@ -8,11 +8,12 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import StrategyGuard from '@/app/StrategyGuard';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
+import { pickFinancialTargets, toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { AlertCircle, ArrowLeft, Download } from 'lucide-react';
 
 export default function Stage2StrategyPage() {
@@ -29,6 +30,12 @@ export default function Stage2StrategyPage() {
   const finalStory = useStrategyStore((s: any) => s.finalStory);
   const companyTargets = useStrategyStore((s: any) => s.companyTargets);
   const midtermStrategy = useStrategyStore((s: any) => s.midtermStrategy);
+  const stage2FinalDocumentEdits = useStrategyStore((s: any) => s.stage2FinalDocumentEdits);
+  const stage2FinalGeneratedConclusion = useStrategyStore((s: any) => s.stage2FinalGeneratedConclusion);
+  const strength = useStrategyStore((s: any) => s.strength ?? '');
+  const weakness = useStrategyStore((s: any) => s.weakness ?? '');
+  const opportunity = useStrategyStore((s: any) => s.opportunity ?? '');
+  const threat = useStrategyStore((s: any) => s.threat ?? '');
   const swotSuggestions = useStrategyStore((s: any) => s.swotSuggestions);
   const businessSegments = useStrategyStore((s: any) => s.businessSegments);
   const segmentPL = useStrategyStore((s: any) => s.segmentPL);
@@ -37,7 +44,20 @@ export default function Stage2StrategyPage() {
 
   // 優先順位：finalStoryFinal > finalStoryEdited > finalStoryDraft > finalStory
   const finalStoryToUse = finalStoryFinal || finalStoryEdited || finalStoryDraft || finalStory;
-  const status = finalStoryFinal ? 'confirmed' : 'draft';
+  const finalized = !!(finalStoryFinal && finalStoryFinal.length > 0);
+  // 確定版の表示は確定時のスナップショットを使い、確定後の未確定の編集は含めない
+  const documentEdits = finalized ? toConfirmedEdits(stage2FinalDocumentEdits) : stage2FinalDocumentEdits;
+  const aiGeneratedConclusion = stage2FinalDocumentEdits?.confirmed ? undefined : stage2FinalGeneratedConclusion;
+  const financialTargets = useMemo(() => pickFinancialTargets(companyTargets), [companyTargets]);
+  const swotData = useMemo(
+    () => ({
+      strengths: strength ? [strength] : [],
+      weaknesses: weakness ? [weakness] : [],
+      opportunities: opportunity ? [opportunity] : [],
+      threats: threat ? [threat] : [],
+    }),
+    [strength, weakness, opportunity, threat],
+  );
 
   useEffect(() => {
     try {
@@ -214,20 +234,19 @@ export default function Stage2StrategyPage() {
               <div style={{ padding: '40px' }}>
                 <StrategyStoryPreview
                   story={finalStoryToUse}
-                  finalized={status === 'confirmed'}
+                  finalized={finalized}
                   companyName={companyName}
-                  midtermStrategy={midtermStrategy}
-                  financialTargets={
-                    {
-                      revenue: { current: null, target: null },
-                      operatingProfit: { current: null, target: null },
-                    }
-                  }
+                  midtermStrategy={documentEdits?.midtermStrategy ?? midtermStrategy}
+                  financialTargets={financialTargets}
                   swotSuggestions={swotSuggestions}
+                  swotData={swotData}
                   businessSegments={businessSegments}
                   segmentPL={segmentPL}
                   valueAnalysis={valueAnalysis}
                   businessPortfolio={businessPortfolio}
+                  conclusionDraft={documentEdits?.conclusion}
+                  assumptionsDraft={documentEdits?.assumptions}
+                  aiGeneratedConclusion={aiGeneratedConclusion}
                   mode="pdf"
                 />
               </div>

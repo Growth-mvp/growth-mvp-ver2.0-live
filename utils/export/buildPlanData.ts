@@ -1,4 +1,5 @@
 import { projectFinanceSummary } from '@/lib/plans/financeEffectSummary';
+import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
 /**
  * /utils/export/buildPlanData.ts
  *
@@ -334,7 +335,8 @@ export function buildPlanData(
 /** 版の優先順位は STAGE2 レポート（buildStage2ReportData）と同じ：確定版 > 編集版 > ドラフト > 旧互換 */
 function buildConfirmedStage2(state: any, midtermStrategy: any): ConfirmedStage2 {
   const edits = state?.stage2FinalDocumentEdits;
-  const editedMts = edits?.midtermStrategy;
+  const confirmedEdits = toConfirmedEdits(edits);
+  const editedMts = edits?.confirmed ? undefined : edits?.midtermStrategy;
   const mts = midtermStrategy ?? editedMts;
   const core = mts?.strategicCore ?? editedMts?.strategicCore;
   const pickText = (...values: unknown[]): string | undefined =>
@@ -358,7 +360,7 @@ function buildConfirmedStage2(state: any, midtermStrategy: any): ConfirmedStage2
   return {
     storySource: picked ? picked[0] : 'NONE',
     chapters,
-    conclusion: pickText(edits?.conclusion, state?.stage2FinalGeneratedConclusion),
+    conclusion: pickText(confirmedEdits?.conclusion, state?.stage2FinalGeneratedConclusion),
     customerValue: pickText(core?.customerValue),
     primaryShift: pickText(core?.primaryShift),
     growthStrategy: pickText(mts?.growthStrategy, editedMts?.growthStrategy),
