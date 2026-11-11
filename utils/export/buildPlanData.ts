@@ -335,10 +335,6 @@ export function buildPlanData(
 /** 版の優先順位は STAGE2 レポート（buildStage2ReportData）と同じ：確定版 > 編集版 > ドラフト > 旧互換 */
 function buildConfirmedStage2(state: any, midtermStrategy: any): ConfirmedStage2 {
   const edits = state?.stage2FinalDocumentEdits;
-  const confirmedEdits = toConfirmedEdits(edits);
-  const editedMts = edits?.confirmed ? undefined : edits?.midtermStrategy;
-  const mts = midtermStrategy ?? editedMts;
-  const core = mts?.strategicCore ?? editedMts?.strategicCore;
   const pickText = (...values: unknown[]): string | undefined =>
     values.find((v): v is string => typeof v === 'string' && v.trim() !== '')?.trim();
   const pickList = (...values: unknown[][]): string[] | undefined => {
@@ -357,10 +353,15 @@ function buildConfirmedStage2(state: any, midtermStrategy: any): ConfirmedStage2
     ? picked[1].map((ch: any) => ({ title: ch?.title ?? '', body: ch?.body ?? '' }))
     : [];
 
+  const formalEdits = toConfirmedEdits(edits);
+  const editedMts = formalEdits && !edits?.confirmed && !edits?.draftChangedAt ? edits?.midtermStrategy : undefined;
+  const mts = midtermStrategy ?? editedMts;
+  const core = mts?.strategicCore ?? editedMts?.strategicCore;
+
   return {
     storySource: picked ? picked[0] : 'NONE',
     chapters,
-    conclusion: pickText(confirmedEdits?.conclusion, state?.stage2FinalGeneratedConclusion),
+    conclusion: pickText(formalEdits?.conclusion, state?.stage2FinalGeneratedConclusion),
     customerValue: pickText(core?.customerValue),
     primaryShift: pickText(core?.primaryShift),
     growthStrategy: pickText(mts?.growthStrategy, editedMts?.growthStrategy),

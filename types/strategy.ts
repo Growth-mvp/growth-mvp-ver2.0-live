@@ -1757,6 +1757,9 @@ export type Stage2FinalDocumentEdits = {
     confirmedAt?: string;
   };
 
+  /** 確定後に下書きが保存された時刻（確定スナップショットが無い旧データで未確定の変更を判定する） */
+  draftChangedAt?: string;
+
   /** 編集タイムスタンプ */
   editedAt?: string;
 };

@@ -8,6 +8,46 @@
  * - 読み取り専用（データ変更なし）
  */
 
+type BreakBlock = { top: number; bottom: number; keepWithNext: boolean };
+
+/** html2canvas が描画するクローン上で、要素の位置（CSS px）を測る */
+function measureBreakBlocks(cloneEl: HTMLElement, selector: string): { width: number; blocks: BreakBlock[] } {
+  const rect = cloneEl.getBoundingClientRect();
+  const blocks = Array.from(cloneEl.querySelectorAll<HTMLElement>(selector)).map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      top: r.top - rect.top,
+      bottom: r.bottom - rect.top,
+      keepWithNext: /^H[1-6]$/.test(el.tagName),
+    };
+  });
+  return { width: rect.width, blocks };
+}
+
+/** 行・段落の途中を避け、ページ末尾に収まる最も後ろの境界で切る。収まらない場合は強制的に切る */
+function chooseCutPx(startPx: number, endPx: number, blocks: BreakBlock[]): number {
+  const minPageGapPx = 40;
+  const sorted = [...blocks].sort((a, b) => a.top - b.top);
+  const forbidden: Array<[number, number]> = [];
+  for (const h of sorted) {
+    if (!h.keepWithNext) continue;
+    const next = sorted.find((x) => x.top > h.top + 0.5);
+    if (next) forbidden.push([h.top, next.top]);
+  }
+  const candidates: number[] = [];
+  for (const b of blocks) {
+    if (b.top > startPx + minPageGapPx && b.top <= endPx) candidates.push(b.top);
+    if (!b.keepWithNext && b.bottom > startPx + minPageGapPx && b.bottom <= endPx) candidates.push(b.bottom);
+  }
+  candidates.sort((a, b) => b - a);
+  const cut = candidates.find(
+    (c) =>
+      !blocks.some((b) => b.top < c && c < b.bottom) &&
+      !forbidden.some(([from, to]) => from < c && c <= to),
+  );
+  return cut ?? endPx;
+}
+
 /**
  * HTML要素をPDFとしてダウンロード
  *
@@ -24,6 +64,8 @@ export async function downloadPdfFromElement(
     image?: { type: string; quality: number };
     html2canvas?: { scale: number };
     jsPDF?: { orientation: string; unit: string; format: string };
+    /** 指定した要素の境界でだけ改ページする（段落・行の途中で切らない） */
+    avoidBreakSelector?: string;
   },
 ): Promise<void> {
   const element = document.getElementById(elementId);
@@ -74,6 +116,7 @@ export async function downloadPdfFromElement(
 
     // ★ html2canvas でキャンバス化
     console.log('[downloadPdf] Starting html2canvas conversion...');
+    let cloneMeasure: { width: number; blocks: BreakBlock[] } | null = null;
     const canvas = await html2canvasFn(element, {
       scale: html2CanvasScale,
       useCORS: true,
@@ -82,6 +125,12 @@ export async function downloadPdfFromElement(
       windowHeight: element.scrollHeight,
       scrollX: 0,
       scrollY: 0,
+      onclone: (doc: Document) => {
+        const cloneEl = doc.getElementById(elementId);
+        if (cloneEl && options?.avoidBreakSelector) {
+          cloneMeasure = measureBreakBlocks(cloneEl as HTMLElement, options.avoidBreakSelector);
+        }
+      },
     });
 
     // ★ 診断2: Canvas の確認
@@ -107,54 +156,44 @@ export async function downloadPdfFromElement(
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
 
-    // Canvas を PDF サイズに適合
+    // Canvas を PDF サイズに適合（1mm あたりのキャンバス px）
     const imgWidth = pageWidth - (Array.isArray(margin) ? margin[1] + margin[3] : margin * 2);
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const pxPerMm = canvas.width / imgWidth;
+    const pageCapacityPx = (pageHeight - (Array.isArray(margin) ? margin[0] + margin[2] : margin * 2)) * pxPerMm;
+    const measured = cloneMeasure as { width: number; blocks: BreakBlock[] } | null;
+    const cssToCanvasPx = measured ? canvas.width / measured.width : 1;
+    const breakBlocks: BreakBlock[] = (measured?.blocks ?? []).map((b) => ({
+      top: b.top * cssToCanvasPx,
+      bottom: b.bottom * cssToCanvasPx,
+      keepWithNext: b.keepWithNext,
+    }));
 
-    let yPosition = Array.isArray(margin) ? margin[0] : margin;
-    let remainingHeight = imgHeight;
-
-    // 複数ページに分割
+    // 複数ページに分割（指定があれば段落・行の境界で切る）
+    let startPx = 0;
     let pageIndex = 0;
-    while (remainingHeight > 0) {
+    while (startPx < canvas.height) {
       if (pageIndex > 0) {
         pdf.addPage([pageWidth, pageHeight]);
       }
 
-      const canvasHeightForThisPage = Math.min(
-        remainingHeight,
-        pageHeight - (Array.isArray(margin) ? margin[0] + margin[2] : margin * 2),
-      );
-
-      // Canvas を切り出してPDFに貼り付け（複数ページの場合）
-      const sourceY = (canvas.height / imgHeight) * (imgHeight - remainingHeight);
-      const sourceHeight =
-        (canvasHeightForThisPage / imgHeight) * canvas.height;
+      const endPx = Math.min(canvas.height, startPx + pageCapacityPx);
+      const cutPx = endPx < canvas.height ? chooseCutPx(startPx, endPx, breakBlocks) : endPx;
+      const sliceHeightPx = cutPx - startPx;
 
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = canvas.width;
-      tempCanvas.height = sourceHeight;
+      tempCanvas.height = sliceHeightPx;
 
       const ctx = tempCanvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(
-          canvas,
-          0,
-          sourceY,
-          canvas.width,
-          sourceHeight,
-          0,
-          0,
-          canvas.width,
-          sourceHeight,
-        );
+        ctx.drawImage(canvas, 0, startPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
       }
 
       const pageImgData = tempCanvas.toDataURL('image/png');
       const marginLeft = Array.isArray(margin) ? margin[3] : margin;
-      pdf.addImage(pageImgData, 'PNG', marginLeft, 10, imgWidth, canvasHeightForThisPage);
+      pdf.addImage(pageImgData, 'PNG', marginLeft, 10, imgWidth, sliceHeightPx / pxPerMm);
 
-      remainingHeight -= canvasHeightForThisPage;
+      startPx = cutPx;
       pageIndex++;
 
       if (pageIndex > 100) {
