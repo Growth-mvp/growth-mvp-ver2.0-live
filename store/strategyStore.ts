@@ -2634,7 +2634,16 @@ export const useStrategyStore = create<StrategyState>()(
 
       // 草稿の反映。確定版（finalStoryFinal）は変更しない
       applyGeneratedDraft: (chapters: StoryChapter[]) => {
-        set((s) => ({ ...s, finalStoryDraft: chapters, finalStoryEdited: [], dirty: true, version: (s.version ?? 0) + 1 }));
+        set((s) => ({
+          ...s,
+          finalStoryDraft: chapters,
+          finalStoryEdited: [],
+          stage2FinalDocumentEdits: (s.finalStoryFinal?.length ?? 0) > 0
+            ? { ...(s.stage2FinalDocumentEdits ?? {}), draftChangedAt: new Date().toISOString() }
+            : s.stage2FinalDocumentEdits,
+          dirty: true,
+          version: (s.version ?? 0) + 1,
+        }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);

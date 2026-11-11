@@ -3488,9 +3488,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             const savePayload = {
               ...storeState,
               finalStory: [], // 旧ストーリーは保存成功時のみ消去する
-              finalStoryEdited: [], // 新しい下書きに合わせ、編集内容も保存成功時のみ消去する
+              finalStoryEdited: data.finalStory, // 生成した未確定案を現在の版として保存し、リロード後も同じ案を表示する
               finalStoryDraft: data.finalStory,
-              stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
+              stage2FinalDocumentEdits: (storeState.finalStoryFinal?.length ?? 0) > 0
+                ? markDraftChanged(mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy), new Date().toISOString())
+                : mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
             };
             const result = await runInSaveScope(scopeAtStart, () =>
               saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, stage2SaveRevision(storeState), {}, 'stage2:generateFinal'),
@@ -3514,6 +3516,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         apply: (chapters) => {
           const store = useStrategyStore.getState() as any;
           store.applyGeneratedDraft(chapters);
+          store.setFinalStoryEdited?.(chapters); // 保存した現在の版と画面の版を一致させ、リロード後も同じ案を表示する
           store.setFinalStory([]);
 
           if (
