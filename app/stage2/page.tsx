@@ -47,9 +47,11 @@ import {
   mergeMidtermStrategyIntoDocumentEdits,
   pickDisplayedStory,
   pickFinancialTargets,
+  resolveConclusion,
   resolveStrategicAssumptions,
   toConfirmedEdits,
 } from '@/lib/stage2/finalDocument';
+import { runDocumentChecks, type DocumentCheckIssue } from '@/lib/stage2/documentChecks';
 import {
   STAGE2_QUESTIONS_12,
   STAGE2_CHAPTER_LABELS,
@@ -259,6 +261,42 @@ function WinPatternList({ candidates }: { candidates: WinPatternCandidate[] }) {
 /* ===================================================
  * 最終ストーリープレビュー（全文表示）
  * =================================================== */
+function describeDocumentIssue(issue: DocumentCheckIssue): string {
+  switch (issue.kind) {
+    case 'target_mismatch':
+      return `${issue.metric}：本文の記述が登録済みの業績目標（${issue.targetText}）と一致しません。`;
+    case 'internal_term':
+      return '本文に社内の工程名（STAGE○）が含まれています。本文編集で「事業・部門」などの表現に直してください。';
+    case 'midterm_missing':
+      return '中計設計が未生成です。「経営戦略を生成」で再生成するか、本文編集の画面で入力してください。';
+    case 'field_missing':
+      return `${issue.label}が未入力です。事業別・部門別の戦略に使われるため、確定前に入力してください。`;
+  }
+}
+
+function DocumentCheckNotice({ issues }: { issues: DocumentCheckIssue[] }) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-2">
+      <p className="font-semibold">確定前に確認してください</p>
+      <ul className="list-disc pl-5 space-y-1">
+        {issues.map((issue, i) => (
+          <li key={i}>
+            {describeDocumentIssue(issue)}
+            {(issue.kind === 'target_mismatch' || issue.kind === 'internal_term') && (
+              <ul className="list-[circle] pl-5 text-xs text-amber-800">
+                {issue.kind === 'target_mismatch'
+                  ? issue.mentions.map((m, j) => <li key={j}>「…{m}…」</li>)
+                  : issue.snippets.map((m, j) => <li key={j}>「…{m}…」</li>)}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
   if (!finalStory || finalStory.length === 0) return null;
 
@@ -2210,6 +2248,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   });
   const hasUnconfirmedChanges =
     unconfirmedChanges.chapters || unconfirmedChanges.document || unconfirmedChanges.midtermStrategy;
+  const documentIssues = useMemo(
+    () =>
+      runDocumentChecks({
+        chapters: editingStory,
+        conclusion: resolveConclusion(documentEditsForView?.conclusion, stage2FinalGeneratedConclusion),
+        midtermStrategy: documentEditsForView?.midtermStrategy ?? midtermStrategy,
+        companyTargets,
+      }),
+    [editingStory, documentEditsForView, stage2FinalGeneratedConclusion, midtermStrategy, companyTargets],
+  );
 
   // ★ TASK A-2: Final タブの表示モード（auto / draft / edited / final）
   const [storyViewMode, setStoryViewMode] = useState<'auto' | 'draft' | 'edited' | 'final'>('auto');
@@ -3572,6 +3620,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   /* ★ STAGE2確定＆STAGE3引き渡し処理 */
   const handleCommitAndBridge = useCallback(async () => {
     if (committingFinalStory || !editingStory.length) return;
+    if (documentIssues.some((issue) => issue.kind === 'target_mismatch')) {
+      const proceed = window.confirm(
+        '本文の売上・営業利益の記述が、登録済みの業績目標と一致していません。このまま確定しますか？（キャンセルして本文を修正できます）',
+      );
+      if (!proceed) return;
+    }
 
     const commitScope = captureSaveScope();
     if (!commitScope || commitScope.companyId !== companyId) {
@@ -3777,6 +3831,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     midtermStrategy,
     swotSuggestions,
     documentSwotData,
+    documentIssues,
     companyId,
     strategyId,
     userId,
@@ -4144,6 +4199,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       )}
                     </div>
 
+                    <DocumentCheckNotice issues={documentIssues} />
+
                     {
                       /* ★ StrategyStoryPreview は表示・編集両モードで表示 */
                       <div className="space-y-8">
@@ -4156,10 +4213,6 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           financialTargets={financialTargets}
                           swotSuggestions={swotSuggestions}
                           swotData={documentSwotData}
-                          businessSegments={businessSegments}
-                          segmentPL={segmentPL}
-                          valueAnalysis={storeValueAnalysis}
-                          businessPortfolio={businessPortfolio}
                           conclusionDraft={documentEditsForView?.conclusion}
                           assumptionsDraft={documentEditsForView?.assumptions}
                           aiGeneratedConclusion={stage2FinalGeneratedConclusion}

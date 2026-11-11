@@ -79,3 +79,37 @@ export function seedDraftOnly(store: any): void {
     midtermStrategy: midterm,
   });
 }
+
+/** 本文の数値が登録目標と一致せず、社内の工程名も含む（確定前の検査で知らせるべき状態） */
+export function seedMismatch(store: any): void {
+  const mismatchChapters = chapters('確定版', 6).map((c, i) =>
+    i === 0 ? { ...c, body: `2030年度の売上130億円、営業利益5億円を目指す。STAGE3では事業別の役割を定義する。${c.body}` } : c,
+  );
+  store.setState({
+    companyName: '架空製作所株式会社',
+    companyTargets: targets,
+    stage1Issues: issues,
+    finalStoryFinal: [],
+    finalStoryEdited: mismatchChapters,
+    finalStoryDraft: chapters('AIたたき台', 2),
+    finalStory: [],
+    stage2FinalGeneratedConclusion: 'AI生成の結論（ドラフト）',
+    stage2FinalDocumentEdits: {},
+    midtermStrategy: midterm,
+  });
+}
+
+/** 中計設計が生成されていない（第2パスの省略）状態。確定版はあり、中計の項目は無い */
+export function seedMidtermMissing(store: any): void {
+  store.setState({
+    companyName: '架空製作所株式会社',
+    companyTargets: targets,
+    finalStoryFinal: chapters('確定版', 6),
+    finalStoryEdited: chapters('確定版', 6),
+    finalStoryDraft: chapters('AIたたき台', 2),
+    finalStory: chapters('確定版', 6),
+    stage2FinalGeneratedConclusion: 'AI生成の結論（旧データ）',
+    stage2FinalDocumentEdits: { conclusion: '保存済みの結論' },
+    midtermStrategy: undefined,
+  });
+}

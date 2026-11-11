@@ -39,10 +39,6 @@ export default function Stage2StrategyPage() {
   const opportunity = useStrategyStore((s: any) => s.opportunity ?? '');
   const threat = useStrategyStore((s: any) => s.threat ?? '');
   const swotSuggestions = useStrategyStore((s: any) => s.swotSuggestions);
-  const businessSegments = useStrategyStore((s: any) => s.businessSegments);
-  const segmentPL = useStrategyStore((s: any) => s.segmentPL);
-  const valueAnalysis = useStrategyStore((s: any) => s.valueAnalysis);
-  const businessPortfolio = useStrategyStore((s: any) => s.businessPortfolio);
 
   // 優先順位：finalStoryFinal > finalStoryEdited > finalStoryDraft > finalStory
   const finalStoryToUse = [finalStoryFinal, finalStoryEdited, finalStoryDraft, finalStory].find(
@@ -107,6 +103,7 @@ export default function Stage2StrategyPage() {
           unit: 'mm',
           format: 'a4',
         },
+        image: { type: 'jpeg', quality: 0.92 },
         avoidBreakSelector: 'p, li, tr, h2, h3',
       });
     } catch (err) {
@@ -245,10 +242,6 @@ export default function Stage2StrategyPage() {
                   financialTargets={financialTargets}
                   swotSuggestions={swotSuggestions}
                   swotData={swotData}
-                  businessSegments={businessSegments}
-                  segmentPL={segmentPL}
-                  valueAnalysis={valueAnalysis}
-                  businessPortfolio={businessPortfolio}
                   conclusionDraft={documentEdits?.conclusion}
                   assumptionsDraft={documentEdits?.assumptions}
                   aiGeneratedConclusion={aiGeneratedConclusion}
