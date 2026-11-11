@@ -87,6 +87,52 @@ async function openAndExport(browser, shellName, pdfName) {
   check('確定前の検査：社内の工程名を知らせる', mismatch.text.includes('社内の工程名'));
   check('確定前の検査：画面のエラーなし', mismatch.errors.length === 0, mismatch.errors.join(' | '));
 
+  // 中計の空項目：既存の構造化データからの候補を、編集画面で確認して採用する（確定値への自動書込みはない）
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.route('**/*', (route) => (route.request().url().startsWith('file:') ? route.continue() : route.abort()));
+    const errors = [];
+    page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+    await page.goto(fileUrl('shell-stage2-final-candidates.html'));
+    await page.waitForFunction(() => document.body.innerText.includes('最終確定'), null, { timeout: 60000 });
+    await page.getByRole('button', { name: '最終確定' }).first().click();
+    await page.waitForFunction(() => document.body.innerText.includes('全社戦略書'), null, { timeout: 60000 });
+    const before = await page.locator('body').innerText();
+    check('候補：閲覧画面には候補を出さない', !before.includes('既存データからの候補'));
+    await page.getByRole('button', { name: '本文を編集する' }).click();
+    await page.waitForFunction(() => document.body.innerText.includes('既存データからの候補'), null, { timeout: 60000 });
+    const editing = await page.locator('body').innerText();
+    check('候補：編集画面で既存データからの候補を表示', editing.includes('点検サービスの高付加価値化') && editing.includes('設備を止めない提案力'));
+    const countBefore = (editing.match(/既存データからの候補/g) || []).length;
+    await page.getByRole('button', { name: 'この候補を採用' }).first().click();
+    const after = await page.locator('body').innerText();
+    const countAfter = (after.match(/既存データからの候補/g) || []).length;
+    check('候補：採用すると入力欄に入り、候補の表示が減る', countAfter === countBefore - 1, countBefore + '→' + countAfter);
+    const inField = await page.locator('textarea').evaluateAll((els) => els.some((e) => e.value.includes('設備を止めない提案力')));
+    check('候補：採用した項目が入力欄に入る', inField);
+    check('候補：画面のエラーなし', errors.length === 0, errors.join(' | '));
+    await page.close();
+  }
+
+  // 業績目標の不一致：確定を開始せず、修正箇所を知らせる
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.route('**/*', (route) => (route.request().url().startsWith('file:') ? route.continue() : route.abort()));
+    const errors = [];
+    page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+    await page.goto(fileUrl('shell-stage2-final-mismatch.html'));
+    await page.waitForFunction(() => document.body.innerText.includes('最終確定'), null, { timeout: 60000 });
+    await page.getByRole('button', { name: '最終確定' }).first().click();
+    await page.waitForFunction(() => document.body.innerText.includes('全社戦略書'), null, { timeout: 60000 });
+    await page.getByRole('button', { name: '全社戦略を確定し、STAGE3へ引き渡す' }).click();
+    await page.waitForFunction(() => document.body.innerText.includes('確定できません'), null, { timeout: 30000 });
+    const blocked = await page.locator('body').innerText();
+    check('不一致：確定をブロックし、修正箇所を知らせる', blocked.includes('登録目標 12,000 百万円（2029年度）') && blocked.includes('売上130億円'));
+    check('不一致：確定を開始していない（確定済みにならない）', !blocked.includes('✓ 確定済み') && !blocked.includes('STAGE3へ引き渡しました'));
+    check('不一致：画面のエラーなし', errors.length === 0, errors.join(' | '));
+    await page.close();
+  }
+
   const noMidterm = await openAndExport(browser, 'shell-stage2-report-no-midterm.html', 'stage2-report-no-midterm.pdf');
   check('中計未生成：PDFに「（未入力）」が出ない', !noMidterm.text.includes('（未入力）'), noMidterm.text.match(/（未入力）/g)?.length ?? 0);
   check('中計未生成：空の項目の見出しを出さない', !noMidterm.text.includes('目指す姿') && !noMidterm.text.includes('重点戦略テーマ'));

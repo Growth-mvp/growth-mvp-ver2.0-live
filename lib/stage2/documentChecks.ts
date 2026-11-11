@@ -24,6 +24,8 @@ const UNIT_TO_OKU: Record<string, number> = {
 
 const MONEY_MENTION = /(売上高|売上|営業利益)([^。\n、]{0,24}?)(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(億円|百万円|万円|千円)/g;
 const INTERNAL_TERM = /STAGE\s*\d/gi;
+/** 過去の実績・前期の数値は、登録目標（将来の目標）とは別物として扱う */
+const NOT_A_TARGET = /実績|前期|前年|現状|過去|3月期/;
 
 function snippetAround(text: string, index: number, length: number): string {
   const start = Math.max(0, index - 12);
@@ -37,6 +39,19 @@ function targetToOku(base: number, unit: string): number | null {
 
 function sameOku(a: number, b: number): boolean {
   return Math.abs(a - b) < 0.05;
+}
+
+/** 金額の記述を含む文の先頭から、その金額までの区切り（。、改行）内の文字列 */
+function clauseEndingAt(text: string, index: number, matched: string): string {
+  const head = text.slice(0, index);
+  const cut = Math.max(head.lastIndexOf('。'), head.lastIndexOf('\n'), head.lastIndexOf('、'), head.lastIndexOf('；'));
+  return head.slice(cut + 1) + matched;
+}
+
+/** 文中で最後に出てくる西暦年（「2030年度」「2026年3月期」など） */
+function lastYearIn(clause: string): number | undefined {
+  const years = [...clause.matchAll(/(20\d{2}|19\d{2})年/g)].map((m) => Number(m[1]));
+  return years.length > 0 ? years[years.length - 1] : undefined;
 }
 
 /** 確定前の検査。内容は変更せず、利用者が確認すべき点だけを返す */
@@ -61,6 +76,10 @@ export function runDocumentChecks(input: {
     for (const text of texts) {
       for (const m of text.matchAll(MONEY_MENTION)) {
         if (m[1] === '売上高' ? metric !== '売上' : m[1] !== metric) continue;
+        const clause = clauseEndingAt(text, m.index ?? 0, m[0]);
+        if (NOT_A_TARGET.test(clause)) continue;
+        const year = lastYearIn(clause);
+        if (year != null && row.dueYear != null && year !== row.dueYear) continue;
         const value = Number(m[3].replace(/,/g, ''));
         const oku = targetToOku(value, m[4]);
         if (oku != null && !sameOku(oku, targetOku)) {
@@ -69,7 +88,7 @@ export function runDocumentChecks(input: {
       }
     }
     if (mentions.length > 0) {
-      const targetText = `${row.base.toLocaleString('ja-JP')} ${row.unit}`;
+      const targetText = `${row.base.toLocaleString('ja-JP')} ${row.unit}${row.dueYear ? `（${row.dueYear}年度）` : ''}`;
       issues.push({ kind: 'target_mismatch', metric, targetText, mentions });
     }
   }

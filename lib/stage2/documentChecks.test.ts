@@ -41,7 +41,7 @@ describe('runDocumentChecks：業績目標の不一致', () => {
     const mismatches = issues.filter((i) => i.kind === 'target_mismatch');
     expect(mismatches.map((i) => (i.kind === 'target_mismatch' ? i.metric : ''))).toEqual(['売上', '営業利益']);
     const revenue = mismatches[0];
-    expect(revenue.kind === 'target_mismatch' && revenue.targetText).toBe('12,000 百万円');
+    expect(revenue.kind === 'target_mismatch' && revenue.targetText).toBe('12,000 百万円（2030年度）');
   });
 
   it('結論に書かれた数値も検査し、営業利益率など別指標は対象にしない', () => {
@@ -94,5 +94,29 @@ describe('runDocumentChecks：内部用語と中計の不足', () => {
       '全社共通の判断基準',
       '部門・社員への展開方針',
     ]);
+  });
+});
+
+describe('runDocumentChecks：年度と指標の区別', () => {
+  const run = (text: string) =>
+    runDocumentChecks({ chapters: chapters(text), conclusion: '', midtermStrategy: completeMidterm, companyTargets: targets });
+  const mismatchCount = (text: string) => run(text).filter((i) => i.kind === 'target_mismatch').length;
+
+  it('過去の実績（3月期・前期・実績）の売上は登録目標と比べない', () => {
+    expect(mismatchCount('2026年3月期の売上130億円と営業利益5億円から出発する。')).toBe(0);
+    expect(mismatchCount('前期実績の売上130億円を基礎とする。')).toBe(0);
+  });
+
+  it('登録目標の年度と異なる年度の数値は比べない', () => {
+    expect(mismatchCount('2028年度の売上130億円を目指す。')).toBe(0);
+  });
+
+  it('登録目標と同じ年度の数値は比べる', () => {
+    expect(mismatchCount('2030年度の売上130億円を目指す。')).toBe(1);
+  });
+
+  it('不一致の目標表示に年度を含める', () => {
+    const issue = run('2030年度の売上130億円を目指す。').find((i) => i.kind === 'target_mismatch');
+    expect(issue && issue.kind === 'target_mismatch' && issue.targetText).toBe('12,000 百万円（2030年度）');
   });
 });

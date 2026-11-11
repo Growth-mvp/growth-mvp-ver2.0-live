@@ -71,6 +71,7 @@ const SHELL_PAGES = [
   { key: 'stage2-final-unconfirmed', route: 'stage2', seed: 'seedAfterDraftSave' },
   { key: 'stage2-final-mismatch', route: 'stage2', seed: 'seedMismatch' },
   { key: 'stage2-report-no-midterm', route: 'report/stage2-strategy', seed: 'seedMidtermMissing' },
+  { key: 'stage2-final-candidates', route: 'stage2', seed: 'seedCandidates' },
 ];
 
 /* 実アプリのレイアウト（layoutClient・Sidebar・CEOChatPanel・STAGE6ページ）を、認証・通信・ルーターだけ差し替えて描画する */

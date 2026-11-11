@@ -14,6 +14,7 @@ import {
   type FinancialTargetRow,
   type StrategicAssumptions,
 } from '@/lib/stage2/finalDocument';
+import type { MidtermCandidate, MidtermCandidateField } from '@/lib/stage2/midtermCandidates';
 
 export type FinancialTargets = {
   revenue?: FinancialTargetRow;
@@ -39,6 +40,8 @@ interface StrategyStoryPreviewProps {
   onConclusionChange?: (conclusion: string) => void;
   onAssumptionsChange?: (assumptions: StrategicAssumptions) => void;
   onMidtermStrategyChange?: (midtermStrategy: MidtermStrategy) => void;
+  /** 既存の構造化データから作った、空の中計項目の候補（編集時のみ表示。確定値にはならない） */
+  midtermCandidates?: MidtermCandidate[];
 }
 
 function stripIssueSummary(text: string): string {
@@ -214,13 +217,48 @@ function DocSection({
   );
 }
 
+function CandidateBox({ candidate, onAdopt }: { candidate: MidtermCandidate; onAdopt: (candidate: MidtermCandidate) => void }) {
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed border-slate-400 bg-slate-50 p-3 text-sm text-slate-700">
+      <p className="text-xs font-semibold text-slate-600">
+        既存データからの候補です。採用すると入力欄に入ります（確定はされません）。
+      </p>
+      <ul className="list-disc space-y-1 pl-5">
+        {candidate.items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        onClick={() => onAdopt(candidate)}
+        className="rounded border border-slate-400 bg-white px-3 py-1 text-xs font-semibold text-slate-800"
+      >
+        この候補を採用
+      </button>
+    </div>
+  );
+}
+
 /** 表示対象でない項目は見出しごと出さない（閲覧時に「（未入力）」を並べない） */
-function FieldBlock({ label, show, children }: { label: string; show: boolean; children: React.ReactNode }) {
+function FieldBlock({
+  label,
+  show,
+  candidate,
+  onAdopt,
+  children,
+}: {
+  label: string;
+  show: boolean;
+  candidate?: MidtermCandidate;
+  onAdopt?: (candidate: MidtermCandidate) => void;
+  children: React.ReactNode;
+}) {
   if (!show) return null;
   return (
     <div className="space-y-2">
       <h3 className="text-sm font-bold text-slate-800">{label}</h3>
       {children}
+      {candidate && onAdopt && <CandidateBox candidate={candidate} onAdopt={onAdopt} />}
     </div>
   );
 }
@@ -277,6 +315,7 @@ export function StrategyStoryPreview({
   onConclusionChange,
   onAssumptionsChange,
   onMidtermStrategyChange,
+  midtermCandidates,
 }: StrategyStoryPreviewProps) {
   if (!story || story.length === 0) return null;
 
@@ -303,6 +342,13 @@ export function StrategyStoryPreview({
     hasText(midterm.portfolioPolicy);
 
   const updateMidterm = (patch: Partial<MidtermStrategy>) => onMidtermStrategyChange?.({ ...midterm, ...patch });
+  const candidateFor = (field: MidtermCandidateField) => (edit ? midtermCandidates?.find((c) => c.field === field) : undefined);
+  const adoptCandidate = (candidate: MidtermCandidate) =>
+    updateMidterm(
+      candidate.field === 'targetVisionForMidterm'
+        ? { targetVisionForMidterm: candidate.items[0] }
+        : ({ [candidate.field]: candidate.items } as Partial<MidtermStrategy>),
+    );
   const updateAssumptions = (patch: Partial<StrategicAssumptions>) => onAssumptionsChange?.({ ...assumptions, ...patch });
 
   return (
@@ -336,7 +382,7 @@ export function StrategyStoryPreview({
 
       {showGoals && (
         <DocSection title="経営目標・重点戦略" isPdf={isPdf}>
-          <FieldBlock label="目指す姿" show={edit || hasText(midterm.targetVisionForMidterm)}>
+          <FieldBlock label="目指す姿" show={edit || hasText(midterm.targetVisionForMidterm)} candidate={candidateFor('targetVisionForMidterm')} onAdopt={adoptCandidate}>
             <TextField
               isEditMode={edit}
               value={midterm.targetVisionForMidterm}
@@ -355,7 +401,7 @@ export function StrategyStoryPreview({
           <FieldBlock label="数値目標" show={hasTargets}>
             <FinancialTargetTable targets={targets} />
           </FieldBlock>
-          <FieldBlock label="重点戦略テーマ" show={edit || hasList(midterm.priorityStrategicThemes)}>
+          <FieldBlock label="重点戦略テーマ" show={edit || hasList(midterm.priorityStrategicThemes)} candidate={candidateFor('priorityStrategicThemes')} onAdopt={adoptCandidate}>
             <ListField
               isEditMode={edit}
               items={midterm.priorityStrategicThemes ?? []}
@@ -408,14 +454,14 @@ export function StrategyStoryPreview({
 
       {showPolicy && (
         <DocSection title="全社共通の判断基準・部門展開の基本方針" isPdf={isPdf}>
-          <FieldBlock label="全社共通の判断基準" show={edit || hasList(midterm.companyWideDecisionCriteria)}>
+          <FieldBlock label="全社共通の判断基準" show={edit || hasList(midterm.companyWideDecisionCriteria)} candidate={candidateFor('companyWideDecisionCriteria')} onAdopt={adoptCandidate}>
             <ListField
               isEditMode={edit}
               items={midterm.companyWideDecisionCriteria ?? []}
               onChange={(items) => updateMidterm({ companyWideDecisionCriteria: items })}
             />
           </FieldBlock>
-          <FieldBlock label="部門・社員への展開方針" show={edit || hasList(midterm.deploymentPrinciplesForUnits)}>
+          <FieldBlock label="部門・社員への展開方針" show={edit || hasList(midterm.deploymentPrinciplesForUnits)} candidate={candidateFor('deploymentPrinciplesForUnits')} onAdopt={adoptCandidate}>
             <ListField
               isEditMode={edit}
               items={midterm.deploymentPrinciplesForUnits ?? []}
