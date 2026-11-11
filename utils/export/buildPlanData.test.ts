@@ -281,3 +281,35 @@ describe('buildPlanData - データ完全性', () => {
     expect(planData.companyId).toBeUndefined(); // options で設定されていないため
   });
 });
+
+describe('buildPlanData - STAGE2確定版の結論（下書きを流さない）', () => {
+  const chapters = [
+    { title: '第1章：なぜ今', body: '確定本文1' },
+    { title: '第2章：どこで', body: '確定本文2' },
+    { title: '第3章：どんな未来', body: '確定本文3' },
+    { title: '第4章：どう行動', body: '確定本文4' },
+  ];
+
+  it('確定版がある場合は、確定時の結論を使い、確定後の下書き結論は使わない', () => {
+    const state: any = {
+      finalStoryFinal: chapters,
+      stage2FinalDocumentEdits: {
+        conclusion: '確定後に編集した未確定の結論',
+        confirmed: { conclusion: '確定した結論', confirmedAt: '2026-11-11T00:00:00.000Z' },
+      },
+    };
+    const planData = buildPlanData(state, 'bank');
+
+    expect(planData.stage2?.confirmed?.conclusion).toBe('確定した結論');
+  });
+
+  it('確定版が無い従来データは、編集された結論を使う（互換）', () => {
+    const state: any = {
+      finalStoryFinal: chapters,
+      stage2FinalDocumentEdits: { conclusion: '従来の編集結論' },
+    };
+    const planData = buildPlanData(state, 'bank');
+
+    expect(planData.stage2?.confirmed?.conclusion).toBe('従来の編集結論');
+  });
+});

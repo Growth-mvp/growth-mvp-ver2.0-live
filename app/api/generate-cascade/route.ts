@@ -16,6 +16,7 @@ import {
   normalizeConfirmedSegmentIds,
 } from '@/utils/finance/financeInputUnits';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignals, ReconsiderationSeverity, ReconsiderationPointInternal } from '@/types/strategy';
 
@@ -3579,7 +3580,7 @@ export async function POST(req: NextRequest) {
     const effectiveFinalStory = finalStoryCandidates[selectedStoryIndex];
     const storyText = toTextStory(story);
     const conclusionText = toTextStory(
-      finalStoryConclusion ?? final_story_conclusion ?? stage2FinalDocumentEdits?.conclusion ?? ''
+      finalStoryConclusion ?? toConfirmedEdits(stage2FinalDocumentEdits)?.conclusion ?? final_story_conclusion ?? ''
     );
     const finalStoryText = [toTextStory(effectiveFinalStory), conclusionText]
       .filter((text) => text.trim().length > 0).join('\n\n【確定戦略の結論】\n');

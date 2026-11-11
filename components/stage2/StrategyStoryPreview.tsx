@@ -1,23 +1,18 @@
 /**
  * /components/stage2/StrategyStoryPreview.tsx
  *
- * STAGE2 最終ストーリーの戦略書プレビュー
- * 外資系コンサル資料・中期経営計画書のデザインを目指す
+ * 全社戦略書。STAGE2の最終確定画面と全社戦略書PDFで同じ内容を描画する。
  */
 
-import React from 'react';
-import type { StoryChapter, MidtermStrategy, Stage2FinalDocumentEdits } from '@/types/strategy';
-
-type FinancialTargetMetric = {
-  current: number | null;
-  target: number | null;
-};
-
-type StrategicAssumptions = {
-  external: string[];
-  internal: string[];
-  implications: string[];
-};
+import React, { useEffect, useState } from 'react';
+import type { MidtermStrategy, StoryChapter } from '@/types/strategy';
+import {
+  buildStrategicAssumptions,
+  resolveConclusion,
+  resolveStrategicAssumptions,
+  type FinancialTargetRow,
+  type StrategicAssumptions,
+} from '@/lib/stage2/finalDocument';
 
 type BusinessPortfolioDirection = {
   segmentName: string;
@@ -36,319 +31,45 @@ type BusinessPortfolioDirection = {
   };
 };
 
+const COMPANY_DERIVED_SOURCES: ReadonlyArray<BusinessPortfolioDirection['source']> = [
+  'valueAnalysis',
+  'segmentPL',
+  'businessSegments',
+  'businessPortfolio',
+];
+
+export type FinancialTargets = {
+  revenue?: FinancialTargetRow;
+  operatingProfit?: FinancialTargetRow;
+};
+
 interface StrategyStoryPreviewProps {
   story: StoryChapter[];
   finalized: boolean;
   companyName?: string;
   midtermStrategy?: MidtermStrategy;
-  financialTargets?: {
-    revenue: FinancialTargetMetric;
-    operatingProfit: FinancialTargetMetric;
-  };
+  financialTargets?: FinancialTargets;
   swotSuggestions?: any;
   swotData?: any;
   businessSegments?: any[];
   segmentPL?: Record<string, any[]>;
   valueAnalysis?: any;
   businessPortfolio?: any;
-  mode?: 'screen' | 'pdf'; // ★ 新規：screen=STAGE2画面, pdf=PDFプレビュー用
+  mode?: 'screen' | 'pdf';
 
-  // ★ STAGE2 補助セクション編集対応
-  isEditMode?: boolean;
-  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits;
-  onDocumentEditsChange?: (edits: Stage2FinalDocumentEdits) => void;
-
-  // ★ AI生成Conclusion関連
+  /** 保存済みの結論・前提の編集値（未編集なら undefined） */
+  conclusionDraft?: string;
+  assumptionsDraft?: Partial<StrategicAssumptions>;
   aiGeneratedConclusion?: string;
-  currentStoryFingerprint?: string;
-  generatedConclusionFingerprint?: string;
-}
 
-/**
- * 4章に対応した Key Message と右カラムコンテンツ
- */
-const CHAPTER_META = [
-  {
-    id: 'why_change',
-    englishLabel: 'Why Change',
-    japaneseLabel: '危機認識',
-    defaultKeyMessage: '既存市場の延長では、今後の成長機会を取り切れない。',
-    strategicImplications: [
-      '既存市場依存は、成長鈍化と収益性低下のリスクを高める',
-      '将来の成長余地がある市場・顧客・技術領域を見極める必要がある',
-      '全社として資源配分を見直す必要がある',
-    ],
-    nextQuestions: [
-      'どの市場を優先するのか',
-      'どの事業を伸ばすのか',
-      'どの活動を見直すのか',
-    ],
-    downstreamTargets: [
-      '事業・部門別戦略',
-      '重点テーマ',
-      'KPI設計',
-    ],
-  },
-  {
-    id: 'where_to_play',
-    englishLabel: 'Where to Play',
-    japaneseLabel: '戦略選択',
-    defaultKeyMessage: '成長余地のある新市場に経営資源を集中し、収益構造を転換する。',
-    strategicImplications: [
-      '戦略の本質は、何をやるかだけでなく、何を優先し、何をやめるかを決めること',
-      '成長領域への集中投資と、低収益領域の見直しを同時に進める必要がある',
-      '既存の強みを活かしながら、将来の収益基盤を再設計する必要がある',
-    ],
-    nextQuestions: [
-      '重点市場はどこか',
-      '重点顧客は誰か',
-      '重点投資テーマは何か',
-      '見直すべき既存事業・業務は何か',
-    ],
-    downstreamTargets: [
-      '事業ポートフォリオ方針',
-      '部門別重点テーマ',
-      '投資・人材・スキル計画',
-    ],
-  },
-  {
-    id: 'what_to_win',
-    englishLabel: 'What to Win',
-    japaneseLabel: '目指す未来',
-    defaultKeyMessage: '顧客から選ばれる専門企業として、新たな収益基盤を確立する。',
-    strategicImplications: [
-      '目指す未来は、単なる数値目標ではなく、顧客からどのような存在として選ばれるかを明確にすること',
-      '顧客価値が明確になることで、部門戦略、KPI、現場行動の判断基準が揃う',
-      '売上・利益だけでなく、競争優位と顧客価値を測る指標が必要になる',
-    ],
-    nextQuestions: [
-      '顧客に提供すべき価値は何か',
-      '当社が選ばれる理由は何か',
-      'どの能力を強化すべきか',
-      'どのKPIで未来の成長を測るべきか',
-    ],
-    downstreamTargets: [
-      '顧客価値定義',
-      '競争優位の源泉',
-      '成長KPI',
-    ],
-  },
-  {
-    id: 'how_to_execute',
-    englishLabel: 'How to Execute',
-    japaneseLabel: '実行設計',
-    defaultKeyMessage: '全社戦略を、部門戦略・KPI・実行管理へ具体化する。',
-    strategicImplications: [
-      'STAGE3で全社戦略を事業別・部門別の重点テーマに展開する',
-      'STAGE4で重点テーマをKPI、投資、人員、期限に落とし込む',
-      'STAGE5で経営会議を通じて進捗を確認し、戦略と実行のズレを修正する',
-    ],
-    nextQuestions: [
-      'STAGE3で各部門は何を担うのか',
-      'STAGE4でどのKPIを設定するのか',
-      'STAGE5で進捗をどう確認するのか',
-      'どの指標を経営会議で確認すべきか',
-    ],
-    downstreamTargets: [
-      'STAGE3：部門別重点テーマ',
-      'STAGE4：KPI・投資・期限の設定',
-      'STAGE5：進捗管理と戦略修正',
-    ],
-  },
-];
+  isEditMode?: boolean;
+  onConclusionChange?: (conclusion: string) => void;
+  onAssumptionsChange?: (assumptions: StrategicAssumptions) => void;
+  onMidtermStrategyChange?: (midtermStrategy: MidtermStrategy) => void;
+}
 
 function stripIssueSummary(text: string): string {
   return text.replace(/【.*?】[\s\S]*?(?=\n\n|$)/g, '').trim();
-}
-
-const fallbackStrategicAssumptions: StrategicAssumptions = {
-  external: [
-    '市場環境や顧客ニーズの変化により、従来の延長だけでは成長機会を十分に取り切れない可能性がある',
-    '競争環境の変化に対応するため、成長余地のある市場・顧客・技術領域を見極める必要がある',
-    '外部環境の変化を踏まえ、事業機会とリスクを継続的に確認する必要がある',
-  ],
-  internal: [
-    '既存事業で培った顧客基盤・業務知見・組織能力は、今後の成長に向けた重要な資産である',
-    '一方で、既存事業や既存業務への依存が、成長領域への資源配分を妨げる可能性がある',
-    '全社戦略に基づき、部門・社員の判断基準を揃える必要がある',
-  ],
-  implications: [
-    '既存事業の改善だけでなく、成長領域への資源配分転換と、低収益・非重点領域の見直しを同時に進める必要がある',
-  ],
-};
-
-function cleanSwotText(text: unknown): string {
-  if (!text || typeof text !== 'string') return '';
-  // Markdown記号を除去
-  let cleaned = String(text)
-    .replace(/[*_#\-`【】]/g, ' ')
-    .replace(/^[0-9０-９．.、]+[\s　]*/g, '')
-    .trim();
-
-  // 複数行の場合は最初の行だけ取る
-  const firstLine = cleaned.split(/[\n\n。]/)[0]?.trim() || '';
-
-  // 100文字超えは短縮
-  if (firstLine.length > 100) {
-    return firstLine.substring(0, 95) + '…';
-  }
-
-  return firstLine;
-}
-
-function extractSentences(text: unknown): string[] {
-  if (!text || typeof text !== 'string') return [];
-  const cleaned = String(text)
-    .replace(/[*_#\-`【】\d０-９．.、]/g, ' ')
-    .trim();
-
-  // 句読点で分割
-  const sentences = cleaned
-    .split(/[。！？\n]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 3 && s.length < 100);
-
-  return sentences;
-}
-
-function buildStrategicAssumptions(input: {
-  swotSuggestions?: any;
-  swotData?: any;
-  story?: string;
-  midtermStrategy?: any;
-}): StrategicAssumptions {
-  const result: StrategicAssumptions = {
-    external: [],
-    internal: [],
-    implications: [],
-  };
-
-  const seen = new Set<string>();
-
-  // Opportunity/Threatから外部環境を抽出
-  const externalCandidates: string[] = [];
-
-  if (input.swotSuggestions?.opportunity && Array.isArray(input.swotSuggestions.opportunity)) {
-    input.swotSuggestions.opportunity.forEach((o: any) => {
-      const cleaned = cleanSwotText(o);
-      if (cleaned && !seen.has(cleaned)) {
-        externalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  if (input.swotData?.opportunities && Array.isArray(input.swotData.opportunities)) {
-    input.swotData.opportunities.forEach((o: any) => {
-      const cleaned = cleanSwotText(o);
-      if (cleaned && !seen.has(cleaned)) {
-        externalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  // Threatを追加
-  if (input.swotSuggestions?.threat && Array.isArray(input.swotSuggestions.threat)) {
-    input.swotSuggestions.threat.forEach((t: any) => {
-      const cleaned = cleanSwotText(t);
-      if (cleaned && !seen.has(cleaned)) {
-        externalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  if (input.swotData?.threats && Array.isArray(input.swotData.threats)) {
-    input.swotData.threats.forEach((t: any) => {
-      const cleaned = cleanSwotText(t);
-      if (cleaned && !seen.has(cleaned)) {
-        externalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  result.external = externalCandidates.slice(0, 3);
-
-  // Strength/Weaknessから内部環境を抽出
-  const internalCandidates: string[] = [];
-
-  if (input.swotSuggestions?.strength && Array.isArray(input.swotSuggestions.strength)) {
-    input.swotSuggestions.strength.forEach((s: any) => {
-      const cleaned = cleanSwotText(s);
-      if (cleaned && !seen.has(cleaned)) {
-        internalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  if (input.swotData?.strengths && Array.isArray(input.swotData.strengths)) {
-    input.swotData.strengths.forEach((s: any) => {
-      const cleaned = cleanSwotText(s);
-      if (cleaned && !seen.has(cleaned)) {
-        internalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  // Weaknessを追加
-  if (input.swotSuggestions?.weakness && Array.isArray(input.swotSuggestions.weakness)) {
-    input.swotSuggestions.weakness.forEach((w: any) => {
-      const cleaned = cleanSwotText(w);
-      if (cleaned && !seen.has(cleaned)) {
-        internalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  if (input.swotData?.weaknesses && Array.isArray(input.swotData.weaknesses)) {
-    input.swotData.weaknesses.forEach((w: any) => {
-      const cleaned = cleanSwotText(w);
-      if (cleaned && !seen.has(cleaned)) {
-        internalCandidates.push(cleaned);
-        seen.add(cleaned);
-      }
-    });
-  }
-
-  result.internal = internalCandidates.slice(0, 3);
-
-  // implications: midtermStrategyから、またはfallback
-  if (input.midtermStrategy?.growthStrategy) {
-    const impl = cleanSwotText(input.midtermStrategy.growthStrategy);
-    if (impl) {
-      result.implications.push(impl);
-    }
-  }
-
-  // 不足分はfallbackで補完
-  if (result.external.length === 0) {
-    result.external = fallbackStrategicAssumptions.external;
-  } else if (result.external.length < 3) {
-    result.external.push(
-      ...fallbackStrategicAssumptions.external.slice(0, 3 - result.external.length)
-    );
-  }
-
-  if (result.internal.length === 0) {
-    result.internal = fallbackStrategicAssumptions.internal;
-  } else if (result.internal.length < 3) {
-    result.internal.push(
-      ...fallbackStrategicAssumptions.internal.slice(0, 3 - result.internal.length)
-    );
-  }
-
-  if (result.implications.length === 0) {
-    result.implications = fallbackStrategicAssumptions.implications;
-  } else if (result.implications.length > 2) {
-    result.implications = result.implications.slice(0, 2);
-  }
-
-  return result;
 }
 
 function renderParagraphs(text: string, variant: 'screen' | 'pdf' = 'screen') {
@@ -734,934 +455,176 @@ function cleanChapterTitle(rawTitle: string | undefined, chapterNumber: number):
   return title || fallbackTitles[chapterNumber - 1] || `章タイトル未設定`;
 }
 
-function safeRatio(current: number | null | undefined, target: number | null | undefined): number | null {
-  if (current == null || target == null || !Number.isFinite(current) || !Number.isFinite(target) || target === 0) {
-    return null;
-  }
-  return current / target;
+
+function parseItems(text: string): string[] {
+  return text.split('\n').filter((s) => s.trim());
 }
 
-function formatPct(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return '—';
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function formatOkuFromMillion(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return '—';
-  const oku = value / 100;
-  return `${Math.round(oku).toLocaleString('ja-JP')}億円`;
-}
-
-function FinancialTargetMetricCard({
-  title,
-  current,
-  target,
+/** 入力途中の改行を保持するため、表示文字列はローカルに持ち、確定した項目だけを親へ渡す */
+function ItemListEditor({
+  items,
+  onChange,
+  rows,
+  placeholder,
 }: {
-  title: string;
-  current: number | null;
-  target: number | null;
+  items: string[];
+  onChange: (items: string[]) => void;
+  rows: number;
+  placeholder?: string;
 }) {
-  const achievementRate = safeRatio(current, target);
-  const progressPct = achievementRate == null ? 0 : Math.min(Math.max(achievementRate * 100, 0), 100);
-  const delta = current != null && target != null ? target - current : null;
-  const deltaIsPositive = delta == null || delta >= 0;
+  const itemsKey = items.join('\n');
+  const [text, setText] = useState(itemsKey);
+
+  useEffect(() => {
+    setText((current) => (parseItems(current).join('\n') === itemsKey ? current : itemsKey));
+  }, [itemsKey]);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Target KPI</p>
-          <h5 className="mt-1 text-base font-bold text-slate-950">{title}</h5>
-        </div>
-        <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
-          達成率 {achievementRate != null ? formatPct(achievementRate) : '—'}
-        </div>
-      </div>
-
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-slate-50 p-4">
-          <p className="text-xs font-semibold text-slate-500">現状</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{formatOkuFromMillion(current)}</p>
-          <p className="mt-1 text-[11px] text-slate-400">
-            {current != null ? `${Math.round(current).toLocaleString('ja-JP')}百万円` : '—'}
-          </p>
-        </div>
-        <div className="rounded-xl bg-slate-100 p-4">
-          <p className="text-xs font-semibold text-slate-700">目標</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatOkuFromMillion(target)}</p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            {target != null ? `${Math.round(target).toLocaleString('ja-JP')}百万円` : '—'}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
-          <span>現状から目標への進捗</span>
-          <span>{achievementRate != null ? formatPct(achievementRate) : '—'}</span>
-        </div>
-        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-          <div
-            className="h-full rounded-full bg-slate-900 transition-all"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-      </div>
-
-      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
-        <span className="font-medium text-slate-500">必要な上積み</span>
-        <span className={`font-bold ${deltaIsPositive ? 'text-emerald-700' : 'text-red-600'}`}>
-          {delta != null ? `${delta >= 0 ? '+' : ''}${formatOkuFromMillion(delta)}` : '—'}
-        </span>
-      </div>
-    </div>
+    <textarea
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(parseItems(e.target.value));
+      }}
+      className="w-full p-3 border border-slate-300 rounded-lg text-sm leading-relaxed resize-vertical font-sans"
+      rows={rows}
+      placeholder={placeholder ?? '各項目を1行ずつ入力...'}
+    />
   );
 }
 
-/**
- * 数値目標と達成ギャップ
- * 結論直後に配置し、戦略の説得力を数値で補強する。
- */
-function FinancialTargetGapPanel({
-  revenue,
-  operatingProfit,
-}: {
-  revenue: FinancialTargetMetric;
-  operatingProfit: FinancialTargetMetric;
-}) {
-  const hasAny = [revenue.current, revenue.target, operatingProfit.current, operatingProfit.target].some(
-    (v) => v != null && Number.isFinite(v)
-  );
-
-  if (!hasAny) return null;
-
-  return (
-    <section className="mb-12 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-      <div className="mb-4 flex flex-col gap-1.5 border-b border-slate-100 pb-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-700">Financial Target</p>
-        <h3 className="text-xl font-bold text-slate-950">数値目標と達成ギャップ</h3>
-        <p className="max-w-3xl text-xs leading-relaxed text-slate-600">
-          この戦略により、売上・営業利益の成長目標を実現し、持続的な収益基盤への転換を目指します。
-          現在値と目標値の差分を明確にし、STAGE3以降の部門戦略・KPI設計に接続します。
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <FinancialTargetMetricCard title="売上" current={revenue.current} target={revenue.target} />
-        <FinancialTargetMetricCard title="営業利益" current={operatingProfit.current} target={operatingProfit.target} />
-      </div>
-    </section>
-  );
+function EmptyText({ text = '未入力' }: { text?: string }) {
+  return <p className="text-sm text-slate-400">（{text}）</p>;
 }
 
-/**
- * 結論ボックス（白背景 + 左ネイビー罫線）
- */
-function ConclusionBox({
+function TextField({
   isEditMode,
   value,
   onChange,
-  aiGeneratedConclusion,
+  rows = 3,
+  placeholder,
+  variant,
 }: {
   isEditMode?: boolean;
   value?: string;
   onChange?: (value: string) => void;
-  aiGeneratedConclusion?: string;
-  currentStoryFingerprint?: string;
-  generatedConclusionFingerprint?: string;
-} = {}) {
-  const defaultText = `当社は、既存市場・既存事業の延長だけでは、今後の成長機会を十分に取り切ることが難しい局面にある。今後は、環境変化によって生まれる新たな成長領域へ経営資源を重点配分し、既存事業依存からの脱却と収益構造の転換を進める。
-
-そのために、全社として「どの市場で戦うのか」「何に投資するのか」「何を優先し、何を見直すのか」という判断基準を明確にし、部門・社員一人ひとりの判断と行動を成長領域に揃えていく。`;
-
-  // ★ 優先順位：ユーザー編集 > AI生成 > fallback
-  const displayValue = value || aiGeneratedConclusion || defaultText;
-
-  return (
-    <div className="mb-10 rounded-[24px] border border-slate-200 border-l-4 border-l-slate-800 bg-white/95 p-8 shadow-sm">
-      <h3 className="text-lg font-bold text-slate-950 mb-4">
-        この戦略ストーリーの結論
-      </h3>
-      {isEditMode ? (
-        <textarea
-          value={displayValue}
-          onChange={(e) => onChange?.(e.target.value)}
-          className="w-full p-3 border border-slate-300 rounded-lg text-sm leading-relaxed resize-vertical font-sans"
-          rows={6}
-          placeholder="結論を入力..."
-        />
-      ) : (
-        <div className="space-y-4 text-sm leading-relaxed text-slate-700">
-          {displayValue.split('\n\n').map((para, idx) => (
-            <p key={idx}>{para}</p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * 戦略判断の前提ブロック
- */
-function StrategicAssumptionBlock({
-  assumptions,
-  isEditMode,
-  onAssumptionsChange,
-}: {
-  assumptions: StrategicAssumptions;
-  isEditMode?: boolean;
-  onAssumptionsChange?: (assumptions: StrategicAssumptions) => void;
+  rows?: number;
+  placeholder?: string;
+  variant: 'screen' | 'pdf';
 }) {
-  const handleExternalChange = (text: string) => {
-    const items = text.split('\n').filter((s) => s.trim());
-    onAssumptionsChange?.({ ...assumptions, external: items });
-  };
-
-  const handleInternalChange = (text: string) => {
-    const items = text.split('\n').filter((s) => s.trim());
-    onAssumptionsChange?.({ ...assumptions, internal: items });
-  };
-
-  const handleImplicationsChange = (text: string) => {
-    const items = text.split('\n').filter((s) => s.trim());
-    onAssumptionsChange?.({ ...assumptions, implications: items });
-  };
-
-  return (
-    <section className="mb-12 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-      <div className="mb-4 flex flex-col gap-1.5 border-b border-slate-100 pb-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-700">Strategic Assumptions</p>
-        <h3 className="text-xl font-bold text-slate-950">戦略判断の前提</h3>
-        <p className="max-w-3xl text-xs leading-relaxed text-slate-600">
-          外部環境と内部環境の要点
-        </p>
-      </div>
-
-      <div className="space-y-6">
-        {/* 外部環境 */}
-        <div>
-          <h4 className="text-sm font-bold text-slate-900 mb-3">外部環境</h4>
-          {isEditMode ? (
-            <textarea
-              value={assumptions.external.join('\n')}
-              onChange={(e) => handleExternalChange(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-              rows={4}
-              placeholder="各項目を1行ずつ入力..."
-            />
-          ) : (
-            <ul className="space-y-2">
-              {assumptions.external.map((item, idx) => (
-                <li key={idx} className="flex gap-2 text-sm text-slate-700 leading-relaxed">
-                  <span className="shrink-0 text-slate-400 mt-0.5">・</span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* 内部環境 */}
-        <div className="border-t border-slate-100 pt-6">
-          <h4 className="text-sm font-bold text-slate-900 mb-3">内部環境</h4>
-          {isEditMode ? (
-            <textarea
-              value={assumptions.internal.join('\n')}
-              onChange={(e) => handleInternalChange(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-              rows={4}
-              placeholder="各項目を1行ずつ入力..."
-            />
-          ) : (
-            <ul className="space-y-2">
-              {assumptions.internal.map((item, idx) => (
-                <li key={idx} className="flex gap-2 text-sm text-slate-700 leading-relaxed">
-                  <span className="shrink-0 text-slate-400 mt-0.5">・</span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* 戦略上の含意 */}
-        <div className="border-t border-slate-100 pt-6">
-          <h4 className="text-sm font-bold text-slate-900 mb-3">戦略上の含意</h4>
-          {isEditMode ? (
-            <textarea
-              value={assumptions.implications.join('\n')}
-              onChange={(e) => handleImplicationsChange(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-              rows={3}
-              placeholder="各項目を1行ずつ入力..."
-            />
-          ) : (
-            <div className="space-y-2">
-              {assumptions.implications.map((item, idx) => (
-                <p key={idx} className="text-sm text-slate-700 leading-relaxed">
-                  {item}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/**
- * 戦略ストーリーの全体像（4カード）
- */
-function StoryFlowCards({
-  isEditMode,
-  overview,
-  onOverviewChange,
-}: {
-  isEditMode?: boolean;
-  overview?: {
-    whyChange?: string;
-    whereToPlay?: string;
-    whatToWin?: string;
-    howToExecute?: string;
-  };
-  onOverviewChange?: (overview: any) => void;
-} = {}) {
-  const defaultTexts = {
-    why_change: '既存市場の延長では、今後の成長機会を取り切れない。',
-    where_to_play: '成長余地のある市場・顧客・技術領域に経営資源を集中する。',
-    what_to_win: '顧客から選ばれる専門企業として、新たな収益基盤を確立する。',
-    how_to_execute: '全社戦略を、部門戦略・KPI・実行管理へ具体化する。',
-  };
-
-  const overviewValues = {
-    whyChange: overview?.whyChange ?? defaultTexts.why_change,
-    whereToPlay: overview?.whereToPlay ?? defaultTexts.where_to_play,
-    whatToWin: overview?.whatToWin ?? defaultTexts.what_to_win,
-    howToExecute: overview?.howToExecute ?? defaultTexts.how_to_execute,
-  };
-
-  const getOverviewValue = (id: string) => {
-    switch (id) {
-      case 'why_change':
-        return overviewValues.whyChange;
-      case 'where_to_play':
-        return overviewValues.whereToPlay;
-      case 'what_to_win':
-        return overviewValues.whatToWin;
-      case 'how_to_execute':
-        return overviewValues.howToExecute;
-      default:
-        return '';
-    }
-  };
-
-  const handleOverviewChange = (id: string, value: string) => {
-    const updated: any = { ...overview };
-    if (id === 'why_change') updated.whyChange = value;
-    else if (id === 'where_to_play') updated.whereToPlay = value;
-    else if (id === 'what_to_win') updated.whatToWin = value;
-    else if (id === 'how_to_execute') updated.howToExecute = value;
-    onOverviewChange?.(updated);
-  };
-
-  return (
-    <div className="mb-12">
-      <h3 className="text-lg font-bold text-slate-950 mb-1">
-        戦略ストーリーの全体像
-      </h3>
-      <p className="text-sm text-slate-500 mb-6">
-        全社戦略の4つの柱：危機認識→戦略選択→目指す未来→行動指針
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-        {CHAPTER_META.map((ch, idx) => (
-          <div
-            key={ch.id}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
-            <div className="flex items-center justify-center mb-3">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
-                {String(idx + 1).padStart(2, '0')}
-              </span>
-            </div>
-            <p className="text-[10px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-1">
-              {ch.englishLabel}
-            </p>
-            <h4 className="text-base font-bold text-slate-950 mb-3">
-              {ch.japaneseLabel}
-            </h4>
-            {isEditMode ? (
-              <textarea
-                value={getOverviewValue(ch.id)}
-                onChange={(e) => handleOverviewChange(ch.id, e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-                rows={3}
-                placeholder="テキストを入力..."
-              />
-            ) : (
-              <p className="text-sm leading-relaxed text-slate-600">
-                {getOverviewValue(ch.id)}
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * 中計設計ブロック（Insight Panel）
- */
-function MidtermDesignBox({
-  midtermStrategy,
-  businessSegments,
-  valueAnalysis,
-  businessPortfolioDirections,
-  isEditMode,
-  onMidtermStrategyChange,
-  stage2FinalDocumentEdits,
-}: {
-  midtermStrategy?: MidtermStrategy;
-  businessSegments?: any[];
-  valueAnalysis?: any;
-  businessPortfolioDirections?: any[];
-  isEditMode?: boolean;
-  onMidtermStrategyChange?: (strategy: MidtermStrategy) => void;
-  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits;
-}) {
-  // 統一した表示値：DB保存値 > 元データ
-  const effectiveMidtermStrategy = stage2FinalDocumentEdits?.midtermStrategy ?? midtermStrategy;
-
-  if (!effectiveMidtermStrategy) return null;
-
-  // 編集値と表示値を統一
-  const editableMidtermStrategy = effectiveMidtermStrategy;
-  const displayMidtermStrategy = effectiveMidtermStrategy;
-
-  const hasAny = Object.values(effectiveMidtermStrategy).some((v) =>
-    Array.isArray(v) ? v.length > 0 : typeof v === 'string' && v.trim()
-  );
-
-  if (!hasAny) return null;
-
-  // businessPortfolioDirections が渡されている場合はそれを使用、それ以外は再計算
-  const portfolioDirections = businessPortfolioDirections ?? buildBusinessPortfolioDirections({
-    businessSegments,
-    valueAnalysis,
-  });
-
-  // textarea の value として使う表示値：編集値 > 表示値 > fallback
-  const getDisplayValue = <K extends keyof MidtermStrategy>(key: K): MidtermStrategy[K] => {
-    // 編集値がある場合は優先
-    // 通常は displayMidtermStrategy を使用
-    return displayMidtermStrategy[key];
-  };
-
-  return (
-    <div className="mb-12 rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-8 shadow-sm">
-      <p className="text-[10px] font-bold tracking-[0.18em] text-slate-700 uppercase mb-2">
-        Strategic Deployment Axis
-      </p>
-      <h3 className="mb-2 text-[22px] font-bold leading-snug text-slate-950">
-        中計設計：全社戦略の展開軸
-      </h3>
-      <p className="text-sm text-slate-700 mb-6">
-        この中期経営計画は、単なる方針文書ではなく、STAGE3以降の事業・部門別戦略、STAGE4の実行計画・KPI、STAGE5の実行管理へ展開するための判断基準として活用します。
-      </p>
-      <div className="space-y-4 text-sm">
-        {(editableMidtermStrategy?.midtermConcept || isEditMode) && (
-          <div>
-            <span className="font-bold text-slate-900">1. 中計の基本コンセプト：</span>
-            {isEditMode ? (
-              <textarea
-                value={editableMidtermStrategy?.midtermConcept ?? ''}
-                onChange={(e) => onMidtermStrategyChange?.({ ...editableMidtermStrategy, midtermConcept: e.target.value })}
-                className="w-full mt-2 p-2 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-                rows={3}
-              />
-            ) : (
-              <span className="text-slate-700 ml-2">{displayMidtermStrategy.midtermConcept}</span>
-            )}
-          </div>
-        )}
-        {(editableMidtermStrategy?.targetVisionForMidterm || isEditMode) && (
-          <div>
-            <span className="font-bold text-slate-900">2. 目指す姿：</span>
-            {isEditMode ? (
-              <textarea
-                value={editableMidtermStrategy?.targetVisionForMidterm ?? ''}
-                onChange={(e) => onMidtermStrategyChange?.({ ...editableMidtermStrategy, targetVisionForMidterm: e.target.value })}
-                className="w-full mt-2 p-2 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-                rows={3}
-              />
-            ) : (
-              <span className="text-slate-700 ml-2">{displayMidtermStrategy.targetVisionForMidterm}</span>
-            )}
-          </div>
-        )}
-        {(editableMidtermStrategy?.priorityStrategicThemes?.length || isEditMode) ? (
-          <div>
-            <span className="font-bold text-slate-900">3. 重点戦略テーマ：</span>
-            {isEditMode ? (
-              <textarea
-                value={editableMidtermStrategy?.priorityStrategicThemes?.join('\n') ?? ''}
-                onChange={(e) => onMidtermStrategyChange?.({ ...editableMidtermStrategy, priorityStrategicThemes: e.target.value.split('\n').filter(s => s.trim()) })}
-                className="w-full mt-2 p-2 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-                rows={4}
-                placeholder="各項目を1行ずつ入力..."
-              />
-            ) : (
-              <ul className="mt-2 ml-4 list-disc space-y-1 text-slate-700">
-                {displayMidtermStrategy.priorityStrategicThemes?.map((t, i) => (
-                  <li key={i}>{t}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : null}
-
-        {/* 事業ポートフォリオの基本方針 */}
-        <div className="border-t border-slate-200 pt-4 mt-4">
-          <span className="font-bold text-slate-900">4. 事業ポートフォリオの基本方針：</span>
-          <p className="text-slate-600 mt-2 mb-4">
-            各事業の現在位置と、全社戦略上の大まかな方向性を整理します。
-          </p>
-          {/* portfolioPolicy（DB保存値優先） */}
-          {(editableMidtermStrategy?.portfolioPolicy || isEditMode) && (
-            <div className="mb-4">
-              {isEditMode ? (
-                <textarea
-                  value={editableMidtermStrategy?.portfolioPolicy ?? ''}
-                  onChange={(e) => onMidtermStrategyChange?.({ ...editableMidtermStrategy, portfolioPolicy: e.target.value })}
-                  className="w-full p-2 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-                  rows={4}
-                  placeholder="事業ポートフォリオの基本方針を入力..."
-                />
-              ) : (
-                <p className="text-slate-700 whitespace-pre-wrap">{displayMidtermStrategy.portfolioPolicy}</p>
-              )}
-            </div>
-          )}
-          {/* businessPortfolioDirections からの派生表示 */}
-          {portfolioDirections.length > 0 ? (
-            <div className="space-y-3 ml-4">
-              {portfolioDirections.map((pd, idx) => {
-                const segment = businessSegments?.find(s => (s.name || s.segmentName || s.businessName) === pd.segmentName);
-                let sourceLabel = '';
-
-                if (pd.source === 'valueAnalysis') {
-                  sourceLabel = 'STAGE1 ValueAnalysisに基づく';
-                } else if (pd.source === 'segmentPL' && pd.metrics) {
-                  const { revenueSharePct, operatingMarginPct, revenueGrowthPct } = pd.metrics;
-                  sourceLabel = `STAGE1事業別P/Lに基づく（売上構成比 ${revenueSharePct?.toFixed(1)}%、営業利益率 ${operatingMarginPct?.toFixed(1)}%、売上成長率 ${revenueGrowthPct?.toFixed(1)}%）`;
-                } else if (pd.source === 'businessSegments') {
-                  sourceLabel = `STAGE1財務データに基づく（売上構成比 ${segment?.revenueShare ?? segment?.salesShare ?? '-'}%、営業利益率 ${segment?.profitMargin ?? segment?.operatingMargin ?? segment?.margin ?? '-'}%、成長率 ${segment?.growthRate ?? segment?.revenueGrowthRate ?? segment?.salesGrowthRate ?? '-'}%）`;
-                } else if (pd.source === 'segmentSpecificFallback') {
-                  sourceLabel = '事業名に基づく暫定方針';
-                } else if (pd.source === 'genericFallback') {
-                  sourceLabel = '汎用方針';
-                } else {
-                  sourceLabel = '分析根拠未取得';
-                }
-
-                const categoryLabel = portfolioDirectionLabels[pd.category as BusinessPortfolioDirection['category']];
-
-                return (
-                  <div key={idx} className="border-l-2 border-slate-300 pl-4 py-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-slate-800">{pd.segmentName}</p>
-                      {categoryLabel && (
-                        <span className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-700">
-                          {categoryLabel}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-600 mt-1">現状評価：{pd.currentAssessment}</p>
-                    <p className="text-xs text-slate-600 mt-1">基本方向性：{pd.basicDirection}</p>
-                    <p className="text-xs text-slate-600 mt-1">STAGE3での展開論点：{pd.stage3Question}</p>
-                    <p className="text-[10px] text-slate-500 mt-2 italic">
-                      分析根拠：{sourceLabel}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="ml-4 space-y-3 text-slate-700">
-              <p className="text-xs">既存主力事業：現在の収益基盤として維持しつつ、成長余地と収益性を見極め、過度な依存を抑制する。</p>
-              <p className="text-xs">成長候補事業：市場成長性・収益性が見込まれる領域として、投資・人材・開発リソースを重点配分する。</p>
-              <p className="text-xs">収益改善事業：一定の売上規模はあるが収益性に課題がある領域について、価格、原価、業務効率、提供価値の見直しを進める。</p>
-              <p className="text-xs">見直し対象領域：成長性・収益性・戦略的重要性が限定的な場合、縮小・再編・撤退を含めて検討する。</p>
-            </div>
-          )}
-        </div>
-
-        {(editableMidtermStrategy?.companyWideDecisionCriteria?.length || isEditMode) ? (
-          <div className="border-t border-slate-200 pt-4 mt-4">
-            <span className="font-bold text-slate-900">5. 全社共通の判断基準：</span>
-            {isEditMode ? (
-              <textarea
-                value={editableMidtermStrategy?.companyWideDecisionCriteria?.join('\n') ?? ''}
-                onChange={(e) => onMidtermStrategyChange?.({ ...editableMidtermStrategy, companyWideDecisionCriteria: e.target.value.split('\n').filter(s => s.trim()) })}
-                className="w-full mt-2 p-2 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-                rows={4}
-                placeholder="各項目を1行ずつ入力..."
-              />
-            ) : (
-              <ul className="mt-2 ml-4 list-disc space-y-1 text-slate-700">
-                {displayMidtermStrategy.companyWideDecisionCriteria?.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : null}
-        {(editableMidtermStrategy?.deploymentPrinciplesForUnits?.length || isEditMode) ? (
-          <div className="border-t border-slate-200 pt-4 mt-4">
-            <span className="font-bold text-slate-900">6. 部門・社員への展開方針：</span>
-            {isEditMode ? (
-              <textarea
-                value={editableMidtermStrategy?.deploymentPrinciplesForUnits?.join('\n') ?? ''}
-                onChange={(e) => onMidtermStrategyChange?.({ ...editableMidtermStrategy, deploymentPrinciplesForUnits: e.target.value.split('\n').filter(s => s.trim()) })}
-                className="w-full mt-2 p-2 border border-slate-300 rounded-lg text-sm resize-vertical font-sans"
-                rows={4}
-                placeholder="各項目を1行ずつ入力..."
-              />
-            ) : (
-              <ul className="mt-2 ml-4 list-disc space-y-1 text-slate-700">
-                {displayMidtermStrategy.deploymentPrinciplesForUnits?.map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : null}
-      </div>
-      <p className="mt-6 border-t border-slate-200 pt-4 text-xs text-slate-600">
-        この全社戦略の判断軸は、STAGE3の事業・部門別戦略に展開されます。
-      </p>
-    </div>
-  );
-}
-
-
-/**
- * 重点戦略と優先順位（PDF用）
- * midtermStrategy が薄い場合は、事業ポートフォリオ方向性から補完する。
- */
-function StrategicThemePanel({
-  midtermStrategy,
-  businessPortfolioDirections,
-}: {
-  midtermStrategy?: MidtermStrategy;
-  businessPortfolioDirections?: BusinessPortfolioDirection[];
-}) {
-  const themes = midtermStrategy?.priorityStrategicThemes?.filter(Boolean) ?? [];
-  const portfolioThemes = (businessPortfolioDirections ?? []).slice(0, 4);
-
-  if (themes.length === 0 && portfolioThemes.length === 0) return null;
-
-  return (
-    <section className="mb-8 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-      <div className="mb-4 flex flex-col gap-1.5 border-b border-slate-100 pb-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-700">
-          Winning Patterns
-        </p>
-        <h3 className="text-lg font-bold text-slate-950">重点戦略と優先順位</h3>
-        <p className="max-w-3xl text-xs leading-relaxed text-slate-600">
-          全社戦略を、STAGE3以降で展開すべき重点テーマとして整理します。
-        </p>
-      </div>
-
-      {themes.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {themes.slice(0, 4).map((theme, i) => (
-            <div key={i} className="rounded-2xl border border-slate-200 bg-slate-50 p-3" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                Strategic Theme {String(i + 1).padStart(2, '0')}
-              </p>
-              <p className="text-sm font-bold leading-relaxed text-slate-900">{theme}</p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {portfolioThemes.map((pd, i) => (
-            <div key={i} className="rounded-2xl border border-slate-200 bg-slate-50 p-3" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-sm font-bold text-slate-950">{pd.segmentName}</p>
-                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600">
-                  {portfolioDirectionLabels[pd.category]}
-                </span>
-              </div>
-              <p className="text-[11px] leading-relaxed text-slate-600">{pd.basicDirection}</p>
-              <p className="mt-2 border-t border-slate-200 pt-2 text-[10px] leading-relaxed text-slate-500">
-                STAGE3論点：{pd.stage3Question}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/**
- * 各章の詳細表示（2カラム：screen / 1カラム：pdf）
- */
-function ChapterSection({
-  chapter,
-  index,
-  meta,
-  mode,
-}: {
-  chapter: StoryChapter;
-  index: number;
-  meta: (typeof CHAPTER_META)[0];
-  mode?: 'screen' | 'pdf';
-}) {
-  const isPdf = mode === 'pdf';
-  const cleanedTitle = cleanChapterTitle(chapter.title, index + 1);
-  const pdfTitle = index === 3 && cleanedTitle.includes('どう行動する')
-    ? (
-      <>
-        <span className="whitespace-nowrap">第{index + 1}章：どう行動する</span>
-        <span className="ml-1">（社員一人ひとりの役割と決意）</span>
-      </>
-    )
-    : <>第{index + 1}章：{cleanedTitle}</>;
-
-  if (isPdf) {
-    // PDF版：1カラム構成（改ページ対応）
+  if (isEditMode) {
     return (
-      <div
-        style={{ breakInside: 'auto', pageBreakInside: 'auto' }}
-        className="mb-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
-      >
-        {/* 章ヘッダー */}
-        <div className="mb-4 border-b border-slate-200 pb-3">
-          <p className="text-xs font-bold tracking-[0.2em] text-slate-700 uppercase mb-2">
-            Chapter {String(index + 1).padStart(2, '0')}
-          </p>
-          <h3 className="text-[20px] font-bold leading-snug text-slate-950 mb-1">
-            {pdfTitle}
-          </h3>
-          <p className="text-sm text-slate-500">
-            {meta.englishLabel} / {meta.japaneseLabel}
-          </p>
-        </div>
-
-        {/* Key Message */}
-        <div className="mb-5 rounded-lg border border-slate-200 border-l-4 border-l-slate-800 bg-slate-50 p-3.5">
-          <p className="text-[10px] font-bold tracking-[0.18em] text-slate-700 uppercase mb-2">
-            Key Message
-          </p>
-          <p className="text-[15px] font-semibold text-slate-900">
-            {meta.defaultKeyMessage}
-          </p>
-        </div>
-
-        {/* 本文 */}
-        <div className="mb-5 space-y-2.5">
-          {renderParagraphs(chapter.body, 'pdf') || (
-            <p className="text-slate-400 italic">本文未入力</p>
-          )}
-        </div>
-
-        {/* 3つのインサイトカード（横並び、ブロック全体でページ分断を防ぐ） */}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-          {/* 戦略上の示唆 */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-            <p className="text-[9px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-1.5">
-              Strategic Implications
-            </p>
-            <h5 className="text-[11px] font-bold text-slate-900 mb-2">
-              戦略上の示唆
-            </h5>
-            <ul className="space-y-1 text-[10px] text-slate-700">
-              {meta.strategicImplications.map((implication, i) => (
-                <li key={i} className="flex gap-1 leading-snug">
-                  <span className="shrink-0 text-slate-400 mt-0.5">−</span>
-                  <span>{implication}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* 次に接続する論点 */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-            <p className="text-[9px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-1.5">
-              Next Questions
-            </p>
-            <h5 className="text-[11px] font-bold text-slate-900 mb-2">
-              次に接続する論点
-            </h5>
-            <ul className="space-y-1 text-[10px] text-slate-700">
-              {meta.nextQuestions.map((question, i) => (
-                <li key={i} className="flex gap-1 leading-snug">
-                  <span className="shrink-0 text-slate-400 mt-0.5">−</span>
-                  <span>{question}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* STAGE3/4への展開先 */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-            <p className="text-[9px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-1.5">
-              Downstream Design
-            </p>
-            <h5 className="text-[11px] font-bold text-slate-900 mb-2">
-              STAGE3/4への展開先
-            </h5>
-            <ul className="space-y-1 text-[10px] text-slate-700">
-              {meta.downstreamTargets.map((target, i) => (
-                <li key={i} className="flex gap-1 leading-snug">
-                  <span className="shrink-0 text-slate-400 mt-0.5">−</span>
-                  <span>{target}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </div>
+      <textarea
+        value={value ?? ''}
+        onChange={(e) => onChange?.(e.target.value)}
+        className="w-full p-3 border border-slate-300 rounded-lg text-sm leading-relaxed resize-vertical font-sans"
+        rows={rows}
+        placeholder={placeholder}
+      />
     );
   }
+  return renderParagraphs(value ?? '', variant) || <EmptyText />;
+}
 
-  // Screen版：2カラム構成（現在のまま）
+function ListField({
+  isEditMode,
+  items,
+  onChange,
+  rows = 4,
+}: {
+  isEditMode?: boolean;
+  items: string[];
+  onChange?: (items: string[]) => void;
+  rows?: number;
+}) {
+  if (isEditMode) {
+    return <ItemListEditor items={items} onChange={(next) => onChange?.(next)} rows={rows} />;
+  }
+  if (items.length === 0) return <EmptyText />;
   return (
-    <div className="mb-12 rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
-      {/* 章ヘッダー */}
-      <div className="mb-6 pb-4 border-b border-slate-200">
-        <p className="text-xs font-bold tracking-[0.2em] text-slate-700 uppercase mb-2">
-          Chapter {String(index + 1).padStart(2, '0')}
-        </p>
-        <h3 className="text-2xl font-bold text-slate-950 mb-2">
-          {pdfTitle}
-        </h3>
-        <p className="text-sm text-slate-500">
-          {meta.englishLabel} / {meta.japaneseLabel}
-        </p>
-      </div>
+    <ul className="space-y-2 text-sm leading-relaxed text-slate-700">
+      {items.map((item, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="shrink-0 text-slate-400">・</span>
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-      {/* 2カラム（レスポンシブ） */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* 左カラム（2/3） */}
-        <div className="md:col-span-2">
-          {/* Key Message */}
-          <div className="rounded-lg border border-slate-200 border-l-4 border-l-slate-800 bg-slate-50 p-5 mb-7">
-            <p className="text-[10px] font-bold tracking-[0.18em] text-slate-700 uppercase mb-2">
-              Key Message
-            </p>
-            <p className="text-base font-semibold text-slate-900">
-              {meta.defaultKeyMessage}
-            </p>
-          </div>
+function DocSection({
+  title,
+  isPdf,
+  children,
+}: {
+  title: string;
+  isPdf: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="space-y-6 border-t-2 border-slate-900 pt-6"
+      style={isPdf ? { breakInside: 'avoid', pageBreakInside: 'avoid' } : undefined}
+    >
+      <h2 className="text-xl font-bold text-slate-950">{title}</h2>
+      {children}
+    </section>
+  );
+}
 
-          {/* 本文 */}
-          <div className="space-y-4">
-            {renderParagraphs(chapter.body) || (
-              <p className="text-slate-400 italic">本文未入力</p>
-            )}
-          </div>
-        </div>
-
-        {/* 右カラム（1/3）：Insight Panel */}
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-6">
-          {/* 戦略上の示唆 */}
-          <div className="mb-7">
-            <p className="text-[10px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-3">
-              Strategic Implications
-            </p>
-            <h5 className="text-sm font-bold text-slate-900 mb-3">
-              戦略上の示唆
-            </h5>
-            <ul className="space-y-2 text-sm text-slate-700">
-              {meta.strategicImplications.map((implication, i) => (
-                <li key={i} className="flex gap-2 leading-relaxed">
-                  <span className="shrink-0 text-slate-400 mt-1">−</span>
-                  <span>{implication}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* 次に接続する論点 */}
-          <div className="mb-7 border-t border-slate-200 pt-6">
-            <p className="text-[10px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-3">
-              Next Questions
-            </p>
-            <h5 className="text-sm font-bold text-slate-900 mb-3">
-              次に接続する論点
-            </h5>
-            <ul className="space-y-2 text-sm text-slate-700">
-              {meta.nextQuestions.map((question, i) => (
-                <li key={i} className="flex gap-2 leading-relaxed">
-                  <span className="shrink-0 text-slate-400 mt-1">−</span>
-                  <span>{question}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* STAGE3/4への展開先 */}
-          <div className="border-t border-slate-200 pt-6">
-            <p className="text-[10px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-3">
-              Downstream Design
-            </p>
-            <h5 className="text-sm font-bold text-slate-900 mb-3">
-              STAGE3/4への展開先
-            </h5>
-            <ul className="space-y-2 text-sm text-slate-700">
-              {meta.downstreamTargets.map((target, i) => (
-                <li key={i} className="flex gap-2 leading-relaxed">
-                  <span className="shrink-0 text-slate-400 mt-1">−</span>
-                  <span>{target}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </div>
+function FieldBlock({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-bold text-slate-800">{label}</h3>
+      {children}
     </div>
   );
 }
 
-/**
- * STAGE3以降への接続（控えめな導線）
- */
-function StageConnectionSection() {
+function formatTargetValue(value: number): string {
+  return value.toLocaleString('ja-JP', { maximumFractionDigits: 2 });
+}
+
+function FinancialTargetTable({ targets }: { targets?: FinancialTargets }) {
+  const rows = [
+    { label: '売上', target: targets?.revenue },
+    { label: '営業利益', target: targets?.operatingProfit },
+  ].filter((row): row is { label: string; target: FinancialTargetRow } => !!row.target);
+
+  if (rows.length === 0) return <EmptyText text="数値目標は未登録" />;
+
   return (
-    <div className="mb-8 rounded-[24px] border border-slate-200 bg-white p-7 shadow-sm">
-      <div className="flex flex-col gap-5">
-        <div>
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-            Next Step
-          </p>
-          <h3 className="text-lg font-bold text-slate-950">
-            次のステップ：事業・部門別戦略へ展開
-          </h3>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-            この全社戦略は、STAGE3の事業・部門別戦略、STAGE4の実行計画・KPIへ展開されます。
-            画面上では導線に留め、中期経営計画本文の主役は4章ストーリーと全社判断基準に置きます。
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3 text-xs font-semibold text-slate-600">
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE3</span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE4</span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE5</span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE6</span>
-        </div>
-      </div>
-    </div>
+    <table className="w-full border-collapse text-sm text-slate-800">
+      <thead>
+        <tr className="border-b border-slate-300 text-left text-xs text-slate-500">
+          <th className="py-2 pr-4 font-semibold">項目</th>
+          <th className="py-2 pr-4 font-semibold">目標値</th>
+          <th className="py-2 font-semibold">目標年度</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ label, target }) => (
+          <tr key={label} className="border-b border-slate-100">
+            <td className="py-2 pr-4">{label}</td>
+            <td className="py-2 pr-4 font-semibold">
+              {formatTargetValue(target.base)} {target.unit}
+            </td>
+            <td className="py-2">{target.dueYear ? `${target.dueYear}年度` : '未設定'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
-/**
- * メインコンポーネント：StrategyStoryPreview
- */
+function latestTargetYear(targets?: FinancialTargets): number | undefined {
+  const years = [targets?.revenue?.dueYear, targets?.operatingProfit?.dueYear].filter(
+    (y): y is number => typeof y === 'number' && Number.isFinite(y),
+  );
+  return years.length > 0 ? Math.max(...years) : undefined;
+}
+
 export function StrategyStoryPreview({
   story,
   finalized,
@@ -1674,182 +637,173 @@ export function StrategyStoryPreview({
   segmentPL,
   valueAnalysis,
   businessPortfolio,
-  mode,
-  isEditMode,
-  stage2FinalDocumentEdits,
-  onDocumentEditsChange,
+  mode = 'screen',
+  conclusionDraft,
+  assumptionsDraft,
   aiGeneratedConclusion,
-  currentStoryFingerprint,
-  generatedConclusionFingerprint,
+  isEditMode,
+  onConclusionChange,
+  onAssumptionsChange,
+  onMidtermStrategyChange,
 }: StrategyStoryPreviewProps) {
   if (!story || story.length === 0) return null;
 
-  const strategicAssumptions = buildStrategicAssumptions({
-    swotSuggestions,
-    swotData,
-    midtermStrategy,
-  });
-
-  const businessPortfolioDirections = buildBusinessPortfolioDirections({
+  const isPdf = mode === 'pdf';
+  const variant = isPdf ? 'pdf' : 'screen';
+  const midterm: MidtermStrategy = midtermStrategy ?? {};
+  const conclusion = resolveConclusion(conclusionDraft, aiGeneratedConclusion);
+  const assumptions = resolveStrategicAssumptions(
+    assumptionsDraft,
+    buildStrategicAssumptions({ swotSuggestions, swotData, midtermStrategy: midterm }),
+  );
+  const portfolio = buildBusinessPortfolioDirections({
     businessSegments,
     segmentPL,
     valueAnalysis,
     businessPortfolio,
-  });
+  }).filter((d) => COMPANY_DERIVED_SOURCES.includes(d.source));
+  const fiscalYear = latestTargetYear(financialTargets);
+
+  const updateMidterm = (patch: Partial<MidtermStrategy>) => onMidtermStrategyChange?.({ ...midterm, ...patch });
+  const updateAssumptions = (patch: Partial<StrategicAssumptions>) => onAssumptionsChange?.({ ...assumptions, ...patch });
 
   return (
-    <div className="space-y-10 bg-gradient-to-b from-slate-50 via-white to-slate-50">
-      {/* 表紙ヘッダー：ライトグレー基調＋チャコールアクセント */}
-      <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-zinc-50 px-10 py-11 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
-        <div className="absolute left-0 top-0 h-full w-1.5 bg-slate-800" aria-hidden="true" />
-        <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">
-              Mid-Term Management Plan
-            </p>
-            <h1 className="mb-2 text-4xl font-bold tracking-tight text-slate-950">
-              全社戦略
-            </h1>
-            <p className="text-lg font-medium text-slate-800">社員に伝えたい「経営の意図」</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {companyName && (
-              <span className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm">
-                {companyName}
-              </span>
-            )}
-            <span
-              className={[
-                'rounded-full border px-4 py-2 text-[11px] font-bold shadow-sm',
-                finalized
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-amber-200 bg-amber-50 text-amber-700',
-              ].join(' ')}
-            >
-              {finalized ? '確定済' : 'ドラフト'}
-            </span>
-          </div>
+    <article className={isPdf ? 'space-y-10 px-4' : 'mx-auto max-w-5xl space-y-10 px-4'}>
+      <header className="border-b-4 border-slate-900 pb-6">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-950">全社戦略書</h1>
+        <p className="mt-2 text-lg font-semibold text-slate-800">{companyName || '（会社名未入力）'}</p>
+        <div className="mt-4 flex flex-wrap gap-6 text-sm text-slate-700">
+          <span>対象年度：{fiscalYear ? `${fiscalYear}年度` : '未設定'}</span>
+          <span
+            className={
+              finalized ? 'font-bold text-emerald-700' : 'font-bold text-amber-700'
+            }
+          >
+            状態：{finalized ? '確定版' : 'ドラフト（未確定）'}
+          </span>
         </div>
-      </div>
+      </header>
 
-      {/* コンテンツ本体 */}
-      <div className={mode === 'pdf' ? 'max-w-5xl mx-auto px-4' : 'space-y-10 max-w-5xl mx-auto px-4'}>
-        {mode === 'pdf' ? (
-          <>
-            {/* PDF版：実際のPDF分割を安定させるため、A4相当のページブロックで構成 */}
-            <div style={{ minHeight: 1110, boxSizing: 'border-box', paddingBottom: 24 }}>
-              <ConclusionBox />
-              <StrategicAssumptionBlock assumptions={strategicAssumptions} />
+      <DocSection title="経営戦略の結論" isPdf={isPdf}>
+        <TextField
+          isEditMode={isEditMode}
+          value={isEditMode ? conclusionDraft ?? aiGeneratedConclusion : conclusion}
+          onChange={onConclusionChange}
+          rows={6}
+          placeholder="結論を入力..."
+          variant={variant}
+        />
+      </DocSection>
+
+      <DocSection title="経営目標・重点戦略" isPdf={isPdf}>
+        <FieldBlock label="目指す姿">
+          <TextField
+            isEditMode={isEditMode}
+            value={midterm.targetVisionForMidterm}
+            onChange={(value) => updateMidterm({ targetVisionForMidterm: value })}
+            variant={variant}
+          />
+        </FieldBlock>
+        <FieldBlock label="中計の基本コンセプト">
+          <TextField
+            isEditMode={isEditMode}
+            value={midterm.midtermConcept}
+            onChange={(value) => updateMidterm({ midtermConcept: value })}
+            variant={variant}
+          />
+        </FieldBlock>
+        <FieldBlock label="数値目標">
+          <FinancialTargetTable targets={financialTargets} />
+        </FieldBlock>
+        <FieldBlock label="重点戦略テーマ">
+          <ListField
+            isEditMode={isEditMode}
+            items={midterm.priorityStrategicThemes ?? []}
+            onChange={(items) => updateMidterm({ priorityStrategicThemes: items })}
+          />
+        </FieldBlock>
+      </DocSection>
+
+      <DocSection title="戦略判断の前提" isPdf={isPdf}>
+        <FieldBlock label="外部環境">
+          <ListField
+            isEditMode={isEditMode}
+            items={assumptions.external}
+            onChange={(items) => updateAssumptions({ external: items })}
+            rows={4}
+          />
+        </FieldBlock>
+        <FieldBlock label="内部環境">
+          <ListField
+            isEditMode={isEditMode}
+            items={assumptions.internal}
+            onChange={(items) => updateAssumptions({ internal: items })}
+            rows={4}
+          />
+        </FieldBlock>
+        <FieldBlock label="戦略上の含意">
+          <ListField
+            isEditMode={isEditMode}
+            items={assumptions.implications}
+            onChange={(items) => updateAssumptions({ implications: items })}
+            rows={3}
+          />
+        </FieldBlock>
+      </DocSection>
+
+      {story.map((chapter, index) => {
+        const title = cleanChapterTitle(chapter.title, index + 1);
+        return (
+          <section key={index} className="space-y-6 border-t-2 border-slate-900 pt-6">
+            <h2 className="text-xl font-bold text-slate-950">第{index + 1}章：{title}</h2>
+            <div className="space-y-4">
+              {renderParagraphs(chapter.body, variant) || <EmptyText text="本文未入力" />}
             </div>
+          </section>
+        );
+      })}
 
-            <div style={{ minHeight: 1110, boxSizing: 'border-box', paddingBottom: 24 }}>
-              <StoryFlowCards />
-              {financialTargets && (
-                <FinancialTargetGapPanel
-                  revenue={financialTargets.revenue}
-                  operatingProfit={financialTargets.operatingProfit}
-                />
-              )}
-              <StrategicThemePanel
-                midtermStrategy={midtermStrategy}
-                businessPortfolioDirections={businessPortfolioDirections}
-              />
-            </div>
-
-            {story.map((chapter, idx) => (
-              <div key={idx} style={{ minHeight: 1110, boxSizing: 'border-box', paddingBottom: 24 }}>
-                <ChapterSection
-                  chapter={chapter}
-                  index={idx}
-                  meta={CHAPTER_META[idx] || CHAPTER_META[0]}
-                  mode={mode}
-                />
-              </div>
-            ))}
-
-            <div style={{ minHeight: 520, boxSizing: 'border-box', paddingBottom: 64 }}>
-              <StageConnectionSection />
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Screen版：編集対応 */}
-            <ConclusionBox
-              isEditMode={isEditMode}
-              value={stage2FinalDocumentEdits?.conclusion}
-              onChange={(conclusion) => {
-                onDocumentEditsChange?.({
-                  ...stage2FinalDocumentEdits,
-                  conclusion,
-                });
-              }}
-              aiGeneratedConclusion={aiGeneratedConclusion}
-              currentStoryFingerprint={currentStoryFingerprint}
-              generatedConclusionFingerprint={generatedConclusionFingerprint}
-            />
-            <StrategicAssumptionBlock
-              assumptions={
-                stage2FinalDocumentEdits?.assumptions
-                  ? {
-                      external: stage2FinalDocumentEdits.assumptions.external ?? [],
-                      internal: stage2FinalDocumentEdits.assumptions.internal ?? [],
-                      implications: stage2FinalDocumentEdits.assumptions.implications ?? [],
-                    }
-                  : strategicAssumptions
-              }
-              isEditMode={isEditMode}
-              onAssumptionsChange={(assumptions) => {
-                onDocumentEditsChange?.({
-                  ...stage2FinalDocumentEdits,
-                  assumptions,
-                });
-              }}
-            />
-            <StoryFlowCards
-              isEditMode={isEditMode}
-              overview={stage2FinalDocumentEdits?.overview}
-              onOverviewChange={(overview) => {
-                onDocumentEditsChange?.({
-                  ...stage2FinalDocumentEdits,
-                  overview,
-                });
-              }}
-            />
-            <MidtermDesignBox
-              midtermStrategy={midtermStrategy}
-              businessSegments={businessSegments}
-              valueAnalysis={valueAnalysis}
-              businessPortfolioDirections={businessPortfolioDirections}
-              isEditMode={isEditMode}
-              stage2FinalDocumentEdits={stage2FinalDocumentEdits}
-              onMidtermStrategyChange={(updated) => {
-                onDocumentEditsChange?.({
-                  ...stage2FinalDocumentEdits,
-                  midtermStrategy: updated,
-                });
-              }}
-            />
-            <div className="space-y-10">
-              {story.map((chapter, idx) => (
-                <ChapterSection
-                  key={idx}
-                  chapter={chapter}
-                  index={idx}
-                  meta={CHAPTER_META[idx] || CHAPTER_META[0]}
-                  mode={mode}
-                />
+      <DocSection title="全社共通の判断基準・部門展開の基本方針" isPdf={isPdf}>
+        <FieldBlock label="全社共通の判断基準">
+          <ListField
+            isEditMode={isEditMode}
+            items={midterm.companyWideDecisionCriteria ?? []}
+            onChange={(items) => updateMidterm({ companyWideDecisionCriteria: items })}
+          />
+        </FieldBlock>
+        <FieldBlock label="部門・社員への展開方針">
+          <ListField
+            isEditMode={isEditMode}
+            items={midterm.deploymentPrinciplesForUnits ?? []}
+            onChange={(items) => updateMidterm({ deploymentPrinciplesForUnits: items })}
+          />
+        </FieldBlock>
+        <FieldBlock label="事業ポートフォリオの基本方針">
+          <TextField
+            isEditMode={isEditMode}
+            value={midterm.portfolioPolicy}
+            onChange={(value) => updateMidterm({ portfolioPolicy: value })}
+            variant={variant}
+          />
+        </FieldBlock>
+        {portfolio.length > 0 && (
+          <FieldBlock label="事業別の基本方向">
+            <div className="space-y-3">
+              {portfolio.map((pd, i) => (
+                <div key={i} className="border-l-2 border-slate-300 pl-4">
+                  <p className="font-semibold text-slate-900">
+                    {pd.segmentName}
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      {portfolioDirectionLabels[pd.category]}
+                    </span>
+                  </p>
+                  <p className="text-sm leading-relaxed text-slate-700">{pd.basicDirection}</p>
+                </div>
               ))}
             </div>
-            {financialTargets && (
-              <FinancialTargetGapPanel
-                revenue={financialTargets.revenue}
-                operatingProfit={financialTargets.operatingProfit}
-              />
-            )}
-            <StageConnectionSection />
-          </>
+          </FieldBlock>
         )}
-      </div>
-    </div>
+      </DocSection>
+    </article>
   );
 }

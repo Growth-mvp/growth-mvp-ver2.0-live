@@ -1746,6 +1746,17 @@ export type Stage2FinalDocumentEdits = {
   /** 中計設計（編集値） */
   midtermStrategy?: MidtermStrategy;
 
+  /** 確定時点の結論・戦略判断の前提（確定版。下書き編集とは分けて下流が参照する） */
+  confirmed?: {
+    conclusion?: string;
+    assumptions?: {
+      external?: string[];
+      internal?: string[];
+      implications?: string[];
+    };
+    confirmedAt?: string;
+  };
+
   /** 編集タイムスタンプ */
   editedAt?: string;
 };
