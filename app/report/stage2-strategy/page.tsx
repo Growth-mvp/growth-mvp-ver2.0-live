@@ -16,6 +16,8 @@ import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
 import { pickFinancialTargets, toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { AlertCircle, ArrowLeft, Download } from 'lucide-react';
 
+const NO_CHAPTERS: never[] = [];
+
 export default function Stage2StrategyPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
@@ -43,7 +45,9 @@ export default function Stage2StrategyPage() {
   const businessPortfolio = useStrategyStore((s: any) => s.businessPortfolio);
 
   // 優先順位：finalStoryFinal > finalStoryEdited > finalStoryDraft > finalStory
-  const finalStoryToUse = finalStoryFinal || finalStoryEdited || finalStoryDraft || finalStory;
+  const finalStoryToUse = [finalStoryFinal, finalStoryEdited, finalStoryDraft, finalStory].find(
+    (chapters) => Array.isArray(chapters) && chapters.length > 0,
+  ) ?? NO_CHAPTERS;
   const finalized = !!(finalStoryFinal && finalStoryFinal.length > 0);
   // 確定版の表示は確定時のスナップショットを使い、確定後の未確定の編集は含めない
   const documentEdits = finalized ? toConfirmedEdits(stage2FinalDocumentEdits) : stage2FinalDocumentEdits;
@@ -103,6 +107,7 @@ export default function Stage2StrategyPage() {
           unit: 'mm',
           format: 'a4',
         },
+        avoidBreakSelector: 'p, li, tr, h2, h3',
       });
     } catch (err) {
       console.error('PDF出力エラー:', err);

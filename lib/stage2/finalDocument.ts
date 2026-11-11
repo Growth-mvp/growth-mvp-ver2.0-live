@@ -144,13 +144,21 @@ export function buildStrategicAssumptions(input: {
   return { external, internal, implications: growth ? [growth] : [] };
 }
 
-/** 確定版の結論・前提を返す。確定前（スナップショットなし）は従来どおり編集値をそのまま返す */
+/** 確定版の結論・前提を返す。確定版が無い（旧データで下書きだけがある）場合は下書きを返さない */
 export function toConfirmedEdits(
   edits: Stage2FinalDocumentEdits | undefined | null,
 ): Stage2FinalDocumentEdits | undefined {
   if (!edits) return undefined;
-  if (!edits.confirmed) return edits;
-  return { conclusion: edits.confirmed.conclusion, assumptions: edits.confirmed.assumptions };
+  if (edits.confirmed) return { conclusion: edits.confirmed.conclusion, assumptions: edits.confirmed.assumptions };
+  if (edits.draftChangedAt) return {};
+  return edits;
+}
+
+export function markDraftChanged(
+  edits: Stage2FinalDocumentEdits | undefined,
+  changedAt: string,
+): Stage2FinalDocumentEdits {
+  return { ...(edits ?? {}), draftChangedAt: changedAt };
 }
 
 export function buildConfirmedDocumentEdits(input: {
@@ -159,8 +167,10 @@ export function buildConfirmedDocumentEdits(input: {
   assumptions: StrategicAssumptions;
   confirmedAt: string;
 }): Stage2FinalDocumentEdits {
+  const rest: Stage2FinalDocumentEdits = { ...(input.edits ?? {}) };
+  delete rest.draftChangedAt;
   return {
-    ...(input.edits ?? {}),
+    ...rest,
     confirmed: {
       conclusion: resolveConclusion(input.edits?.conclusion, input.aiGeneratedConclusion),
       assumptions: input.assumptions,
@@ -169,7 +179,26 @@ export function buildConfirmedDocumentEdits(input: {
   };
 }
 
-/** 確定版と保存済みの編集内容の差分を検出する。確定版が無い場合は差分の判定対象外 */
+/** 確定後に保存された章の一覧。確定版より新しい編集がある場合だけ表示対象に選ぶ */
+export function pickDisplayedStory(
+  input: {
+    finalStoryFinal?: StoryChapter[] | null;
+    finalStoryEdited?: StoryChapter[] | null;
+    finalStoryDraft?: StoryChapter[] | null;
+  },
+  unconfirmed: UnconfirmedChanges,
+): StoryChapter[] {
+  const finalStory = input.finalStoryFinal ?? [];
+  const edited = input.finalStoryEdited ?? [];
+  if (finalStory.length > 0) return unconfirmed.chapters && edited.length > 0 ? edited : finalStory;
+  if (edited.length > 0) return edited;
+  return input.finalStoryDraft ?? [];
+}
+
+/**
+ * 確定版と保存済みの編集内容の差分を検出する。
+ * 確定スナップショットも下書きの印も無い旧データは、保存済みの値を確定済みとして扱い、差分の判定対象外にする。
+ */
 export function findUnconfirmedChanges(input: {
   finalStoryFinal?: StoryChapter[] | null;
   finalStoryEdited?: StoryChapter[] | null;
@@ -177,8 +206,10 @@ export function findUnconfirmedChanges(input: {
   midtermStrategy?: MidtermStrategy | null;
   aiGeneratedConclusion?: string;
 }): UnconfirmedChanges {
+  const none = { chapters: false, document: false, midtermStrategy: false };
   const confirmed = input.finalStoryFinal ?? [];
-  if (confirmed.length === 0) return { chapters: false, document: false, midtermStrategy: false };
+  if (confirmed.length === 0) return none;
+  if (!input.edits?.confirmed && !input.edits?.draftChangedAt) return none;
 
   const edited = input.finalStoryEdited ?? [];
   const chapters = edited.length > 0 && !sameChapters(edited, confirmed);

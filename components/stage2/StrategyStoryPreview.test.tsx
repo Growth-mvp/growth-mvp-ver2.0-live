@@ -92,7 +92,7 @@ describe('StrategyStoryPreview（全社戦略書）', () => {
     expect(text).toContain('12,000 百万円');
     expect(text).toContain('1,500 百万円');
     expect(text).toContain('2029年度');
-    expect(text).toContain('対象年度：2029年度');
+    expect(text).not.toContain('対象年度');
   });
 
   it('未登録の数値目標や結論は推測で補完しない', () => {
@@ -102,7 +102,7 @@ describe('StrategyStoryPreview（全社戦略書）', () => {
     const text = container.textContent ?? '';
 
     expect(text).toContain('数値目標は未登録');
-    expect(text).toContain('対象年度：未設定');
+    expect(text).not.toContain('対象年度');
     expect(text).toContain('状態：ドラフト（未確定）');
     expect(text).not.toContain('12,000');
   });

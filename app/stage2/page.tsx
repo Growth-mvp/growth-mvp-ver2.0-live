@@ -43,7 +43,9 @@ import {
   buildConfirmedDocumentEdits,
   buildStrategicAssumptions,
   findUnconfirmedChanges,
+  markDraftChanged,
   mergeMidtermStrategyIntoDocumentEdits,
+  pickDisplayedStory,
   pickFinancialTargets,
   resolveStrategicAssumptions,
   toConfirmedEdits,
@@ -2218,13 +2220,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     if (storyViewMode === 'edited') return finalStoryEditedRaw || EMPTY_ARR;
     if (storyViewMode === 'final') return finalStoryFinalRaw || EMPTY_ARR;
 
-    // auto：確定版を優先。ただし確定後に保存された本文編集（未確定）があれば、それを表示し再確定の対象にする
-    if (finalStoryFinalRaw && finalStoryFinalRaw.length > 0) {
-      return unconfirmedChanges.chapters && finalStoryEditedRaw ? finalStoryEditedRaw : finalStoryFinalRaw;
-    }
-    if (finalStoryEditedRaw && finalStoryEditedRaw.length > 0) return finalStoryEditedRaw;
-    if (finalStoryDraftRaw && finalStoryDraftRaw.length > 0) return finalStoryDraftRaw;
-    return EMPTY_ARR;
+    // auto：確定版を優先。確定後の未確定の本文編集があれば、それを表示し再確定の対象にする
+    const auto = pickDisplayedStory(
+      { finalStoryFinal: finalStoryFinalRaw, finalStoryEdited: finalStoryEditedRaw, finalStoryDraft: finalStoryDraftRaw },
+      unconfirmedChanges,
+    );
+    return auto.length > 0 ? auto : EMPTY_ARR;
   };
 
   const displayingStory = pickStory();
@@ -4227,15 +4228,21 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             const latestDocumentEdits = editingDocumentEdits;
                             const saveScope = captureSaveScope();
 
+                            const mergedDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy);
+                            const savedDocumentEdits =
+                              (finalStoryFinalRaw?.length ?? 0) > 0
+                                ? markDraftChanged(mergedDocumentEdits, new Date().toISOString())
+                                : mergedDocumentEdits;
+
                             setFinalStoryEdited(editingStory);
-                            setStage2FinalDocumentEdits(mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy));
+                            setStage2FinalDocumentEdits(savedDocumentEdits);
 
                             const storeState = useStrategyStore.getState() as any;
 
                             const savePayload = {
                               ...storeState,
                               finalStoryEdited: editingStory,
-                              stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy),
+                              stage2FinalDocumentEdits: savedDocumentEdits,
                             };
 
                             console.log('[Stage2][docEdits][manual-save-before]', {

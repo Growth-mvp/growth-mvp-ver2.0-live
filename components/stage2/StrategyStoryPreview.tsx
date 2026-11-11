@@ -564,8 +564,11 @@ function DocSection({
 }) {
   return (
     <section
-      className="space-y-6 border-t-2 border-slate-900 pt-6"
-      style={isPdf ? { breakInside: 'avoid', pageBreakInside: 'avoid' } : undefined}
+      className="space-y-6 pt-6"
+      style={{
+        borderTop: '2px solid #0f172a',
+        ...(isPdf ? { breakInside: 'avoid', pageBreakInside: 'avoid' } : {}),
+      }}
     >
       <h2 className="text-xl font-bold text-slate-950">{title}</h2>
       {children}
@@ -618,13 +621,6 @@ function FinancialTargetTable({ targets }: { targets?: FinancialTargets }) {
   );
 }
 
-function latestTargetYear(targets?: FinancialTargets): number | undefined {
-  const years = [targets?.revenue?.dueYear, targets?.operatingProfit?.dueYear].filter(
-    (y): y is number => typeof y === 'number' && Number.isFinite(y),
-  );
-  return years.length > 0 ? Math.max(...years) : undefined;
-}
-
 export function StrategyStoryPreview({
   story,
   finalized,
@@ -662,8 +658,6 @@ export function StrategyStoryPreview({
     valueAnalysis,
     businessPortfolio,
   }).filter((d) => COMPANY_DERIVED_SOURCES.includes(d.source));
-  const fiscalYear = latestTargetYear(financialTargets);
-
   const updateMidterm = (patch: Partial<MidtermStrategy>) => onMidtermStrategyChange?.({ ...midterm, ...patch });
   const updateAssumptions = (patch: Partial<StrategicAssumptions>) => onAssumptionsChange?.({ ...assumptions, ...patch });
 
@@ -673,7 +667,6 @@ export function StrategyStoryPreview({
         <h1 className="text-3xl font-bold tracking-tight text-slate-950">全社戦略書</h1>
         <p className="mt-2 text-lg font-semibold text-slate-800">{companyName || '（会社名未入力）'}</p>
         <div className="mt-4 flex flex-wrap gap-6 text-sm text-slate-700">
-          <span>対象年度：{fiscalYear ? `${fiscalYear}年度` : '未設定'}</span>
           <span
             className={
               finalized ? 'font-bold text-emerald-700' : 'font-bold text-amber-700'
@@ -754,7 +747,7 @@ export function StrategyStoryPreview({
       {story.map((chapter, index) => {
         const title = cleanChapterTitle(chapter.title, index + 1);
         return (
-          <section key={index} className="space-y-6 border-t-2 border-slate-900 pt-6">
+          <section key={index} className="space-y-6 pt-6" style={{ borderTop: '2px solid #0f172a' }}>
             <h2 className="text-xl font-bold text-slate-950">第{index + 1}章：{title}</h2>
             <div className="space-y-4">
               {renderParagraphs(chapter.body, variant) || <EmptyText text="本文未入力" />}

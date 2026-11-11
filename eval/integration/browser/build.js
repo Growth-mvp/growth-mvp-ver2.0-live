@@ -63,6 +63,12 @@ const SHELL_PAGES = [
       "{ id: 'op', label: '営業利益', unit: '百万円', base: 72.8, low: 60, high: 80, dueYear: 2028 }] });\n" +
       "useStrategyStore.setState({ financePL: (useStrategyStore.getState().financePL ?? []).map((r) => (r.year === 2025 ? { ...r, interest: 2000000 } : r)) });",
   },
+  /* STAGE2 全社戦略書：旧データ（確定スナップショットなし）と初回確定前のドラフト */
+  { key: 'stage2-report-legacy', route: 'report/stage2-strategy', seed: 'seedLegacyConfirmed' },
+  { key: 'stage2-report-draft', route: 'report/stage2-strategy', seed: 'seedDraftOnly' },
+  /* STAGE2 最終確定タブ：旧データ（確定済み）と、確定後に下書きを保存した状態 */
+  { key: 'stage2-final-legacy', route: 'stage2', seed: 'seedLegacyConfirmed' },
+  { key: 'stage2-final-unconfirmed', route: 'stage2', seed: 'seedAfterDraftSave' },
 ];
 
 /* 実アプリのレイアウト（layoutClient・Sidebar・CEOChatPanel・STAGE6ページ）を、認証・通信・ルーターだけ差し替えて描画する */
@@ -256,6 +262,11 @@ function html(title, bundleName) {
         `import Page from '@/app/${p.route}/page';\n` +
         `setMockPathname('/${p.route}');\n` +
         (p.setup ? "import { useStrategyStore } from '@/store/strategyStore';\n" + p.setup + '\n' : '') +
+        (p.seed
+          ? "import { useStrategyStore } from '@/store/strategyStore';\n" +
+            `import { ${p.seed} } from ${JSON.stringify(path.join(__dirname, 'stage2-seed.ts'))};\n` +
+            `${p.seed}(useStrategyStore);\n`
+          : '') +
         "createRoot(document.getElementById('root')!).render(<LayoutClient><Page /></LayoutClient>);\n",
     );
     await esbuild.build({
