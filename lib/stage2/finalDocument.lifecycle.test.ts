@@ -10,6 +10,7 @@ import {
   resolveStrategicAssumptions,
   toConfirmedEdits,
 } from './finalDocument';
+import { runDocumentChecks } from './documentChecks';
 import type { StoryChapter } from '@/types/strategy';
 
 const chapters = (body: string): StoryChapter[] => [
@@ -193,5 +194,48 @@ describe('初回確定前のドラフト', () => {
     const plan = buildPlanData({ ...draftOnly }, 'bank');
     expect(plan.stage2?.confirmed?.storySource).toBe('DRAFT');
     expect(plan.stage2?.confirmed?.conclusion).toBe('未確定の下書き結論');
+  });
+});
+
+describe('生成直後の未確定案（リロード前後で同じ案・同じ検査結果）', () => {
+  const oldFinal = (): StoryChapter[] => [
+    { title: '第1章：なぜ今', body: '旧確定本文。2030年度に売上130億円、営業利益5億円を実現する。STAGE3では事業別の役割を定義する。' },
+    { title: '第2章：どこで', body: '旧確定本文2' },
+    { title: '第3章：どんな未来', body: '旧確定本文3' },
+    { title: '第4章：どう行動', body: '旧確定本文4' },
+  ];
+  const newDraft = (): StoryChapter[] => [
+    { title: '第1章：なぜ今', body: '新しい案。2030年度に売上120億円、営業利益0.5億円を実現する。' },
+    { title: '第2章：どこで', body: '新しい案2' },
+    { title: '第3章：どんな未来', body: '新しい案3' },
+    { title: '第4章：どう行動', body: '新しい案4' },
+  ];
+  const companyTargetsForCheck = [
+    { id: 'rev', label: '売上', unit: '百万円', base: 12000, dueYear: 2030 },
+    { id: 'op', label: '営業利益', unit: '百万円', base: 50, dueYear: 2030 },
+  ] as any;
+
+  it('確定版がある状態で生成した未確定案は、リロード後も同じ案を表示し、検査結果も変わらない', () => {
+    // 生成・保存直後の状態（未確定案は現在の版として保存され、確定版は変わらない）
+    const afterGenerate = {
+      finalStoryFinal: oldFinal(),
+      finalStoryDraft: newDraft(),
+      finalStoryEdited: newDraft(),
+      stage2FinalDocumentEdits: { draftChangedAt: '2026-11-11T03:00:00.000Z' },
+      midtermStrategy: undefined,
+    };
+    const beforeReload = pickDisplayedStory(afterGenerate, findUnconfirmedChanges({ finalStoryFinal: afterGenerate.finalStoryFinal, finalStoryEdited: afterGenerate.finalStoryEdited, edits: afterGenerate.stage2FinalDocumentEdits }));
+    const reloaded = persistAndReload(afterGenerate);
+    const afterReload = pickDisplayedStory(reloaded, findUnconfirmedChanges({ finalStoryFinal: reloaded.finalStoryFinal, finalStoryEdited: reloaded.finalStoryEdited, edits: reloaded.stage2FinalDocumentEdits }));
+
+    expect(afterReload.map((c) => c.body)).toEqual(beforeReload.map((c) => c.body));
+    expect(afterReload[0].body).toContain('新しい案');
+
+    const checks = (chapters: StoryChapter[]) =>
+      runDocumentChecks({ chapters, conclusion: '', midtermStrategy: undefined, companyTargets: companyTargetsForCheck });
+    expect(checks(afterReload)).toEqual(checks(beforeReload));
+    expect(checks(afterReload).filter((i) => i.kind === 'target_mismatch' || i.kind === 'internal_term')).toEqual([]);
+
+    expect(reloaded.finalStoryFinal.map((c: StoryChapter) => c.body)).toEqual(oldFinal().map((c) => c.body));
   });
 });
