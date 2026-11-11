@@ -189,9 +189,14 @@ export async function downloadPdfFromElement(
         ctx.drawImage(canvas, 0, startPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
       }
 
-      const pageImgData = tempCanvas.toDataURL('image/png');
       const marginLeft = Array.isArray(margin) ? margin[3] : margin;
-      pdf.addImage(pageImgData, 'PNG', marginLeft, 10, imgWidth, sliceHeightPx / pxPerMm);
+      if (options?.image?.type === 'jpeg') {
+        const pageImgData = tempCanvas.toDataURL('image/jpeg', options.image.quality);
+        pdf.addImage(pageImgData, 'JPEG', marginLeft, 10, imgWidth, sliceHeightPx / pxPerMm);
+      } else {
+        const pageImgData = tempCanvas.toDataURL('image/png');
+        pdf.addImage(pageImgData, 'PNG', marginLeft, 10, imgWidth, sliceHeightPx / pxPerMm);
+      }
 
       startPx = cutPx;
       pageIndex++;

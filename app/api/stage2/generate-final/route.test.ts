@@ -152,7 +152,9 @@ describe('POST /api/stage2/generate-final: 人材配分・事業区分・STAGE2�
     expect(system).toContain('「考えられる方向」「戦略仮説」として書き、経営者自身の回答として断定しない');
     expect(system).toContain('その区分を分析単位として優先する');
     expect(system).toContain('A事業とB事業の間で、人・お金・時間をどう配分するかの単位で整理する');
-    expect(system).toContain('STAGE3以降に残すもの');
+    expect(system).toContain('事業別・部門別の展開に残すもの');
+    expect(system).toContain('本文には「STAGE」「ステージ」などの社内の工程名を書かない');
+    expect(system).toContain('業績目標（売上・営業利益）の数値は【業績目標】に書かれた値をそのまま使う');
   });
 
   it('12問回答の「人材が不足」は、AIへの入力から削られない', async () => {

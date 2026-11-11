@@ -82,6 +82,22 @@ async function openAndExport(browser, shellName, pdfName) {
   check('最終確定（確定後の編集）：保存した結論・判断基準を表示', finalUnconfirmed.text.includes('下書きの結論（未確定）') && finalUnconfirmed.text.includes('下書きの判断基準（未確定）'));
   check('最終確定（確定後の編集）：画面のエラーなし', finalUnconfirmed.errors.length === 0, finalUnconfirmed.errors.join(' | '));
 
+  const mismatch = await openFinalTab('shell-stage2-final-mismatch.html');
+  check('確定前の検査：業績目標の不一致を知らせる', mismatch.text.includes('確定前に確認してください') && mismatch.text.includes('業績目標（120億円') === false && mismatch.text.includes('一致しません'));
+  check('確定前の検査：社内の工程名を知らせる', mismatch.text.includes('社内の工程名'));
+  check('確定前の検査：画面のエラーなし', mismatch.errors.length === 0, mismatch.errors.join(' | '));
+
+  const noMidterm = await openAndExport(browser, 'shell-stage2-report-no-midterm.html', 'stage2-report-no-midterm.pdf');
+  check('中計未生成：PDFに「（未入力）」が出ない', !noMidterm.text.includes('（未入力）'), noMidterm.text.match(/（未入力）/g)?.length ?? 0);
+  check('中計未生成：空の項目の見出しを出さない', !noMidterm.text.includes('目指す姿') && !noMidterm.text.includes('重点戦略テーマ'));
+  check('中計未生成：結論と数値目標は表示', noMidterm.text.includes('保存済みの結論') && noMidterm.text.includes('12,000 百万円'));
+  check('中計未生成：画面のエラーなし', noMidterm.errors.length === 0, noMidterm.errors.join(' | '));
+
+  for (const name of ['stage2-report-legacy.pdf', 'stage2-report-no-midterm.pdf']) {
+    const size = fs.statSync(path.join(outDir, name)).size;
+    check('PDFサイズ：' + name, size < 10 * 1024 * 1024, Math.round(size / 1024 / 1024 * 10) / 10 + ' MB');
+  }
+
   await browser.close();
   for (const r of results) console.log(`${r.status}  ${r.name}${r.detail ? '  [' + r.detail + ']' : ''}`);
   fs.writeFileSync(path.join(outDir, 'stage2-document-results.json'), JSON.stringify(results, null, 2));

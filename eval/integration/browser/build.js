@@ -69,6 +69,8 @@ const SHELL_PAGES = [
   /* STAGE2 最終確定タブ：旧データ（確定済み）と、確定後に下書きを保存した状態 */
   { key: 'stage2-final-legacy', route: 'stage2', seed: 'seedLegacyConfirmed' },
   { key: 'stage2-final-unconfirmed', route: 'stage2', seed: 'seedAfterDraftSave' },
+  { key: 'stage2-final-mismatch', route: 'stage2', seed: 'seedMismatch' },
+  { key: 'stage2-report-no-midterm', route: 'report/stage2-strategy', seed: 'seedMidtermMissing' },
 ];
 
 /* 実アプリのレイアウト（layoutClient・Sidebar・CEOChatPanel・STAGE6ページ）を、認証・通信・ルーターだけ差し替えて描画する */

@@ -101,7 +101,8 @@ describe('StrategyStoryPreview（全社戦略書）', () => {
     );
     const text = container.textContent ?? '';
 
-    expect(text).toContain('数値目標は未登録');
+    expect(text).not.toContain('数値目標');
+    expect(text).not.toContain('（未入力）');
     expect(text).not.toContain('対象年度');
     expect(text).toContain('状態：ドラフト（未確定）');
     expect(text).not.toContain('12,000');
