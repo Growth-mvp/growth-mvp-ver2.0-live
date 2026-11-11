@@ -52,6 +52,7 @@ import {
   toConfirmedEdits,
 } from '@/lib/stage2/finalDocument';
 import { runDocumentChecks, type DocumentCheckIssue } from '@/lib/stage2/documentChecks';
+import { buildMidtermCandidates } from '@/lib/stage2/midtermCandidates';
 import {
   STAGE2_QUESTIONS_12,
   STAGE2_CHAPTER_LABELS,
@@ -2248,6 +2249,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   });
   const hasUnconfirmedChanges =
     unconfirmedChanges.chapters || unconfirmedChanges.document || unconfirmedChanges.midtermStrategy;
+  const stage3Bridge = useStrategyStore((s: any) => s.stage3_strategy_bridge);
+  const midtermCandidates = useMemo(
+    () => buildMidtermCandidates(stage3Bridge, documentEditsForView?.midtermStrategy ?? midtermStrategy),
+    [stage3Bridge, documentEditsForView, midtermStrategy],
+  );
   const documentIssues = useMemo(
     () =>
       runDocumentChecks({
@@ -3620,11 +3626,19 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   /* ★ STAGE2確定＆STAGE3引き渡し処理 */
   const handleCommitAndBridge = useCallback(async () => {
     if (committingFinalStory || !editingStory.length) return;
-    if (documentIssues.some((issue) => issue.kind === 'target_mismatch')) {
-      const proceed = window.confirm(
-        '本文の売上・営業利益の記述が、登録済みの業績目標と一致していません。このまま確定しますか？（キャンセルして本文を修正できます）',
+    const targetMismatches = documentIssues.filter((issue) => issue.kind === 'target_mismatch');
+    if (targetMismatches.length > 0) {
+      setCommitFinalStoryError(
+        '本文の売上・営業利益の記述が、登録済みの業績目標と一致しないため確定できません。下記の箇所を修正してから、もう一度確定してください。' +
+          targetMismatches
+            .map((issue) =>
+              issue.kind === 'target_mismatch'
+                ? ` 【${issue.metric}：登録目標 ${issue.targetText}】 ${issue.mentions.join(' ／ ')}`
+                : '',
+            )
+            .join(''),
       );
-      if (!proceed) return;
+      return;
     }
 
     const commitScope = captureSaveScope();
@@ -4210,6 +4224,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           finalized={!!(finalStoryFinalRaw && finalStoryFinalRaw.length > 0) && !hasUnconfirmedChanges}
                           companyName={companyName}
                           midtermStrategy={documentEditsForView?.midtermStrategy ?? midtermStrategy}
+                          midtermCandidates={midtermCandidates}
                           financialTargets={financialTargets}
                           swotSuggestions={swotSuggestions}
                           swotData={documentSwotData}
