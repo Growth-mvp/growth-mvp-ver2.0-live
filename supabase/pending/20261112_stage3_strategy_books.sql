@@ -8,8 +8,30 @@
 --       departments に草案を入れると、未確定の案が STAGE4〜6 の正式データに混ざる。
 --       stage4_plan_documents と同じく、草案は専用の表に置く。
 -- 競合制御: version（版番号）。更新は「読んだ版番号と同じ時だけ」行い、違えば 0 件になる（競合）。
--- 権限: 読み取りは所属企業のメンバー。書き込みは行わない（API が service role で書く。利用者の直接の書き込みは許さない）。
+-- 権限: 読み取りは所属企業のメンバー（authenticated）のみ。書き込みは API（service role）だけが行う。
+--       anon には与えない。Supabase の既定権限では新しい表に全権限が付くため、ここで明示的に絞る。
+-- revision: 適用前に trg_strategy_data_bump_revision が存在することを確認する（無ければ何も作らずに止まる）。
+--           トリガーはこのファイルで作成・変更しない。追加は別手順（scripts/sql/release/revision-trigger）で行う。
+-- 適用は1つのトランザクション。途中で失敗すれば何も残らない。
 -- ============================================================
+
+begin;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'strategy_data'
+      and t.tgname = 'trg_strategy_data_bump_revision'
+      and t.tgenabled <> 'D'
+  ) then
+    raise exception 'revision_trigger_missing: strategy_data の revision トリガーが無いため適用しません';
+  end if;
+end $$;
 
 create table if not exists public.stage3_strategy_books (
   strategy_id uuid primary key references public.strategy_data(id) on delete cascade,
@@ -26,8 +48,10 @@ create index if not exists stage3_strategy_books_company_idx
 
 alter table public.stage3_strategy_books enable row level security;
 
+drop policy if exists stage3_strategy_books_select on public.stage3_strategy_books;
 create policy stage3_strategy_books_select on public.stage3_strategy_books
   for select
+  to authenticated
   using (
     company_id in (
       select cm.company_id from public.company_members cm where cm.user_id = auth.uid()
@@ -35,6 +59,33 @@ create policy stage3_strategy_books_select on public.stage3_strategy_books
   );
 
 -- 直接の書き込み（insert / update / delete）の許可は作らない。書き込みは API（service role）だけが行う。
+revoke all on table public.stage3_strategy_books from anon, authenticated;
+grant select on table public.stage3_strategy_books to authenticated;
+grant all on table public.stage3_strategy_books to service_role;
+
+-- 作業状態の会社と戦略の会社が一致することを、DB側でも確かめる（API の検証に加えた防御）。
+create or replace function public.stage3_strategy_books_check_scope()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if not exists (
+    select 1 from public.strategy_data s
+    where s.id = new.strategy_id and s.company_id = new.company_id
+  ) then
+    raise exception 'strategy_mismatch' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.stage3_strategy_books_check_scope() from public, anon, authenticated;
+
+drop trigger if exists stage3_strategy_books_check_scope on public.stage3_strategy_books;
+create trigger stage3_strategy_books_check_scope
+  before insert or update of strategy_id, company_id on public.stage3_strategy_books
+  for each row execute function public.stage3_strategy_books_check_scope();
 
 -- ============================================================
 -- 確定を1つのトランザクションで行う関数。
@@ -54,7 +105,7 @@ create or replace function public.stage3_confirm_strategy_book(
 ) returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_role text;
@@ -95,7 +146,7 @@ begin
     raise exception 'version_conflict' using errcode = '40001';
   end if;
 
-  -- strategy_data の更新トリガーが revision を上げる（既存の仕組みをそのまま使う）
+  -- trg_strategy_data_bump_revision が revision を上げる（適用前の確認で存在を保証）
   update public.strategy_data
   set departments = p_departments
   where id = p_strategy_id and company_id = p_company_id;
@@ -119,3 +170,5 @@ revoke all on function public.stage3_confirm_strategy_book(uuid, uuid, uuid, int
   from public, anon, authenticated;
 grant execute on function public.stage3_confirm_strategy_book(uuid, uuid, uuid, integer, integer, jsonb, jsonb)
   to service_role;
+
+commit;
