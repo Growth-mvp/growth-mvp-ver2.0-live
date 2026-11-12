@@ -75,13 +75,14 @@ try {
   await page.goto(base + '/');
   await page.waitForSelector('text=全社戦略（STAGE2）', { timeout: 30000 });
 
-  await step('① 概要：STAGE2確定版の結論・全文を読め、「確定版がありません」とは出ない', async () => {
-    await page.getByText('確定版の全文を読む').click();
-    await text('既存顧客の深耕を優先し').waitFor({ timeout: 15000 });
-    await text('再発注の処理時間が半分になれば').waitFor();
+  await step('① 概要：STAGE2確定版は「全社戦略書を読む」で別タブに開き、本文は展開せず、誤った案内も出ない', async () => {
+    const link = page.getByRole('link', { name: '全社戦略書を読む', exact: true });
+    const href = (await link.getAttribute('href')) ?? '';
+    const target = (await link.getAttribute('target')) ?? '';
+    const expanded = await text('再発注の処理時間が半分になれば').count();
     const misleading = await page.getByText('STAGE2の確定版がありません').count();
     const alerts = await page.getByRole('alert').count();
-    check('① 概要：STAGE2確定版の結論・全文を読め、誤った案内は出ない（上部の案内もない）', misleading === 0 && alerts === 0, `誤表示 ${misleading}件 / 上部の案内 ${alerts}件`);
+    check('① 概要：「全社戦略書を読む」は別タブで戦略書を開き、本文は展開されない', href === '/report/stage2-strategy' && target === '_blank' && expanded === 0 && misleading === 0 && alerts === 0, `href=${href} target=${target} 展開${expanded}件 誤表示${misleading}件 上部の案内${alerts}件`);
     await shot('01-overview');
   });
 
@@ -99,6 +100,25 @@ try {
     check('② 初回のたたき台が保存され、正式な部門データは変わらない', st.departments[0].projects.length === 1 && st.departments[0].interDeptCollab === undefined);
   });
 
+  await step('④ 営業部のたたき台：プロジェクトは開いて詳細を読め、正式と新規候補が区別できる', async () => {
+    await tabBtn('営業部').click();
+    const candidate = page.locator('details', { has: page.locator('summary', { hasText: '初回案：営業部の新しい施策' }) }).first();
+    await candidate.locator('summary').click();
+    const candidateReason = await candidate.getByText('既存顧客の再発注の手間を減らす施策', { exact: false }).isVisible();
+    const candidateLabel = await candidate.getByText('新規候補（採用前）', { exact: true }).count();
+    const official = page.locator('details', { has: page.locator('summary', { hasText: '既存顧客の再受注施策' }) }).first();
+    const closedBefore = await official.evaluate((d) => !d.open);
+    await official.locator('summary').click();
+    const officialGoal = await official.getByText('再受注率 40%', { exact: false }).isVisible();
+    const officialLabel = await official.getByText('既存（正式データ）', { exact: true }).count();
+    check(
+      '④ プロジェクト案：開くと詳細が出て、正式と新規候補が区別できる',
+      closedBefore && candidateReason && candidateLabel === 1 && officialGoal && officialLabel === 1,
+      `候補の理由 ${candidateReason} / 候補の表示 ${candidateLabel} / 正式の目標 ${officialGoal} / 正式の表示 ${officialLabel}`,
+    );
+    await shot('C-project-cards');
+  });
+
   await step('③-a 営業部タブ：既存の6問に1件回答して保存（残りは空欄）', async () => {
     await tabBtn('営業部').click();
     await text('既存の6問（空欄でも可）').waitFor();
@@ -114,6 +134,44 @@ try {
     const genBtn = await btn('テーマを生成').count();
     check('③-a 「次のテーマへ」で次のテーマが自動で出て、「テーマを生成」は表示されない', genBtn === 0, `テーマを生成 ${genBtn}件`);
     await shot('B-six-questions');
+  });
+
+  await step('③-d 営業部：保存していない回答も、再生成のときに保存されて反映される', async () => {
+    await page.locator('textarea').first().fill('未保存の回答：新規顧客は展示会で開拓する');
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/harness/answers') && r.request().method() === 'POST'),
+      savedOnClick(() => btn('6問を反映して戦略書を再生成').click()),
+    ]);
+    await text('再生成した戦略書を保存しました').waitFor({ timeout: 40000 });
+    const st = await harnessState();
+    const steps = st.departments[0].answers2?.[0]?.steps ?? [];
+    check('③-d 未保存の回答が保存され、再生成に反映される', steps.some((s) => String(s.answer ?? '').includes('展示会で開拓')), `回答 ${steps.length}件`);
+    await shot('D-regen-with-unsaved');
+  });
+
+  await step('③-e 営業部：回答の保存に失敗したら、再生成は行わず、エラーを出し、入力も残す', async () => {
+    await tabBtn('営業部').click();
+    await text('既存の6問（空欄でも可）').waitFor();
+    await page.route('**/harness/answers', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false}' })
+        : route.continue(),
+    );
+    const input = page.locator('textarea').first();
+    await input.fill('保存されない回答：失敗の確認');
+    let generateCalls = 0;
+    const counter = (req) => {
+      if (req.url().includes('/harness/generate')) generateCalls += 1;
+    };
+    page.on('request', counter);
+    await btn('6問を反映して戦略書を再生成').click();
+    await text('回答の保存に失敗したため、再生成していません').waitFor({ timeout: 15000 });
+    await page.waitForTimeout(300);
+    page.off('request', counter);
+    await page.unroute('**/harness/answers');
+    const kept = (await input.inputValue()) === '保存されない回答：失敗の確認';
+    check('③-e 保存に失敗すると再生成は実行されず、エラーが出て、入力も残る', generateCalls === 0 && kept, `再生成の要求 ${generateCalls}件 / 入力の保持 ${kept}`);
+    await shot('E-save-failure');
   });
 
   await step('③-b 営業部タブ：6問を反映して戦略書を再生成 → 部門間の調整が最新案で自動分析される', async () => {

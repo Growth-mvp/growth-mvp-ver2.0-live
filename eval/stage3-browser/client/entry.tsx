@@ -41,6 +41,15 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/* 6問の回答の保存（カスケード画面と同じ考え方）：未保存の回答を保存する関数と、進行中の保存の結果 */
+const answerFlushes: Record<number, () => void> = {};
+const latestSteps: Record<number, unknown[]> = {};
+
+async function saveAnswers(index: number, steps: unknown[]): Promise<boolean> {
+  const res = await fetch('/harness/answers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ index, steps }) });
+  return res.ok;
+}
+
 function App() {
   const [st, setSt] = useState<HarnessState | null>(null);
 
@@ -64,6 +73,14 @@ function App() {
   const generateDepartment = async (index: number, mode: 'draft' | 'regen'): Promise<StrategyBookGenerateResult> =>
     post<StrategyBookGenerateResult>('/harness/generate', { index, mode });
 
+  const prepareRegeneration = async (index: number): Promise<{ ok: true } | { ok: false; message: string }> => {
+    answerFlushes[index]?.();
+    const steps = latestSteps[index] ?? (st.departments[index].answers2?.[0]?.steps ?? []);
+    const saved = await saveAnswers(index, steps);
+    if (saved) return { ok: true };
+    return { ok: false, message: '回答の保存に失敗したため、再生成していません。もう一度保存してから、お試しください。' };
+  };
+
   const renderSixQuestions = (index: number) => {
     const dept = st.departments[index];
     return (
@@ -77,7 +94,12 @@ function App() {
         onChange={({ answers }: { answers: unknown[] }) => {
           const current = dept.answers2?.[0]?.steps ?? [];
           if (JSON.stringify(current) === JSON.stringify(answers)) return;
-          void post('/harness/answers', { index, steps: answers }).then(load);
+          latestSteps[index] = answers;
+          void saveAnswers(index, answers).then(load);
+        }}
+        onRegisterFlush={(flush) => {
+          if (flush) answerFlushes[index] = flush;
+          else delete answerFlushes[index];
         }}
       />
     );
@@ -103,6 +125,7 @@ function App() {
         readCompanyId={st.companyId}
         readStrategyId={st.strategyId}
         generateDepartment={generateDepartment}
+        prepareRegeneration={prepareRegeneration}
         renderSixQuestions={renderSixQuestions}
         onConfirmed={async (message) => {
           (window as unknown as { __confirmMessage?: string }).__confirmMessage = message;

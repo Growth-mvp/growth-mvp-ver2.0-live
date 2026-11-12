@@ -53,6 +53,7 @@ export async function build() {
         '@/utils/authFetch': stub('authFetch.ts'),
         '@/utils/access': stub('access.ts'),
         '@/store/strategyStore': stub('strategyStoreHarness.ts'),
+        'next/link': stub('next-link.tsx'),
       }),
     ],
     logLevel: 'warning',

@@ -86,7 +86,7 @@ async function openDb(): Promise<Pg> {
   const pg = await PGlite.create();
   await pg.exec(fs.readFileSync(path.join(root, 'eval/db/standin.sql'), 'utf8'));
   await pg.exec(`create role service_role nologin; grant usage on schema public to service_role;`);
-  await pg.exec(`alter table strategy_data add column stage2_final_document_edits jsonb, add column final_story_final jsonb;`);
+  await pg.exec(`alter table strategy_data add column stage2_final_document_edits jsonb, add column final_story_final jsonb, add column final_story_edited jsonb;`);
   await pg.exec(fs.readFileSync(path.join(root, 'supabase/pending/20261112_stage3_strategy_books.sql'), 'utf8'));
   return pg;
 }
