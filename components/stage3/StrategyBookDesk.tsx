@@ -24,7 +24,8 @@ import {
   type WorkspaceState,
 } from '@/lib/cascade/stage3StrategyBook';
 import type { Department } from '@/types/strategy';
-import { DraftProjectList } from '@/components/stage3/DraftProjectList';
+import { StrategyBookDocument, type DocProject, type StrategyDocumentProps } from '@/components/stage3/StrategyBookDocument';
+import { projectDetailOf } from '@/lib/cascade/stage3ProjectDetail';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -225,6 +226,7 @@ export function StrategyBookDesk({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [tab, setTab] = useState<Tab>('dept:0');
+  const [questionsOpen, setQuestionsOpen] = useState(true);
   const [mgmtOpen, setMgmtOpen] = useState(false);
   // 部門ごとの閲覧位置のみを管理。草案・採否・回答は従来どおりサーバーへ保存する。
   const [viewByDept, setViewByDept] = useState<Record<string, Phase>>({});
@@ -819,6 +821,39 @@ export function StrategyBookDesk({
     const baseOf = (item: DeptProposalItem) => currentItemValues(dept as unknown as AnyRecord, item);
     const collabInter = linesOf(selOf('collab')?.proposed.interDeptCollab ?? baseOf('collab').interDeptCollab);
     const collabIntra = linesOf(selOf('collab')?.proposed.intraDeptCollab ?? baseOf('collab').intraDeptCollab);
+    const docFor = (draft: StrategyDraft | undefined): StrategyDocumentProps | null => {
+      if (!draft) return null;
+      const draftDept = draft.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
+      const docText = (item: DeptProposalItem) => linesOf(sels.find((s) => s.item === item)?.proposed[DEPT_PROPOSAL_ITEMS[item].keys[0]]);
+      const candidateProjects = draft.newProjects.map((n) => n.project as AnyRecord);
+      const projects: DocProject[] = (draftDept?.projects ?? []).map((p) => {
+        const d = projectDetailOf(p, { official: officialProjects, candidates: candidateProjects });
+        return {
+          title: d.title,
+          origin: d.origin,
+          group: d.group,
+          objective: d.okrs[0]?.objective || null,
+          purpose: d.purpose,
+          hypothesis: d.hypothesis,
+          summary: d.summary,
+          partner: d.partnerDepartment,
+          goals: [...new Set([...d.okrs.flatMap((o) => o.keyResults), ...d.kpis])],
+        };
+      });
+      return {
+        departmentName: dept.name,
+        versionLabel: draft.kind === 'initial' ? `版 ${draft.version}・AIたたき台・未確定` : `版 ${draft.version}・6問反映後の再生成版・未確定`,
+        mission: docText('mission').join('\n') || null,
+        strategicRole: docText('strategicRole').join('\n') || null,
+        keyIssues: docText('keyIssues'),
+        projects,
+        interCollab: collabInter,
+        adjustmentPoints: [...docText('reviewSummary'), ...linesOf(selOf('collab')?.proposed.needsCollab)],
+      };
+    };
+    const initialDoc = docFor(latestInitial);
+    const regenDoc = docFor(latestRegen);
+    const currentDoc = docFor(latestRegen ?? latestInitial);
     const isOpen = (...phases: Phase[]) => phases.includes(effective);
     const sectionClass = 'rounded-xl border border-zinc-200 bg-white';
     const summaryClass = 'border-b border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900';
@@ -876,32 +911,13 @@ export function StrategyBookDesk({
                 <p className="text-xs text-gray-600">
                   版 {latestInitial?.version}（初回のたたき台・未確定）。読んでから、6問に進んでください。
                 </p>
-                {!progress.hasRegen && (
-                  <div className="space-y-3">
-                    {DOC_FIELDS.map((field) => {
-                      const proposal = sels.find((s) => s.item === field.item);
-                      const itemKey = DEPT_PROPOSAL_ITEMS[field.item].keys[0];
-                      const content = linesOf(proposal?.proposed[itemKey]).join(field.lines ? '\n' : '');
-                      return content ? (
-                        <section key={field.item} className="rounded-lg border border-zinc-200 px-4 py-3">
-                          <h5 className="text-sm font-semibold">{field.label}</h5>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-700">{content}</p>
-                        </section>
-                      ) : null;
-                    })}
+                {!progress.hasRegen && initialDoc ? (
+                  <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6 md:px-8">
+                    <StrategyBookDocument {...initialDoc} />
                   </div>
+                ) : (
+                  <p className="text-sm text-zinc-700">再生成版があります。④で文書を確認し、編集できます。</p>
                 )}
-                <div className="rounded-lg bg-zinc-50 p-4">
-                  <p className="text-sm font-semibold text-gray-800">この部門のプロジェクト案</p>
-                  <p className="mt-1 text-xs text-gray-500">内容を読んでから、6つの問いへ進んでください。</p>
-                  <div className="mt-3">
-                    <DraftProjectList
-                      projects={initialDept.projects}
-                      official={officialProjects}
-                      candidates={(latestInitial?.newProjects ?? []).map((n) => n.project)}
-                    />
-                  </div>
-                </div>
                 <Button
                   onClick={() => showPhase(2)}
                   className="rounded-full h-9 px-4"
@@ -926,30 +942,45 @@ export function StrategyBookDesk({
         </section>
         )}
 
-        {/* ② 6問 → ③ 再生成 */}
+        {/* ② 戦略書を読みながら6つの問いに答える → ③ 再生成 */}
         {isOpen(2, 3) && (
         <section className={sectionClass}>
-          <h4 className={summaryClass}>たたき台を踏まえた6つの問い</h4>
-          <div className="space-y-6 border-t px-4 py-4">
-            <div className="space-y-3">
-              <h4 className="text-sm font-semibold">② 既存の6問（空欄でも可）</h4>
-              {renderSixQuestions(i)}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-4 py-3">
+            <h4 className="text-sm font-semibold text-zinc-900">戦略書を読みながら、6つの問いに答える</h4>
+            <button
+              type="button"
+              onClick={() => setQuestionsOpen((v) => !v)}
+              aria-expanded={questionsOpen}
+              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-50 lg:hidden"
+            >
+              {questionsOpen ? '6つの問いを閉じて戦略書を読む' : '6つの問いを開く'}
+            </button>
+          </div>
+          <div className="grid gap-6 p-4 lg:grid-cols-2 lg:items-start">
+            <div className="min-w-0 lg:sticky lg:top-4 lg:max-h-[80vh] lg:overflow-y-auto lg:pr-2">
+              {currentDoc && (
+                <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6">
+                  <StrategyBookDocument {...currentDoc} />
+                </div>
+              )}
             </div>
-            <div className="space-y-3 border-t pt-4">
-              <h4 className="text-sm font-semibold">③ 6問を反映して戦略書を再生成</h4>
-              <p className="text-xs text-gray-600">
-                {progress.hasRegen
-                  ? '再生成済みです。④で文書を確認できます。回答を直したら、もう一度再生成できます。'
-                  : '6問の回答を反映した戦略書を作ります（未確定）。作成後は、部門間の調整が自動で分析されます。'}
-              </p>
-              <Button
-                onClick={() => generateFor([i], 'regenerated')}
-                disabled={!!genBlocker || !progress.hasInitial}
-                className="rounded-full h-9 px-4"
-              >
-                {busy === 'regenerated' ? '再生成しています…' : '6問を反映して戦略書を再生成'}
-              </Button>
-              {reasonLine(genBlocker ?? (!progress.hasInitial ? '先に①の初回のたたき台を作成してください' : null))}
+            <div className={`min-w-0 space-y-6 ${questionsOpen ? 'block' : 'hidden'} lg:block`}>
+              {renderSixQuestions(i)}
+              <div className="space-y-3 border-t pt-4">
+                <p className="text-xs text-gray-600">
+                  {progress.hasRegen
+                    ? '再生成済みです。④で文書を確認できます。回答を直したら、もう一度再生成できます。'
+                    : '6問の回答を反映した戦略書を作ります（未確定）。作成後は、部門間の調整が自動で分析されます。'}
+                </p>
+                <Button
+                  onClick={() => generateFor([i], 'regenerated')}
+                  disabled={!!genBlocker || !progress.hasInitial}
+                  className="rounded-full h-9 px-4"
+                >
+                  {busy === 'regenerated' ? '再生成しています…' : '6問を反映して戦略書を再生成'}
+                </Button>
+                {reasonLine(genBlocker ?? (!progress.hasInitial ? '先に①の初回のたたき台を作成してください' : null))}
+              </div>
             </div>
           </div>
         </section>
@@ -960,6 +991,11 @@ export function StrategyBookDesk({
         <section className={sectionClass}>
           <h4 className={summaryClass}>再生成された戦略書を確認・編集する</h4>
           <div className="space-y-6 border-t px-4 py-4">
+            {regenDoc && (
+              <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6 md:px-8">
+                <StrategyBookDocument {...regenDoc} />
+              </div>
+            )}
             {!progress.hasRegen ? (
               <p className="text-sm text-gray-600">③で再生成すると、ここに戦略書の変更案が表示されます。</p>
             ) : (

@@ -67,33 +67,29 @@ try {
     check('A たたき台が作られ、未確定として表示される', true);
   });
 
-  await step('B プロジェクト詳細：開くと詳細が出て、正式と新規候補が区別できる', async () => {
-    const candidate = await openDetails('初回案：営業部の新しい施策');
-    const candidateReason = await candidate.getByText('既存顧客の再発注の手間を減らす施策', { exact: false }).first().isVisible();
-    const candidateLabel = await candidate.getByText('新規候補（採用前）', { exact: true }).count();
-    const official = page.locator('details', { has: page.locator('summary', { hasText: '既存顧客の再受注施策' }) }).first();
-    const closedBefore = await official.evaluate((d) => !d.open);
-    await official.locator('summary').click();
-    const officialGoal = await official.getByText('再受注率 40%', { exact: false }).first().isVisible();
-    const officialLabel = await official.getByText('既存（正式データ）', { exact: true }).count();
-    const summaryText = await text('既存のプロジェクト').textContent();
+  await step('B 戦略書：使命・役割・重点課題が読め、プロジェクトの目的・選定理由・仮説が出て、既存と候補が区別できる', async () => {
+    const docOk = await text('重点プロジェクト').isVisible();
+    const candidateReason = await page.getByText('既存顧客の再発注の手間を減らす施策', { exact: false }).first().isVisible();
+    const candidateLabel = await page.getByText('新規候補（採用前）', { exact: true }).count();
+    const officialGoal = await page.getByText('再受注率 40%', { exact: false }).first().isVisible();
+    const officialLabel = await page.getByText('既存のプロジェクト', { exact: true }).count();
     const official_ = (await harnessState()).departments[0].projects;
     const notMixed = official_.length === 1 && !official_.some((p) => String(p.title).includes('新しい施策'));
     check(
-      'B プロジェクト詳細：開閉でき、狙い・目標が出て、正式と新規候補が区別できる（候補は正式データに入らない）',
-      closedBefore && candidateReason && candidateLabel === 1 && officialGoal && officialLabel === 1 && notMixed,
-      `候補の理由 ${candidateReason} / 候補の表示 ${candidateLabel} / 正式の目標 ${officialGoal} / 正式の表示 ${officialLabel} / 正式データに候補なし ${notMixed} / 件数「${summaryText?.trim().slice(0, 40)}」`,
+      'B 戦略書：使命が読め、目的・選定理由・仮説・目標が出て、既存と候補が区別でき、候補は正式データに入らない',
+      docOk && candidateReason && candidateLabel === 1 && officialGoal && officialLabel === 1 && notMixed,
+      `使命 ${docOk} / 候補の理由 ${candidateReason} / 候補の表示 ${candidateLabel} / 正式の目標 ${officialGoal} / 正式の表示 ${officialLabel} / 正式データに候補なし ${notMixed}`,
     );
-    await shot('focused-B-project-cards');
+    await shot('focused-B-strategy-document');
   });
 
   await step('C 6つの問い：テーマ名の一覧で表示され、回答を保存して次のテーマへ進める', async () => {
     await btn('6つの問いへ進む').click();
-    await text('既存の6問（空欄でも可）').waitFor({ timeout: 15000 });
+    await text('戦略書を読みながら、6つの問いに答える').waitFor({ timeout: 15000 });
     await btn('このテーマを生成').click();
     await text('検証用のテーマ1').waitFor({ timeout: 15000 });
     const pending = await page.getByText('未生成', { exact: true }).count();
-    const sixRows = await page.locator('button[aria-expanded]').count();
+    const sixRows = await page.locator('button').filter({ hasText: /^Q[1-6]/ }).count();
     await answerBox().fill('既存顧客の再発注は、書類の作成を一度で済ませる形にする');
     await Promise.all([
       page.waitForResponse((r) => r.url().includes('/harness/answers') && r.request().method() === 'POST'),
@@ -110,6 +106,11 @@ try {
       `行 ${sixRows} / 未生成 ${pending} / 保存 ${saved} / テーマを生成 ${autoGen}件`,
     );
     await shot('focused-C-six-questions');
+  });
+
+  await step('C2 横幅が十分あるとき：戦略書と現在の問いが並んで見える', async () => {
+    const both = (await text('重点プロジェクト').isVisible()) && (await answerBox().isVisible());
+    check('C2 横幅が十分あるとき：戦略書と現在の問いを並べて見られる', both);
   });
 
   await step('D 未保存の回答：保存ボタンを押さなくても、再生成のときに保存されて反映される', async () => {
@@ -129,7 +130,7 @@ try {
   await step('E 保存に失敗したら、再生成は行わず、エラーを出し、入力も残す', async () => {
     await page.getByText('以前の内容を見る・修正する').click();
     await btn('6つの問いを見直す').click();
-    await text('既存の6問（空欄でも可）').waitFor({ timeout: 15000 });
+    await text('戦略書を読みながら、6つの問いに答える').waitFor({ timeout: 15000 });
     await page.route('**/harness/answers', (route) =>
       route.request().method() === 'POST'
         ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false}' })
@@ -149,6 +150,25 @@ try {
     const kept = (await answerBox().inputValue()) === '保存されない回答：失敗の確認';
     check('E 保存に失敗すると再生成は行われず、エラーが出て、入力も残る', generateCalls === 0 && kept, `再生成の要求 ${generateCalls}件 / 入力の保持 ${kept}`);
     await shot('focused-E-save-failure');
+  });
+
+  await step('H 横幅が狭いとき：6つの問いは開閉でき、閉じると戦略書を読める', async () => {
+    await page.setViewportSize({ width: 800, height: 900 });
+    const toggleClose = page.getByRole('button', { name: '6つの問いを閉じて戦略書を読む', exact: true });
+    const toggleVisible = await toggleClose.isVisible();
+    const openBefore = await answerBox().isVisible();
+    await toggleClose.click();
+    const closedAfter = !(await answerBox().isVisible());
+    const docVisible = await text('重点プロジェクト').isVisible();
+    await page.getByRole('button', { name: '6つの問いを開く', exact: true }).click();
+    const reopened = await answerBox().isVisible();
+    check(
+      'H 横幅が狭いとき：6つの問いを開閉でき、閉じると戦略書を読める',
+      toggleVisible && openBefore && closedAfter && docVisible && reopened,
+      `切替ボタン ${toggleVisible} / 開いていた ${openBefore} / 閉じると回答欄が消える ${closedAfter} / 戦略書が見える ${docVisible} / 再び開く ${reopened}`,
+    );
+    await shot('focused-H-narrow');
+    await page.setViewportSize({ width: 1280, height: 900 });
   });
 
   await step('F 保存が直ったあと、もう一度再生成すると、残っていた回答が保存されて再生成される', async () => {
