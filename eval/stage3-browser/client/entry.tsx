@@ -1,7 +1,7 @@
 /* 新STAGE3の画面（検証用の入口）。本番のカスケード画面と同じ部品（戦略書パネル・6問の入力部品）を、検証用の状態で表示する。 */
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { StrategyBookPanel, type StrategyBookGate, type StrategyBookGenerateResult } from '@/components/stage3/StrategyBookPanel';
+import { StrategyBookWorkspace, type StrategyBookGate, type StrategyBookGenerateResult } from '@/components/stage3/StrategyBookWorkspace';
 import DepartmentQuestionStepper from '@/components/guide/QuestionStepper.dept';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
 import { buildStage3ReportData } from '@/utils/export/buildStage3ReportData';
@@ -95,7 +95,7 @@ function App() {
           finalStory: undefined,
         }}
       />
-      <StrategyBookPanel
+      <StrategyBookWorkspace
         departments={st.departments as never}
         canEdit
         getWriteGate={getWriteGate}

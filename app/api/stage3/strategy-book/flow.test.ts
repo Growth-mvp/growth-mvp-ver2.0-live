@@ -120,6 +120,7 @@ beforeEach(() => {
         stage2_final_document_edits: {
           confirmed: { conclusion: '既存顧客の深耕を優先する', confirmedAt: '2026-11-01T00:00:00.000Z' },
         },
+        final_story_final: [{ title: '顧客の課題', body: '既存顧客は再発注に時間をかけている' }],
       },
     ],
     stage3_strategy_books: [],

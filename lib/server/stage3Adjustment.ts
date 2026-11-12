@@ -1,8 +1,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
-import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
-import { formatCompanyStrategy } from '@/lib/cascade/stage3Adjustment';
+import { stage2StatusOf, type Stage2Status } from '@/lib/cascade/stage2Status';
 
 const ACCESS_ROLES = ['admin', 'manager', 'member'] as const;
 
@@ -13,7 +12,7 @@ export type StrategyAccess = {
   strategyId: string;
   revision: number;
   departments: unknown[];
-  companyStrategy: string | null;
+  stage2: Stage2Status;
 };
 
 export type AccessFailure = { ok: false; status: number; error: string };
@@ -51,7 +50,7 @@ export async function loadStrategyAccess(
   }
   if (!Array.isArray(strategy.data.departments)) return { ok: false, status: 409, error: 'unverifiable_departments' };
 
-  const confirmed = toConfirmedEdits(strategy.data.stage2_final_document_edits);
+  const stage2 = stage2StatusOf(strategy.data.stage2_final_document_edits, strategy.data.final_story_final);
   return {
     ok: true,
     access: {
@@ -61,18 +60,14 @@ export async function loadStrategyAccess(
       strategyId: ids.strategyId,
       revision: Number(strategy.data.revision ?? 0),
       departments: strategy.data.departments,
-      companyStrategy: confirmed?.conclusion
-        ? formatCompanyStrategy({
-            ...confirmed,
-            story: Array.isArray(strategy.data.final_story_final) ? strategy.data.final_story_final : null,
-          })
-        : null,
+      stage2,
     },
   };
 }
 
-/** 分析・再生成は、STAGE2の確定版がある戦略だけを対象にする。 */
+/** 分析・再生成は、STAGE2の確定版がある戦略だけを対象にする。未確定と本文欠落は別のエラーにする。 */
 export function requireConfirmedStrategy(access: StrategyAccess): { ok: true; companyStrategy: string } | AccessFailure {
-  if (!access.companyStrategy) return { ok: false, status: 409, error: 'stage2_not_confirmed' };
-  return { ok: true, companyStrategy: access.companyStrategy };
+  if (access.stage2.status === 'confirmed') return { ok: true, companyStrategy: access.stage2.companyStrategy };
+  if (access.stage2.status === 'story_missing') return { ok: false, status: 409, error: 'stage2_story_missing' };
+  return { ok: false, status: 409, error: 'stage2_not_confirmed' };
 }

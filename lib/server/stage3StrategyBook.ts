@@ -16,7 +16,10 @@ export async function loadWorkspace(
     .select('version, state')
     .eq('strategy_id', strategyId)
     .maybeSingle();
-  if (error) return { ok: false, status: 503, error: 'workspace_unavailable' };
+  if (error) {
+    const missing = error.code === '42P01' || error.code === 'PGRST205';
+    return { ok: false, status: 503, error: missing ? 'workspace_table_missing' : 'workspace_unavailable' };
+  }
   if (!data) return { ok: true, workspace: { version: 0, state: emptyWorkspaceState() } };
   const parsed = WorkspaceStateSchema.safeParse(data.state);
   if (!parsed.success) return { ok: false, status: 500, error: 'stored_state_invalid' };

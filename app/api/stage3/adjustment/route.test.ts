@@ -196,6 +196,23 @@ describe('POST /api/stage3/adjustment/analyze', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it('STAGE2で確定済みなら、結論が空でも分析できる（確定の記録と本文があれば確定）', async () => {
+    tables.strategy_data[0].stage2_final_document_edits = { confirmed: { conclusion: '', assumptions: {} } };
+    mockCreate.mockResolvedValueOnce(llmReply(llmAnalysis));
+    const res = await analyze(req('analyze', { companyId: C1, strategyId: S1 }));
+    expect(res.status).toBe(200);
+    const sent = mockCreate.mock.calls[0][0].messages[1].content as string;
+    expect(sent).toContain('既存顧客は再発注の手続きに時間をかけている（確定版の全文）');
+  });
+
+  it('確定の記録はあるが本文がない場合は、未確定とは別のエラーを返す', async () => {
+    tables.strategy_data[0].final_story_final = null;
+    const res = await analyze(req('analyze', { companyId: C1, strategyId: S1 }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'stage2_story_missing' });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it('部門が2つ未満なら、横断分析をしない', async () => {
     tables.strategy_data[0].departments = [departments[0]];
     const res = await analyze(req('analyze', { companyId: C1, strategyId: S1 }));

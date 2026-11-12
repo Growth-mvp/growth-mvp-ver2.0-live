@@ -36,14 +36,20 @@ export async function GET(req: Request) {
     const access = await loadStrategyAccess(admin, req, parsed.data);
     if (!access.ok) return failResponse(access.status, access.error);
 
+    const stage2 = {
+      stage2Status: access.access.stage2.status,
+      companyStrategy: access.access.stage2.status === 'confirmed' ? access.access.stage2.companyStrategy : null,
+    };
     const loaded = await loadWorkspace(admin, parsed.data.strategyId);
-    if (!loaded.ok) return failResponse(loaded.status, loaded.error);
+    if (!loaded.ok) {
+      return NextResponse.json({ ok: false, error: loaded.error, ...stage2 }, { status: loaded.status });
+    }
     return NextResponse.json({
       ok: true,
       version: loaded.workspace.version,
       state: loaded.workspace.state,
       revision: access.access.revision,
-      companyStrategy: access.access.companyStrategy,
+      ...stage2,
     });
   } catch {
     return failResponse(500, 'internal_error');

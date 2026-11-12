@@ -59,7 +59,7 @@ import { CascadeControlBar } from '@/components/stage3/CascadeControlBar';
 import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
 import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
 import { ReflectionCandidatesSection, type ReflectionCandidate } from '@/components/stage3/ReflectionCandidatesSection';
-import { StrategyBookPanel, type StrategyBookGate } from '@/components/stage3/StrategyBookPanel';
+import { StrategyBookWorkspace, type StrategyBookGate } from '@/components/stage3/StrategyBookWorkspace';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
@@ -87,6 +87,9 @@ import type {
 } from '@/types/strategy';
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
+/* 旧STAGE3の画面（部門カード・旧入力欄）は、新STAGE3に一本化して通常表示しない。処理・データは残す。 */
+const LEGACY_STAGE3_UI_VISIBLE = process.env.NEXT_PUBLIC_LEGACY_STAGE3_UI === '1';
 
 /* =========================
    型（store拡張互換）
@@ -3978,7 +3981,7 @@ useEffect(() => {
         onDelete={handleDeleteReflectionCandidate}
       />
 
-      <StrategyBookPanel
+      <StrategyBookWorkspace
         departments={(departments as Department[] | undefined) ?? []}
         canEdit={canEditDept() && !isHydrating}
         getWriteGate={getStrategyBookGate}
@@ -3987,6 +3990,8 @@ useEffect(() => {
         onConfirmed={(message) => refreshAfterWrite(message)}
         onExportDepartment={(name) => stage3ExportToPdf({ departmentName: name })}
       />
+
+      <NoticeDisplay notice={notice} />
 
       <CascadeHeader exportToPdf={stage3ExportToPdf} />
 
@@ -4004,7 +4009,7 @@ useEffect(() => {
         </div>
       )}
 
-      {!isHydrating && (
+      {LEGACY_STAGE3_UI_VISIBLE && !isHydrating && (
         <section>
           <div className="mb-3">
             <h2 className="text-sm font-semibold tracking-wide text-zinc-900"></h2>
@@ -4057,7 +4062,6 @@ useEffect(() => {
         onAddDepartment={handleAddDepartment}
       />
 
-      <NoticeDisplay notice={notice} />
       {activeTab === 'visual' ? (
         <section>{VisualView}</section>
       ) : (
