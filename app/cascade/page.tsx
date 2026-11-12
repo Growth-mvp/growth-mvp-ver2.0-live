@@ -59,6 +59,7 @@ import { CascadeControlBar } from '@/components/stage3/CascadeControlBar';
 import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
 import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
 import { ReflectionCandidatesSection, type ReflectionCandidate } from '@/components/stage3/ReflectionCandidatesSection';
+import { AdjustmentCandidatesPanel, type AdjustmentApplyArgs } from '@/components/stage3/AdjustmentCandidatesPanel';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
@@ -3821,6 +3822,58 @@ useEffect(() => {
     await refreshAfterWrite(`✅ 「${title}」を計画に追加しました。`);
   };
 
+  const applyAdjustmentProposal = async (args: AdjustmentApplyArgs): Promise<boolean> => {
+    if (!canEditDept()) {
+      setNotice('⚠️ 反映する権限がありません（管理者・管理職のみ）。');
+      return false;
+    }
+    const scope = captureSaveScope();
+    const st = useStrategyStore.getState() as any;
+    if (!scope || !st.strategyId) {
+      setNotice('⚠️ 会社・戦略を確認できないため、反映しませんでした。既存のデータは変更していません。');
+      return false;
+    }
+    if (st.dirty || st.pendingConflictRecovery || st.boot?.isSaving) {
+      setNotice('⚠️ 未保存の変更があるため、保存を完了してから反映してください。既存のデータは変更していません。');
+      return false;
+    }
+    if (typeof st.revision !== 'number') {
+      setNotice('⚠️ 保存状態を確認できないため、反映しませんでした。画面を再読み込みしてください。');
+      return false;
+    }
+    const label = DEPT_PROPOSAL_ITEMS[args.item].label;
+    try {
+      await authFetchJson('/api/cascade/apply-department-proposal', {
+        method: 'POST',
+        json: {
+          companyId: scope.companyId,
+          strategyId: st.strategyId,
+          expectedRevision: st.revision,
+          departmentName: args.departmentName,
+          item: args.item,
+          value: args.proposed,
+          base: args.base,
+        },
+      });
+    } catch (e) {
+      const { code } = readAuthFetchErrorCode(e);
+      if (code === 'current_value_changed') {
+        setNotice(`⚠️ 「${label}」の既存の値が変わっていたため反映しませんでした。分析し直してください。`);
+      } else if (code === 'revision_changed') {
+        setNotice('⚠️ 他の利用者が計画を更新したため、反映しませんでした。画面を再読み込みしてください。');
+      } else {
+        setNotice('⚠️ 反映できませんでした。既存のデータは変更していません。');
+      }
+      return false;
+    }
+    if (!isSaveScopeCurrent(scope)) {
+      setNotice('⚠️ 反映は保存されましたが、会社が切り替わったため画面には反映していません。');
+      return false;
+    }
+    await refreshAfterWrite(`✅ ${args.departmentName}：「${label}」を反映しました。`);
+    return true;
+  };
+
   const handleApplyDeptProposal = async (deptName: string, item: DeptProposalItem) => {
     const entry = stage3Candidates[deptName];
     const proposal = entry?.proposals.find((p) => p.item === item);
@@ -3940,6 +3993,13 @@ useEffect(() => {
     <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
       <ReflectionCandidatesSection
         onDelete={handleDeleteReflectionCandidate}
+      />
+
+      <AdjustmentCandidatesPanel
+        canApply={canEditDept() && !isHydrating}
+        onApply={applyAdjustmentProposal}
+        departmentNames={((departments as Department[] | undefined) ?? []).map((d) => d.name)}
+        onExportDepartment={(name) => stage3ExportToPdf({ departmentName: name })}
       />
 
       <CascadeHeader exportToPdf={stage3ExportToPdf} />

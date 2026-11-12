@@ -21,9 +21,15 @@ import {
 export function useStage3PdfExport() {
   const state = useStrategyStore();
 
-  const exportToPdf = useCallback(async () => {
+  const exportToPdf = useCallback(async (options?: { departmentName?: string }) => {
+    const departmentName = typeof options?.departmentName === 'string' ? options.departmentName : null;
+    const scoped = departmentName
+      ? { ...state, departments: (state.departments ?? []).filter((d) => d.name === departmentName) }
+      : state;
+    if (departmentName && scoped.departments.length === 0) throw new Error('department_not_found');
+
     // ★ 1. データビルダーを呼び出し
-    const reportData = buildStage3ReportData(state);
+    const reportData = buildStage3ReportData(scoped);
 
     // ★ 2. 動的import でSSR回避
     const { Stage3ReportView } = await import(
@@ -81,7 +87,10 @@ export function useStage3PdfExport() {
       console.log('[useStage3PdfExport] Starting PDF conversion...');
 
       // ★ 4. PDFダウンロード
-      const fileName = generatePdfFileName(3, '事業・部門別戦略レポート');
+      const fileName = generatePdfFileName(
+        3,
+        departmentName ? `事業・部門別戦略レポート_${departmentName}` : '事業・部門別戦略レポート',
+      );
       await downloadPdfFromElement('stage3-pdf-export', fileName, {
         margin: [10, 10, 10, 10],
         jsPDF: {
