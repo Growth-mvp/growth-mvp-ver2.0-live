@@ -4,6 +4,7 @@ import {
   collectPlanUnits,
   departmentKeyOf,
   normalizeDialogue,
+  projectIdOf,
   verifyCandidates,
 } from '@/lib/cascade/stage3Adjustment';
 import { DEPT_PROPOSAL_ITEM_NAMES } from '@/lib/cascade/stage3Candidates';
@@ -13,13 +14,15 @@ type AnyRecord = Record<string, unknown>;
 export const MAX_DRAFTS = 20;
 const MAX_SELECTIONS = 80;
 
+const StableId = z.union([z.string().min(1).max(200), z.number().finite()]);
+
 const DraftDepartmentSchema = z.object({
-  id: z.union([z.string().min(1).max(200), z.number().finite()]),
+  id: StableId.optional(),
   name: z.string().trim().min(1).max(200),
   projects: z
     .array(
       z.object({
-        id: z.union([z.string().min(1).max(200), z.number().finite()]),
+        id: StableId.optional(),
         title: z.string().trim().min(1).max(300),
         description: z.string().max(2000).optional(),
         kpis: z.array(z.string().max(300)).max(20).optional(),
@@ -27,6 +30,8 @@ const DraftDepartmentSchema = z.object({
     )
     .max(30),
 });
+
+export type DraftDepartment = z.infer<typeof DraftDepartmentSchema>;
 
 export const StrategyDraftSchema = z.object({
   draftId: z.string().regex(/^draft-[A-Za-z0-9_-]{1,40}$/),
@@ -47,20 +52,26 @@ const AnalysisSchema = z.object({
   rejectedReferences: z.number().int().min(0).max(1000),
 });
 
+export const SELECTION_DECISIONS = ['pending', 'applied', 'discarded', 'deferred'] as const;
+export const CANDIDATE_DECISIONS = ['adopted', 'deferred', 'rejected'] as const;
+
 const SelectionSchema = z.object({
   departmentKey: z.string().min(1).max(200),
   departmentName: z.string().trim().min(1).max(200),
   item: z.enum(DEPT_PROPOSAL_ITEM_NAMES as [string, ...string[]]),
   proposed: z.record(z.string(), z.unknown()),
   base: z.record(z.string(), z.unknown()),
-  decision: z.enum(['pending', 'applied', 'discarded']),
+  decision: z.enum(SELECTION_DECISIONS),
 });
+
+export type Selection = z.infer<typeof SelectionSchema>;
 
 export const WorkspaceStateSchema = z.object({
   schemaVersion: z.literal(1),
   status: z.enum(['draft', 'confirmed']),
   drafts: z.array(StrategyDraftSchema).max(MAX_DRAFTS),
   analysis: AnalysisSchema.nullable(),
+  candidateDecisions: z.record(z.string().regex(/^adj-\d{1,2}$/), z.enum(CANDIDATE_DECISIONS)).default({}),
   dialogue: z
     .array(
       z.object({
@@ -82,10 +93,16 @@ export function emptyWorkspaceState(): WorkspaceState {
     status: 'draft',
     drafts: [],
     analysis: null,
+    candidateDecisions: {},
     dialogue: [],
     selections: [],
     confirmed: null,
   };
+}
+
+/** 最新の草案（版が最も大きいもの）。 */
+export function latestDraft(state: WorkspaceState): StrategyDraft | null {
+  return state.drafts.reduce<StrategyDraft | null>((best, d) => (!best || d.version > best.version ? d : best), null);
 }
 
 export type WorkspaceFailure =
@@ -96,13 +113,15 @@ export type WorkspaceFailure =
   | 'analysis_draft_unknown'
   | 'analysis_candidates_invalid'
   | 'dialogue_invalid'
+  | 'decision_unknown_candidate'
   | 'selection_department_unknown'
   | 'confirmed_without_record'
-  | 'confirmed_with_pending';
+  | 'confirmed_with_pending'
+  | 'confirmed_with_undecided_candidate';
 
 /**
  * 保存しようとする作業状態を、保存済みの正式データ（departments）と照合する。
- * 草案は既存の部門IDだけを指せる。候補の部門・計画は、分析に使った版（草案または正式データ）に実在する必要がある。
+ * 草案は既存の部門だけを指せる。候補の部門・計画は、分析に使った版（草案または正式データ）に実在する必要がある。
  */
 export function verifyWorkspaceState(
   raw: unknown,
@@ -125,48 +144,54 @@ export function verifyWorkspaceState(
     const keys = new Set<string>();
     for (const dept of draft.departments) {
       const key = departmentKeyOf(dept as AnyRecord);
-      if (!officialDeptKeys.has(key)) return { ok: false, error: 'draft_department_unknown' };
-      if (keys.has(key)) return { ok: false, error: 'draft_department_unknown' };
+      if (!officialDeptKeys.has(key) || keys.has(key)) return { ok: false, error: 'draft_department_unknown' };
       keys.add(key);
       const projectKeys = new Set<string>();
       for (const p of dept.projects) {
-        const pk = String(p.id);
+        const pk = projectIdOf(p as AnyRecord);
         if (projectKeys.has(pk)) return { ok: false, error: 'draft_project_duplicated' };
         projectKeys.add(pk);
       }
     }
   }
 
+  const candidateIds = new Set<string>();
   if (state.analysis) {
     const a = state.analysis;
     let units;
     if (a.draftId) {
       const draft = state.drafts.find((d) => d.draftId === a.draftId);
-      if (!draft) return { ok: false, error: 'analysis_draft_unknown' };
-      if (a.draftVersion !== draft.version) return { ok: false, error: 'analysis_draft_unknown' };
+      if (!draft || a.draftVersion !== draft.version) return { ok: false, error: 'analysis_draft_unknown' };
       units = collectPlanUnits(draft.departments);
     } else {
       units = collectPlanUnits(officialDepartments);
     }
     const candidates = verifyCandidates(a.candidates, units);
     if (a.candidates.length > 0 && !candidates) return { ok: false, error: 'analysis_candidates_invalid' };
-    if (candidates) {
-      const dialogue = normalizeDialogue(state.dialogue, candidates);
-      if (state.dialogue.length > 0 && 'error' in dialogue) return { ok: false, error: 'dialogue_invalid' };
-    } else if (state.dialogue.length > 0) {
+    for (const c of a.candidates) candidateIds.add(c.id);
+    if (candidates && state.dialogue.length > 0) {
+      if ('error' in normalizeDialogue(state.dialogue, candidates)) return { ok: false, error: 'dialogue_invalid' };
+    } else if (!candidates && state.dialogue.length > 0) {
       return { ok: false, error: 'dialogue_invalid' };
     }
   } else if (state.dialogue.length > 0) {
     return { ok: false, error: 'dialogue_invalid' };
   }
 
+  for (const id of Object.keys(state.candidateDecisions)) {
+    if (!candidateIds.has(id)) return { ok: false, error: 'decision_unknown_candidate' };
+  }
+
   for (const s of state.selections) {
     if (!officialDeptKeys.has(s.departmentKey)) return { ok: false, error: 'selection_department_unknown' };
   }
 
-  if (state.status === 'confirmed' && !state.confirmed) return { ok: false, error: 'confirmed_without_record' };
-  if (state.status === 'confirmed' && state.selections.some((s) => s.decision === 'pending')) {
-    return { ok: false, error: 'confirmed_with_pending' };
+  if (state.status === 'confirmed') {
+    if (!state.confirmed) return { ok: false, error: 'confirmed_without_record' };
+    if (state.selections.some((s) => s.decision === 'pending')) return { ok: false, error: 'confirmed_with_pending' };
+    if ([...candidateIds].some((id) => !state.candidateDecisions[id])) {
+      return { ok: false, error: 'confirmed_with_undecided_candidate' };
+    }
   }
 
   return { ok: true, state };

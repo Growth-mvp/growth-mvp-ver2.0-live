@@ -16,7 +16,7 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { POST as analyze } from '@/app/api/stage3/adjustment/analyze/route';
 import { POST as regenerate } from '@/app/api/stage3/adjustment/regenerate/route';
 import { GET, PUT } from './route';
-import { emptyWorkspaceState } from '@/lib/cascade/stage3StrategyBook';
+import { emptyWorkspaceState, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
 
 const C1 = '11111111-1111-4111-8111-111111111111';
 const S1 = '22222222-2222-4222-8222-222222222222';
@@ -167,6 +167,7 @@ it('草案→分析→対話→再生成→判断→保存→読み直し→確�
   const withAnalysis = {
     ...emptyWorkspaceState(),
     drafts: [draft],
+    candidateDecisions: { 'adj-1': 'adopted' as const },
     analysis: {
       draftId: 'draft-r1',
       draftVersion: 1,
@@ -198,7 +199,7 @@ it('草案→分析→対話→再生成→判断→保存→読み直し→確�
   );
   expect(regenerated.status).toBe(200);
   const regen = await regenerated.json();
-  const pending = regen.departments.flatMap((d: { departmentKey: string; departmentName: string; proposals: Array<{ item: string; proposed: unknown; base: unknown }> }) =>
+  const pending: WorkspaceState['selections'] = regen.departments.flatMap((d: { departmentKey: string; departmentName: string; proposals: Array<{ item: string; proposed: unknown; base: unknown }> }) =>
     d.proposals.map((p) => ({ departmentKey: d.departmentKey, departmentName: d.departmentName, item: p.item, proposed: p.proposed, base: p.base, decision: 'pending' })),
   );
   expect(pending).toHaveLength(1);

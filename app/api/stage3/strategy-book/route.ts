@@ -43,6 +43,7 @@ export async function GET(req: Request) {
       version: loaded.workspace.version,
       state: loaded.workspace.state,
       revision: access.access.revision,
+      companyStrategy: access.access.companyStrategy,
     });
   } catch {
     return failResponse(500, 'internal_error');
