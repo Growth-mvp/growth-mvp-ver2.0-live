@@ -51,6 +51,7 @@ export const StrategyDraftSchema = z.object({
   createdAt: z.string().max(40),
   departments: z.array(DraftDepartmentSchema).min(1).max(30),
   newProjects: z.array(NewProjectCandidateSchema).max(60).default([]),
+  generatedDepartmentKeys: z.array(z.string().max(200)).max(30).optional(),
 });
 
 export type StrategyDraft = z.infer<typeof StrategyDraftSchema>;

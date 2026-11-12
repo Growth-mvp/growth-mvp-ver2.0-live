@@ -422,7 +422,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       setStep(s => clampStep(s + 1));
       setAnswerText('');
       setShowHint(false);
-      // 次のステップのテーマは、ユーザーが「テーマを生成」を押したときだけ取得
+      setShouldFetchQuestion(true);
     }
   }, [canGoNext, isLastStep, handleSaveAnswerLocally]);
 
@@ -529,20 +529,22 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
 
             {canEdit && (
               <>
-                <button
-                  type="button"
-                  onClick={() => { setShouldFetchQuestion(true); setErrorMsg(''); }}
-                  disabled={loading || isCompletedAll6}
-                  className={[
-                    'rounded-lg px-3 py-1.5 text-xs font-semibold border',
-                    (loading || isCompletedAll6)
-                      ? 'bg-gray-100 text-gray-400 border-gray-200'
-                      : 'bg-gray-900 text-white border-gray-900 hover:bg-black',
-                  ].join(' ')}
-                  title={isCompletedAll6 ? '6テーマすべて入力済みです' : 'このステップのテーマを生成します'}
-                >
-                  テーマを生成
-                </button>
+                {!hasQuestionForCurrentStep && (
+                  <button
+                    type="button"
+                    onClick={() => { setShouldFetchQuestion(true); setErrorMsg(''); }}
+                    disabled={loading || isCompletedAll6}
+                    className={[
+                      'rounded-lg px-3 py-1.5 text-xs font-semibold border',
+                      (loading || isCompletedAll6)
+                        ? 'bg-gray-100 text-gray-400 border-gray-200'
+                        : 'bg-gray-900 text-white border-gray-900 hover:bg-black',
+                    ].join(' ')}
+                    title={isCompletedAll6 ? '6テーマすべて入力済みです' : 'このステップのテーマを生成します'}
+                  >
+                    テーマを生成
+                  </button>
+                )}
 
                 {hasQuestionForCurrentStep && (
                   <button

@@ -1,7 +1,7 @@
 /* 新STAGE3の画面（検証用の入口）。本番のカスケード画面と同じ部品（戦略書パネル・6問の入力部品）を、検証用の状態で表示する。 */
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { StrategyBookWorkspace, type StrategyBookGate, type StrategyBookGenerateResult } from '@/components/stage3/StrategyBookWorkspace';
+import { StrategyBookDesk, type StrategyBookGate, type StrategyBookGenerateResult } from '@/components/stage3/StrategyBookDesk';
 import DepartmentQuestionStepper from '@/components/guide/QuestionStepper.dept';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
 import { buildStage3ReportData } from '@/utils/export/buildStage3ReportData';
@@ -95,9 +95,10 @@ function App() {
           finalStory: undefined,
         }}
       />
-      <StrategyBookWorkspace
+      <StrategyBookDesk
         departments={st.departments as never}
         canEdit
+        canManageDepartments
         getWriteGate={getWriteGate}
         generateDepartment={generateDepartment}
         renderSixQuestions={renderSixQuestions}
@@ -109,6 +110,21 @@ function App() {
           const exporter = (window as unknown as { __exportPdf?: (o: { departmentName: string }) => Promise<void> }).__exportPdf;
           if (!exporter) throw new Error('PDF exporter is not ready');
           await exporter({ departmentName: name });
+        }}
+        onAddDepartment={async (name, mission) => {
+          await post('/harness/department', { op: 'add', name, mission });
+          await load();
+          return true;
+        }}
+        onRenameDepartment={async (index, name) => {
+          await post('/harness/department', { op: 'rename', index, name });
+          await load();
+          return true;
+        }}
+        onDeleteDepartment={async (index) => {
+          const res = await fetch('/harness/department', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ op: 'delete', index }) });
+          await load();
+          return res.ok;
         }}
       />
     </>

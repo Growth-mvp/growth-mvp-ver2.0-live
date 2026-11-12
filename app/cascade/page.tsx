@@ -59,7 +59,8 @@ import { CascadeControlBar } from '@/components/stage3/CascadeControlBar';
 import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
 import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
 import { ReflectionCandidatesSection, type ReflectionCandidate } from '@/components/stage3/ReflectionCandidatesSection';
-import { StrategyBookWorkspace, type StrategyBookGate } from '@/components/stage3/StrategyBookWorkspace';
+import { StrategyBookDesk, type StrategyBookGate } from '@/components/stage3/StrategyBookDesk';
+import { departmentDeleteBlockers } from '@/lib/cascade/departmentManagement';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
@@ -3940,6 +3941,70 @@ useEffect(() => {
     setNotice('✅ 反映候補を削除しました');
   };
 
+  const addDepartmentFromDesk = async (name: string, mission: string): Promise<boolean> => {
+    if (!canEditCompany) {
+      setNotice('⚠️ 部門の追加は管理者のみ可能です');
+      return false;
+    }
+    pushToStore((prev) => {
+      const current = [...prev];
+      const deptId = `dept_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const chapterNames = ['なぜ今', 'どう戦う', 'どんな未来', 'どう実行'];
+      current.push({
+        id: deptId,
+        name,
+        mission: mission || `${name}のミッション`,
+        missionDescription: '',
+        strategy: mission,
+        missionDraft: mission,
+        discussionNotes: '',
+        projects: [],
+        answers2: chapterNames.map((label, i) => ({ chapterIndex: i, chapterTitle: `${name}：${label}`, steps: [] })),
+        finalized: false,
+        source: 'manual',
+        segmentName: name,
+      } as unknown as Department);
+      return current;
+    });
+    return true;
+  };
+
+  const renameDepartmentFromDesk = async (index: number, name: string): Promise<boolean> => {
+    if (!canEditCompany) {
+      setNotice('⚠️ 部門名の変更は管理者のみ可能です');
+      return false;
+    }
+    pushToStore((prev) =>
+      prev.map((d, i) => (i === index ? ({ ...d, name, segmentName: name } as Department) : d)),
+    );
+    return true;
+  };
+
+  const deleteDepartmentFromDesk = async (index: number): Promise<boolean> => {
+    if (!canEditCompany) {
+      setNotice('⚠️ 部門削除は管理者のみ可能です');
+      return false;
+    }
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const target = current[index];
+    if (!target) return false;
+    const blockers = departmentDeleteBlockers(target as unknown as Record<string, unknown>);
+    if (blockers.length > 0) {
+      setNotice(`⚠️ 「${target.name}」は削除できません（関連データを守るため拒否）：${blockers.join('、')}`);
+      return false;
+    }
+    if (!window.confirm(`「${target.name}」を削除しますか？\nこの操作は元に戻せません。`)) return false;
+    pushToStore((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        .map((d, i) => ({
+          ...d,
+          answers2: (d.answers2 ?? []).map((ch) => ({ ...ch, chapterIndex: i, chapterTitle: d.name })),
+        })),
+    );
+    return true;
+  };
+
   const getStrategyBookGate = (): StrategyBookGate => {
     if (!canEditDept()) return { ok: false, reason: '⚠️ 編集権限がありません（管理者・管理職のみ）。' };
     const scope = captureSaveScope();
@@ -3975,25 +4040,56 @@ useEffect(() => {
   };
 
   /* ===== JSX ===== */
+  const financeRows = ((useStrategyStore.getState() as unknown as { financePL?: Array<{ year: number; revenue?: number; operatingIncome?: number }> }).financePL ?? [])
+    .slice()
+    .sort((a, b) => a.year - b.year)
+    .slice(-5);
+  const financeNode =
+    financeRows.length === 0 ? undefined : (
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b text-left text-gray-600">
+            <th className="py-1">年度</th>
+            <th className="py-1">売上高</th>
+            <th className="py-1">営業利益</th>
+          </tr>
+        </thead>
+        <tbody>
+          {financeRows.map((r) => (
+            <tr key={r.year} className="border-b">
+              <td className="py-1">{r.year}</td>
+              <td className="py-1">{typeof r.revenue === 'number' ? r.revenue.toLocaleString('ja-JP') : '—'}</td>
+              <td className="py-1">{typeof r.operatingIncome === 'number' ? r.operatingIncome.toLocaleString('ja-JP') : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+
   return (
     <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
-      <ReflectionCandidatesSection
-        onDelete={handleDeleteReflectionCandidate}
-      />
+      <CascadeHeader />
 
-      <StrategyBookWorkspace
+      <NoticeDisplay notice={notice} />
+
+      <StrategyBookDesk
         departments={(departments as Department[] | undefined) ?? []}
         canEdit={canEditDept() && !isHydrating}
+        canManageDepartments={canEditCompany}
         getWriteGate={getStrategyBookGate}
         generateDepartment={(index, mode) => handleDeptCascadeDraft(index, mode)}
         renderSixQuestions={renderDeptSixQuestions}
         onConfirmed={(message) => refreshAfterWrite(message)}
         onExportDepartment={(name) => stage3ExportToPdf({ departmentName: name })}
+        onAddDepartment={addDepartmentFromDesk}
+        onRenameDepartment={renameDepartmentFromDesk}
+        onDeleteDepartment={deleteDepartmentFromDesk}
+        financeInfo={financeNode}
       />
 
-      <NoticeDisplay notice={notice} />
-
-      <CascadeHeader exportToPdf={stage3ExportToPdf} />
+      <ReflectionCandidatesSection
+        onDelete={handleDeleteReflectionCandidate}
+      />
 
       {isHydrating && (
         <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">

@@ -34,7 +34,15 @@ const SEED_DEPARTMENTS = [
     name: '営業部',
     mission: '既存顧客の深耕',
     intraDeptCollab: ['既存の連携'],
-    projects: [{ id: 'p-1', title: '既存顧客の再受注施策', okrs: [{ id: 'o-1', objective: '再受注', keyResults: ['再受注率 40%'] }] }],
+    projects: [
+      {
+        id: 'p-1',
+        title: '既存顧客の再受注施策',
+        planStatus: 'approved',
+        approvedAt: '2026-11-01T00:00:00.000Z',
+        okrs: [{ id: 'o-1', objective: '再受注', keyResults: ['再受注率 40%'] }],
+      },
+    ],
   },
   {
     id: 'd-mkt',
@@ -86,7 +94,7 @@ async function openDb(): Promise<Pg> {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8' } });
 
-const PAGE = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>事業・部門戦略書（検証）</title></head>
+const PAGE = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>事業・部門戦略書（検証）</title><link rel="stylesheet" href="/app.css"></head>
 <body class="bg-white p-6"><div id="root"></div>
 <script>globalThis.__USER = '${IDS.user}';</script>
 <script src="/client.js"></script></body></html>`;
@@ -135,6 +143,23 @@ async function harness(pg: Pg, req: Request, pathname: string): Promise<Response
     await pg.query('update strategy_data set departments = $2::jsonb where id = $1', [IDS.strategy, JSON.stringify(departments)]);
     return json({ ok: true });
   }
+  if (pathname === '/harness/department' && req.method === 'POST') {
+    const body = (await req.json()) as { op: 'add' | 'rename' | 'delete'; index?: number; name?: string; mission?: string };
+    const r = await pg.query('select departments from strategy_data where id = $1', [IDS.strategy]);
+    let departments = r.rows[0].departments as Array<Record<string, unknown>>;
+    if (body.op === 'add') {
+      departments = [...departments, { id: `dept_${Date.now()}`, name: body.name, mission: body.mission || `${body.name}のミッション`, projects: [], answers2: [] }];
+    } else if (body.op === 'rename') {
+      departments = departments.map((d, i) => (i === body.index ? { ...d, name: body.name, segmentName: body.name } : d));
+    } else if (body.op === 'delete') {
+      const target = departments[body.index ?? -1];
+      const blocked = ((target?.projects as Array<Record<string, unknown>> | undefined) ?? []).some((p) => p.planStatus === 'approved');
+      if (blocked) return json({ error: 'blocked' }, 409);
+      departments = departments.filter((_, i) => i !== body.index);
+    }
+    await pg.query('update strategy_data set departments = $2::jsonb where id = $1', [IDS.strategy, JSON.stringify(departments)]);
+    return json({ ok: true });
+  }
   if (pathname === '/harness/generate' && req.method === 'POST') {
     const body = (await req.json()) as { index: number; mode: 'draft' | 'regen' };
     const r = await pg.query('select departments from strategy_data where id = $1', [IDS.strategy]);
@@ -179,6 +204,12 @@ const ROUTES: Record<string, (req: Request) => Promise<Response>> = {
   'POST /api/stage3/strategy-book/confirm': confirmPost,
   'POST /api/stage3/adjustment/analyze': analyzePost,
   'POST /api/stage3/adjustment/regenerate': regeneratePost,
+  /* 6問のテーマ（検証用の固定の問い。実際のAI生成は行わない） */
+  'POST /api/generate-department-question': async (req) => {
+    const body = (await req.json()) as { afterStepIndex?: number };
+    const n = (body.afterStepIndex ?? -1) + 2;
+    return Response.json({ step: { label: `テーマ${n}`, question: `検証用のテーマ${n}：この部門の強みは何か`, reason: '検証用の狙い', hint: '' } });
+  },
 };
 
 export async function start(port: number, clientJs: string) {
@@ -191,6 +222,11 @@ export async function start(port: number, clientJs: string) {
       const url = new URL(nodeReq.url ?? '/', `http://localhost:${port}`);
       if (nodeReq.method === 'GET' && url.pathname === '/') {
         nodeRes.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGE);
+        return;
+      }
+      if (nodeReq.method === 'GET' && url.pathname === '/app.css') {
+        const css = path.join(root, 'eval/stage3-browser/out/app.css');
+        nodeRes.writeHead(200, { 'content-type': 'text/css; charset=utf-8' }).end(fs.existsSync(css) ? fs.readFileSync(css) : '');
         return;
       }
       if (nodeReq.method === 'GET' && url.pathname === '/client.js') {
