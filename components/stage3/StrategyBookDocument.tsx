@@ -16,16 +16,60 @@ export type DocProject = {
   goals: string[];
 };
 
+/** 戦略書の文章として編集できる項目（再生成の項目と同じ名前） */
+export type TextItemKey =
+  | 'mission'
+  | 'missionDescription'
+  | 'currentPosition'
+  | 'strategicRole'
+  | 'keyIssues'
+  | 'intraCollab'
+  | 'interCollab'
+  | 'alignmentRiskPoints'
+  | 'reviewSummary'
+  | 'stopList'
+  | 'riskNotes';
+
+export type SectionEdit = { action: ReactNode; editor: ReactNode | null };
+
 export type StrategyDocumentProps = {
   departmentName: string;
   versionLabel: string;
-  mission: string | null;
-  strategicRole: string | null;
-  keyIssues: string[];
+  /** 項目ごとの表示内容。空の項目は表示しない（補完しない）。 */
+  texts: Partial<Record<TextItemKey, string[]>>;
   projects: DocProject[];
-  interCollab: string[];
-  adjustmentPoints: string[];
+  /** 編集できる項目だけ渡す。 */
+  edit?: Partial<Record<TextItemKey, SectionEdit>>;
 };
+
+type ChapterItem = { key: TextItemKey; label?: string; list: boolean };
+type Chapter = { title: string; items: ChapterItem[] } | { title: string; projects: true };
+
+/** 章の順序。STAGE4以降が参照する項目も、必ずどこかの章に出す。 */
+const CHAPTERS: Chapter[] = [
+  {
+    title: '事業・部門の使命',
+    items: [
+      { key: 'mission', list: false },
+      { key: 'missionDescription', label: '概要・仮説', list: false },
+      { key: 'currentPosition', label: '現在の位置づけ', list: false },
+    ],
+  },
+  { title: '全社戦略における役割', items: [{ key: 'strategicRole', list: false }] },
+  { title: '重点課題と勝ち筋', items: [{ key: 'keyIssues', list: true }] },
+  { title: '重点プロジェクト', projects: true },
+  { title: '事業内・部門内の連携', items: [{ key: 'intraCollab', list: true }] },
+  { title: '他の事業・部門との連携', items: [{ key: 'interCollab', list: true }] },
+  {
+    title: '注意点・再考ポイント',
+    items: [
+      { key: 'alignmentRiskPoints', label: '認識のズレが起きやすいポイント', list: true },
+      { key: 'reviewSummary', label: '再考ポイント・部門横断論点', list: true },
+      { key: 'stopList', label: '停止事項', list: true },
+      { key: 'riskNotes', label: 'リスク注記', list: true },
+    ],
+  },
+];
 
 const ORIGIN_LABEL: Record<ProjectOrigin, string | null> = {
   official: '既存のプロジェクト',
@@ -44,19 +88,43 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Chapter2({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-3">
+    <section className="report-section space-y-4">
       <h4 className="border-l-4 border-zinc-800 pl-3 text-base font-bold text-zinc-900">{title}</h4>
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-5">{children}</div>
     </section>
+  );
+}
+
+function TextBlock({ item, lines, edit }: { item: ChapterItem; lines: string[]; edit?: SectionEdit }) {
+  return (
+    <div className="report-text space-y-2">
+      {item.label && <p className="text-xs font-semibold text-zinc-500">{item.label}</p>}
+      {edit?.editor ? (
+        edit.editor
+      ) : (
+        <>
+          {item.list ? (
+            <ul className="list-disc space-y-1 pl-5 text-[15px] leading-7">
+              {lines.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="whitespace-pre-wrap text-[15px] leading-7">{lines.join('\n')}</p>
+          )}
+          {edit?.action && <div className="flex justify-end">{edit.action}</div>}
+        </>
+      )}
+    </div>
   );
 }
 
 function ProjectCard({ project }: { project: DocProject }) {
   const label = ORIGIN_LABEL[project.origin];
   return (
-    <div className="space-y-2 border-t border-zinc-200 pt-4 first:border-t-0 first:pt-0">
+    <div className="report-card space-y-2 border-t border-zinc-200 pt-4 first:border-t-0 first:pt-0">
       <div className="flex flex-wrap items-center gap-2">
         <h5 className="font-semibold text-zinc-900">{project.title}</h5>
         {label && (
@@ -92,9 +160,12 @@ function ProjectCard({ project }: { project: DocProject }) {
   );
 }
 
-/** 事業・部門戦略書の読み物。存在する項目だけを出し、無い項目は補完しない。 */
+/**
+ * 事業・部門戦略書の読み物。STAGE4の計画書と同じく、章ごとに文章を読み、直したい項目だけ編集する。
+ * 内容のある項目だけを表示する（無い項目を補完しない）。編集中の項目は編集欄に置き換える。
+ */
 export function StrategyBookDocument(props: StrategyDocumentProps) {
-  const { departmentName, versionLabel, mission, strategicRole, keyIssues, projects, interCollab, adjustmentPoints } = props;
+  const { departmentName, versionLabel, texts, projects, edit } = props;
   return (
     <article className="mx-auto max-w-[72ch] space-y-8 text-zinc-900">
       <header className="space-y-1 border-b border-zinc-200 pb-4">
@@ -103,62 +174,27 @@ export function StrategyBookDocument(props: StrategyDocumentProps) {
         <p className="text-sm text-zinc-600">AIたたき台</p>
       </header>
 
-      {mission && (
-        <Section title="事業・部門の使命">
-          <p className="whitespace-pre-wrap">{mission}</p>
-        </Section>
-      )}
-
-      {strategicRole && (
-        <Section title="全社戦略における役割">
-          <p className="whitespace-pre-wrap">{strategicRole}</p>
-        </Section>
-      )}
-
-      {keyIssues.length > 0 && (
-        <Section title="重点課題と勝ち筋">
-          <ul className="list-disc space-y-1 pl-5">
-            {keyIssues.map((k, i) => (
-              <li key={i}>{k}</li>
+      {CHAPTERS.map((chapter) => {
+        if ('projects' in chapter) {
+          if (projects.length === 0) return null;
+          return (
+            <Chapter2 key={chapter.title} title={chapter.title}>
+              {projects.map((p, i) => (
+                <ProjectCard key={`${p.title}-${i}`} project={p} />
+              ))}
+            </Chapter2>
+          );
+        }
+        const shown = chapter.items.filter((item) => (texts[item.key]?.length ?? 0) > 0 || edit?.[item.key]?.editor);
+        if (shown.length === 0) return null;
+        return (
+          <Chapter2 key={chapter.title} title={chapter.title}>
+            {shown.map((item) => (
+              <TextBlock key={item.key} item={item} lines={texts[item.key] ?? []} edit={edit?.[item.key]} />
             ))}
-          </ul>
-        </Section>
-      )}
-
-      {projects.length > 0 && (
-        <Section title="重点プロジェクト">
-          <div className="space-y-5">
-            {projects.map((p, i) => (
-              <ProjectCard key={`${p.title}-${i}`} project={p} />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {(interCollab.length > 0 || adjustmentPoints.length > 0) && (
-        <Section title="他の事業・部門との連携・調整論点">
-          {interCollab.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-zinc-500">連携</p>
-              <ul className="list-disc pl-5">
-                {interCollab.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {adjustmentPoints.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-zinc-500">調整論点</p>
-              <ul className="list-disc pl-5">
-                {adjustmentPoints.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </Section>
-      )}
+          </Chapter2>
+        );
+      })}
     </article>
   );
 }

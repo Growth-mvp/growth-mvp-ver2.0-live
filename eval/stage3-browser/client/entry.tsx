@@ -25,14 +25,14 @@ type HarnessState = {
 /* 既存のPDF出力フック（useStage3PdfExport）を、検証用の確定版の内容で動かす */
 function PdfHost({ state }: { state: Record<string, unknown> }) {
   (globalThis as unknown as { __harnessStore?: unknown }).__harnessStore = state;
-  const { exportToPdf } = useStage3PdfExport();
+  const { exportDepartmentStrategyBookPdf } = useStage3PdfExport();
   useEffect(() => {
-    (window as unknown as { __exportPdf?: unknown }).__exportPdf = exportToPdf;
+    (window as unknown as { __exportPdf?: unknown }).__exportPdf = exportDepartmentStrategyBookPdf;
     (window as unknown as { __reportFor?: unknown }).__reportFor = (departmentName: string) => {
       const departments = ((state.departments as Array<{ name: string }>) ?? []).filter((d) => d.name === departmentName);
       return buildStage3ReportData({ ...state, departments } as never);
     };
-  }, [exportToPdf, state]);
+  }, [exportDepartmentStrategyBookPdf, state]);
   return null;
 }
 
@@ -131,10 +131,10 @@ function App() {
           (window as unknown as { __confirmMessage?: string }).__confirmMessage = message;
           await load();
         }}
-        onExportDepartment={async (name) => {
-          const exporter = (window as unknown as { __exportPdf?: (o: { departmentName: string }) => Promise<void> }).__exportPdf;
+        onExportDepartment={async (name, confirmedAt) => {
+          const exporter = (window as unknown as { __exportPdf?: (o: { departmentName: string; confirmedAt?: string }) => Promise<void> }).__exportPdf;
           if (!exporter) throw new Error('PDF exporter is not ready');
-          await exporter({ departmentName: name });
+          await exporter({ departmentName: name, confirmedAt });
         }}
         onAddDepartment={async (name, mission) => {
           await post('/harness/department', { op: 'add', name, mission });

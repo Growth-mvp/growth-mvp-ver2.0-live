@@ -3,6 +3,7 @@
  * 架空データ・ローカルDB（PGlite）・AIの固定応答を使う。外部への接続はしない。1つでも失敗すれば終了コード1。 */
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { chromium } from 'playwright';
 import { build } from './build.mjs';
@@ -42,6 +43,38 @@ const openDetails = async (title) => {
   await d.locator('summary').click();
   return d;
 };
+
+/* PDFの1ページ目を画像にして、ページ数・大きさ・描画の割合を返す（実物の確認用） */
+async function renderPdfFirstPage(file, outPng) {
+  const pdfjs = await import(pathToFileURL(path.join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.mjs')).href);
+  const requireCanvas = createRequire(path.join(here, 'out', '.canvas', 'package.json'));
+  const { createCanvas, loadImage } = requireCanvas('canvas');
+  const raw = fs.readFileSync(file);
+  const marker = raw.indexOf('/DCTDecode');
+  const dictStart = raw.lastIndexOf(' obj', marker);
+  const streamAt = raw.indexOf('stream', marker);
+  const dict = raw.slice(dictStart, streamAt).toString('latin1');
+  const length = Number(/\/Length (\d+)/.exec(dict)?.[1]);
+  const dataStart = streamAt + (raw[streamAt + 6] === 0x0d ? 8 : 7);
+  const jpeg = raw.subarray(dataStart, dataStart + length);
+  const img = await loadImage(jpeg);
+  const canvas = createCanvas(img.width, img.height);
+  canvas.getContext('2d').drawImage(img, 0, 0);
+  fs.writeFileSync(outPng, canvas.toBuffer('image/png'));
+  const { data: px } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  let ink = 0;
+  for (let i = 0; i < px.length; i += 4) if (px[i] < 240 || px[i + 1] < 240 || px[i + 2] < 240) ink += 1;
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(raw), useSystemFonts: true }).promise;
+  const page = await doc.getPage(1);
+  let fullText = '';
+  for (let i = 1; i <= doc.numPages; i += 1) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    fullText += content.items.map((it) => it.str).join('') + '\n';
+  }
+  const pageWidth = page.view[2];
+  const pageHeight = page.view[3];
+  return { pages: doc.numPages, width: pageWidth, height: pageHeight, inkRatio: ink / (px.length / 4), text: fullText };
+}
 
 async function step(name, fn) {
   try {
@@ -115,12 +148,13 @@ try {
 
   await step('D 未保存の回答：保存ボタンを押さなくても、再生成のときに保存されて反映される', async () => {
     await answerBox().fill('未保存の回答：新規顧客は展示会で開拓する');
-    await Promise.all([
+    const [, , analyzeRes] = await Promise.all([
       page.waitForResponse((r) => r.url().includes('/harness/answers') && r.request().method() === 'POST'),
       page.waitForResponse((r) => r.url().includes('/api/stage3/strategy-book') && r.request().method() === 'PUT'),
+      page.waitForResponse((r) => r.url().includes('/api/stage3/adjustment/analyze') && r.request().method() === 'POST', { timeout: 40000 }),
       btn('6問を反映して戦略書を再生成').click(),
     ]);
-    await text('再生成した戦略書を保存しました').waitFor({ timeout: 40000 });
+    if (analyzeRes.status() !== 200) throw new Error(`analyze_status_${analyzeRes.status()}`);
     const st = await harnessState();
     const steps = st.departments[0].answers2?.[0]?.steps ?? [];
     check('D 未保存の回答が保存され、再生成まで完了する', steps.some((s) => String(s.answer ?? '').includes('展示会で開拓')), `回答 ${steps.length}件`);
@@ -180,6 +214,78 @@ try {
     const st = await harnessState();
     const steps = st.departments[0].answers2?.[0]?.steps ?? [];
     check('F 失敗のあとの再生成で、残っていた回答が保存されて反映される', steps.some((s) => String(s.answer ?? '').includes('保存されない回答')), `回答 ${steps.length}件`);
+  });
+  await step('G 戦略書の編集：その場で直して保存すると、再読み込み後も残る', async () => {
+    await page.reload();
+    await page.waitForSelector('text=全社戦略（STAGE2）', { timeout: 30000 });
+    await tabBtn('営業部').click();
+    const sec = page.locator('section', { has: page.getByText('他の事業・部門との連携', { exact: true }) }).first();
+    await sec.getByRole('button', { name: '編集', exact: true }).click();
+    await sec.locator('textarea').fill('G編集した連携：開発部と新用途の試作を月次で決める');
+    await sec.getByRole('button', { name: '保存', exact: true }).click();
+    await text('G編集した連携').waitFor({ timeout: 15000 });
+    await page.reload();
+    await page.waitForSelector('text=全社戦略（STAGE2）', { timeout: 30000 });
+    await tabBtn('営業部').click();
+    await text('G編集した連携').waitFor({ timeout: 15000 });
+    const shown = await text('G編集した連携').isVisible();
+    const notYetOfficial = !(JSON.stringify((await harnessState()).departments[0]).includes('G編集した連携'));
+    check('G 編集した項目は保存され、再読み込み後も残り、確定前は正式データに入らない', shown && notYetOfficial, `表示 ${shown} / 正式データ未反映 ${notYetOfficial}`);
+    await shot('focused-G-edit-persisted');
+  });
+
+  let beforeConfirm = null;
+  await step('J 確定：編集内容が正式データへ反映され、既存のプロジェクトIDとKPIは変わらず、候補は入らない', async () => {
+    beforeConfirm = (await harnessState()).departments[0];
+    await btn('保留する').first().click();
+    await tabBtn('部門間調整').click();
+    await btn('不採用').first().click();
+    await tabBtn('営業部').click();
+    if (!(await btn('確認済みの戦略書を一括確定する').isVisible())) {
+      const history = page.locator('details', { has: page.locator('summary', { hasText: '以前の内容を見る' }) }).first();
+      if (!(await history.evaluate((d) => d.open))) await history.locator('summary').click();
+      await btn('部門間調整・確定を確認する').click();
+    }
+    await btn('確認済みの戦略書を一括確定する').waitFor({ timeout: 15000 });
+    const [confirmRes] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/stage3/strategy-book/confirm') && r.request().method() === 'POST'),
+      btn('確認済みの戦略書を一括確定する').click(),
+    ]);
+    if (confirmRes.status() !== 200) throw new Error(`confirm_status_${confirmRes.status()}`);
+    await btn('この部門の戦略書をPDF出力').first().waitFor({ timeout: 30000 });
+    const after = (await harnessState()).departments[0];
+    const edited = String(after.interDeptCollab ?? '').includes('G編集した連携') || JSON.stringify(after).includes('G編集した連携');
+    const projectsSame = JSON.stringify(after.projects) === JSON.stringify(beforeConfirm.projects);
+    const noCandidate = !JSON.stringify(after.projects).includes('6問反映案');
+    check(
+      'J 確定：編集内容が正式データに入り、既存のプロジェクトIDとKPIは変わらず、未採用の候補は入らない',
+      edited && projectsSame && noCandidate,
+      `編集の反映 ${edited} / 既存プロジェクト同一 ${projectsSame} / 候補なし ${noCandidate}`,
+    );
+    await shot('focused-J-confirmed');
+  });
+
+  await step('K 部門別PDF：確定版の戦略書をPDFで出力でき、ページ数と描画を確認できる', async () => {
+    const dl = page.waitForEvent('download', { timeout: 120000 });
+    await btn('この部門の戦略書をPDF出力').first().click();
+    const download = await dl;
+    const name = download.suggestedFilename();
+    const file = path.join(shots, name);
+    await download.saveAs(file);
+    const info = await renderPdfFirstPage(file, path.join(shots, 'focused-K-pdf-page1.png'));
+    const expected = 'GROWTHSHIFT_営業部_事業戦略書.pdf';
+    check(
+      'K PDF：ファイル名どおりに出力され、A4縦で、複数ページ対応し、空白ページではない',
+      name === expected && info.pages >= 1 && info.width < info.height && info.inkRatio > 0.005,
+      `${name} / ${info.pages}ページ / ${Math.round(info.width)}x${Math.round(info.height)}pt / 描画の割合 ${info.inkRatio.toFixed(4)}`,
+    );
+    const leaked = /proj-|d-can|d-other|6問反映案|別事業/.exec(info.text);
+    const pageNumbered = /1\s*\/\s*\d+/.test(info.text);
+    check(
+      'K PDF：ページ番号が入り、内部IDや未確定の候補の文字は含まれない（本文は画像のため目視で確認）',
+      pageNumbered && !leaked,
+      `ページ番号 ${pageNumbered} / 内部ID・候補の混入 ${leaked ? leaked[0] : 'なし'}`,
+    );
   });
 } finally {
   const realErrors = pageErrors.filter((e) => !/Download the React DevTools|favicon|Failed to load resource/i.test(e));

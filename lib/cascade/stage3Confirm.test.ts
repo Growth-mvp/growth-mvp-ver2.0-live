@@ -162,19 +162,21 @@ describe('selectionsFrom（変更案の作業状態化）', () => {
   const dept = official()[0];
   const proposals = buildDeptProposals(dept, { interDeptCollab: ['新しい連携'] });
 
-  it('新しい案は未判断で入り、保留・不採用の判断は残る', () => {
+  it('新しい案は、読んで直す項目として反映扱いで入る（決定ボタンは無い）', () => {
     const first = selectionsFrom([dept], { 'id:d-sales': proposals }, []);
-    expect(first.map((s) => s.decision)).toEqual(['pending']);
+    expect(first.map((s) => s.decision)).toEqual(['applied']);
+  });
 
-    const decided = first.map((s) => ({ ...s, decision: 'deferred' as const }));
+  it('同じ項目の古い判断は、新しい案に置き換わる', () => {
+    const decided = selectionsFrom([dept], { 'id:d-sales': proposals }, []).map((s) => ({ ...s, decision: 'deferred' as const }));
     const again = selectionsFrom([dept], { 'id:d-sales': proposals }, decided);
-    expect(again.map((s) => s.decision)).toEqual(['pending']);
+    expect(again.map((s) => s.decision)).toEqual(['applied']);
     expect(again).toHaveLength(1);
   });
 
   it('判断済みの別の項目は残す', () => {
     const other = { departmentKey: 'id:d-mkt', departmentName: 'マーケティング部', item: 'keyIssues' as const, proposed: { keyIssues: ['a'] }, base: { keyIssues: null }, decision: 'discarded' as const };
     const result = selectionsFrom([dept], { 'id:d-sales': proposals }, [other]);
-    expect(result.map((s) => s.decision)).toEqual(['discarded', 'pending']);
+    expect(result.map((s) => s.decision)).toEqual(['discarded', 'applied']);
   });
 });

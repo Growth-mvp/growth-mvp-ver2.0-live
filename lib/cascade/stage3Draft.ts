@@ -97,7 +97,8 @@ export function selectionsFrom(
         item: p.item,
         proposed: p.proposed,
         base: p.base,
-        decision: 'pending',
+        // 戦略書の文章として読んで直す項目。確定時に、表示どおりの内容が正式データへ反映される。
+        decision: 'applied',
       });
     }
   }

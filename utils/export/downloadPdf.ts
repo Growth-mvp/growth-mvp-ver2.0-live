@@ -66,6 +66,8 @@ export async function downloadPdfFromElement(
     jsPDF?: { orientation: string; unit: string; format: string };
     /** 指定した要素の境界でだけ改ページする（段落・行の途中で切らない） */
     avoidBreakSelector?: string;
+    /** 各ページの下に入れる文字（ページ番号など）。全ページ分を作った後に入れる */
+    footer?: (pageNo: number, pageCount: number) => string;
   },
 ): Promise<void> {
   const element = document.getElementById(elementId);
@@ -205,6 +207,16 @@ export async function downloadPdfFromElement(
         // 無限ループ防止
         console.warn('[downloadPdf] Exceeded 100 pages, stopping');
         break;
+      }
+    }
+
+    if (options?.footer) {
+      const pageCount = pdf.getNumberOfPages();
+      for (let p = 1; p <= pageCount; p++) {
+        pdf.setPage(p);
+        pdf.setFontSize(8);
+        pdf.setTextColor(90, 90, 90);
+        pdf.text(options.footer(p, pageCount), pageWidth / 2, pageHeight - 5, { align: 'center' });
       }
     }
 

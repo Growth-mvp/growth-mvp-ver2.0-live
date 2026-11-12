@@ -24,7 +24,7 @@ import {
   type WorkspaceState,
 } from '@/lib/cascade/stage3StrategyBook';
 import type { Department } from '@/types/strategy';
-import { StrategyBookDocument, type DocProject, type StrategyDocumentProps } from '@/components/stage3/StrategyBookDocument';
+import { StrategyBookDocument, type DocProject, type SectionEdit, type StrategyDocumentProps, type TextItemKey } from '@/components/stage3/StrategyBookDocument';
 import { projectDetailOf } from '@/lib/cascade/stage3ProjectDetail';
 
 type AnyRecord = Record<string, unknown>;
@@ -48,7 +48,7 @@ interface StrategyBookDeskProps {
   prepareRegeneration?: (index: number) => Promise<{ ok: true } | { ok: false; message: string }>;
   renderSixQuestions: (index: number) => ReactNode;
   onConfirmed: (message: string) => Promise<void> | void;
-  onExportDepartment: (name: string) => Promise<void>;
+  onExportDepartment: (name: string, confirmedAt?: string) => Promise<void>;
   onAddDepartment: (name: string, mission: string) => Promise<boolean>;
   onRenameDepartment: (index: number, name: string) => Promise<boolean>;
   onDeleteDepartment: (index: number) => Promise<boolean>;
@@ -150,7 +150,7 @@ const newDraftId = () => `draft-${Date.now().toString(36)}${Math.random().toStri
 
 const DECISION_LABEL = { applied: '反映する', deferred: '保留', discarded: '反映しない', pending: '未判断' } as const;
 const CANDIDATE_LABEL = { adopted: '採用', deferred: '保留', rejected: '不採用' } as const;
-const PROJECT_DECISION_LABEL = { applied: '採用', deferred: '保留', discarded: '不採用', pending: '未判断' } as const;
+const PROJECT_DECISION_LABEL = { applied: '採用する', deferred: '保留する', discarded: '採用しない', pending: '未判断' } as const;
 
 const linesOf = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : typeof v === 'string' && v ? [v] : []);
 
@@ -572,12 +572,12 @@ export function StrategyBookDesk({
     const key = departmentKeyOf(dept as unknown as AnyRecord);
     const base = currentItemValues(dept as unknown as AnyRecord, item);
     const existing = state.selections.find((s) => s.departmentKey === key && s.item === item);
-    const selection: Selection = { departmentKey: key, departmentName: dept.name, item, proposed, base, decision: 'pending' };
+    const selection: Selection = { departmentKey: key, departmentName: dept.name, item, proposed, base, decision: 'applied' };
     const selections = existing
       ? state.selections.map((s) => (s === existing ? selection : s))
       : [...state.selections, selection];
     const ok = await save(reopen({ ...state, selections }));
-    if (ok) setNotice('内容を保存しました（未確定の変更案です。採否を選んでから確定してください）。');
+    if (ok) setNotice('内容を保存しました。確定すると、戦略書に反映されます。');
   };
 
   const startFieldEdit = (key: string, current: string) => {
@@ -769,14 +769,36 @@ export function StrategyBookDesk({
     return { hasInitial, hasRegen, deptConfirmed, current };
   };
 
+  const appliedSelectionCount = state.selections.filter((x) => x.decision === 'applied').length;
+  const adoptedProjectCount = state.projectSelections.filter((p) => p.decision === 'applied').length;
+  const deferredProjectCount = state.projectSelections.filter((p) => p.decision === 'deferred').length;
+  const discardedProjectCount = state.projectSelections.filter((p) => p.decision === 'discarded').length;
+  const decisionValues = Object.values(state.candidateDecisions);
+  const adoptedCandidateCount = decisionValues.filter((d) => d === 'adopted').length;
+  const deferredCandidateCount = decisionValues.filter((d) => d === 'deferred').length;
+  const rejectedCandidateCount = decisionValues.filter((d) => d === 'rejected').length;
+
   const renderConfirm = () => (
     <div className="space-y-2 rounded-xl border border-zinc-200 p-4">
-      <p className="text-xs text-gray-700">
-        「反映する」と選んだ変更案と、採用した新規プロジェクトだけを、すべて一度に正式データへ反映します。1件でも反映できなければ、何も変わりません。
-      </p>
-      <p className="text-xs text-gray-700">
-        未判断：変更案 {pendingSelectionCount}件・新規プロジェクト {pendingProjectCount}件・調整候補 {undecidedCandidateCount}件
-      </p>
+      <div className="space-y-1 text-xs text-gray-700">
+        <p>
+          確定すると、戦略書の編集内容・採用した新規プロジェクト・採用した部門間調整を、すべて一度に正式データへ反映します。1件でも反映できなければ、何も変わりません。
+        </p>
+        <p>
+          反映：戦略書の項目 {appliedSelectionCount}件・新規プロジェクト {adoptedProjectCount}件・部門間調整 {adoptedCandidateCount}件
+        </p>
+        <p>
+          保留：新規プロジェクト {deferredProjectCount}件・部門間調整 {deferredCandidateCount}件（確定後も作業内容に残り、あとで判断できます）
+        </p>
+        <p>
+          不採用：新規プロジェクト {discardedProjectCount}件・部門間調整 {rejectedCandidateCount}件（正式データには入りません）
+        </p>
+        {(pendingProjectCount > 0 || undecidedCandidateCount > 0) && (
+          <p className="text-amber-800">
+            未判断：新規プロジェクト {pendingProjectCount}件・調整候補 {undecidedCandidateCount}件（判断すると確定できます）
+          </p>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button
           onClick={confirm}
@@ -843,17 +865,74 @@ export function StrategyBookDesk({
       return {
         departmentName: dept.name,
         versionLabel: draft.kind === 'initial' ? `版 ${draft.version}・AIたたき台・未確定` : `版 ${draft.version}・6問反映後の再生成版・未確定`,
-        mission: docText('mission').join('\n') || null,
-        strategicRole: docText('strategicRole').join('\n') || null,
-        keyIssues: docText('keyIssues'),
+        texts: {
+          mission: docText('mission'),
+          missionDescription: docText('missionDescription'),
+          currentPosition: docText('currentPosition'),
+          strategicRole: docText('strategicRole'),
+          keyIssues: docText('keyIssues'),
+          intraCollab: collabIntra,
+          interCollab: collabInter,
+          alignmentRiskPoints: docText('alignmentRiskPoints'),
+          reviewSummary: docText('reviewSummary'),
+          stopList: docText('stopList'),
+          riskNotes: docText('riskNotes'),
+        },
         projects,
-        interCollab: collabInter,
-        adjustmentPoints: [...docText('reviewSummary'), ...linesOf(selOf('collab')?.proposed.needsCollab)],
       };
     };
     const initialDoc = docFor(latestInitial);
     const regenDoc = docFor(latestRegen);
     const currentDoc = docFor(latestRegen ?? latestInitial);
+    /* 文書の項目を、その場で編集する。保存すると作業内容へ入り、確定したときだけ正式データへ反映される。 */
+    const docEdit = (section: TextItemKey): SectionEdit => {
+      const specs: Record<TextItemKey, { item: DeptProposalItem; field: string; lines: boolean }> = {
+        mission: { item: 'mission', field: 'mission', lines: false },
+        missionDescription: { item: 'missionDescription', field: 'missionDescription', lines: false },
+        currentPosition: { item: 'currentPosition', field: 'currentPosition', lines: false },
+        strategicRole: { item: 'strategicRole', field: 'strategicRole', lines: false },
+        keyIssues: { item: 'keyIssues', field: 'keyIssues', lines: true },
+        intraCollab: { item: 'collab', field: 'intraDeptCollab', lines: true },
+        interCollab: { item: 'collab', field: 'interDeptCollab', lines: true },
+        alignmentRiskPoints: { item: 'alignmentRiskPoints', field: 'alignmentRiskPoints', lines: true },
+        reviewSummary: { item: 'reviewSummary', field: 'reviewSummary', lines: true },
+        stopList: { item: 'stopList', field: 'stopList', lines: true },
+        riskNotes: { item: 'riskNotes', field: 'riskNotes', lines: true },
+      };
+      const spec = specs[section];
+      const editKey = `${key}|${spec.item}|${spec.field}`;
+      const currentText = section === 'intraCollab' ? collabIntra.join('\n')
+        : section === 'interCollab' ? collabInter.join('\n')
+        : linesOf(sels.find((x) => x.item === spec.item)?.proposed[DEPT_PROPOSAL_ITEMS[spec.item].keys[0]]).join(spec.lines ? '\n' : '');
+      const editing = fieldEdit?.key === editKey;
+      return {
+        action: editing ? null : (
+          <Button variant="outline" onClick={() => startFieldEdit(editKey, currentText)} disabled={!canOperate} className="rounded-full h-7 px-3 text-xs">
+            編集
+          </Button>
+        ),
+        editor: editing ? (
+          <div className="space-y-2">
+            <textarea
+              value={fieldEdit?.text ?? ''}
+              onChange={(e) => setFieldEdit({ key: editKey, text: e.target.value })}
+              rows={spec.lines ? 5 : 3}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm leading-7"
+            />
+            <div className="flex gap-2">
+              <Button onClick={() => commitFieldEdit(dept, spec.item, spec.lines, spec.field)} className="rounded-full h-8 px-3 text-xs">保存</Button>
+              <Button variant="outline" onClick={() => setFieldEdit(null)} className="rounded-full h-8 px-3 text-xs">取り消す</Button>
+            </div>
+          </div>
+        ) : null,
+      };
+    };
+    const regenEdit: Partial<Record<TextItemKey, SectionEdit>> | undefined = regenDoc
+      ? (Object.fromEntries(
+          (['mission', 'missionDescription', 'currentPosition', 'strategicRole', 'keyIssues', 'intraCollab', 'interCollab', 'alignmentRiskPoints', 'reviewSummary', 'stopList', 'riskNotes'] as TextItemKey[])
+            .map((k) => [k, docEdit(k)]),
+        ) as Partial<Record<TextItemKey, SectionEdit>>)
+      : undefined;
     const isOpen = (...phases: Phase[]) => phases.includes(effective);
     const sectionClass = 'rounded-xl border border-zinc-200 bg-white';
     const summaryClass = 'border-b border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900';
@@ -993,7 +1072,7 @@ export function StrategyBookDesk({
           <div className="space-y-6 border-t px-4 py-4">
             {regenDoc && (
               <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6 md:px-8">
-                <StrategyBookDocument {...regenDoc} />
+                <StrategyBookDocument {...regenDoc} edit={regenEdit} />
               </div>
             )}
             {!progress.hasRegen ? (
@@ -1002,7 +1081,7 @@ export function StrategyBookDesk({
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-gray-600">
-                    版 {latestRegen?.version}（再生成・未確定）。直したい項目だけ「編集」で修正し、採否を選んでください。
+                    版 {latestRegen?.version}（再生成・未確定）。直したい項目は「編集」で直せます。保存した内容は、確定すると戦略書に反映されます。
                   </p>
                   <details className="rounded-lg bg-zinc-50 px-3 py-2 text-xs">
                     <summary className="cursor-pointer font-semibold">旧版（現在の戦略）と比べる</summary>
@@ -1017,137 +1096,6 @@ export function StrategyBookDesk({
                       ))}
                     </div>
                   </details>
-                </div>
-
-                {/* 文書の各項目 */}
-                {DOC_FIELDS.map((f) => {
-                  const sel = selOf(f.item);
-                  const keyName = DEPT_PROPOSAL_ITEMS[f.item].keys[0];
-                  const currentText = linesOf(baseOf(f.item)[keyName]).join(f.lines ? '\n' : '');
-                  const proposedText = sel ? linesOf(sel.proposed[keyName]).join(f.lines ? '\n' : '') : '';
-                  const shown = proposedText || currentText;
-                  const editKey = `${key}|${f.item}|${keyName}`;
-                  return (
-                    <div key={f.item} className="rounded-xl border border-zinc-200 p-4 space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold">{f.label}</span>
-                        <span className="text-xs text-gray-500">{f.hint}</span>
-                        {sel && <Chip tone={sel.decision === 'applied' ? 'ok' : 'neutral'}>{DECISION_LABEL[sel.decision]}</Chip>}
-                        {fieldEdit?.key !== editKey && (
-                          <Button
-                            variant="outline"
-                            onClick={() => startFieldEdit(editKey, shown)}
-                            disabled={!canOperate}
-                            className="ml-auto rounded-full h-7 px-3 text-xs"
-                          >
-                            編集
-                          </Button>
-                        )}
-                      </div>
-                      {fieldEdit?.key === editKey ? (
-                        <div className="space-y-2">
-                          <textarea
-                            value={fieldEdit.text}
-                            onChange={(e) => setFieldEdit({ key: editKey, text: e.target.value })}
-                            rows={f.lines ? 5 : 3}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                          />
-                          <div className="flex gap-2">
-                            <Button onClick={() => commitFieldEdit(dept, f.item, f.lines, keyName)} className="rounded-full h-8 px-3 text-xs">
-                              保存
-                            </Button>
-                            <Button variant="outline" onClick={() => setFieldEdit(null)} className="rounded-full h-8 px-3 text-xs">
-                              取り消す
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="whitespace-pre-wrap text-sm leading-6">{shown || '（未設定）'}</p>
-                      )}
-                      {sel && (
-                        <div className="flex flex-wrap gap-2">
-                          {(['applied', 'deferred', 'discarded'] as const).map((d) => (
-                            <Button
-                              key={d}
-                              variant={sel.decision === d ? 'primary' : 'outline'}
-                              onClick={() => decideSelection(sel, d)}
-                              disabled={!canOperate}
-                              className="rounded-full h-7 px-3 text-xs"
-                            >
-                              {DECISION_LABEL[d]}
-                            </Button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {/* 事業内・事業間の連携（1つの変更案としてまとめる） */}
-                <div className="rounded-xl border border-zinc-200 p-4 space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold">事業内の連携・事業間の連携</span>
-                    <span className="text-xs text-gray-500">他の事業・部門と、どこで協力するか</span>
-                    {selOf('collab') && <Chip tone={selOf('collab')!.decision === 'applied' ? 'ok' : 'neutral'}>{DECISION_LABEL[selOf('collab')!.decision]}</Chip>}
-                  </div>
-                  {(['intraDeptCollab', 'interDeptCollab'] as const).map((field) => {
-                    const label = field === 'intraDeptCollab' ? '事業内の連携' : '他の事業・部門との連携・調整事項';
-                    const value = field === 'intraDeptCollab' ? collabIntra : collabInter;
-                    const editKey = `${key}|collab|${field}`;
-                    return (
-                      <div key={field} className="space-y-1">
-                        <div className="text-xs font-semibold text-gray-700">{label}</div>
-                        {fieldEdit?.key === editKey ? (
-                          <div className="space-y-2">
-                            <textarea
-                              value={fieldEdit.text}
-                              onChange={(e) => setFieldEdit({ key: editKey, text: e.target.value })}
-                              rows={4}
-                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                              placeholder="1行に1項目"
-                            />
-                            <div className="flex gap-2">
-                              <Button onClick={() => commitFieldEdit(dept, 'collab', true, field)} className="rounded-full h-8 px-3 text-xs">
-                                保存
-                              </Button>
-                              <Button variant="outline" onClick={() => setFieldEdit(null)} className="rounded-full h-8 px-3 text-xs">
-                                取り消す
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap items-start gap-3">
-                            <ul className="list-disc pl-5 text-sm leading-6">
-                              {value.length > 0 ? value.map((x, idx) => <li key={idx}>{x}</li>) : <li>（未設定）</li>}
-                            </ul>
-                            <Button
-                              variant="outline"
-                              onClick={() => startFieldEdit(editKey, value.join('\n'))}
-                              disabled={!canOperate}
-                              className="rounded-full h-7 px-3 text-xs"
-                            >
-                              編集
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {selOf('collab') && (
-                    <div className="flex flex-wrap gap-2">
-                      {(['applied', 'deferred', 'discarded'] as const).map((d) => (
-                        <Button
-                          key={d}
-                          variant={selOf('collab')!.decision === d ? 'primary' : 'outline'}
-                          onClick={() => decideSelection(selOf('collab')!, d)}
-                          disabled={!canOperate}
-                          className="rounded-full h-7 px-3 text-xs"
-                        >
-                          {DECISION_LABEL[d]}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 {/* プロジェクト：既存（保護）と新規候補。まず一覧、詳細は展開して確認 */}
@@ -1313,7 +1261,7 @@ export function StrategyBookDesk({
             {progress.deptConfirmed ? (
               <>
                 <p className="text-xs text-gray-600">確定済みの、この部門の戦略書だけがPDFになります。</p>
-                <Button variant="outline" onClick={() => onExportDepartment(dept.name)} disabled={isBusy} className="rounded-full h-8 px-3">
+                <Button variant="outline" onClick={() => onExportDepartment(dept.name, state.confirmed?.confirmedAt)} disabled={isBusy} className="rounded-full h-8 px-3">
                   この部門の戦略書をPDF出力
                 </Button>
               </>

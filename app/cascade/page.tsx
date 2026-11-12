@@ -2134,7 +2134,7 @@ function CascadePageContent() {
   );
 
   /* ===== PDF Export ===== */
-  const { exportToPdf: stage3ExportToPdf } = useStage3PdfExport();
+  const { exportDepartmentStrategyBookPdf: stage3ExportDeptBookPdf } = useStage3PdfExport();
 
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
@@ -4085,7 +4085,7 @@ useEffect(() => {
         prepareRegeneration={prepareRegenerationForDept}
         renderSixQuestions={renderDeptSixQuestions}
         onConfirmed={(message) => refreshAfterWrite(message)}
-        onExportDepartment={(name) => stage3ExportToPdf({ departmentName: name })}
+        onExportDepartment={(name, confirmedAt) => stage3ExportDeptBookPdf({ departmentName: name, confirmedAt })}
         onAddDepartment={addDepartmentFromDesk}
         onRenameDepartment={renameDepartmentFromDesk}
         onDeleteDepartment={deleteDepartmentFromDesk}

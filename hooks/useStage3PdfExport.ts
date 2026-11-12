@@ -10,10 +10,50 @@
 import { useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { buildStage3ReportData } from '@/utils/export/buildStage3ReportData';
+import { buildDeptStrategyBookPdfData } from '@/utils/export/buildDeptStrategyBookPdf';
 import {
   downloadPdfFromElement,
   generatePdfFileName,
 } from '@/utils/export/downloadPdf';
+
+/** 事業・部門戦略書（確定版）のPDF出力。確定済みの正式データだけを使い、データは変更しない。 */
+export async function exportDeptStrategyBookPdf(
+  state: { companyName?: unknown; departments?: unknown },
+  options: { departmentName: string; confirmedAt?: string },
+): Promise<void> {
+  const data = buildDeptStrategyBookPdfData(state, options.departmentName, options.confirmedAt);
+  if (!data) throw new Error('department_not_found');
+
+  const { DeptStrategyBookPdfView } = await import('@/components/export/DeptStrategyBookPdfView');
+  const { createRoot } = await import('react-dom/client');
+  const React = await import('react');
+
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '0';
+  container.style.top = '0';
+  container.style.zIndex = '99999';
+  container.style.pointerEvents = 'none';
+  container.style.background = '#ffffff';
+  const root = document.createElement('div');
+  container.appendChild(root);
+  document.body.appendChild(container);
+  const reactRoot = createRoot(root);
+  try {
+    reactRoot.render(React.createElement(DeptStrategyBookPdfView, { data }));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))));
+    await downloadPdfFromElement('dept-strategy-book-pdf', `GROWTHSHIFT_${data.departmentName}_事業戦略書`, {
+      margin: [10, 10, 14, 10],
+      jsPDF: { orientation: 'p', unit: 'mm', format: 'a4' },
+      image: { type: 'jpeg', quality: 0.92 },
+      avoidBreakSelector: '.report-section, .report-card, .report-h2, .report-h3, .report-text, .report-list',
+      footer: (pageNo, pageCount) => `${pageNo} / ${pageCount}`,
+    });
+  } finally {
+    reactRoot.unmount();
+    container.remove();
+  }
+}
 
 /**
  * STAGE3 PDF エクスポート用カスタムフック
@@ -117,5 +157,10 @@ export function useStage3PdfExport() {
     }
   }, [state]);
 
-  return { exportToPdf };
+  const exportDepartmentStrategyBookPdf = useCallback(
+    (options: { departmentName: string; confirmedAt?: string }) => exportDeptStrategyBookPdf(state, options),
+    [state],
+  );
+
+  return { exportToPdf, exportDepartmentStrategyBookPdf };
 }
