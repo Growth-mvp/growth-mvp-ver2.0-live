@@ -10,6 +10,12 @@ import { sanitizeText } from '@/app/api/_shared/utils';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { AI_MODELS, MODEL_CONFIGURATIONS } from '@/lib/modelConfig';
+import {
+  questionOutputProblem,
+  QUESTION_FAILURE_MESSAGE,
+  type QuestionModelOutput,
+} from '@/lib/cascade/deptQuestionOutput';
 
 /** 1..6 の固定ステップ（Ver4） */
 type StepNumber = 1 | 2 | 3 | 4 | 5 | 6;
@@ -165,20 +171,31 @@ const SYSTEM = `
 - 箇条書きやMarkdown、コードフェンス禁止
 `.trim();
 
+function toModelOutput(ai: any): QuestionModelOutput {
+  const choice = ai?.choices?.[0];
+  return {
+    text: typeof choice?.message?.content === 'string' ? choice.message.content : '',
+    finishReason: choice?.finish_reason ?? null,
+    refusal: !!choice?.message?.refusal,
+    completionTokens: ai?.usage?.completion_tokens ?? null,
+    reasoningTokens: ai?.usage?.completion_tokens_details?.reasoning_tokens ?? null,
+  };
+}
+
 async function callOpenAIWithRetry(
   messages: { role: 'system' | 'user'; content: string }[],
   tries = 3,
-  opts?: { temperature?: number; max_tokens?: number }
+  opts: { temperature?: number; maxCompletionTokens: number; signal?: AbortSignal },
 ) {
   let lastErr: any;
   for (let i = 0; i < tries; i++) {
     try {
       const ai = await openai.chat.completions.create({
-        model: 'gpt-6-luna',
+        model: AI_MODELS.lightweight,
         response_format: { type: 'json_object' },
-        max_completion_tokens: opts?.max_tokens ?? 360,
+        max_completion_tokens: opts.maxCompletionTokens,
         messages,
-      });
+      }, opts.signal ? { signal: opts.signal } : undefined);
       return ai;
     } catch (e: any) {
       lastErr = e;
@@ -226,7 +243,7 @@ async function rewriteForConstraints(payload: {
       { role: 'user', content: prompt },
     ],
     2,
-    { temperature: 0.25, max_tokens: 260 }
+    { temperature: 0.25, maxCompletionTokens: MODEL_CONFIGURATIONS.deptQuestionRewrite.maxCompletionTokens },
   );
   const raw = fix.choices?.[0]?.message?.content ?? '';
   const parsed = safeJsonFromText<any>(raw);
@@ -424,44 +441,52 @@ seed: ${guide.seed}
 → seedの意味を保持しつつ、summary・業種・部門文脈・財務状況と整合する「単一の問い」をJSONで返してください。
 `.trim();
 
-    // OpenAI 呼び出し
+    // OpenAI 呼び出し（上限・モデルは config/models.json の deptQuestion）。全体で55秒を超えたら中断する
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 55_000);
-
-    let ai;
+    const questionMessages: { role: 'system' | 'user'; content: string }[] = [
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: userContent },
+    ];
+    const budget = MODEL_CONFIGURATIONS.deptQuestion.maxCompletionTokens;
+    let out: QuestionModelOutput;
     try {
-      ai = await callOpenAIWithRetry(
-        [
-          { role: 'system', content: SYSTEM },
-          { role: 'user', content: userContent },
-        ],
-        3,
-        { temperature: 0.25, max_tokens: 380 },
-      );
+      out = toModelOutput(await callOpenAIWithRetry(questionMessages, 3, { temperature: 0.25, maxCompletionTokens: budget, signal: controller.signal }));
+      // 推論などで上限を使い切り、本文が空のまま途中で止まった場合だけ、上限を2倍にして1回だけ再試行する
+      if (!out.text.trim() && out.finishReason === 'length') {
+        out = toModelOutput(await callOpenAIWithRetry(questionMessages, 3, { temperature: 0.25, maxCompletionTokens: budget * 2, signal: controller.signal }));
+      }
     } catch (e: any) {
-      clearTimeout(timer);
       const status = Number(e?.status ?? e?.code ?? 500);
-      const message = e?.message || 'OpenAI error';
-      return new NextResponse(JSON.stringify({ error: message }), {
-        status: status === 429 ? 429 : 502,
-        headers: routeHeaders,
-      });
+      console.error('[dept-question] OpenAI call failed', { status, message: e?.message ?? String(e) });
+      return new NextResponse(
+        JSON.stringify({ error: 'question_generation_failed', reason: 'openai_error', message: QUESTION_FAILURE_MESSAGE }),
+        { status: status === 429 ? 429 : 502, headers: routeHeaders },
+      );
     } finally {
       clearTimeout(timer);
     }
 
-    const raw = ai?.choices?.[0]?.message?.content ?? '';
-    let parsed = safeJsonFromText<any>(raw);
+    const parsed = safeJsonFromText<any>(out.text);
+    const problem = questionOutputProblem(out, parsed);
+    if (problem) {
+      console.warn('[dept-question] no usable model output', {
+        problem,
+        finishReason: out.finishReason,
+        refusal: out.refusal,
+        completionTokens: out.completionTokens,
+        reasoningTokens: out.reasoningTokens,
+        textLength: out.text.length,
+        budget,
+      });
+      return new NextResponse(
+        JSON.stringify({ error: 'question_generation_failed', reason: problem, message: QUESTION_FAILURE_MESSAGE }),
+        { status: 502, headers: routeHeaders },
+      );
+    }
     let q = (parsed?.question ?? '').trim();
     let r = (parsed?.reason ?? '').trim();
     let h = (parsed?.hint ?? '').trim();
-
-    if (!q || !r) {
-      return new NextResponse(JSON.stringify({ error: 'Invalid JSON from model', raw }), {
-        status: 502,
-        headers: routeHeaders,
-      });
-    }
 
     // 長さ・単一トピック・具体化の簡易チェック → 必要に応じリライト
     if (needsRewrite(q, r, h)) {

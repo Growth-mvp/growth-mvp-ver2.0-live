@@ -98,6 +98,16 @@
       "modelRole": "reasoning",
       "maxCompletionTokens": 6000,
       "jsonMode": true
+    },
+    "deptQuestion": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 2000,
+      "jsonMode": true
+    },
+    "deptQuestionRewrite": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 1000,
+      "jsonMode": true
     }
   }
 }

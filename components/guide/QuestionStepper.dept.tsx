@@ -5,6 +5,21 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAccess } from '@/utils/access'; // ★ 編集ガード
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
+import { QUESTION_FAILURE_MESSAGE } from '@/lib/cascade/deptQuestionOutput';
+
+/** 利用者に見せるエラーの文言。内部のエラー文字列（生の応答など）は見せない。 */
+function questionErrorMessage(e: unknown): string {
+  if (e instanceof AuthFetchError && e.status === 401) return 'セッションが切れています。ログインし直してください。';
+  if (e instanceof AuthFetchError && e.bodyText) {
+    try {
+      const body = JSON.parse(e.bodyText) as { message?: unknown };
+      if (typeof body?.message === 'string' && body.message.trim() !== '') return body.message;
+    } catch {
+      /* 本文が JSON でなければ、既定の案内を使う */
+    }
+  }
+  return QUESTION_FAILURE_MESSAGE;
+}
 
 export type StepNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -299,13 +314,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         setShowHint(false);
       } catch (e: any) {
         if (e?.name !== 'AbortError') {
-          const msg =
-            e instanceof AuthFetchError
-              ? e.status === 401
-                ? 'セッションが切れています。ログインし直してください。'
-                : e.bodyText || e.message
-              : e?.message || 'エラーが発生しました';
-          setErrorMsg(msg);
+          setErrorMsg(questionErrorMessage(e));
         }
       } finally {
         inFlightRef.current = false;
@@ -466,7 +475,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   return (
     <div className="w-full space-y-6">
       {/* Ver4 summary（任意表示） */}
-      {(direction || expectations.length || focusThemes.length) && (
+      {(direction || expectations.length > 0 || focusThemes.length > 0) && (
         <div className="rounded-2xl border border-gray-300 bg-white shadow-sm">
           <div className="p-4 border-b border-gray-200 text-sm font-semibold tracking-[0.02em] text-gray-900">AIたたき台（方向性）</div>
           <div className="p-4 space-y-3 text-sm leading-6 text-gray-700">
