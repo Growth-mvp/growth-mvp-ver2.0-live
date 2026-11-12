@@ -5,8 +5,15 @@ import { Button } from '@/components/ui/button';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { ADJUSTMENT_KIND_LABEL, departmentKeyOf, type AdjustmentCandidate, type DialogueResult } from '@/lib/cascade/stage3Adjustment';
 import { DEPT_PROPOSAL_ITEMS, type DeptProposal, type DeptProposalItem } from '@/lib/cascade/stage3Candidates';
-import { draftDepartmentsFrom, selectionsFrom } from '@/lib/cascade/stage3Draft';
-import { emptyWorkspaceState, MAX_DRAFTS, type Selection, type StrategyDraft, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
+import { draftDepartmentsFrom, newProjectCandidatesFrom, projectSelectionsFrom, selectionsFrom } from '@/lib/cascade/stage3Draft';
+import {
+  emptyWorkspaceState,
+  MAX_DRAFTS,
+  type ProjectSelection,
+  type Selection,
+  type StrategyDraft,
+  type WorkspaceState,
+} from '@/lib/cascade/stage3StrategyBook';
 import type { Department } from '@/types/strategy';
 
 type AnyRecord = Record<string, unknown>;
@@ -47,7 +54,7 @@ type RegenerateResponse = {
   departments: Array<{ departmentKey: string; departmentName: string; proposals: DeptProposal[] }>;
   rejectedDepartments: number;
 };
-type ConfirmResponse = { ok: true; revision: number; version: number; appliedCount: number; assignedProjectIds: number };
+type ConfirmResponse = { ok: true; revision: number; version: number; appliedCount: number; adoptedProjectIds: string[] };
 
 const ERROR_MESSAGE: Record<string, string> = {
   unauthorized: '認証できませんでした。再ログインしてください。',
@@ -100,6 +107,19 @@ const newDraftId = () => `draft-${Date.now().toString(36)}${Math.random().toStri
 
 const DECISION_LABEL = { applied: '反映する', deferred: '保留', discarded: '反映しない', pending: '未判断' } as const;
 const CANDIDATE_LABEL = { adopted: '採用', deferred: '保留', rejected: '不採用' } as const;
+const PROJECT_DECISION_LABEL = { applied: '採用', deferred: '保留', discarded: '不採用', pending: '未判断' } as const;
+
+function projectSummaryOf(state: WorkspaceState, candidateId: string): string {
+  for (const draft of state.drafts) {
+    const hit = draft.newProjects.find((np) => np.candidateId === candidateId);
+    if (!hit) continue;
+    const text = ['reason', 'description', 'hypothesis']
+      .map((k) => hit.project[k])
+      .find((v): v is string => typeof v === 'string' && v.trim() !== '');
+    return text ?? '';
+  }
+  return '';
+}
 
 /** 変更案のうち、利用者が文字として編集できる項目（文字列、または文字列の配列）。 */
 function editableFields(proposed: AnyRecord): Array<{ key: string; lines: boolean }> {
@@ -211,15 +231,14 @@ export function StrategyBookPanel({
         return;
       }
       const official = departments as unknown as AnyRecord[];
+      const candidateProjects = Object.fromEntries(Object.entries(generated).map(([k, r]) => [k, r.projects]));
       const draft: StrategyDraft = {
         draftId: newDraftId(),
         kind,
         version: nextDraftVersion(state),
         createdAt: new Date().toISOString(),
-        departments: draftDepartmentsFrom(
-          official,
-          Object.fromEntries(Object.entries(generated).map(([k, r]) => [k, r.projects])),
-        ),
+        departments: draftDepartmentsFrom(official, candidateProjects),
+        newProjects: newProjectCandidatesFrom(official, candidateProjects),
       };
       const proposals = Object.fromEntries(Object.entries(generated).map(([k, r]) => [k, r.proposals]));
       const next = reopen({
@@ -229,6 +248,7 @@ export function StrategyBookPanel({
         candidateDecisions: {},
         dialogue: [],
         selections: selectionsFrom(official, proposals, state.selections),
+        projectSelections: projectSelectionsFrom(official, draft.newProjects, state.projectSelections),
       });
       if (!(await save(next))) return;
       setNotice(
@@ -367,6 +387,17 @@ export function StrategyBookPanel({
     await save(reopen({ ...state, candidateDecisions: { ...state.candidateDecisions, [id]: decision } }));
   };
 
+  const decideProject = async (target: ProjectSelection, decision: ProjectSelection['decision']) => {
+    await save(
+      reopen({
+        ...state,
+        projectSelections: state.projectSelections.map((p) =>
+          p.candidateId === target.candidateId ? { ...p, decision } : p,
+        ),
+      }),
+    );
+  };
+
   const decideSelection = async (target: Selection, decision: Selection['decision']) => {
     const key = selectionKey(target);
     await save(
@@ -402,6 +433,11 @@ export function StrategyBookPanel({
       setNotice(`未判断の変更案が${pending}件あります。反映・保留・反映しないのいずれかを選んでください。`);
       return;
     }
+    const pendingProjects = state.projectSelections.filter((p) => p.decision === 'pending').length;
+    if (pendingProjects > 0) {
+      setNotice(`未判断の新規プロジェクトが${pendingProjects}件あります。採用・保留・不採用のいずれかを選んでください。`);
+      return;
+    }
     if (undecided > 0) {
       setNotice(`未判断の調整候補が${undecided}件あります。採用・保留・不採用のいずれかを選んでください。`);
       return;
@@ -422,7 +458,7 @@ export function StrategyBookPanel({
       });
       await load();
       await onConfirmed(
-        `✅ 戦略書を確定しました（反映${res.appliedCount}件${res.assignedProjectIds > 0 ? `・計画IDの付与${res.assignedProjectIds}件` : ''}）。`,
+        `✅ 戦略書を確定しました（変更案の反映${res.appliedCount}件・新規プロジェクトの追加${res.adoptedProjectIds.length}件）。`,
       );
     } catch (e) {
       const code = errorCode(e);
@@ -650,6 +686,43 @@ export function StrategyBookPanel({
           </div>
         )}
       </section>
+
+      {/* 4b. 新規プロジェクトの採否（採用されたものだけ、確定時に正式な部門へ追加される） */}
+      {state.projectSelections.length > 0 && (
+        <section className="space-y-3">
+          <h3 className="text-base font-semibold">新規プロジェクトの採否</h3>
+          <p className="text-xs text-gray-600">
+            再生成で出た新しいプロジェクトです。採用したものだけ、確定時に正式な部門戦略へ追加されます。未採用の案は正式データに入りません。
+          </p>
+          {state.projectSelections.map((p) => {
+            const summary = projectSummaryOf(state, p.candidateId);
+            return (
+              <div key={p.candidateId} className="rounded-2xl border border-zinc-200 px-4 py-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold">
+                    {p.departmentName}：{p.title}
+                  </span>
+                  <span className="ml-auto text-xs font-semibold text-gray-700">{PROJECT_DECISION_LABEL[p.decision]}</span>
+                </div>
+                {summary && <p className="text-xs leading-5 text-gray-700">{summary}</p>}
+                <div className="flex flex-wrap gap-2">
+                  {(['applied', 'deferred', 'discarded'] as const).map((d) => (
+                    <Button
+                      key={d}
+                      variant={p.decision === d ? 'primary' : 'outline'}
+                      onClick={() => decideProject(p, d)}
+                      disabled={!canOperate}
+                      className="rounded-full h-8 px-3"
+                    >
+                      {PROJECT_DECISION_LABEL[d]}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {/* 5. 確定 */}
       <section className="space-y-3 border-t pt-6">

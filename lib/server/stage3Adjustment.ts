@@ -42,7 +42,7 @@ export async function loadStrategyAccess(
 
   const strategy = await admin
     .from('strategy_data')
-    .select('id, company_id, revision, departments, stage2_final_document_edits')
+    .select('id, company_id, revision, departments, stage2_final_document_edits, final_story_final')
     .eq('id', ids.strategyId)
     .maybeSingle();
   if (strategy.error) return { ok: false, status: 503, error: 'strategy_check_unavailable' };
@@ -61,7 +61,12 @@ export async function loadStrategyAccess(
       strategyId: ids.strategyId,
       revision: Number(strategy.data.revision ?? 0),
       departments: strategy.data.departments,
-      companyStrategy: confirmed?.conclusion ? formatCompanyStrategy(confirmed) : null,
+      companyStrategy: confirmed?.conclusion
+        ? formatCompanyStrategy({
+            ...confirmed,
+            story: Array.isArray(strategy.data.final_story_final) ? strategy.data.final_story_final : null,
+          })
+        : null,
     },
   };
 }

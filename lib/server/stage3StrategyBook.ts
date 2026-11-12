@@ -65,3 +65,47 @@ export async function saveWorkspace(
   if (!data || data.length === 0) return { ok: false, status: 409, error: 'version_conflict' };
   return { ok: true, version: args.expectedVersion + 1 };
 }
+
+const CONFIRM_ERRORS: Array<[string, number, string]> = [
+  ['insufficient_role', 403, 'insufficient_role'],
+  ['strategy_mismatch', 403, 'strategy_mismatch'],
+  ['revision_changed', 409, 'revision_changed'],
+  ['version_conflict', 409, 'version_conflict'],
+  ['invalid_state', 400, 'invalid_state'],
+  ['invalid_departments', 400, 'invalid_departments'],
+];
+
+/**
+ * 確定を、DBの1つのトランザクション（stage3_confirm_strategy_book）で書く。
+ * 途中で失敗した場合、関数の中で行われた書き込みはすべて取り消される（正式データも作業状態も変わらない）。
+ */
+export async function confirmAtomically(
+  admin: SupabaseClient,
+  args: {
+    companyId: string;
+    strategyId: string;
+    actorUserId: string;
+    expectedRevision: number;
+    expectedVersion: number;
+    departments: unknown[];
+    state: WorkspaceState;
+  },
+): Promise<{ ok: true; revision: number; version: number } | Failure> {
+  const { data, error } = await admin.rpc('stage3_confirm_strategy_book', {
+    p_company_id: args.companyId,
+    p_strategy_id: args.strategyId,
+    p_actor_user_id: args.actorUserId,
+    p_expected_revision: args.expectedRevision,
+    p_expected_version: args.expectedVersion,
+    p_departments: args.departments,
+    p_state: args.state,
+  });
+  if (error) {
+    const message = String(error.message ?? '');
+    const known = CONFIRM_ERRORS.find(([needle]) => message.includes(needle));
+    if (known) return { ok: false, status: known[1], error: known[2] };
+    return { ok: false, status: 503, error: 'confirm_failed' };
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as { revision?: unknown; version?: unknown } | null;
+  return { ok: true, revision: Number(row?.revision), version: Number(row?.version) };
+}

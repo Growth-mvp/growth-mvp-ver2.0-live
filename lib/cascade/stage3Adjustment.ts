@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { buildDeptProposals, type DeptProposal } from '@/lib/cascade/stage3Candidates';
+import { buildDeptProposals, currentItemValues, type DeptProposal } from '@/lib/cascade/stage3Candidates';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -97,22 +97,38 @@ export function countDepartments(units: PlanUnit[]): number {
   return new Set(units.map((u) => u.departmentKey)).size;
 }
 
+const MAX_STORY_TEXT = 12_000;
+
+/**
+ * 全社戦略を、分析・再生成に渡す文章にする。
+ * 確定した戦略の全文（章ごと）と、結論、判断の前提（外部・内部・含意）をすべて含める。
+ */
 export function formatCompanyStrategy(input: {
   conclusion?: string;
   assumptions?: { external?: string[]; internal?: string[]; implications?: string[] };
+  story?: Array<{ title?: string; body?: string }> | null;
 }): string {
   const lines: string[] = [];
   if (input.conclusion?.trim()) lines.push(`結論: ${input.conclusion.trim()}`);
   const groups: Array<[string, string[] | undefined]> = [
-    ['外部環境の前提', input.assumptions?.external],
-    ['内部の前提', input.assumptions?.internal],
-    ['戦略上の含意', input.assumptions?.implications],
+    ['外部環境の前提（判断基準）', input.assumptions?.external],
+    ['内部の前提（判断基準）', input.assumptions?.internal],
+    ['戦略上の含意（判断基準）', input.assumptions?.implications],
   ];
   for (const [label, items] of groups) {
     const list = (items ?? []).map((s) => s.trim()).filter(Boolean);
     if (list.length > 0) lines.push(`${label}: ${list.join(' / ')}`);
   }
-  return lines.join('\n');
+  const chapters = (input.story ?? [])
+    .map((c) => ({ title: (c.title ?? '').trim(), body: (c.body ?? '').trim() }))
+    .filter((c) => c.title || c.body);
+  if (chapters.length > 0) {
+    lines.push('');
+    lines.push('確定した戦略ストーリー（全文）:');
+    for (const c of chapters) lines.push(`## ${c.title}\n${c.body}`);
+  }
+  const text = lines.join('\n');
+  return text.length > MAX_STORY_TEXT ? `${text.slice(0, MAX_STORY_TEXT)}…` : text;
 }
 
 export function formatPlanUnits(units: PlanUnit[]): string {
@@ -409,6 +425,23 @@ export type DepartmentRegenerationProposals = {
 };
 
 /**
+ * 連携の項目は、部門内・部門横断・両方の3つの値をそろえないと確定できない。
+ * 出力に含まれなかった値は現在の値のままにし、両方の合計は部門内と部門横断から作る。
+ */
+function completeGenerated(dept: AnyRecord, generated: AnyRecord): AnyRecord {
+  const out: AnyRecord = { ...generated };
+  const touchesCollab =
+    generated.intraDeptCollab !== undefined || generated.interDeptCollab !== undefined || generated.needsCollab !== undefined;
+  if (!touchesCollab) return out;
+  const current = currentItemValues(dept, 'collab');
+  out.intraDeptCollab = generated.intraDeptCollab ?? current.intraDeptCollab ?? [];
+  out.interDeptCollab = generated.interDeptCollab ?? current.interDeptCollab ?? [];
+  out.needsCollab =
+    generated.needsCollab ?? [...(out.intraDeptCollab as string[]), ...(out.interDeptCollab as string[])];
+  return out;
+}
+
+/**
  * 再生成の出力を、部門ごとの変更案にする。部門は部門IDで照合する。
  * 保存済みの部門と比べて差がある項目だけを案にする。書き込みはしない（採用は利用者が選ぶ）。
  */
@@ -429,7 +462,7 @@ export function buildRegenerationProposals(
       rejectedDepartments += 1;
       continue;
     }
-    const proposals = buildDeptProposals(dept, entry.generated as AnyRecord);
+    const proposals = buildDeptProposals(dept, completeGenerated(dept, entry.generated as AnyRecord));
     if (proposals.length > 0) {
       out.push({ departmentKey: entry.departmentKey, departmentName: textOf(dept.name), proposals });
     }

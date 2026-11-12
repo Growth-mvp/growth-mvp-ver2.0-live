@@ -1,5 +1,11 @@
-import { departmentKeyOf, projectIdOf } from '@/lib/cascade/stage3Adjustment';
-import { currentItemValues, sameItemValues, validateProposalRequest } from '@/lib/cascade/stage3Candidates';
+import { departmentKeyOf } from '@/lib/cascade/stage3Adjustment';
+import {
+  collectProjectIds,
+  currentItemValues,
+  prepareAdoptedProject,
+  sameItemValues,
+  validateProposalRequest,
+} from '@/lib/cascade/stage3Candidates';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -11,26 +17,33 @@ export type ConfirmChange = {
   base: Record<string, unknown>;
 };
 
-export type ConfirmPlan =
-  | { ok: true; departments: AnyRecord[]; appliedCount: number; assignedProjectIds: number }
-  | {
-      ok: false;
-      error: 'department_missing' | 'invalid_change' | 'duplicate_change' | 'current_value_changed';
-      departmentName: string;
-      item: string;
-    };
+export type ConfirmAdoption = {
+  departmentKey: string;
+  departmentName: string;
+  project: AnyRecord;
+};
 
-const hasStableId = (p: AnyRecord) =>
-  (typeof p.id === 'string' && p.id.trim() !== '') || (typeof p.id === 'number' && Number.isFinite(p.id));
+type ConfirmError =
+  | 'department_missing'
+  | 'invalid_change'
+  | 'duplicate_change'
+  | 'current_value_changed'
+  | 'adoption_department_missing'
+  | 'invalid_project';
+
+export type ConfirmPlan =
+  | { ok: true; departments: AnyRecord[]; appliedCount: number; adoptedProjectIds: string[] }
+  | { ok: false; error: ConfirmError; departmentName: string; item: string };
 
 /**
- * 確定する変更を、正式データの全体に対して先に検証し、すべて通った時だけ次の departments を返す。
+ * 確定する変更と採用するプロジェクトを、正式データの全体に対して先に検証し、すべて通った時だけ次の departments を返す。
  * 1件でも失敗すれば何も返さない（書き込みはしない）。入力は変えない。
- * 旧データで安定IDが無い計画には、ここで ID を付ける（名称を変えても対応が切れないようにする）。
+ * 既存の計画には触れない（IDも内容も変えない）。採用する新規プロジェクトにだけ、既存と重ならない新しいIDを発行する。
  */
 export function planConfirm(args: {
   departments: unknown[];
   changes: ConfirmChange[];
+  adoptions?: ConfirmAdoption[];
   mintId: () => string;
 }): ConfirmPlan {
   const original = args.departments as AnyRecord[];
@@ -38,12 +51,7 @@ export function planConfirm(args: {
   const seen = new Set<string>();
 
   for (const c of args.changes) {
-    const fail = (error: 'department_missing' | 'invalid_change' | 'duplicate_change' | 'current_value_changed') => ({
-      ok: false as const,
-      error,
-      departmentName: c.departmentName,
-      item: c.item,
-    });
+    const fail = (error: ConfirmError) => ({ ok: false as const, error, departmentName: c.departmentName, item: c.item });
     const index = original.findIndex((d) => d && typeof d === 'object' && departmentKeyOf(d) === c.departmentKey);
     if (index < 0) return fail('department_missing');
     const request = validateProposalRequest(c.item, c.proposed, c.base);
@@ -55,20 +63,21 @@ export function planConfirm(args: {
     next[index] = { ...next[index], ...c.proposed };
   }
 
-  let assignedProjectIds = 0;
-  for (const dept of next) {
-    if (!Array.isArray(dept.projects)) continue;
-    dept.projects = (dept.projects as AnyRecord[]).map((p) => {
-      if (!p || typeof p !== 'object' || hasStableId(p)) return p;
-      assignedProjectIds += 1;
-      return { ...p, id: args.mintId() };
-    });
+  const taken = collectProjectIds(original);
+  const adoptedProjectIds: string[] = [];
+  for (const a of args.adoptions ?? []) {
+    const fail = (error: ConfirmError) => ({ ok: false as const, error, departmentName: a.departmentName, item: 'project' });
+    const index = original.findIndex((d) => d && typeof d === 'object' && departmentKeyOf(d) === a.departmentKey);
+    if (index < 0) return fail('adoption_department_missing');
+    if (typeof a.project.title !== 'string' || a.project.title.trim() === '') return fail('invalid_project');
+    const prepared = prepareAdoptedProject(a.project, args.mintId, taken);
+    if (!prepared.ok) return fail('invalid_project');
+    const id = String(prepared.project.id);
+    taken.add(id);
+    adoptedProjectIds.push(id);
+    const list = Array.isArray(next[index].projects) ? (next[index].projects as AnyRecord[]) : [];
+    next[index] = { ...next[index], projects: [...list, prepared.project] };
   }
 
-  return { ok: true, departments: next, appliedCount: args.changes.length, assignedProjectIds };
-}
-
-/** 付与後の安定ID（確認用）。 */
-export function stableProjectKey(project: AnyRecord): string {
-  return projectIdOf(project);
+  return { ok: true, departments: next, appliedCount: args.changes.length, adoptedProjectIds };
 }

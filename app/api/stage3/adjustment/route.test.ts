@@ -79,6 +79,10 @@ function baseTables(): typeof tables {
         revision: 7,
         departments,
         stage2_final_document_edits: { confirmed: confirmedEdits },
+        final_story_final: [
+          { title: '顧客の課題', body: '既存顧客は再発注の手続きに時間をかけている（確定版の全文）' },
+          { title: '自社が選ばれる理由', body: '手続きを半分にできる点が選ばれる理由（確定版の全文）' },
+        ],
       },
       {
         id: S2,
@@ -217,6 +221,9 @@ describe('POST /api/stage3/adjustment/analyze', () => {
 
     const sent = mockCreate.mock.calls[0][0].messages[1].content as string;
     expect(sent).toContain('既存顧客の深耕を優先する');
+    expect(sent).toContain('既存顧客は再発注の手続きに時間をかけている（確定版の全文）');
+    expect(sent).toContain('手続きを半分にできる点が選ばれる理由（確定版の全文）');
+    expect(sent).toContain('外部環境の前提（判断基準）: 市場は横ばい');
     expect(sent).toContain('部門ID=id:d-sales');
     expect(sent).toContain('計画ID=id:p-2');
     expect(sent).not.toContain('他社の計画');

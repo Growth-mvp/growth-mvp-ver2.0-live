@@ -35,3 +35,87 @@ create policy stage3_strategy_books_select on public.stage3_strategy_books
   );
 
 -- 直接の書き込み（insert / update / delete）の許可は作らない。書き込みは API（service role）だけが行う。
+
+-- ============================================================
+-- 確定を1つのトランザクションで行う関数。
+-- 正式な部門データ（strategy_data.departments）と、作業状態の確定（stage3_strategy_books）を同時に更新する。
+-- どちらかが失敗すると、関数全体が巻き戻る（途中まで書かれた状態は残らない）。
+-- 安全のため：呼び出せるのは service_role だけ。会社・権限・revision・版は、関数の中で確かめる。
+-- 中身（どの変更を入れるか）はサーバーが検証してから渡す。関数はその検証結果を書くだけにする。
+-- ============================================================
+create or replace function public.stage3_confirm_strategy_book(
+  p_company_id uuid,
+  p_strategy_id uuid,
+  p_actor_user_id uuid,
+  p_expected_revision integer,
+  p_expected_version integer,
+  p_departments jsonb,
+  p_state jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_role text;
+  v_revision integer;
+  v_version integer;
+  v_new_revision integer;
+begin
+  select cm.role into v_role
+  from public.company_members cm
+  where cm.company_id = p_company_id and cm.user_id = p_actor_user_id;
+  if v_role is null or v_role not in ('admin', 'manager') then
+    raise exception 'insufficient_role' using errcode = '42501';
+  end if;
+
+  if p_state ->> 'status' is distinct from 'confirmed' then
+    raise exception 'invalid_state' using errcode = '22023';
+  end if;
+  if jsonb_typeof(p_departments) is distinct from 'array' then
+    raise exception 'invalid_departments' using errcode = '22023';
+  end if;
+
+  select s.revision into v_revision
+  from public.strategy_data s
+  where s.id = p_strategy_id and s.company_id = p_company_id
+  for update;
+  if not found then
+    raise exception 'strategy_mismatch' using errcode = '42501';
+  end if;
+  if v_revision <> p_expected_revision then
+    raise exception 'revision_changed' using errcode = '40001';
+  end if;
+
+  select b.version into v_version
+  from public.stage3_strategy_books b
+  where b.strategy_id = p_strategy_id and b.company_id = p_company_id
+  for update;
+  if not found or v_version <> p_expected_version then
+    raise exception 'version_conflict' using errcode = '40001';
+  end if;
+
+  -- strategy_data の更新トリガーが revision を上げる（既存の仕組みをそのまま使う）
+  update public.strategy_data
+  set departments = p_departments
+  where id = p_strategy_id and company_id = p_company_id;
+
+  select s.revision into v_new_revision
+  from public.strategy_data s
+  where s.id = p_strategy_id;
+
+  update public.stage3_strategy_books
+  set state = p_state,
+      version = v_version + 1,
+      updated_by = p_actor_user_id,
+      updated_at = now()
+  where strategy_id = p_strategy_id and company_id = p_company_id;
+
+  return jsonb_build_object('revision', v_new_revision, 'version', v_version + 1);
+end;
+$$;
+
+revoke all on function public.stage3_confirm_strategy_book(uuid, uuid, uuid, integer, integer, jsonb, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.stage3_confirm_strategy_book(uuid, uuid, uuid, integer, integer, jsonb, jsonb)
+  to service_role;

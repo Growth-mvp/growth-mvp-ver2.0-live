@@ -86,15 +86,45 @@ describe('planConfirm（一括確定の検証）', () => {
     expect(plan).toMatchObject({ ok: false, error: 'duplicate_change' });
   });
 
-  it('安定IDの無い計画にだけIDを付け、名称・既存のIDは変えない', () => {
+  it('旧データの計画には ID を付けない（既存の計画は内容もIDも変えない）', () => {
     const plan = planConfirm({ departments: official(), changes: [], mintId: sequence() });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect(plan.assignedProjectIds).toBe(1);
-    expect(plan.departments[0].projects).toEqual(official()[0].projects);
-    expect(plan.departments[1].projects).toEqual([
-      { id: 'p-test-1', title: '旧データの計画（ID無し）', description: '名称で対応していた計画' },
-    ]);
+    expect(plan.departments).toEqual(official());
+    expect(plan.adoptedProjectIds).toEqual([]);
+  });
+
+  it('採用するプロジェクトだけ、新しいIDを発行して末尾に追加する。既存の計画は変えない', () => {
+    const plan = planConfirm({
+      departments: official(),
+      changes: [],
+      adoptions: [
+        {
+          departmentKey: 'id:d-sales',
+          departmentName: '営業部',
+          project: { id: 'cand-1', title: '新しい案', reason: '理由', approvedAt: 'x', okrs: [{ id: 'o1', objective: 'o', keyResults: ['k'] }] },
+        },
+      ],
+      mintId: sequence(),
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const projects = plan.departments[0].projects as Array<Record<string, unknown>>;
+    expect(projects[0]).toEqual(official()[0].projects[0]);
+    expect(projects[1]).toMatchObject({ id: 'p-test-1', title: '新しい案', reason: '理由' });
+    expect(projects[1]).not.toHaveProperty('approvedAt');
+    expect((projects[1].okrs as Array<Record<string, unknown>>)[0]).not.toHaveProperty('id');
+    expect(plan.adoptedProjectIds).toEqual(['p-test-1']);
+  });
+
+  it('採用するプロジェクトに題名が無い場合は、全体を止める', () => {
+    const plan = planConfirm({
+      departments: official(),
+      changes: [],
+      adoptions: [{ departmentKey: 'id:d-sales', departmentName: '営業部', project: { id: 'c', title: '  ' } }],
+      mintId: sequence(),
+    });
+    expect(plan).toMatchObject({ ok: false, error: 'invalid_project' });
   });
 
   it('入力の departments は変えない', () => {

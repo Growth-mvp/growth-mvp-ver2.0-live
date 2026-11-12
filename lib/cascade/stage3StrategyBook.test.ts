@@ -32,6 +32,7 @@ const draft = {
   version: 2,
   createdAt: '2026-11-12T00:00:00.000Z',
   departments: draftDepartments,
+  newProjects: [],
 };
 
 const units = collectPlanUnits(official);

@@ -1,3 +1,4 @@
+import { validateProposalRequest } from './stage3Candidates';
 import {
   buildAnalysisMessages,
   buildRegenerationProposals,
@@ -211,7 +212,28 @@ describe('buildRegenerationProposals', () => {
     expect(result.departments[0]).toMatchObject({ departmentKey: 'id:d-sales', departmentName: '営業部' });
     const [proposal] = result.departments[0].proposals;
     expect(proposal.item).toBe('collab');
-    expect(proposal.proposed).toEqual({ interDeptCollab: ['マーケ部とセミナーの案内先を分ける'] });
+    expect(proposal.proposed).toEqual({
+      intraDeptCollab: [],
+      interDeptCollab: ['マーケ部とセミナーの案内先を分ける'],
+      needsCollab: ['マーケ部とセミナーの案内先を分ける'],
+    });
+  });
+
+  it('連携の変更案は、出力に無かった項目を現在の値で補い、確定の検証を通る形にする', () => {
+    const salesDept = { ...departments[0], intraDeptCollab: ['既存の連携'] } as Record<string, unknown>;
+    const result = buildRegenerationProposals(
+      { departments: [{ departmentKey: 'id:d-sales', generated: { interDeptCollab: ['新しい連携'] } }] },
+      [salesDept],
+      new Set(['id:d-sales']),
+    );
+    const [proposal] = result.departments[0].proposals;
+    expect(proposal.item).toBe('collab');
+    expect(proposal.proposed).toEqual({
+      intraDeptCollab: ['既存の連携'],
+      interDeptCollab: ['新しい連携'],
+      needsCollab: ['既存の連携', '新しい連携'],
+    });
+    expect(validateProposalRequest('collab', proposal.proposed, proposal.base).ok).toBe(true);
   });
 
   it('形式が違う出力は変更案を作らない', () => {

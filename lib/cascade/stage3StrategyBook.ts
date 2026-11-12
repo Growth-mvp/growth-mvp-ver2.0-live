@@ -33,15 +33,37 @@ const DraftDepartmentSchema = z.object({
 
 export type DraftDepartment = z.infer<typeof DraftDepartmentSchema>;
 
+export const CANDIDATE_PROJECT_ID = /^np-[0-9a-f]{8}$/;
+
+/** 生成された新規候補プロジェクト。採用されるまで正式データには入らない。 */
+const NewProjectCandidateSchema = z.object({
+  departmentKey: z.string().min(1).max(200),
+  candidateId: z.string().regex(CANDIDATE_PROJECT_ID),
+  project: z.record(z.string(), z.unknown()).refine((p) => JSON.stringify(p).length <= 20_000, 'project_too_large'),
+});
+
+export type NewProjectCandidate = z.infer<typeof NewProjectCandidateSchema>;
+
 export const StrategyDraftSchema = z.object({
   draftId: z.string().regex(/^draft-[A-Za-z0-9_-]{1,40}$/),
   kind: z.enum(['initial', 'regenerated']),
   version: z.number().int().min(1).max(10_000),
   createdAt: z.string().max(40),
   departments: z.array(DraftDepartmentSchema).min(1).max(30),
+  newProjects: z.array(NewProjectCandidateSchema).max(60).default([]),
 });
 
 export type StrategyDraft = z.infer<typeof StrategyDraftSchema>;
+
+const ProjectSelectionSchema = z.object({
+  departmentKey: z.string().min(1).max(200),
+  departmentName: z.string().trim().min(1).max(200),
+  candidateId: z.string().regex(CANDIDATE_PROJECT_ID),
+  title: z.string().trim().min(1).max(300),
+  decision: z.enum(['pending', 'applied', 'discarded', 'deferred']),
+});
+
+export type ProjectSelection = z.infer<typeof ProjectSelectionSchema>;
 
 const AnalysisSchema = z.object({
   draftId: z.string().regex(/^draft-[A-Za-z0-9_-]{1,40}$/).nullable(),
@@ -82,6 +104,7 @@ export const WorkspaceStateSchema = z.object({
     )
     .max(80),
   selections: z.array(SelectionSchema).max(MAX_SELECTIONS),
+  projectSelections: z.array(ProjectSelectionSchema).max(60).default([]),
   confirmed: z.object({ confirmedAt: z.string().max(40), appliedCount: z.number().int().min(0) }).nullable(),
 });
 
@@ -96,6 +119,7 @@ export function emptyWorkspaceState(): WorkspaceState {
     candidateDecisions: {},
     dialogue: [],
     selections: [],
+    projectSelections: [],
     confirmed: null,
   };
 }
@@ -155,6 +179,21 @@ export function verifyWorkspaceState(
     }
   }
 
+  const newProjectIds = new Map<string, string>();
+  for (const draft of state.drafts) {
+    const ids = new Set<string>();
+    for (const np of draft.newProjects) {
+      if (!officialDeptKeys.has(np.departmentKey) || ids.has(np.candidateId)) {
+        return { ok: false, error: 'draft_department_unknown' };
+      }
+      ids.add(np.candidateId);
+      newProjectIds.set(np.candidateId, np.departmentKey);
+    }
+  }
+  for (const ps of state.projectSelections) {
+    if (newProjectIds.get(ps.candidateId) !== ps.departmentKey) return { ok: false, error: 'selection_department_unknown' };
+  }
+
   const candidateIds = new Set<string>();
   if (state.analysis) {
     const a = state.analysis;
@@ -189,6 +228,7 @@ export function verifyWorkspaceState(
   if (state.status === 'confirmed') {
     if (!state.confirmed) return { ok: false, error: 'confirmed_without_record' };
     if (state.selections.some((s) => s.decision === 'pending')) return { ok: false, error: 'confirmed_with_pending' };
+    if (state.projectSelections.some((s) => s.decision === 'pending')) return { ok: false, error: 'confirmed_with_pending' };
     if ([...candidateIds].some((id) => !state.candidateDecisions[id])) {
       return { ok: false, error: 'confirmed_with_undecided_candidate' };
     }
