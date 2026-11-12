@@ -152,3 +152,34 @@ describe('sourceDepartments', () => {
     });
   });
 });
+
+describe('verifyWorkspaceState（既存プロジェクトの編集・計画から外す）', () => {
+  const official = [{ id: 'd-sales', name: '営業部', projects: [{ id: 'p-1', title: '既存顧客の再受注施策' }] }];
+  const text = { title: '既存顧客の再受注施策', reason: null, hypothesis: null, description: null };
+  const edit = { departmentKey: 'id:d-sales', projectId: 'p-1', fields: text, base: text };
+  const removal = { departmentKey: 'id:d-sales', projectId: 'p-1', base: { title: '既存顧客の再受注施策' } };
+
+  it('正式データに無いプロジェクトの編集・削除は拒否する', () => {
+    expect(verifyWorkspaceState({ ...emptyWorkspaceState(), projectEdits: [{ ...edit, projectId: 'p-x' }] }, official)).toEqual({ ok: false, error: 'project_unknown' });
+    expect(verifyWorkspaceState({ ...emptyWorkspaceState(), projectRemovals: [{ ...removal, projectId: 'p-x' }] }, official)).toEqual({ ok: false, error: 'project_unknown' });
+  });
+
+  it('同じプロジェクトの編集・削除の重複は拒否する', () => {
+    expect(verifyWorkspaceState({ ...emptyWorkspaceState(), projectEdits: [edit, edit] }, official)).toEqual({ ok: false, error: 'project_edit_duplicated' });
+    expect(verifyWorkspaceState({ ...emptyWorkspaceState(), projectRemovals: [removal, removal] }, official)).toEqual({ ok: false, error: 'project_removal_duplicated' });
+  });
+
+  it('編集と削除が同じプロジェクトにあっても保存できる（外すを優先し、戻すと編集を使える）', () => {
+    const result = verifyWorkspaceState({ ...emptyWorkspaceState(), projectEdits: [edit], projectRemovals: [removal] }, official);
+    expect(result.ok).toBe(true);
+  });
+
+  it('古い作業データには既定値（空の編集・削除）が入る', () => {
+    const { projectEdits, projectRemovals, ...legacy } = emptyWorkspaceState();
+    void projectEdits;
+    void projectRemovals;
+    const result = verifyWorkspaceState(legacy, official);
+    expect(result.ok && result.state.projectEdits).toEqual([]);
+    expect(result.ok && result.state.projectRemovals).toEqual([]);
+  });
+});

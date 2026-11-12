@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { GET as getBook, PUT as putBook } from '@/app/api/stage3/strategy-book/route';
 import { POST as confirmPost } from '@/app/api/stage3/strategy-book/confirm/route';
+import { POST as referencesPost } from '@/app/api/stage3/strategy-book/project-references/route';
 import { POST as analyzePost } from '@/app/api/stage3/adjustment/analyze/route';
 import { POST as regeneratePost } from '@/app/api/stage3/adjustment/regenerate/route';
 import { buildDeptProposals } from '@/lib/cascade/stage3Candidates';
@@ -88,6 +89,7 @@ async function openDb(): Promise<Pg> {
   await pg.exec(`create role service_role nologin; grant usage on schema public to service_role;`);
   await pg.exec(`alter table strategy_data add column stage2_final_document_edits jsonb, add column final_story_final jsonb, add column final_story_edited jsonb;`);
   await pg.exec(fs.readFileSync(path.join(root, 'supabase/pending/20261112_stage3_strategy_books.sql'), 'utf8'));
+  await pg.exec(`create table if not exists okrs (company_id text, strategy_id text, project_id text);`);
   return pg;
 }
 
@@ -195,6 +197,12 @@ async function harness(pg: Pg, req: Request, pathname: string): Promise<Response
     await seed(pg);
     return json({ ok: true });
   }
+  if (pathname === '/harness/okr-reference' && req.method === 'POST') {
+    const body = (await req.json()) as { projectId: string; on: boolean };
+    await pg.query('delete from okrs where company_id = $1 and strategy_id = $2 and project_id = $3', [IDS.company, IDS.strategy, body.projectId]);
+    if (body.on) await pg.query('insert into okrs (company_id, strategy_id, project_id) values ($1, $2, $3)', [IDS.company, IDS.strategy, body.projectId]);
+    return json({ ok: true });
+  }
   return json({ error: 'not_found' }, 404);
 }
 
@@ -202,6 +210,7 @@ const ROUTES: Record<string, (req: Request) => Promise<Response>> = {
   'GET /api/stage3/strategy-book': getBook,
   'PUT /api/stage3/strategy-book': putBook,
   'POST /api/stage3/strategy-book/confirm': confirmPost,
+  'POST /api/stage3/strategy-book/project-references': referencesPost,
   'POST /api/stage3/adjustment/analyze': analyzePost,
   'POST /api/stage3/adjustment/regenerate': regeneratePost,
   /* 6問のテーマ（検証用の固定の問い。実際のAI生成は行わない） */

@@ -261,15 +261,22 @@ try {
     await shot('focused-G-edit-persisted');
   });
 
-  await step('G2 作業版PDF：未保存の編集中は出力できず、保存後は作業版として多ページのPDFになり、正式データは変わらない', async () => {
+  await step('G2 作業版PDF：長文の編集を保存し、作業版のPDFは約6ページで、正式データは変わらない', async () => {
     const officialBefore = JSON.stringify((await harnessState()).departments);
     await btn('戦略書を編集').click();
-    const longLines = Array.from(
-      { length: 32 },
-      (_, i) => `G2長文${i + 1}：営業の受注を平準化するため、既存顧客の発注計画を月次で共有し、缶の生産計画と突き合わせて見直す。`,
-    ).join('\n');
-    await page.getByRole('button', { name: '重点課題と勝ち筋を修正する', exact: true }).click();
-    await page.getByRole('textbox', { name: '重点課題と勝ち筋', exact: true }).fill(longLines);
+    const sentence = (tag, i) => `${tag}${i}：営業の受注を平準化するため、既存顧客の発注計画を月次で共有し、缶の生産計画と突き合わせて見直す。数量と価格の前提は部門で一つにそろえる。`;
+    const fills = [
+      ['重点課題と勝ち筋', 'K', 30],
+      ['事業内・部門内の連携', 'I', 10],
+      ['認識のズレが起きやすいポイント', 'A', 18],
+      ['再考ポイント・部門横断論点', 'R', 20],
+      ['停止事項', 'S', 8],
+      ['リスク注記', 'N', 10],
+    ];
+    for (const [label, tag, count] of fills) {
+      await page.getByRole('button', { name: `${label}を修正する`, exact: true }).click();
+      await page.getByRole('textbox', { name: label, exact: true }).fill(Array.from({ length: count }, (_, i) => sentence(tag, i + 1)).join('\n'));
+    }
     const pdfBlockedWhileEditing = await btn('PDF出力').first().isDisabled();
     const blockNote = await text('編集中のためPDFは出力できません').isVisible();
     await btn('編集を保存').click();
@@ -283,10 +290,63 @@ try {
     const info = await inspectPdf(file, path.join(shots, 'focused-G2-working'));
     const officialAfter = JSON.stringify((await harnessState()).departments);
     check(
-      'G2 作業版PDF：編集中は出力を止め、保存後は作業版として複数ページで出力でき、正式データは変わらない',
-      pdfBlockedWhileEditing && blockNote && name === 'GROWTHSHIFT_営業部_事業戦略書_作業版.pdf' && info.pages >= 2 && info.images > info.pages && info.heights[0] > 1200 && officialBefore === officialAfter,
+      'G2 作業版PDF：編集中は出力を止め、保存後は作業版として約6ページで出力でき、正式データは変わらない',
+      pdfBlockedWhileEditing && blockNote && name === 'GROWTHSHIFT_営業部_事業戦略書_作業版.pdf' && info.pages >= 5 && info.images > info.pages && info.heights[0] > 1200 && officialBefore === officialAfter,
       `編集中の出力停止 ${pdfBlockedWhileEditing} / 注記 ${blockNote} / ${name} / ${info.pages}ページ / 画像 ${info.images}（ページ画像 ${info.pages} とフッターの画像）/ 正式データ不変 ${officialBefore === officialAfter}`,
     );
+  });
+
+  const EDITED_TITLE = 'P編集：既存顧客の再受注施策（改）';
+  const visibleText = (t, tag) => page.locator(tag + ':visible', { hasText: t }).first().waitFor({ timeout: 15000 }).then(() => true, () => false);
+  const setOkrReference = (on) =>
+    page.evaluate(
+      async ([projectId, flag]) =>
+        fetch('/harness/okr-reference', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId, on: flag }) }),
+      ['p-1', on],
+    );
+  await step('P 既存プロジェクト：内容を直して保存でき、参照があれば外せず、外すと予定になり、元に戻せる', async () => {
+    const officialBefore = JSON.stringify((await harnessState()).departments[0].projects);
+    await btn('戦略書を編集').click();
+    await page.getByRole('button', { name: 'プロジェクト名を修正する', exact: true }).click();
+    await page.getByRole('textbox', { name: 'プロジェクト名', exact: true }).fill(EDITED_TITLE);
+    await page.getByRole('button', { name: '目的・選定理由を修正する', exact: true }).click();
+    await page.getByRole('textbox', { name: '目的・選定理由', exact: true }).fill('P編集：再受注の手間を減らし、既存顧客の発注を安定させる');
+    await shot('focused-P-project-editing');
+    await btn('編集を保存').click();
+    await text('戦略書の編集を保存しました').waitFor({ timeout: 15000 });
+    const editedShown = await visibleText(EDITED_TITLE, 'h5');
+    const officialUnchangedBySave = JSON.stringify((await harnessState()).departments[0].projects) === officialBefore;
+
+    await setOkrReference(true);
+    await btn('戦略書を編集').click();
+    await btn('計画から外す').first().click();
+    await text('計画から外せません').waitFor({ timeout: 15000 });
+    const blocked = await text('計画から外せません').isVisible();
+    const stillListed = await visibleText(EDITED_TITLE, 'span');
+    await setOkrReference(false);
+
+    await btn('計画から外す').first().click();
+    await text('計画から外す予定にしました').waitFor({ timeout: 15000 });
+    const removedShown = await visibleText('計画から外す予定', 'h4');
+    const officialStillHasProject = (await harnessState()).departments[0].projects.some((p) => String(p.id) === 'p-1');
+    await btn('編集をやめる').click();
+    const dlRemoved = page.waitForEvent('download', { timeout: 120000 });
+    await btn('PDF出力').first().click();
+    const removedPdf = await dlRemoved;
+    const removedFile = path.join(shots, removedPdf.suggestedFilename());
+    await removedPdf.saveAs(removedFile);
+    const removedInfo = await inspectPdf(removedFile, path.join(shots, 'focused-P-removed-working'));
+
+    await btn('元に戻す').first().click();
+    await text('を元に戻しました').waitFor({ timeout: 15000 });
+    const restored = (await page.locator('h5:visible', { hasText: EDITED_TITLE }).count()) > 0 && !(await text('計画から外す予定にしました').isVisible());
+    const removedGone = (await page.getByText('計画から外す予定', { exact: true }).count()) === 0;
+    check(
+      'P 既存プロジェクト：内容は作業版に保存され正式データは変わらず、参照があれば外せず、外すと予定に区別され、元に戻せる',
+      editedShown && officialUnchangedBySave && blocked && stillListed && removedShown && officialStillHasProject && removedInfo.pages >= 1 && restored && removedGone,
+      `保存後の表示 ${editedShown} / 保存で正式データ不変 ${officialUnchangedBySave} / 参照で停止 ${blocked} / 停止後も表示 ${stillListed} / 予定の表示 ${removedShown} / 正式データに残る ${officialStillHasProject} / 予定PDF ${removedInfo.pages}ページ / 元に戻す ${restored} / 予定の表示は消える ${removedGone}`,
+    );
+    await shot('focused-P-restored');
   });
 
   let beforeConfirm = null;
@@ -310,12 +370,16 @@ try {
     await btn('PDF出力').first().waitFor({ timeout: 30000 });
     const after = (await harnessState()).departments[0];
     const edited = String(after.interDeptCollab ?? '').includes('G編集した連携') || JSON.stringify(after).includes('G編集した連携');
-    const projectsSame = JSON.stringify(after.projects) === JSON.stringify(beforeConfirm.projects);
+    const p1After = after.projects.find((p) => String(p.id) === 'p-1');
+    const p1Before = beforeConfirm.projects.find((p) => String(p.id) === 'p-1');
+    const titleApplied = p1After?.title === EDITED_TITLE;
+    const kpiSafe = JSON.stringify(p1After?.okrs) === JSON.stringify(p1Before?.okrs) && JSON.stringify(p1After?.kpis) === JSON.stringify(p1Before?.kpis);
+    const idSame = p1After?.id === p1Before?.id && after.projects.length === beforeConfirm.projects.length;
     const noCandidate = !JSON.stringify(after.projects).includes('6問反映案');
     check(
       'J 確定：編集内容が正式データに入り、既存のプロジェクトIDとKPIは変わらず、未採用の候補は入らない',
-      edited && projectsSame && noCandidate,
-      `編集の反映 ${edited} / 既存プロジェクト同一 ${projectsSame} / 候補なし ${noCandidate}`,
+      edited && titleApplied && kpiSafe && idSame && noCandidate,
+      `編集の反映 ${edited} / プロジェクト名の反映 ${titleApplied} / KPI・OKR同一 ${kpiSafe} / ID・件数同一 ${idSame} / 候補なし ${noCandidate}`,
     );
     await shot('focused-J-confirmed');
   });

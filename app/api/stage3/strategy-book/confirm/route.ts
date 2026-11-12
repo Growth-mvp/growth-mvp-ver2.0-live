@@ -15,7 +15,17 @@ import { failResponse } from '@/lib/server/stage3DepartmentWrite';
 import { loadStrategyAccess } from '@/lib/server/stage3Adjustment';
 import { confirmAtomically, loadWorkspace } from '@/lib/server/stage3StrategyBook';
 import { verifyWorkspaceState, type NewProjectCandidate, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
-import { planConfirm, type ConfirmAdoption } from '@/lib/cascade/stage3Confirm';
+import { planConfirm, type ConfirmAdoption, type ConfirmProjectEdit, type ConfirmProjectRemoval } from '@/lib/cascade/stage3Confirm';
+import { findProjectReferences } from '@/lib/server/stage3ProjectReferences';
+import { departmentKeyOf } from '@/lib/cascade/stage3Adjustment';
+
+type AnyRecord = Record<string, unknown>;
+
+function departmentNameOf(departments: unknown, key: string): string {
+  const list = Array.isArray(departments) ? departments : [];
+  const hit = list.find((d) => d && typeof d === 'object' && departmentKeyOf(d as AnyRecord) === key) as AnyRecord | undefined;
+  return typeof hit?.name === 'string' ? hit.name : key;
+}
 
 const BodySchema = z.object({
   companyId: z.string().uuid(),
@@ -72,10 +82,40 @@ export async function POST(req: Request) {
       adoptions.push({ departmentKey: ps.departmentKey, departmentName: ps.departmentName, project: candidate.project });
     }
 
+    const projectEdits: ConfirmProjectEdit[] = verified.state.projectEdits.map((e) => ({
+      departmentKey: e.departmentKey,
+      departmentName: departmentNameOf(who.departments, e.departmentKey),
+      projectId: e.projectId,
+      fields: e.fields,
+      base: e.base,
+    }));
+    const projectRemovals: ConfirmProjectRemoval[] = verified.state.projectRemovals.map((r) => ({
+      departmentKey: r.departmentKey,
+      departmentName: departmentNameOf(who.departments, r.departmentKey),
+      projectId: r.projectId,
+      base: r.base,
+    }));
+    const referencedProjectKeys = new Set<string>();
+    if (projectRemovals.length > 0) {
+      const refs = await findProjectReferences(admin, {
+        companyId: body.companyId,
+        strategyId: body.strategyId,
+        projectIds: projectRemovals.map((r) => r.projectId),
+      });
+      if (!refs.ok) return failResponse(503, refs.error);
+      for (const r of projectRemovals) {
+        if ((refs.references[r.projectId] ?? []).length > 0) referencedProjectKeys.add(`${r.departmentKey} ${r.projectId}`);
+      }
+      if (referencedProjectKeys.size > 0) return failResponse(409, 'project_referenced');
+    }
+
     const plan = planConfirm({
       departments: who.departments,
       changes,
       adoptions,
+      projectEdits,
+      projectRemovals,
+      referencedProjectKeys,
       mintId: () => `p-${randomUUID()}`,
     });
     if (!plan.ok) {
@@ -88,6 +128,8 @@ export async function POST(req: Request) {
     const confirmedState: WorkspaceState = {
       ...verified.state,
       status: 'confirmed',
+      projectEdits: [],
+      projectRemovals: [],
       confirmed: { confirmedAt: new Date().toISOString(), appliedCount: plan.appliedCount },
     };
     const finalCheck = verifyWorkspaceState(confirmedState, who.departments);

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import type { ProjectGroupKey, ProjectOrigin } from '@/lib/cascade/stage3ProjectDetail';
 import { PROJECT_GROUPS } from '@/lib/cascade/stage3ProjectDetail';
 
@@ -14,6 +14,14 @@ export type DocProject = {
   summary: string | null;
   partner: string | null;
   goals: string[];
+  /** 正式データのプロジェクトのID（編集・計画から外す操作に使う） */
+  id?: string;
+  /** 作業版では計画から外す予定。確定すると正式データから外れる */
+  removed?: boolean;
+  /** 編集中だけ渡す編集欄。渡すと、通常の説明の代わりに表示する */
+  editor?: ReactNode;
+  /** 編集中だけ渡す操作（計画から外す・元に戻す など） */
+  action?: ReactNode;
 };
 
 /** 戦略書の文章として編集できる項目（再生成の項目と同じ名前） */
@@ -122,40 +130,38 @@ function TextBlock({ item, lines, edit }: { item: ChapterItem; lines: string[]; 
 }
 
 function ProjectCard({ project }: { project: DocProject }) {
-  const label = ORIGIN_LABEL[project.origin];
+  const label = project.removed ? '計画から外す予定（確定すると外れます）' : ORIGIN_LABEL[project.origin];
+  const badgeClass = project.removed || project.origin === 'candidate'
+    ? 'rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-800'
+    : 'rounded-full border border-zinc-300 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700';
   return (
-    <div className="report-card space-y-2 border-t border-zinc-200 pt-4 first:border-t-0 first:pt-0">
+    <div className={`report-card space-y-2 border-t border-zinc-200 pt-4 first:border-t-0 first:pt-0 ${project.removed ? 'opacity-80' : ''}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <h5 className="font-semibold text-zinc-900">{project.title}</h5>
-        {label && (
-          <span
-            className={
-              project.origin === 'candidate'
-                ? 'rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-800'
-                : 'rounded-full border border-zinc-300 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700'
-            }
-          >
-            {label}
-          </span>
-        )}
+        {!project.editor && <h5 className="font-semibold text-zinc-900">{project.title}</h5>}
+        {label && <span className={badgeClass}>{label}</span>}
         {project.group !== 'other' && <span className="text-xs text-zinc-500">{GROUP_LABEL[project.group]}</span>}
       </div>
-      <dl className="space-y-2">
-        {project.objective && <Row label="目的">{project.objective}</Row>}
-        {project.purpose && <Row label="選定理由">{project.purpose}</Row>}
-        {project.hypothesis && <Row label="成果仮説">{project.hypothesis}</Row>}
-        {project.goals.length > 0 && (
-          <Row label="目標・指標">
-            <ul className="list-disc pl-5">
-              {project.goals.map((g, i) => (
-                <li key={i}>{g}</li>
-              ))}
-            </ul>
-          </Row>
-        )}
-        {project.partner && <Row label="連携先">{project.partner}</Row>}
-        {!project.purpose && !project.hypothesis && project.summary && <Row label="概要">{project.summary}</Row>}
-      </dl>
+      {project.editor ? (
+        project.editor
+      ) : (
+        <dl className="space-y-2">
+          {project.objective && <Row label="目的">{project.objective}</Row>}
+          {project.purpose && <Row label="選定理由">{project.purpose}</Row>}
+          {project.hypothesis && <Row label="成果仮説">{project.hypothesis}</Row>}
+          {project.goals.length > 0 && (
+            <Row label="目標・指標">
+              <ul className="list-disc pl-5">
+                {project.goals.map((g, i) => (
+                  <li key={i}>{g}</li>
+                ))}
+              </ul>
+            </Row>
+          )}
+          {project.partner && <Row label="連携先">{project.partner}</Row>}
+          {!project.purpose && !project.hypothesis && project.summary && <Row label="概要">{project.summary}</Row>}
+        </dl>
+      )}
+      {project.action && <div className="flex flex-wrap justify-end gap-2">{project.action}</div>}
     </div>
   );
 }
@@ -176,13 +182,25 @@ export function StrategyBookDocument(props: StrategyDocumentProps) {
 
       {CHAPTERS.map((chapter) => {
         if ('projects' in chapter) {
-          if (projects.length === 0) return null;
+          const active = projects.filter((p) => !p.removed);
+          const removed = projects.filter((p) => p.removed);
           return (
-            <Chapter2 key={chapter.title} title={chapter.title}>
-              {projects.map((p, i) => (
-                <ProjectCard key={`${p.title}-${i}`} project={p} />
-              ))}
-            </Chapter2>
+            <Fragment key={chapter.title}>
+              {active.length > 0 && (
+                <Chapter2 title={chapter.title}>
+                  {active.map((p, i) => (
+                    <ProjectCard key={`${p.title}-${i}`} project={p} />
+                  ))}
+                </Chapter2>
+              )}
+              {removed.length > 0 && (
+                <Chapter2 title="計画から外す予定">
+                  {removed.map((p, i) => (
+                    <ProjectCard key={`removed-${p.title}-${i}`} project={p} />
+                  ))}
+                </Chapter2>
+              )}
+            </Fragment>
           );
         }
         const shown = chapter.items.filter((item) => (texts[item.key]?.length ?? 0) > 0 || edit?.[item.key]?.editor);

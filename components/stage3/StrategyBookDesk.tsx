@@ -25,7 +25,9 @@ import {
 } from '@/lib/cascade/stage3StrategyBook';
 import type { Department } from '@/types/strategy';
 import { StrategyBookDocument, type DocProject, type SectionEdit, type StrategyDocumentProps, type TextItemKey } from '@/components/stage3/StrategyBookDocument';
-import { projectDetailOf } from '@/lib/cascade/stage3ProjectDetail';
+import { projectDetailOf, type DraftProjectInput } from '@/lib/cascade/stage3ProjectDetail';
+import { projectTextOf } from '@/lib/cascade/stage3Confirm';
+import { stableIdText, type ProjectTextFields, type ProjectEdit } from '@/lib/cascade/stage3StrategyBook';
 import { EditableBlock } from '@/components/okr/execution-plan/PlanDocument';
 import { PLAN_DOC_CSS } from '@/components/okr/execution-plan/planDocStyles';
 
@@ -76,6 +78,25 @@ const TEXT_LABEL: Record<TextItemKey, string> = {
 
 const textDraftOf = (doc: StrategyDocumentProps | null): TextDraft =>
   Object.fromEntries(ALL_TEXT_KEYS.map((k) => [k, (doc?.texts[k] ?? []).join('\n')]));
+
+type ProjectTextDraft = { title: string; reason: string; hypothesis: string; description: string };
+
+const projectDraftOf = (p: DocProject): ProjectTextDraft => ({
+  title: p.title,
+  reason: p.purpose ?? '',
+  hypothesis: p.hypothesis ?? '',
+  description: p.summary ?? '',
+});
+
+/** 編集対象になる、正式データのプロジェクト（計画から外す予定のものは除く）の下書き */
+const editableProjectDraftsOf = (doc: StrategyDocumentProps | null): Record<string, ProjectTextDraft> =>
+  Object.fromEntries(
+    (doc?.projects ?? [])
+      .filter((p) => p.id && !p.removed && p.origin === 'official')
+      .map((p) => [p.id as string, projectDraftOf(p)]),
+  );
+
+const sameFields = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 export type StrategyBookGenerateResult = { projects: AnyRecord[]; proposals: DeptProposal[] };
 
@@ -269,7 +290,7 @@ export function StrategyBookDesk({
   const [stage2, setStage2] = useState<Stage2View>({ status: 'loading' });
   const [workspaceErrorCode, setWorkspaceErrorCode] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
-  const [docDraft, setDocDraft] = useState<{ deptKey: string; texts: TextDraft } | null>(null);
+  const [docDraft, setDocDraft] = useState<{ deptKey: string; texts: TextDraft; projects: Record<string, ProjectTextDraft> } | null>(null);
   const [candEdit, setCandEdit] = useState<{ candidateId: string; title: string; reason: string; hypothesis: string; description: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
@@ -616,9 +637,17 @@ export function StrategyBookDesk({
   };
 
   /* 戦略書の編集を、作業版として一度に保存する。正式データ（部門の現在の値）は変えない。確定時に照合される。 */
-  const saveDocEdits = async (dept: Department, original: TextDraft, draft: TextDraft) => {
+  const saveDocEdits = async (
+    dept: Department,
+    original: TextDraft,
+    draft: TextDraft,
+    shownProjects: Record<string, ProjectTextDraft>,
+    draftProjects: Record<string, ProjectTextDraft>,
+  ) => {
+    const key = departmentKeyOf(dept as unknown as AnyRecord);
     const changed = ALL_TEXT_KEYS.filter((k) => (draft[k] ?? '') !== (original[k] ?? ''));
-    if (changed.length === 0) {
+    const changedProjects = Object.keys(draftProjects).filter((id) => shownProjects[id] && !sameFields(draftProjects[id], shownProjects[id]));
+    if (changed.length === 0 && changedProjects.length === 0) {
       setDocDraft(null);
       setNotice('変更はありません。');
       return;
@@ -631,7 +660,30 @@ export function StrategyBookDesk({
         return;
       }
     }
-    const key = departmentKeyOf(dept as unknown as AnyRecord);
+    for (const id of changedProjects) {
+      if (draftProjects[id].title.trim() === '') {
+        setNotice('プロジェクト名が空です。名前を入力するか、「編集をやめる」を押してください。');
+        return;
+      }
+    }
+    let projectEdits: ProjectEdit[] = [...state.projectEdits];
+    for (const id of changedProjects) {
+      const official = dept.projects?.find((p) => stableIdText((p as unknown as AnyRecord).id) === id);
+      if (!official) continue;
+      const base = projectTextOf(official as unknown as AnyRecord);
+      const value = draftProjects[id];
+      const shown = shownProjects[id];
+      const pick = (field: keyof ProjectTextDraft, officialValue: string | null): string | null =>
+        value[field].trim() === shown[field].trim() ? officialValue : value[field].trim() || null;
+      const fields: ProjectTextFields = {
+        title: value.title.trim() === shown.title.trim() ? base.title : value.title.trim(),
+        reason: pick('reason', base.reason),
+        hypothesis: pick('hypothesis', base.hypothesis),
+        description: pick('description', base.description),
+      };
+      projectEdits = projectEdits.filter((e) => !(e.departmentKey === key && e.projectId === id));
+      if (!sameFields(fields, base)) projectEdits.push({ departmentKey: key, projectId: id, fields, base });
+    }
     let selections = state.selections;
     for (const item of [...new Set(changed.map((k) => TEXT_SPECS[k].item))]) {
       const proposed: AnyRecord =
@@ -653,11 +705,62 @@ export function StrategyBookDesk({
       const existing = selections.find((s) => s.departmentKey === key && s.item === item);
       selections = existing ? selections.map((s) => (s === existing ? selection : s)) : [...selections, selection];
     }
-    const ok = await save(reopen({ ...state, selections }));
+    const ok = await save(reopen({ ...state, selections, projectEdits }));
     if (ok) {
       setDocDraft(null);
       setNotice('戦略書の編集を保存しました（作業版・未確定）。確定すると、戦略書に反映されます。');
     }
+  };
+
+  /* 既存プロジェクトを「計画から外す」。参照されている計画は外さず、理由を出す。確定するまで正式データは変わらない。 */
+  const removeProject = async (key: string, projectId: string, title: string) => {
+    const g = gate();
+    if (!g) return;
+    let references: Record<string, string[]>;
+    try {
+      const res = await authFetchJson<{ ok: true; references: Record<string, string[]> }>('/api/stage3/strategy-book/project-references', {
+        method: 'POST',
+        json: { companyId: g.companyId, strategyId: g.strategyId, projectIds: [projectId] },
+      });
+      references = res.references;
+    } catch {
+      setNotice('参照を確認できなかったため、計画から外せません。時間をおいて再度お試しください。');
+      return;
+    }
+    const reasons = references[projectId] ?? [];
+    if (reasons.length > 0) {
+      setNotice(`「${title}」は${reasons.join('、')}ため、計画から外せません。計画は残したまま、取り組み内容や仮説を直すことはできます。`);
+      return;
+    }
+    const dept = departments.find((d) => departmentKeyOf(d as unknown as AnyRecord) === key);
+    const official = dept?.projects?.find((p) => stableIdText((p as unknown as AnyRecord).id) === projectId);
+    if (!official) {
+      setNotice('この計画は正式データに見つからないため、計画から外せません。');
+      return;
+    }
+    const ok = await save(
+      reopen({
+        ...state,
+        projectRemovals: [
+          ...state.projectRemovals.filter((r) => !(r.departmentKey === key && r.projectId === projectId)),
+          { departmentKey: key, projectId, base: { title: projectTextOf(official as unknown as AnyRecord).title } },
+        ],
+      }),
+    );
+    if (ok) {
+      setDocDraft((prev) => (prev ? { ...prev, projects: Object.fromEntries(Object.entries(prev.projects).filter(([id]) => id !== projectId)) } : prev));
+      setNotice(`「${title}」を計画から外す予定にしました（作業版・未確定）。確定すると、正式データから外れます。`);
+    }
+  };
+
+  const restoreProject = async (key: string, projectId: string, title: string) => {
+    const ok = await save(
+      reopen({
+        ...state,
+        projectRemovals: state.projectRemovals.filter((r) => !(r.departmentKey === key && r.projectId === projectId)),
+      }),
+    );
+    if (ok) setNotice(`「${title}」を元に戻しました。`);
   };
 
   const saveCandidateEdit = async () => {
@@ -898,19 +1001,34 @@ export function StrategyBookDesk({
       const draftDept = draft.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
       const docText = (item: DeptProposalItem) => linesOf(sels.find((s) => s.item === item)?.proposed[DEPT_PROPOSAL_ITEMS[item].keys[0]]);
       const candidateProjects = draft.newProjects.map((n) => n.project as AnyRecord);
-      const projects: DocProject[] = (draftDept?.projects ?? []).map((p) => {
+      /* 確定後は正式データのプロジェクトを表示する（確定で外れた計画を残さないため）。確定前は草案の内容に、作業版の編集を重ねる。 */
+      const sourceProjects = (state.status === 'confirmed' ? officialProjects : (draftDept?.projects ?? [])) as unknown as DraftProjectInput[];
+      const projects: DocProject[] = sourceProjects.map((p) => {
         const d = projectDetailOf(p, { official: officialProjects, candidates: candidateProjects });
-        return {
-          title: d.title,
+        const id = stableIdText((p as unknown as AnyRecord).id);
+        const edit = id === null ? undefined : state.projectEdits.find((e) => e.departmentKey === key && e.projectId === id);
+        const removed = id !== null && state.projectRemovals.some((r) => r.departmentKey === key && r.projectId === id);
+        const doc: DocProject = {
+          title: edit ? edit.fields.title : d.title,
           origin: d.origin,
           group: d.group,
           objective: d.okrs[0]?.objective || null,
-          purpose: d.purpose,
-          hypothesis: d.hypothesis,
-          summary: d.summary,
+          purpose: edit ? edit.fields.reason : d.purpose,
+          hypothesis: edit ? edit.fields.hypothesis : d.hypothesis,
+          summary: edit ? edit.fields.description : d.summary,
           partner: d.partnerDepartment,
           goals: [...new Set([...d.okrs.flatMap((o) => o.keyResults), ...d.kpis])],
+          id: id ?? undefined,
+          removed,
         };
+        if (id !== null && removed) {
+          doc.action = (
+            <Button variant="outline" onClick={() => void restoreProject(key, id, d.title)} disabled={!canOperate} className="rounded-full h-7 px-3 text-xs">
+              元に戻す
+            </Button>
+          );
+        }
+        return doc;
       });
       return {
         departmentName: dept.name,
@@ -937,7 +1055,40 @@ export function StrategyBookDesk({
     /* 編集中は、項目を押すとその場で直せる（STAGE4の計画書と同じ操作）。通常表示では編集欄を出さない。 */
     const editingHere = docDraft !== null && docDraft.deptKey === key;
     const draftHere = editingHere ? docDraft.texts : null;
-    const startDocEdit = () => setDocDraft({ deptKey: key, texts: textDraftOf(regenDoc) });
+    const draftProjects = editingHere ? docDraft.projects : null;
+    const startDocEdit = () => setDocDraft({ deptKey: key, texts: textDraftOf(regenDoc), projects: editableProjectDraftsOf(regenDoc) });
+    const regenShown: StrategyDocumentProps | null =
+      regenDoc && draftProjects
+        ? {
+            ...regenDoc,
+            projects: regenDoc.projects.map((p) => {
+              if (!p.id || p.removed || !draftProjects[p.id]) return p;
+              const id = p.id;
+              const value = draftProjects[id];
+              const setField = (field: keyof ProjectTextDraft, v: string) =>
+                setDocDraft((prev) =>
+                  prev && prev.deptKey === key ? { ...prev, projects: { ...prev.projects, [id]: { ...prev.projects[id], [field]: v } } } : prev,
+                );
+              return {
+                ...p,
+                editor: (
+                  <div className="space-y-3">
+                    <EditableBlock label="プロジェクト名" value={value.title} mode="edit" multiline={false} className="text-sm font-semibold text-zinc-900" onChange={(v) => setField('title', v)} />
+                    <EditableBlock label="目的・選定理由" value={value.reason} mode="edit" className="whitespace-pre-wrap text-[15px] leading-7 text-zinc-800" onChange={(v) => setField('reason', v)} />
+                    <EditableBlock label="取り組み内容" value={value.description} mode="edit" className="whitespace-pre-wrap text-[15px] leading-7 text-zinc-800" onChange={(v) => setField('description', v)} />
+                    <EditableBlock label="成果仮説" value={value.hypothesis} mode="edit" className="whitespace-pre-wrap text-[15px] leading-7 text-zinc-800" onChange={(v) => setField('hypothesis', v)} />
+                    <p className="text-xs text-zinc-500">KPI・目標（この画面では変わりません）：{p.goals.length > 0 ? p.goals.join('、') : 'なし'}</p>
+                  </div>
+                ),
+                action: (
+                  <Button variant="outline" onClick={() => void removeProject(key, id, p.title)} disabled={isBusy} className="rounded-full h-7 px-3 text-xs">
+                    計画から外す
+                  </Button>
+                ),
+              };
+            }),
+          }
+        : regenDoc;
     const regenEdit: Partial<Record<TextItemKey, SectionEdit>> | undefined = draftHere
       ? (Object.fromEntries(
           ALL_TEXT_KEYS.map((k) => [
@@ -1132,11 +1283,11 @@ export function StrategyBookDesk({
                   {editingHere ? (
                     <>
                       <p className="text-xs text-amber-800">
-                        修正中です。文章をクリックすると直せます。「編集を保存」を押すまで、作業版には反映されません。
+                        修正中です。文章やプロジェクトの内容をクリックすると直せます。KPIは変わりません。「編集を保存」を押すまで、作業版には反映されません。
                       </p>
                       <div className="flex gap-2">
                         <Button
-                          onClick={() => docDraft && void saveDocEdits(dept, textDraftOf(regenDoc), docDraft.texts)}
+                          onClick={() => docDraft && void saveDocEdits(dept, textDraftOf(regenDoc), docDraft.texts, editableProjectDraftsOf(regenDoc), docDraft.projects)}
                           disabled={isBusy}
                           className="rounded-full h-9 px-4"
                         >
@@ -1164,7 +1315,7 @@ export function StrategyBookDesk({
                   )}
                 </div>
                 <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6 md:px-8">
-                  <StrategyBookDocument {...regenDoc} edit={regenEdit} />
+                  <StrategyBookDocument {...(regenShown as StrategyDocumentProps)} edit={regenEdit} />
                 </div>
               </>
             )}

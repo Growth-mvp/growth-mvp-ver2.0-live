@@ -99,6 +99,38 @@ const SelectionSchema = z.object({
 
 export type Selection = z.infer<typeof SelectionSchema>;
 
+/** 既存プロジェクトの、文章の項目。KPI・OKR・IDは含めない（既存の経路以外では変えない）。 */
+export const PROJECT_TEXT_FIELDS = ['title', 'reason', 'hypothesis', 'description'] as const;
+export type ProjectTextFields = { title: string; reason: string | null; hypothesis: string | null; description: string | null };
+
+const ProjectTextFieldsSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  reason: z.string().max(2000).nullable(),
+  hypothesis: z.string().max(2000).nullable(),
+  description: z.string().max(2000).nullable(),
+});
+
+const MAX_PROJECT_EDITS = 60;
+
+/** 既存プロジェクトの編集。fields は作業版の内容、base は編集時点の正式データ（確定時に照合する）。 */
+const ProjectEditSchema = z.object({
+  departmentKey: z.string().min(1).max(200),
+  projectId: z.string().min(1).max(200),
+  fields: ProjectTextFieldsSchema,
+  base: ProjectTextFieldsSchema,
+});
+
+export type ProjectEdit = z.infer<typeof ProjectEditSchema>;
+
+/** 既存プロジェクトの「計画から外す」（作業版上の削除予定）。確定するまで正式データは変えない。 */
+const ProjectRemovalSchema = z.object({
+  departmentKey: z.string().min(1).max(200),
+  projectId: z.string().min(1).max(200),
+  base: z.object({ title: z.string().trim().min(1).max(300) }),
+});
+
+export type ProjectRemoval = z.infer<typeof ProjectRemovalSchema>;
+
 export const WorkspaceStateSchema = z.object({
   schemaVersion: z.literal(1),
   status: z.enum(['draft', 'confirmed']),
@@ -116,6 +148,8 @@ export const WorkspaceStateSchema = z.object({
     .max(80),
   selections: z.array(SelectionSchema).max(MAX_SELECTIONS),
   projectSelections: z.array(ProjectSelectionSchema).max(60).default([]),
+  projectEdits: z.array(ProjectEditSchema).max(MAX_PROJECT_EDITS).default([]),
+  projectRemovals: z.array(ProjectRemovalSchema).max(60).default([]),
   confirmed: z.object({ confirmedAt: z.string().max(40), appliedCount: z.number().int().min(0) }).nullable(),
 });
 
@@ -131,6 +165,8 @@ export function emptyWorkspaceState(): WorkspaceState {
     dialogue: [],
     selections: [],
     projectSelections: [],
+    projectEdits: [],
+    projectRemovals: [],
     confirmed: null,
   };
 }
@@ -152,7 +188,17 @@ export type WorkspaceFailure =
   | 'selection_department_unknown'
   | 'confirmed_without_record'
   | 'confirmed_with_pending'
-  | 'confirmed_with_undecided_candidate';
+  | 'confirmed_with_undecided_candidate'
+  | 'project_unknown'
+  | 'project_edit_duplicated'
+  | 'project_removal_duplicated';
+
+/** 正式データのプロジェクトIDを文字列にそろえる（無い・空なら null） */
+export function stableIdText(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim() !== '') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return null;
+}
 
 /**
  * 保存しようとする作業状態を、保存済みの正式データ（departments）と照合する。
@@ -234,6 +280,28 @@ export function verifyWorkspaceState(
 
   for (const s of state.selections) {
     if (!officialDeptKeys.has(s.departmentKey)) return { ok: false, error: 'selection_department_unknown' };
+  }
+
+  const officialProjects = new Map<string, Set<string>>();
+  for (const d of Array.isArray(officialDepartments) ? officialDepartments : []) {
+    if (!d || typeof d !== 'object') continue;
+    const dept = d as AnyRecord;
+    const list = Array.isArray(dept.projects) ? (dept.projects as AnyRecord[]) : [];
+    officialProjects.set(departmentKeyOf(dept), new Set(list.map((p) => stableIdText(p?.id)).filter((id): id is string => id !== null)));
+  }
+  const editedKeys = new Set<string>();
+  for (const e of state.projectEdits) {
+    const ref = `${e.departmentKey} ${e.projectId}`;
+    if (!officialProjects.get(e.departmentKey)?.has(e.projectId)) return { ok: false, error: 'project_unknown' };
+    if (editedKeys.has(ref)) return { ok: false, error: 'project_edit_duplicated' };
+    editedKeys.add(ref);
+  }
+  const removedKeys = new Set<string>();
+  for (const r of state.projectRemovals) {
+    const ref = `${r.departmentKey} ${r.projectId}`;
+    if (!officialProjects.get(r.departmentKey)?.has(r.projectId)) return { ok: false, error: 'project_unknown' };
+    if (removedKeys.has(ref)) return { ok: false, error: 'project_removal_duplicated' };
+    removedKeys.add(ref);
   }
 
   if (state.status === 'confirmed') {

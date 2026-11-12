@@ -126,7 +126,11 @@ export function buildDeptWorkingPdfData(doc: StrategyDocumentProps, state: { com
     stopList: lines('stopList'),
     riskNotes: lines('riskNotes'),
     projects: doc.projects.map((p) => ({
-      title: p.origin === 'candidate' ? `${p.title}（新規候補・未確定）` : p.title,
+      title: p.removed
+        ? `${p.title}（計画から外す予定・確定すると外れます）`
+        : p.origin === 'candidate'
+          ? `${p.title}（新規候補・未確定）`
+          : p.title,
       purpose: [p.objective, p.purpose].filter((v): v is string => !!v),
       hypothesis: p.hypothesis ? [p.hypothesis] : [],
       goals: p.goals,

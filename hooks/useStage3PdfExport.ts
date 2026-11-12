@@ -57,7 +57,7 @@ export async function exportDeptStrategyBookPdf(
       margin: [10, 10, 14, 10],
       jsPDF: { orientation: 'p', unit: 'mm', format: 'a4' },
       image: { type: 'jpeg', quality: 0.92 },
-      avoidBreakSelector: '.report-h2, .report-h3, .report-text',
+      keepWithNextSelector: '[data-pdf-keep]',
       footer: (pageNo, pageCount) => ({ label: statusLabel, text: `${pageNo} / ${pageCount}` }),
     });
   } finally {

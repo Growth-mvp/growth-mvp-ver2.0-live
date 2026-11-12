@@ -163,3 +163,21 @@ describe('buildDeptWorkingPdfData（作業版：画面の作業内容から作�
     expect(data.riskNotes).toEqual([]);
   });
 });
+
+describe('buildDeptWorkingPdfData（計画から外す予定の表示）', () => {
+  it('計画から外す予定のプロジェクトは、確定すると外れると分かるように表示する', () => {
+    const data = buildDeptWorkingPdfData(
+      {
+        departmentName: '金属缶製造販売事業',
+        versionLabel: '版 2',
+        texts: {},
+        projects: [
+          { title: '残す施策', origin: 'official', group: 'other', objective: null, purpose: null, hypothesis: null, summary: null, partner: null, goals: [] },
+          { title: '外す施策', origin: 'official', group: 'other', objective: null, purpose: null, hypothesis: null, summary: null, partner: null, goals: [], removed: true },
+        ],
+      },
+      {},
+    );
+    expect(data.projects.map((p) => p.title)).toEqual(['残す施策', '外す施策（計画から外す予定・確定すると外れます）']);
+  });
+});

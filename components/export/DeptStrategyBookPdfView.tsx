@@ -17,7 +17,7 @@ const page: CSSProperties = {
 function Chapter({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="report-section" style={{ marginTop: '22px' }}>
-      <h2 className="report-h2" style={{ fontSize: '16px', fontWeight: 700, borderLeft: '4px solid #111111', paddingLeft: '10px', margin: '0 0 10px' }}>
+      <h2 data-pdf-keep="" className="report-h2" style={{ fontSize: '16px', fontWeight: 700, borderLeft: '4px solid #111111', paddingLeft: '10px', margin: '0 0 10px' }}>
         {title}
       </h2>
       {children}
@@ -51,7 +51,7 @@ function Lines({ lines, list = false }: { lines: string[]; list?: boolean }) {
 function Labeled({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div style={{ marginTop: '6px' }}>
-      <div style={{ fontSize: '11px', color: '#555555', fontWeight: 700 }}>{label}</div>
+      <div data-pdf-keep="" style={{ fontSize: '11px', color: '#555555', fontWeight: 700 }}>{label}</div>
       {children}
     </div>
   );
@@ -114,7 +114,7 @@ export function DeptStrategyBookPdfView({ data }: { data: DeptBookPdfData }) {
         <Chapter title={`${no(3)}確定した重点プロジェクト`}>
           {data.projects.map((p, i) => (
             <div key={`${p.title}-${i}`} className="report-card" style={{ borderTop: i === 0 ? 'none' : '1px solid #d9d9d9', paddingTop: '10px', marginTop: '10px' }}>
-              <div className="report-h3" style={{ fontSize: '14px', fontWeight: 700 }}>
+              <div data-pdf-keep="" className="report-h3" style={{ fontSize: '14px', fontWeight: 700 }}>
                 {p.title}
               </div>
               {p.purpose.length > 0 && (

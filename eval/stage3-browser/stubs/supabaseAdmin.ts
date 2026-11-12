@@ -13,11 +13,21 @@ function builder(table: string) {
   let payload: Record<string, unknown> = {};
   let limit: number | null = null;
   const filters: Array<{ col: string; val: unknown }> = [];
+  const inFilters: Array<{ col: string; vals: unknown[] }> = [];
 
   const exec = async (): Promise<{ data: unknown; error: Err | null }> => {
     const t = ident(table);
-    const where = filters.length ? ' where ' + filters.map((f, i) => `${ident(f.col)} = $${i + 1}`).join(' and ') : '';
-    const whereParams = filters.map((f) => jsonish(f.val));
+    const whereParams: unknown[] = [];
+    const clauses: string[] = [];
+    for (const f of filters) {
+      whereParams.push(jsonish(f.val));
+      clauses.push(`${ident(f.col)} = $${whereParams.length}`);
+    }
+    for (const f of inFilters) {
+      whereParams.push(f.vals.map(String));
+      clauses.push(`${ident(f.col)} = any($${whereParams.length}::text[])`);
+    }
+    const where = clauses.length ? ' where ' + clauses.join(' and ') : '';
     try {
       if (op === 'select') {
         const r = await pg().query(`select ${cols} from ${t}${where}${limit ? ` limit ${limit}` : ''}`, whereParams);
@@ -57,6 +67,10 @@ function builder(table: string) {
     },
     eq(c: string, v: unknown) {
       filters.push({ col: c, val: v });
+      return b;
+    },
+    in(c: string, vals: unknown[]) {
+      inFilters.push({ col: c, vals });
       return b;
     },
     limit(n: number) {
