@@ -24,6 +24,7 @@ import {
   type WorkspaceState,
 } from '@/lib/cascade/stage3StrategyBook';
 import type { Department } from '@/types/strategy';
+import { DraftProjectList } from '@/components/stage3/DraftProjectList';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -881,17 +882,13 @@ export function StrategyBookDesk({
                 <div className="rounded-lg bg-zinc-50 p-4">
                   <p className="text-sm font-semibold text-gray-800">この部門のプロジェクト案</p>
                   <p className="mt-1 text-xs text-gray-500">内容を読んでから、6つの問いへ進んでください。</p>
-                  <ul className="mt-3 space-y-3 text-sm">
-                    {initialDept.projects.map((p, idx) => {
-                      const detail = String((p as unknown as AnyRecord).reason ?? (p as unknown as AnyRecord).hypothesis ?? '');
-                      return (
-                        <li key={`${p.title}-${idx}`} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
-                          <p className="font-semibold">{p.title}</p>
-                          {detail && <p className="mt-1 text-xs leading-5 text-gray-700">{detail}</p>}
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <div className="mt-3">
+                    <DraftProjectList
+                      projects={initialDept.projects}
+                      official={officialProjects}
+                      candidates={(latestInitial?.newProjects ?? []).map((n) => n.project)}
+                    />
+                  </div>
                 </div>
                 <Button
                   onClick={() => showPhase(2)}
@@ -924,7 +921,6 @@ export function StrategyBookDesk({
           <div className="space-y-6 border-t px-4 py-4">
             <div className="space-y-3">
               <h4 className="text-sm font-semibold">② 既存の6問（空欄でも可）</h4>
-              <p className="text-xs text-gray-600">6問は空欄のままでも、③に進めます。</p>
               {renderSixQuestions(i)}
             </div>
             <div className="space-y-3 border-t pt-4">
