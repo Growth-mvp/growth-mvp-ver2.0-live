@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const mockFetch = jest.fn();
 
@@ -101,3 +101,25 @@ describe('DepartmentQuestionStepper（6つの問い）', () => {
   });
 });
 
+
+describe('DepartmentQuestionStepper（再生成の前の保存）', () => {
+  it('未保存の回答は、登録された関数で親へ渡され、2回目は変更がないので渡さない', async () => {
+    const onChange = jest.fn();
+    let flush: (() => void) | null = null;
+    const onRegisterFlush = (fn: (() => void) | null) => { flush = fn; };
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async () => questionFor(1));
+    render(<DepartmentQuestionStepper departmentName="営業部" onChange={onChange} onRegisterFlush={onRegisterFlush} />);
+    fireEvent.click(screen.getByText('このテーマを生成'));
+    await waitFor(() => expect(screen.getByText('Q1テーマ')).toBeTruthy());
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '再生成の前の回答' } });
+    act(() => { (flush as unknown as () => void)(); });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ answers: [expect.objectContaining({ stepNumber: 1, answer: '再生成の前の回答' })] }),
+    );
+    const calls = onChange.mock.calls.length;
+    act(() => { (flush as unknown as () => void)(); });
+    expect(onChange.mock.calls.length).toBe(calls);
+  });
+});

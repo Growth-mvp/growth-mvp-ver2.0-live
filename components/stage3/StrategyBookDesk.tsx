@@ -43,6 +43,8 @@ interface StrategyBookDeskProps {
   readCompanyId: string | null;
   readStrategyId: string | null;
   generateDepartment: (index: number, mode: 'draft' | 'regen') => Promise<StrategyBookGenerateResult | null | undefined | void>;
+  /** 再生成の前に、未保存の回答を保存する。保存できなければ再生成しない。 */
+  prepareRegeneration?: (index: number) => Promise<{ ok: true } | { ok: false; message: string }>;
   renderSixQuestions: (index: number) => ReactNode;
   onConfirmed: (message: string) => Promise<void> | void;
   onExportDepartment: (name: string) => Promise<void>;
@@ -201,6 +203,7 @@ export function StrategyBookDesk({
   readCompanyId,
   readStrategyId,
   generateDepartment,
+  prepareRegeneration,
   renderSixQuestions,
   onConfirmed,
   onExportDepartment,
@@ -342,6 +345,15 @@ export function StrategyBookDesk({
     setBusy(kind);
     setNotice('');
     try {
+      if (kind === 'regenerated' && prepareRegeneration) {
+        for (const i of indices) {
+          const prepared = await prepareRegeneration(i);
+          if (!prepared.ok) {
+            setNotice(prepared.message);
+            return;
+          }
+        }
+      }
       const generated: Record<string, StrategyBookGenerateResult> = {};
       const failed: string[] = [];
       for (const i of indices) {

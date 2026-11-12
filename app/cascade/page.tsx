@@ -4020,6 +4020,20 @@ useEffect(() => {
     return { ok: true, companyId: scope.companyId, strategyId: st.strategyId, revision: st.revision };
   };
 
+  // 6問の部品が持つ「未保存の回答を保存する」関数（部門ごと）
+  const deptAnswerFlushRef = useRef<Record<number, () => void>>({});
+
+  // 再生成の前に、入力中の回答を渡して既存の保存処理で保存し、成功を確認する（未保存の有無によらず毎回保存する）。
+  const prepareRegenerationForDept = async (index: number): Promise<{ ok: true } | { ok: false; message: string }> => {
+    deptAnswerFlushRef.current[index]?.();
+    const saved = await useStrategyStore.getState().saveStrategyData({ force: true, reason: 'stage3:regen-answers' });
+    if (saved.ok) return { ok: true };
+    return {
+      ok: false,
+      message: `回答の保存に失敗したため、再生成していません（${saved.reason}）。もう一度保存してから、お試しください。`,
+    };
+  };
+
   const renderDeptSixQuestions = (index: number) => {
     const dept = departments[index];
     if (!dept) return null;
@@ -4033,6 +4047,10 @@ useEffect(() => {
         initialAnswers={answersMemo[index] ?? []}
         onChange={({ answers: changedAnswers }) => {
           handleDeptQuestionChange(index, changedAnswers);
+        }}
+        onRegisterFlush={(flush) => {
+          if (flush) deptAnswerFlushRef.current[index] = flush;
+          else delete deptAnswerFlushRef.current[index];
         }}
       />
     );
@@ -4058,6 +4076,7 @@ useEffect(() => {
         readCompanyId={!isHydrating && hydrated && (!accessCompanyId || scopeCompanyId === accessCompanyId) ? (scopeCompanyId as string | null) : null}
         readStrategyId={!isHydrating && hydrated ? (strategyId as string | null) : null}
         generateDepartment={(index, mode) => handleDeptCascadeDraft(index, mode)}
+        prepareRegeneration={prepareRegenerationForDept}
         renderSixQuestions={renderDeptSixQuestions}
         onConfirmed={(message) => refreshAfterWrite(message)}
         onExportDepartment={(name) => stage3ExportToPdf({ departmentName: name })}

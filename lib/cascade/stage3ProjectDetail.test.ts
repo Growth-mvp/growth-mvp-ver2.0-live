@@ -84,3 +84,30 @@ describe('projectDetailOf（草案の詳細を正式データ・新規候補で�
     expect(d.kpis).toEqual([]);
   });
 });
+
+describe('projectDetailOf（出どころと、草案の項目の優先）', () => {
+  it('正式データの項目は「既存」、新規候補の項目は「新規候補」として区別する', () => {
+    const o = projectDetailOf({ id: 'proj-a', title: '既存の保守を強化' }, { official, candidates });
+    const c = projectDetailOf({ id: 'proj-c', title: '新市場の探索' }, { official, candidates });
+    expect(o.origin).toBe('official');
+    expect(c.origin).toBe('candidate');
+  });
+
+  it('照合できない草案でも、草案に保存された選定理由と仮説を使う', () => {
+    const d = projectDetailOf(
+      { id: 'unknown', title: '草案だけの案', reason: '草案の理由', hypothesis: '草案の仮説', sourceType: 'new', okrs: [{ objective: '目標', keyResults: ['指標'] }] },
+      { official: [], candidates: [] },
+    );
+    expect(d.origin).toBe('unmatched');
+    expect(d.purpose).toBe('草案の理由');
+    expect(d.hypothesis).toBe('草案の仮説');
+    expect(d.group).toBe('new');
+    expect(d.okrs).toEqual([{ objective: '目標', keyResults: ['指標'] }]);
+  });
+
+  it('草案の項目と正式データが両方ある時は、草案の項目を優先する', () => {
+    const d = projectDetailOf({ id: 'proj-a', title: '既存の保守を強化', reason: '草案側の理由' }, { official, candidates });
+    expect(d.purpose).toBe('草案側の理由');
+    expect(d.hypothesis).toBe('点検の提案で稼働率が上がる');
+  });
+});

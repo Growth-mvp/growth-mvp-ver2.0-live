@@ -64,3 +64,23 @@ describe('DraftProjectList', () => {
     expect(container.textContent).not.toContain('（未設定）');
   });
 });
+
+describe('DraftProjectList（正式と新規候補の区別）', () => {
+  it('件数を示し、新規候補には採用前だとわかる表示を付ける', () => {
+    render(
+      <DraftProjectList
+        projects={[
+          { id: 'p1', title: '既存の保守を強化' },
+          { id: 'p2', title: '工場間の連携' },
+          { id: 'pc', title: '新市場の探索' },
+        ]}
+        official={official}
+        candidates={[{ id: 'pc', title: '新市場の探索', sourceType: 'new', reason: '新しい顧客層へ広げる' }]}
+      />,
+    );
+    expect(screen.getByText('既存のプロジェクト 2件・新規候補 1件（新規候補は採用するまで正式な計画に入りません）')).toBeTruthy();
+    expect(screen.getByText('新規候補（採用前）')).toBeTruthy();
+    expect(screen.getAllByText('既存（正式データ）')).toHaveLength(2);
+    expect(screen.getByText('新しい顧客層へ広げる')).toBeTruthy();
+  });
+});

@@ -16,6 +16,11 @@ const MAX_SELECTIONS = 80;
 
 const StableId = z.union([z.string().min(1).max(200), z.number().finite()]);
 
+const DraftOkrSchema = z.object({
+  objective: z.string().max(300),
+  keyResults: z.array(z.string().max(300)).max(10),
+});
+
 const DraftDepartmentSchema = z.object({
   id: StableId.optional(),
   name: z.string().trim().min(1).max(200),
@@ -26,6 +31,11 @@ const DraftDepartmentSchema = z.object({
         title: z.string().trim().min(1).max(300),
         description: z.string().max(2000).optional(),
         kpis: z.array(z.string().max(300)).max(20).optional(),
+        reason: z.string().max(2000).optional(),
+        hypothesis: z.string().max(2000).optional(),
+        sourceType: z.string().max(40).optional(),
+        partnerDepartment: z.string().max(200).optional(),
+        okrs: z.array(DraftOkrSchema).max(10).optional(),
       }),
     )
     .max(30),

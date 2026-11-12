@@ -42,6 +42,8 @@ export type DeptQuestionStepperProps = {
   onChange?: (p: { answers: DeptAnswerStep[]; currentStep: StepNumber }) => void;
   /** 親へ：生成したドラフト（mission/projects/okrs）通知（任意） */
   onDraftGenerated?: (p: { mission?: string; projects?: string[]; okrs?: OKR[] }) => void;
+  /** 親へ：未保存の回答を親へ渡す関数を登録する（外れるときは null）。再生成の前に呼ばれる */
+  onRegisterFlush?: (flush: (() => void) | null) => void;
 };
 
 function clampStep(n: number): StepNumber {
@@ -82,6 +84,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     initialStep = 1,
     initialAnswers = [],
     onChange,
+    onRegisterFlush,
   } = props;
 
   // ★ 閲覧はOK、編集は部門レベル（Admin/Manager）
@@ -413,6 +416,20 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       } catch {}
     }
   }, [answers, step, label, question, reason, hint, answerText, canEdit, onChange]);
+
+  // 入力中の回答があれば、親へ渡す（再生成の前に呼ばれる）
+  const flushPendingAnswer = useCallback((): void => {
+    if (!canEdit || !question) return;
+    const existing = answers.find(a => a.stepNumber === step);
+    if (answerText.trim() === (existing?.answer ?? '').trim()) return;
+    handleSaveAnswerLocally();
+  }, [canEdit, question, answers, step, answerText, handleSaveAnswerLocally]);
+
+  useEffect(() => {
+    if (!onRegisterFlush) return;
+    onRegisterFlush(flushPendingAnswer);
+    return () => onRegisterFlush(null);
+  }, [onRegisterFlush, flushPendingAnswer]);
 
   // 回答は任意。空欄でも次のテーマへ進める（回答はそのまま保存する）
   const canGoNext = canEdit;

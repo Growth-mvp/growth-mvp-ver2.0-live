@@ -2,10 +2,42 @@ import { collectPlanUnits, departmentKeyOf, projectIdOf } from '@/lib/cascade/st
 import type { DeptProposal } from '@/lib/cascade/stage3Candidates';
 import type { DraftDepartment, NewProjectCandidate, ProjectSelection, Selection } from '@/lib/cascade/stage3StrategyBook';
 
+type DraftProject = DraftDepartment['projects'][number];
+
 type AnyRecord = Record<string, unknown>;
 
 const hasStableId = (v: AnyRecord) =>
   (typeof v.id === 'string' && v.id.trim() !== '') || (typeof v.id === 'number' && Number.isFinite(v.id));
+
+const clipped = (v: unknown, max: number): string | undefined =>
+  typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, max) : undefined;
+
+/** 計画の詳細（選定理由・仮説・連携先・目標）を、保存の上限内で草案に残す。存在する項目だけを返す。 */
+function detailsOf(raw: AnyRecord | undefined): Partial<DraftProject> {
+  if (!raw) return {};
+  const out: Partial<DraftProject> = {};
+  const reason = clipped(raw.reason, 2000);
+  if (reason) out.reason = reason;
+  const hypothesis = clipped(raw.hypothesis, 2000);
+  if (hypothesis) out.hypothesis = hypothesis;
+  const sourceType = clipped(raw.sourceType, 40);
+  if (sourceType) out.sourceType = sourceType;
+  const partnerDepartment = clipped(raw.partnerDepartment, 200);
+  if (partnerDepartment) out.partnerDepartment = partnerDepartment;
+  const okrs = (Array.isArray(raw.okrs) ? raw.okrs : [])
+    .filter((o): o is AnyRecord => !!o && typeof o === 'object')
+    .map((o) => ({
+      objective: clipped(o.objective, 300) ?? '',
+      keyResults: (Array.isArray(o.keyResults) ? o.keyResults : [])
+        .map((k) => clipped(k, 300))
+        .filter((k): k is string => k !== undefined)
+        .slice(0, 10),
+    }))
+    .filter((o) => o.objective !== '' || o.keyResults.length > 0)
+    .slice(0, 10);
+  if (okrs.length > 0) out.okrs = okrs;
+  return out;
+}
 
 /**
  * 草案の部門データを作る。既存の計画（安定IDのあるもの）はそのまま、生成された候補の計画を追加する。
@@ -24,11 +56,16 @@ export function draftDepartmentsFrom(
       const extra = collectPlanUnits([{ name: d.name, projects: candidateProjects[key] ?? [] }]).filter(
         (u) => !existingIds.has(u.projectId),
       );
-      const toDraft = (u: (typeof existing)[number]) => ({
+      const rawById = new Map<string, AnyRecord>();
+      for (const p of [...(Array.isArray(d.projects) ? d.projects : []), ...(candidateProjects[key] ?? [])]) {
+        if (p && typeof p === 'object' && !rawById.has(projectIdOf(p as AnyRecord))) rawById.set(projectIdOf(p as AnyRecord), p as AnyRecord);
+      }
+      const toDraft = (u: (typeof existing)[number]): DraftProject => ({
         ...(u.projectId.startsWith('id:') ? { id: u.projectId.slice(3) } : {}),
         title: u.projectTitle,
         ...(u.summary ? { description: u.summary } : {}),
         ...(u.kpis.length > 0 ? { kpis: u.kpis } : {}),
+        ...detailsOf(rawById.get(u.projectId)),
       });
       return {
         ...(hasStableId(d) ? { id: d.id as string | number } : {}),
