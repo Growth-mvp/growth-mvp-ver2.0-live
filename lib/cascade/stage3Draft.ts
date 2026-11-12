@@ -98,7 +98,9 @@ export function newProjectCandidatesFrom(
       const candidateId = candidateProjectId(key, p.title.trim());
       if (existingIds.has(unitId) || seen.has(candidateId)) continue;
       seen.add(candidateId);
-      out.push({ departmentKey: key, candidateId, project: JSON.parse(JSON.stringify(p)) as AnyRecord });
+      const project = JSON.parse(JSON.stringify(p)) as AnyRecord;
+      if (project.hypothesis === undefined && typeof project.reason === 'string') project.hypothesis = project.reason;
+      out.push({ departmentKey: key, candidateId, project });
     }
   }
   return out;

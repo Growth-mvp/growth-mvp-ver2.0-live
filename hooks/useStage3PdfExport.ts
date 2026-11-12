@@ -98,6 +98,8 @@ export function useStage3PdfExport() {
           unit: 'mm',
           format: 'a4',
         },
+        image: { type: 'jpeg', quality: 0.92 },
+        avoidBreakSelector: '.report-section, .report-card, .report-h2, .report-h3, .report-h4, .report-list, .report-text',
       });
 
       console.log('[useStage3PdfExport] PDF generation completed');

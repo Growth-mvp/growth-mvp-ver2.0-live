@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StrategyBookPanel, type StrategyBookGate, type StrategyBookGenerateResult } from '@/components/stage3/StrategyBookPanel';
 import DepartmentQuestionStepper from '@/components/guide/QuestionStepper.dept';
+import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
+import { buildStage3ReportData } from '@/utils/export/buildStage3ReportData';
 
 type Dept = {
   id?: string;
@@ -11,7 +13,28 @@ type Dept = {
   projects: Array<{ id?: string; title: string }>;
   answers2?: Array<{ steps: unknown[] }>;
 };
-type HarnessState = { companyId: string; strategyId: string; revision: number; departments: Dept[] };
+type HarnessState = {
+  companyId: string;
+  strategyId: string;
+  companyName: string;
+  revision: number;
+  departments: Dept[];
+  finalStoryFinal: unknown;
+};
+
+/* 既存のPDF出力フック（useStage3PdfExport）を、検証用の確定版の内容で動かす */
+function PdfHost({ state }: { state: Record<string, unknown> }) {
+  (globalThis as unknown as { __harnessStore?: unknown }).__harnessStore = state;
+  const { exportToPdf } = useStage3PdfExport();
+  useEffect(() => {
+    (window as unknown as { __exportPdf?: unknown }).__exportPdf = exportToPdf;
+    (window as unknown as { __reportFor?: unknown }).__reportFor = (departmentName: string) => {
+      const departments = ((state.departments as Array<{ name: string }>) ?? []).filter((d) => d.name === departmentName);
+      return buildStage3ReportData({ ...state, departments } as never);
+    };
+  }, [exportToPdf, state]);
+  return null;
+}
 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -61,21 +84,34 @@ function App() {
   };
 
   return (
-    <StrategyBookPanel
-      departments={st.departments as never}
-      canEdit
-      getWriteGate={getWriteGate}
-      generateDepartment={generateDepartment}
-      renderSixQuestions={renderSixQuestions}
-      onConfirmed={async (message) => {
-        (window as unknown as { __confirmMessage?: string }).__confirmMessage = message;
-        await load();
-      }}
-      onExportDepartment={async (name) => {
-        const r = await post<unknown>('/harness/pdf', { departmentName: name });
-        (window as unknown as { __pdf?: unknown }).__pdf = r;
-      }}
-    />
+    <>
+      <PdfHost
+        state={{
+          companyName: st.companyName,
+          departments: st.departments,
+          finalStoryFinal: st.finalStoryFinal,
+          finalStoryEdited: undefined,
+          finalStoryDraft: undefined,
+          finalStory: undefined,
+        }}
+      />
+      <StrategyBookPanel
+        departments={st.departments as never}
+        canEdit
+        getWriteGate={getWriteGate}
+        generateDepartment={generateDepartment}
+        renderSixQuestions={renderSixQuestions}
+        onConfirmed={async (message) => {
+          (window as unknown as { __confirmMessage?: string }).__confirmMessage = message;
+          await load();
+        }}
+        onExportDepartment={async (name) => {
+          const exporter = (window as unknown as { __exportPdf?: (o: { departmentName: string }) => Promise<void> }).__exportPdf;
+          if (!exporter) throw new Error('PDF exporter is not ready');
+          await exporter({ departmentName: name });
+        }}
+      />
+    </>
   );
 }
 

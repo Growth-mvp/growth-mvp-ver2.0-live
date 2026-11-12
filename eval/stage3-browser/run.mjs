@@ -11,6 +11,29 @@ const PORT = Number(process.env.PORT ?? 3917);
 const shots = path.join(here, 'out', 'shots');
 
 const results = [];
+let pdfReport = null;
+
+/* ダウンロードしたPDFを、PDF.js（既存の依存）で開いて検査する */
+async function inspectPdf(file) {
+  const bytes = fs.readFileSync(file);
+  const pdfjsPath = ['legacy/build/pdf.mjs', 'legacy/build/pdf.js'].map((p) => path.join(process.cwd(), 'node_modules/pdfjs-dist', p)).find((p) => fs.existsSync(p));
+  const pdfjs = await import(pathToFileURL(pdfjsPath).href);
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true, disableFontFace: true }).promise;
+  const pageTexts = [];
+  for (let i = 1; i <= doc.numPages; i += 1) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    pageTexts.push(content.items.map((it) => it.str).join(''));
+  }
+  return {
+    isPdf: bytes.subarray(0, 4).toString('latin1') === '%PDF',
+    bytes: bytes.length,
+    pages: doc.numPages,
+    pageTexts,
+    text: pageTexts.join('\n'),
+  };
+}
+
 const check = (name, ok, detail = '') => {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? `  -- ${detail}` : ''}`);
@@ -150,11 +173,42 @@ try {
   });
 
   await step('⑧ 部門別にPDF出力できる（確定版の内容を部門ごとに渡す）', async () => {
-    await btn('営業部のPDF').click();
-    await page.waitForFunction(() => !!window.__pdf, null, { timeout: 15000 });
-    const pdf = await page.evaluate(() => window.__pdf);
-    const titles = (pdf?.department?.projects ?? []).map((p) => p.title);
-    check('⑧ 営業部のPDF：確定版の計画（採用した新規プロジェクトを含む）が出力対象になる', titles.some((t) => String(t).includes('新しい施策')), titles.join(' / '));
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 90000 }),
+      btn('営業部のPDF').click(),
+    ]);
+    const pdfPath = path.join(here, 'out', 'pdf', 'sales.pdf');
+    fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+    await download.saveAs(pdfPath);
+    const pdf = await inspectPdf(pdfPath);
+    pdf.fileName = download.suggestedFilename();
+    pdfReport = pdf;
+    check('⑧-1 営業部のPDFが実際にダウンロードされる（PDFファイルとして開ける）', pdf.isPdf && pdf.pages >= 1, `${pdf.pages}ページ / ${pdf.bytes}バイト / ${pdf.fileName}`);
+    const reportText = JSON.stringify(await page.evaluate(() => window.__reportFor('営業部')));
+    check('⑧-2 PDFに渡す報告データ：会社名・部門名・採用した新規プロジェクト・既存の計画が入る', reportText.includes('架空精密計測') && reportText.includes('営業部') && reportText.includes('既存顧客の再受注施策') && reportText.includes('6問反映案'));
+    check('⑧-3 PDFに渡す報告データ：他部門（マーケティング部）の行動計画が混入しない', !reportText.includes('既存顧客向けセミナー'));
+    check('⑧-4 PDFの大きさが配布できる範囲（20MB未満）', pdf.bytes < 20 * 1024 * 1024, `${(pdf.bytes / 1024 / 1024).toFixed(1)}MB`);
+    const view = await browser.newPage({ viewport: { width: 900, height: 1200 } });
+    await view.goto(base + '/pdfview?src=/pdf/sales.pdf');
+    await view.waitForFunction(() => window.__done === true, null, { timeout: 120000 });
+    const pageCount = await view.evaluate(() => window.__pages);
+    const ink = await view.evaluate(() => window.__ink);
+    for (let i = 1; i <= pageCount; i += 1) {
+      await view.locator(`#page-${i}`).screenshot({ path: path.join(here, 'out', 'pdf', `page-${i}.png`) });
+    }
+    await view.close();
+    check('⑧-5 PDF：全ページが描画され、白紙のページがない（ページごとの描画量）', ink.length === pageCount && ink.every((r) => r > 0.01), ink.map((r) => r.toFixed(3)).join(','));
+    pdfReport = { ...pdf, pageCount, ink };
+
+    const [mktDownload] = await Promise.all([
+      page.waitForEvent('download', { timeout: 90000 }),
+      btn('マーケティング部のPDF').click(),
+    ]);
+    const mktPath = path.join(here, 'out', 'pdf', 'marketing.pdf');
+    await mktDownload.saveAs(mktPath);
+    const mkt = await inspectPdf(mktPath);
+    const mktData = JSON.stringify(await page.evaluate(() => window.__reportFor('マーケティング部')));
+    check('⑧-6 マーケティング部のPDF：自部門の計画だけが入り、営業部の計画は入らない', mkt.isPdf && mkt.pages >= 1 && mktData.includes('既存顧客向けセミナー') && !mktData.includes('既存顧客の再受注施策'), `${mkt.pages}ページ / ${(mkt.bytes / 1024).toFixed(0)}KB / ${mktDownload.suggestedFilename()}`);
   });
 
   await step('⑨ 確定後に再読み込みしても、確定済みの状態が復元される', async () => {

@@ -1,5 +1,5 @@
 /* 新STAGE3のブラウザ検証用のバンドルを作る（評価専用）。外部への接続はスタブに差し替える。出力は out/（Git管理外）。 */
-import { mkdirSync } from 'fs';
+import { mkdirSync, readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as esbuild from 'esbuild';
@@ -37,7 +37,23 @@ export async function build() {
     platform: 'browser',
     jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"development"' },
-    plugins: [replaceModules({ '@/utils/authFetch': stub('authFetch.ts'), '@/utils/access': stub('access.ts') })],
+    plugins: [
+      /* Next.js の <style jsx> は、この検証用のバンドルでは解釈されないため、通常の <style> として読ませる */
+      {
+        name: 'strip-styled-jsx',
+        setup(build) {
+          build.onLoad({ filter: /components[\\/]export[\\/].*\.tsx$/ }, (args) => ({
+            contents: readFileSync(args.path, 'utf8').replace(/<style jsx(?: global)?>/g, '<style>'),
+            loader: 'tsx',
+          }));
+        },
+      },
+      replaceModules({
+        '@/utils/authFetch': stub('authFetch.ts'),
+        '@/utils/access': stub('access.ts'),
+        '@/store/strategyStore': stub('strategyStoreHarness.ts'),
+      }),
+    ],
     logLevel: 'warning',
   });
   await esbuild.build({

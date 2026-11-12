@@ -91,12 +91,41 @@ const PAGE = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>
 <script>globalThis.__USER = '${IDS.user}';</script>
 <script src="/client.js"></script></body></html>`;
 
+/** 出力したPDFを、PDF.js（既存の依存）で1ページずつ描画する。目視の確認に使う。 */
+const PDF_VIEW = (src: string) => `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#888">
+<script type="module">
+import * as pdfjs from '/pdfjs/pdf.mjs';
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.mjs';
+const doc = await pdfjs.getDocument(${JSON.stringify(src)}).promise;
+window.__pages = doc.numPages;
+for (let i = 1; i <= doc.numPages; i += 1) {
+  const page = await doc.getPage(i);
+  const vp = page.getViewport({ scale: 1.4 });
+  const c = document.createElement('canvas');
+  c.id = 'page-' + i; c.width = vp.width; c.height = vp.height; c.style.display = 'block'; c.style.margin = '12px auto'; c.style.background = '#fff';
+  document.body.appendChild(c);
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let ink = 0;
+  for (let k = 0; k < px.length; k += 4) if (px[k] < 240 || px[k + 1] < 240 || px[k + 2] < 240) ink += 1;
+  (window.__ink ??= []).push(ink / (c.width * c.height));
+}
+window.__done = true;
+</script></body></html>`;
+
 /** 検証用の補助API（画面の読み込み用の状態、6問の保存、生成の入口、PDFに渡す内容）。判定はしない。 */
 async function harness(pg: Pg, req: Request, pathname: string): Promise<Response> {
   if (pathname === '/harness/state' && req.method === 'GET') {
-    const r = await pg.query('select departments, revision from strategy_data where id = $1', [IDS.strategy]);
+    const r = await pg.query('select departments, revision, final_story_final from strategy_data where id = $1', [IDS.strategy]);
     const row = r.rows[0];
-    return json({ companyId: IDS.company, strategyId: IDS.strategy, revision: Number(row.revision), departments: row.departments });
+    return json({
+      companyId: IDS.company,
+      strategyId: IDS.strategy,
+      companyName: '架空精密計測株式会社（検証用）',
+      revision: Number(row.revision),
+      departments: row.departments,
+      finalStoryFinal: row.final_story_final,
+    });
   }
   if (pathname === '/harness/answers' && req.method === 'POST') {
     const body = (await req.json()) as { index: number; steps: unknown[] };
@@ -166,6 +195,22 @@ export async function start(port: number, clientJs: string) {
       }
       if (nodeReq.method === 'GET' && url.pathname === '/client.js') {
         nodeRes.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }).end(clientJs);
+        return;
+      }
+      if (nodeReq.method === 'GET' && (url.pathname.startsWith('/pdfjs/') || url.pathname.startsWith('/pdf/'))) {
+        const isLib = url.pathname.startsWith('/pdfjs/');
+        const base = isLib ? path.join(root, 'node_modules/pdfjs-dist/build') : path.join(root, 'eval/stage3-browser/out/pdf');
+        const file = path.join(base, path.normalize(url.pathname.replace(isLib ? '/pdfjs/' : '/pdf/', '')));
+        if (!file.startsWith(base) || !fs.existsSync(file)) {
+          nodeRes.writeHead(404).end('not found');
+          return;
+        }
+        nodeRes.writeHead(200, { 'content-type': file.endsWith('.pdf') ? 'application/pdf' : 'text/javascript; charset=utf-8' }).end(fs.readFileSync(file));
+        return;
+      }
+      if (nodeReq.method === 'GET' && url.pathname === '/pdfview') {
+        const src = url.searchParams.get('src') ?? '/pdf/sales.pdf';
+        nodeRes.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PDF_VIEW(src));
         return;
       }
       const chunks: Buffer[] = [];
