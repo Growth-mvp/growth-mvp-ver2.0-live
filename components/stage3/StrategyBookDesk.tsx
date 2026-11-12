@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { ADJUSTMENT_KIND_LABEL, departmentKeyOf, type AdjustmentCandidate, type DialogueResult } from '@/lib/cascade/stage3Adjustment';
@@ -1249,16 +1250,19 @@ export function StrategyBookDesk({
       {/* 全社戦略（STAGE2）の状態と、作業の状態 */}
       <section className="space-y-2 rounded-xl bg-zinc-50 px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold">全社戦略（STAGE2）</span>
+          <span className="font-semibold">全社戦略（STAGE2）{stage2.status === 'confirmed' && '｜確定済み'}</span>
           {stage2.status === 'loading' && <Chip tone="neutral">読み込み中</Chip>}
-          {stage2.status === 'confirmed' && <Chip tone="ok">確定済み</Chip>}
           {(stage2.status === 'not_confirmed' || stage2.status === 'story_missing') && <Chip tone="warn">未確定</Chip>}
           {stage2.status === 'error' && <Chip tone="warn">確認できません</Chip>}
           {stage2.status === 'confirmed' && (
-            <details className="w-full">
-              <summary className="cursor-pointer text-sm font-semibold">確定版の全文を読む</summary>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{stage2.companyStrategy}</p>
-            </details>
+            <Link
+              href="/report/stage2-strategy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-semibold text-white hover:bg-zinc-700"
+            >
+              全社戦略書を読む
+            </Link>
           )}
         </div>
         <p className="text-xs text-gray-600">
