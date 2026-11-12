@@ -1,4 +1,4 @@
-import { buildDeptStrategyBookPdfData, formatConfirmedDate } from './buildDeptStrategyBookPdf';
+import { buildDeptStrategyBookPdfData, buildDeptWorkingPdfData, formatConfirmedDate } from './buildDeptStrategyBookPdf';
 
 const state = {
   companyName: '日本製罐株式会社',
@@ -65,7 +65,7 @@ describe('buildDeptStrategyBookPdfData（確定済みの正式データから、
     expect(text).not.toContain('別事業');
     expect(text).not.toContain('proj-');
     expect(text).not.toContain('d-can');
-    expect(text).not.toContain('価格の認識がずれやすい');
+    expect(data?.alignmentRiskPoints).toEqual(['価格の認識がずれやすい']);
     expect(data?.projects).toHaveLength(2);
     expect(data?.projects[1]).toEqual({ title: '新用途の開拓', purpose: [], hypothesis: [], goals: [] });
   });
@@ -83,5 +83,83 @@ describe('buildDeptStrategyBookPdfData（確定済みの正式データから、
     expect(formatConfirmedDate(undefined)).toBe('');
     expect(formatConfirmedDate('not-a-date')).toBe('');
     expect(formatConfirmedDate('2026-11-12T03:00:00.000Z')).toBe('2026年11月12日');
+  });
+
+  it('確定版は、確定済みの正式データの状態を示し、後工程向けの注意項目も含める', () => {
+    const withRisk = {
+      ...state,
+      departments: [{ ...state.departments[0], stopList: ['新規の値下げ競争には参加しない'], riskNotes: ['原材料の市況に注意'] }],
+    };
+    const data = buildDeptStrategyBookPdfData(withRisk, '金属缶製造販売事業', undefined);
+    expect(data?.status).toBe('confirmed');
+    expect(data?.stopList).toEqual(['新規の値下げ競争には参加しない']);
+    expect(data?.riskNotes).toEqual(['原材料の市況に注意']);
+  });
+});
+
+describe('buildDeptWorkingPdfData（作業版：画面の作業内容から作る）', () => {
+  const doc = {
+    departmentName: '金属缶製造販売事業',
+    versionLabel: '版 2・6問反映後の再生成版・未確定',
+    texts: {
+      mission: ['国内の缶需要に応える'],
+      keyIssues: ['原価上昇', '受注の平準化'],
+      interCollab: ['開発部と新用途を試作する'],
+      stopList: ['新規の値下げ競争には参加しない'],
+    },
+    projects: [
+      {
+        title: '缶の原価低減',
+        origin: 'official' as const,
+        group: 'other' as const,
+        objective: '原価率を下げる',
+        purpose: '原価が上がっている',
+        hypothesis: '工程改善で原価率が下がる',
+        summary: null,
+        partner: null,
+        goals: ['原価率 2pt 低減'],
+      },
+      {
+        title: '6問反映案：新しい施策',
+        origin: 'candidate' as const,
+        group: 'other' as const,
+        objective: null,
+        purpose: '候補の理由',
+        hypothesis: null,
+        summary: null,
+        partner: null,
+        goals: [],
+      },
+    ],
+  };
+
+  it('作業版の内容を作業版として返し、確定日は持たない', () => {
+    const data = buildDeptWorkingPdfData(doc, { companyName: '日本製罐株式会社' });
+    expect(data.status).toBe('working');
+    expect(data.companyName).toBe('日本製罐株式会社');
+    expect(data.confirmedDate).toBe('');
+    expect(data.mission).toEqual(['国内の缶需要に応える']);
+    expect(data.keyIssues).toEqual(['原価上昇', '受注の平準化']);
+    expect(data.interCollab).toEqual(['開発部と新用途を試作する']);
+    expect(data.stopList).toEqual(['新規の値下げ競争には参加しない']);
+  });
+
+  it('新規候補には未確定と分かる印を付け、既存のプロジェクトはそのまま出す', () => {
+    const data = buildDeptWorkingPdfData(doc, { companyName: '' });
+    expect(data.companyName).toBe('（会社名未入力）');
+    expect(data.projects[0]).toEqual({
+      title: '缶の原価低減',
+      purpose: ['原価率を下げる', '原価が上がっている'],
+      hypothesis: ['工程改善で原価率が下がる'],
+      goals: ['原価率 2pt 低減'],
+    });
+    expect(data.projects[1].title).toBe('6問反映案：新しい施策（新規候補・未確定）');
+  });
+
+  it('画面に無い項目は補完せず、空のままにする', () => {
+    const data = buildDeptWorkingPdfData(doc, { companyName: '日本製罐株式会社' });
+    expect(data.alignmentRiskPoints).toEqual([]);
+    expect(data.reviewSummary).toEqual([]);
+    expect(data.riskNotes).toEqual([]);
   });
 });

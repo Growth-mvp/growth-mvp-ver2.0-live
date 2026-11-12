@@ -10,19 +10,30 @@
 import { useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { buildStage3ReportData } from '@/utils/export/buildStage3ReportData';
-import { buildDeptStrategyBookPdfData } from '@/utils/export/buildDeptStrategyBookPdf';
+import type { StrategyDocumentProps } from '@/components/stage3/StrategyBookDocument';
+import { buildDeptStrategyBookPdfData, buildDeptWorkingPdfData } from '@/utils/export/buildDeptStrategyBookPdf';
 import {
   downloadPdfFromElement,
   generatePdfFileName,
 } from '@/utils/export/downloadPdf';
 
-/** 事業・部門戦略書（確定版）のPDF出力。確定済みの正式データだけを使い、データは変更しない。 */
+/**
+ * 事業・部門戦略書のPDF出力。
+ * - 確定版（既定）：確定済みの正式データだけを使う。
+ * - 作業版（working を渡す）：画面の作業内容を使う。正式データは読まず、変更もしない。
+ */
 export async function exportDeptStrategyBookPdf(
   state: { companyName?: unknown; departments?: unknown },
-  options: { departmentName: string; confirmedAt?: string },
+  options: { departmentName: string; confirmedAt?: string; working?: StrategyDocumentProps },
 ): Promise<void> {
-  const data = buildDeptStrategyBookPdfData(state, options.departmentName, options.confirmedAt);
+  const data = options.working
+    ? buildDeptWorkingPdfData(options.working, state)
+    : buildDeptStrategyBookPdfData(state, options.departmentName, options.confirmedAt);
   if (!data) throw new Error('department_not_found');
+  const fileName = data.status === 'working'
+    ? `GROWTHSHIFT_${data.departmentName}_事業戦略書_作業版`
+    : `GROWTHSHIFT_${data.departmentName}_事業戦略書`;
+  const statusLabel = data.status === 'working' ? '作業版・未確定' : '確定版';
 
   const { DeptStrategyBookPdfView } = await import('@/components/export/DeptStrategyBookPdfView');
   const { createRoot } = await import('react-dom/client');
@@ -42,12 +53,12 @@ export async function exportDeptStrategyBookPdf(
   try {
     reactRoot.render(React.createElement(DeptStrategyBookPdfView, { data }));
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))));
-    await downloadPdfFromElement('dept-strategy-book-pdf', `GROWTHSHIFT_${data.departmentName}_事業戦略書`, {
+    await downloadPdfFromElement('dept-strategy-book-pdf', fileName, {
       margin: [10, 10, 14, 10],
       jsPDF: { orientation: 'p', unit: 'mm', format: 'a4' },
       image: { type: 'jpeg', quality: 0.92 },
-      avoidBreakSelector: '.report-section, .report-card, .report-h2, .report-h3, .report-text, .report-list',
-      footer: (pageNo, pageCount) => `${pageNo} / ${pageCount}`,
+      avoidBreakSelector: '.report-h2, .report-h3, .report-text',
+      footer: (pageNo, pageCount) => ({ label: statusLabel, text: `${pageNo} / ${pageCount}` }),
     });
   } finally {
     reactRoot.unmount();
@@ -158,7 +169,7 @@ export function useStage3PdfExport() {
   }, [state]);
 
   const exportDepartmentStrategyBookPdf = useCallback(
-    (options: { departmentName: string; confirmedAt?: string }) => exportDeptStrategyBookPdf(state, options),
+    (options: { departmentName: string; confirmedAt?: string; working?: StrategyDocumentProps }) => exportDeptStrategyBookPdf(state, options),
     [state],
   );
 

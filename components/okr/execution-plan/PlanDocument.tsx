@@ -37,7 +37,7 @@ export type PlanDocumentProps = {
   onOpenStart: () => void;
 };
 
-function EditableBlock({
+export function EditableBlock({
   label,
   value,
   mode,

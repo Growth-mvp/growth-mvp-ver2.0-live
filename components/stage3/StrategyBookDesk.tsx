@@ -26,8 +26,56 @@ import {
 import type { Department } from '@/types/strategy';
 import { StrategyBookDocument, type DocProject, type SectionEdit, type StrategyDocumentProps, type TextItemKey } from '@/components/stage3/StrategyBookDocument';
 import { projectDetailOf } from '@/lib/cascade/stage3ProjectDetail';
+import { EditableBlock } from '@/components/okr/execution-plan/PlanDocument';
+import { PLAN_DOC_CSS } from '@/components/okr/execution-plan/planDocStyles';
 
 type AnyRecord = Record<string, unknown>;
+type TextDraft = Partial<Record<TextItemKey, string>>;
+
+const ALL_TEXT_KEYS: TextItemKey[] = [
+  'mission',
+  'missionDescription',
+  'currentPosition',
+  'strategicRole',
+  'keyIssues',
+  'intraCollab',
+  'interCollab',
+  'alignmentRiskPoints',
+  'reviewSummary',
+  'stopList',
+  'riskNotes',
+];
+
+const TEXT_SPECS: Record<TextItemKey, { item: DeptProposalItem; lines: boolean }> = {
+  mission: { item: 'mission', lines: false },
+  missionDescription: { item: 'missionDescription', lines: false },
+  currentPosition: { item: 'currentPosition', lines: false },
+  strategicRole: { item: 'strategicRole', lines: false },
+  keyIssues: { item: 'keyIssues', lines: true },
+  intraCollab: { item: 'collab', lines: true },
+  interCollab: { item: 'collab', lines: true },
+  alignmentRiskPoints: { item: 'alignmentRiskPoints', lines: true },
+  reviewSummary: { item: 'reviewSummary', lines: true },
+  stopList: { item: 'stopList', lines: true },
+  riskNotes: { item: 'riskNotes', lines: true },
+};
+
+const TEXT_LABEL: Record<TextItemKey, string> = {
+  mission: '事業・部門の使命',
+  missionDescription: '概要・仮説',
+  currentPosition: '現在の位置づけ',
+  strategicRole: '全社戦略における役割',
+  keyIssues: '重点課題と勝ち筋',
+  intraCollab: '事業内・部門内の連携',
+  interCollab: '他の事業・部門との連携',
+  alignmentRiskPoints: '認識のズレが起きやすいポイント',
+  reviewSummary: '再考ポイント・部門横断論点',
+  stopList: '停止事項',
+  riskNotes: 'リスク注記',
+};
+
+const textDraftOf = (doc: StrategyDocumentProps | null): TextDraft =>
+  Object.fromEntries(ALL_TEXT_KEYS.map((k) => [k, (doc?.texts[k] ?? []).join('\n')]));
 
 export type StrategyBookGenerateResult = { projects: AnyRecord[]; proposals: DeptProposal[] };
 
@@ -48,7 +96,7 @@ interface StrategyBookDeskProps {
   prepareRegeneration?: (index: number) => Promise<{ ok: true } | { ok: false; message: string }>;
   renderSixQuestions: (index: number) => ReactNode;
   onConfirmed: (message: string) => Promise<void> | void;
-  onExportDepartment: (name: string, confirmedAt?: string) => Promise<void>;
+  onExportDepartment: (name: string, options: { confirmedAt?: string; working?: StrategyDocumentProps }) => Promise<void>;
   onAddDepartment: (name: string, mission: string) => Promise<boolean>;
   onRenameDepartment: (index: number, name: string) => Promise<boolean>;
   onDeleteDepartment: (index: number) => Promise<boolean>;
@@ -221,7 +269,7 @@ export function StrategyBookDesk({
   const [stage2, setStage2] = useState<Stage2View>({ status: 'loading' });
   const [workspaceErrorCode, setWorkspaceErrorCode] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
-  const [fieldEdit, setFieldEdit] = useState<{ key: string; text: string } | null>(null);
+  const [docDraft, setDocDraft] = useState<{ deptKey: string; texts: TextDraft } | null>(null);
   const [candEdit, setCandEdit] = useState<{ candidateId: string; title: string; reason: string; hypothesis: string; description: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
@@ -567,47 +615,49 @@ export function StrategyBookDesk({
     );
   };
 
-  /* 文書の項目を直す：変更案を作る（既存の値は基準として保存し、確定時に既存の値と照合される） */
-  const saveDocField = async (dept: Department, item: DeptProposalItem, proposed: AnyRecord) => {
-    const key = departmentKeyOf(dept as unknown as AnyRecord);
-    const base = currentItemValues(dept as unknown as AnyRecord, item);
-    const existing = state.selections.find((s) => s.departmentKey === key && s.item === item);
-    const selection: Selection = { departmentKey: key, departmentName: dept.name, item, proposed, base, decision: 'applied' };
-    const selections = existing
-      ? state.selections.map((s) => (s === existing ? selection : s))
-      : [...state.selections, selection];
-    const ok = await save(reopen({ ...state, selections }));
-    if (ok) setNotice('内容を保存しました。確定すると、戦略書に反映されます。');
-  };
-
-  const startFieldEdit = (key: string, current: string) => {
-    setFieldEdit({ key, text: current });
-  };
-
-  const commitFieldEdit = async (dept: Department, item: DeptProposalItem, lines: boolean, field: string) => {
-    if (!fieldEdit) return;
-    const raw = fieldEdit.text;
-    const value = lines ? raw.split('\n').map((l) => l.trim()).filter(Boolean) : raw.trim();
-    if (value.length === 0) {
-      setNotice('空の内容は保存できません。内容を入力するか、編集を取り消してください。');
+  /* 戦略書の編集を、作業版として一度に保存する。正式データ（部門の現在の値）は変えない。確定時に照合される。 */
+  const saveDocEdits = async (dept: Department, original: TextDraft, draft: TextDraft) => {
+    const changed = ALL_TEXT_KEYS.filter((k) => (draft[k] ?? '') !== (original[k] ?? ''));
+    if (changed.length === 0) {
+      setDocDraft(null);
+      setNotice('変更はありません。');
       return;
     }
-    const key = departmentKeyOf(dept as unknown as AnyRecord);
-    const existing = state.selections.find((s) => s.departmentKey === key && s.item === item);
-    let proposed: AnyRecord;
-    if (item === 'collab') {
-      const intra = field === 'intraDeptCollab' ? value : linesOf(existing?.proposed.intraDeptCollab ?? currentItemValues(dept as unknown as AnyRecord, item).intraDeptCollab);
-      const inter = field === 'interDeptCollab' ? value : linesOf(existing?.proposed.interDeptCollab ?? currentItemValues(dept as unknown as AnyRecord, item).interDeptCollab);
-      proposed = {
-        intraDeptCollab: intra,
-        interDeptCollab: inter,
-        needsCollab: [...new Set([...(intra as string[]), ...(inter as string[])])],
-      };
-    } else {
-      proposed = { [item === 'mission' ? 'mission' : item]: value };
+    const linesOfDraft = (k: TextItemKey): string[] => (draft[k] ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const valueOf = (k: TextItemKey): string | string[] => (TEXT_SPECS[k].lines ? linesOfDraft(k) : (draft[k] ?? '').trim());
+    for (const k of changed) {
+      if (valueOf(k).length === 0) {
+        setNotice(`「${TEXT_LABEL[k]}」が空です。内容を入力するか、「編集をやめる」を押してください。`);
+        return;
+      }
     }
-    setFieldEdit(null);
-    await saveDocField(dept, item, proposed);
+    const key = departmentKeyOf(dept as unknown as AnyRecord);
+    let selections = state.selections;
+    for (const item of [...new Set(changed.map((k) => TEXT_SPECS[k].item))]) {
+      const proposed: AnyRecord =
+        item === 'collab'
+          ? {
+              intraDeptCollab: linesOfDraft('intraCollab'),
+              interDeptCollab: linesOfDraft('interCollab'),
+              needsCollab: [...new Set([...linesOfDraft('intraCollab'), ...linesOfDraft('interCollab')])],
+            }
+          : { [DEPT_PROPOSAL_ITEMS[item].keys[0]]: valueOf(changed.find((k) => TEXT_SPECS[k].item === item)!) };
+      const selection: Selection = {
+        departmentKey: key,
+        departmentName: dept.name,
+        item,
+        proposed,
+        base: currentItemValues(dept as unknown as AnyRecord, item),
+        decision: 'applied',
+      };
+      const existing = selections.find((s) => s.departmentKey === key && s.item === item);
+      selections = existing ? selections.map((s) => (s === existing ? selection : s)) : [...selections, selection];
+    }
+    const ok = await save(reopen({ ...state, selections }));
+    if (ok) {
+      setDocDraft(null);
+      setNotice('戦略書の編集を保存しました（作業版・未確定）。確定すると、戦略書に反映されます。');
+    }
   };
 
   const saveCandidateEdit = async () => {
@@ -805,7 +855,7 @@ export function StrategyBookDesk({
           disabled={!canOperate || !stage2Ready || state.drafts.length === 0}
           className="rounded-full h-9 px-4"
         >
-          {busy === 'confirm' ? '確定しています…' : confirmed ? '変更内容を再確定する' : '確認済みの戦略書を一括確定する'}
+          {busy === 'confirm' ? '確定しています…' : confirmed ? '変更内容を再確定する' : '戦略書を確定する'}
         </Button>
         {reasonLine(
           !canEdit
@@ -884,55 +934,38 @@ export function StrategyBookDesk({
     const initialDoc = docFor(latestInitial);
     const regenDoc = docFor(latestRegen);
     const currentDoc = docFor(latestRegen ?? latestInitial);
-    /* 文書の項目を、その場で編集する。保存すると作業内容へ入り、確定したときだけ正式データへ反映される。 */
-    const docEdit = (section: TextItemKey): SectionEdit => {
-      const specs: Record<TextItemKey, { item: DeptProposalItem; field: string; lines: boolean }> = {
-        mission: { item: 'mission', field: 'mission', lines: false },
-        missionDescription: { item: 'missionDescription', field: 'missionDescription', lines: false },
-        currentPosition: { item: 'currentPosition', field: 'currentPosition', lines: false },
-        strategicRole: { item: 'strategicRole', field: 'strategicRole', lines: false },
-        keyIssues: { item: 'keyIssues', field: 'keyIssues', lines: true },
-        intraCollab: { item: 'collab', field: 'intraDeptCollab', lines: true },
-        interCollab: { item: 'collab', field: 'interDeptCollab', lines: true },
-        alignmentRiskPoints: { item: 'alignmentRiskPoints', field: 'alignmentRiskPoints', lines: true },
-        reviewSummary: { item: 'reviewSummary', field: 'reviewSummary', lines: true },
-        stopList: { item: 'stopList', field: 'stopList', lines: true },
-        riskNotes: { item: 'riskNotes', field: 'riskNotes', lines: true },
-      };
-      const spec = specs[section];
-      const editKey = `${key}|${spec.item}|${spec.field}`;
-      const currentText = section === 'intraCollab' ? collabIntra.join('\n')
-        : section === 'interCollab' ? collabInter.join('\n')
-        : linesOf(sels.find((x) => x.item === spec.item)?.proposed[DEPT_PROPOSAL_ITEMS[spec.item].keys[0]]).join(spec.lines ? '\n' : '');
-      const editing = fieldEdit?.key === editKey;
-      return {
-        action: editing ? null : (
-          <Button variant="outline" onClick={() => startFieldEdit(editKey, currentText)} disabled={!canOperate} className="rounded-full h-7 px-3 text-xs">
-            編集
-          </Button>
-        ),
-        editor: editing ? (
-          <div className="space-y-2">
-            <textarea
-              value={fieldEdit?.text ?? ''}
-              onChange={(e) => setFieldEdit({ key: editKey, text: e.target.value })}
-              rows={spec.lines ? 5 : 3}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm leading-7"
-            />
-            <div className="flex gap-2">
-              <Button onClick={() => commitFieldEdit(dept, spec.item, spec.lines, spec.field)} className="rounded-full h-8 px-3 text-xs">保存</Button>
-              <Button variant="outline" onClick={() => setFieldEdit(null)} className="rounded-full h-8 px-3 text-xs">取り消す</Button>
-            </div>
-          </div>
-        ) : null,
-      };
-    };
-    const regenEdit: Partial<Record<TextItemKey, SectionEdit>> | undefined = regenDoc
+    /* 編集中は、項目を押すとその場で直せる（STAGE4の計画書と同じ操作）。通常表示では編集欄を出さない。 */
+    const editingHere = docDraft !== null && docDraft.deptKey === key;
+    const draftHere = editingHere ? docDraft.texts : null;
+    const startDocEdit = () => setDocDraft({ deptKey: key, texts: textDraftOf(regenDoc) });
+    const regenEdit: Partial<Record<TextItemKey, SectionEdit>> | undefined = draftHere
       ? (Object.fromEntries(
-          (['mission', 'missionDescription', 'currentPosition', 'strategicRole', 'keyIssues', 'intraCollab', 'interCollab', 'alignmentRiskPoints', 'reviewSummary', 'stopList', 'riskNotes'] as TextItemKey[])
-            .map((k) => [k, docEdit(k)]),
+          ALL_TEXT_KEYS.map((k) => [
+            k,
+            {
+              action: null,
+              editor: (
+                <EditableBlock
+                  label={TEXT_LABEL[k]}
+                  value={draftHere[k] ?? ''}
+                  mode="edit"
+                  multiline
+                  className="whitespace-pre-wrap text-[15px] leading-7 text-zinc-800"
+                  onChange={(v) => setDocDraft((prev) => (prev && prev.deptKey === key ? { ...prev, texts: { ...prev.texts, [k]: v } } : prev))}
+                />
+              ),
+            },
+          ]),
         ) as Partial<Record<TextItemKey, SectionEdit>>)
       : undefined;
+    const exportDeptPdf = () => {
+      const task = progress.deptConfirmed
+        ? onExportDepartment(dept.name, { confirmedAt: state.confirmed?.confirmedAt })
+        : currentDoc
+          ? onExportDepartment(dept.name, { working: currentDoc })
+          : null;
+      void task?.catch(() => setNotice('PDFを出力できませんでした。時間をおいて再度お試しください。'));
+    };
     const isOpen = (...phases: Phase[]) => phases.includes(effective);
     const sectionClass = 'rounded-xl border border-zinc-200 bg-white';
     const summaryClass = 'border-b border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900';
@@ -941,7 +974,7 @@ export function StrategyBookDesk({
       ...(progress.hasInitial ? [{ phase: 2 as Phase, label: '6つの問いを見直す' }] : []),
       ...(progress.hasRegen ? [{ phase: 4 as Phase, label: '戦略書を編集する' }] : []),
       ...(progress.hasRegen ? [{ phase: 5 as Phase, label: '部門間調整・確定を確認する' }] : []),
-      ...(progress.deptConfirmed ? [{ phase: 6 as Phase, label: '確定版PDFを出力する' }] : []),
+      ...(progress.deptConfirmed ? [{ phase: 6 as Phase, label: '確定した戦略書' }] : []),
     ].filter((view) => view.phase !== effective);
 
     return (
@@ -949,17 +982,39 @@ export function StrategyBookDesk({
         <header className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-lg font-bold">{dept.name}の戦略書</h3>
-            <Chip tone={progress.deptConfirmed ? 'ok' : progress.hasRegen ? 'neutral' : 'warn'}>
-              {progress.deptConfirmed ? '確定済み' : progress.hasRegen ? '再生成版・未確定' : progress.hasInitial ? 'たたき台作成済み' : '未作成'}
-            </Chip>
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip tone={progress.deptConfirmed ? 'ok' : progress.hasRegen ? 'neutral' : 'warn'}>
+                {progress.deptConfirmed ? '確定済み' : progress.hasRegen ? '再生成版・未確定' : progress.hasInitial ? 'たたき台作成済み' : '未作成'}
+              </Chip>
+              {progress.hasInitial && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={exportDeptPdf}
+                    disabled={isBusy || editingHere}
+                    className="rounded-full h-8 px-3 text-xs"
+                  >
+                    PDF出力
+                  </Button>
+                  <span className="text-xs text-zinc-600">
+                    {progress.deptConfirmed ? '確定版を出力します' : '作業版（未確定）を出力します'}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
+          {editingHere && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              編集中のためPDFは出力できません。「編集を保存」か「編集をやめる」を押してから、出力してください。
+            </p>
+          )}
           <p className="text-sm leading-6 text-zinc-700">
             {effective === 1
               ? progress.hasInitial ? 'AIのたたき台を読んで、部門として考えたい点を確認しましょう。' : 'まず、全社戦略をもとにAIがこの部門の戦略書のたたき台を作ります。'
               : effective === 2 ? 'たたき台を踏まえて、6つの問いを考えます。回答は空欄でも進められます。'
               : effective === 4 ? '再生成された戦略書を読み、必要な部分を編集して、プロジェクトの採否を決めます。'
               : effective === 5 ? '部門間の調整事項を確認し、関係部門の判断が揃ったら戦略書を確定します。'
-              : '確定した戦略書をこの部門だけのPDFとして出力できます。'}
+              : '確定した戦略書です。PDFは上部の「PDF出力」から出せます。'}
           </p>
           {previousViews.length > 0 && (
             <details className="text-xs text-zinc-600">
@@ -1071,19 +1126,54 @@ export function StrategyBookDesk({
           <h4 className={summaryClass}>再生成された戦略書を確認・編集する</h4>
           <div className="space-y-6 border-t px-4 py-4">
             {regenDoc && (
-              <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6 md:px-8">
-                <StrategyBookDocument {...regenDoc} edit={regenEdit} />
-              </div>
+              <>
+                {editingHere && <style>{PLAN_DOC_CSS}</style>}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  {editingHere ? (
+                    <>
+                      <p className="text-xs text-amber-800">
+                        修正中です。文章をクリックすると直せます。「編集を保存」を押すまで、作業版には反映されません。
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => docDraft && void saveDocEdits(dept, textDraftOf(regenDoc), docDraft.texts)}
+                          disabled={isBusy}
+                          className="rounded-full h-9 px-4"
+                        >
+                          編集を保存
+                        </Button>
+                        <Button variant="outline" onClick={() => setDocDraft(null)} disabled={isBusy} className="rounded-full h-9 px-4">
+                          編集をやめる
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-gray-600">
+                        版 {latestRegen?.version}（再生成・未確定）。内容を直すときは「戦略書を編集」を押してください。
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={startDocEdit}
+                        disabled={!canOperate || docDraft !== null}
+                        className="rounded-full h-9 px-4"
+                      >
+                        戦略書を編集
+                      </Button>
+                    </>
+                  )}
+                </div>
+                <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6 md:px-8">
+                  <StrategyBookDocument {...regenDoc} edit={regenEdit} />
+                </div>
+              </>
             )}
             {!progress.hasRegen ? (
               <p className="text-sm text-gray-600">③で再生成すると、ここに戦略書の変更案が表示されます。</p>
             ) : (
               <>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-gray-600">
-                    版 {latestRegen?.version}（再生成・未確定）。直したい項目は「編集」で直せます。保存した内容は、確定すると戦略書に反映されます。
-                  </p>
-                  <details className="rounded-lg bg-zinc-50 px-3 py-2 text-xs">
+                <div className="flex justify-end">
+                  <details className="w-full rounded-lg bg-zinc-50 px-3 py-2 text-xs">
                     <summary className="cursor-pointer font-semibold">旧版（現在の戦略）と比べる</summary>
                     <div className="mt-2 space-y-2">
                       {DOC_FIELDS.map((f) => (
@@ -1253,21 +1343,12 @@ export function StrategyBookDesk({
         </section>
         )}
 
-        {/* ⑥ 部門別PDF */}
+        {/* ⑥ 確定済みの戦略書（PDFは上部の「PDF出力」から） */}
         {isOpen(6) && (
         <section className={sectionClass}>
-          <h4 className={summaryClass}>確定した戦略書をPDF出力する</h4>
+          <h4 className={summaryClass}>確定した戦略書</h4>
           <div className="space-y-2 border-t px-4 py-4">
-            {progress.deptConfirmed ? (
-              <>
-                <p className="text-xs text-gray-600">確定済みの、この部門の戦略書だけがPDFになります。</p>
-                <Button variant="outline" onClick={() => onExportDepartment(dept.name, state.confirmed?.confirmedAt)} disabled={isBusy} className="rounded-full h-8 px-3">
-                  この部門の戦略書をPDF出力
-                </Button>
-              </>
-            ) : (
-              <p className="text-xs text-gray-600">⑤で確定すると、この部門の戦略書をPDFで出力できます。</p>
-            )}
+            <p className="text-xs text-gray-600">この部門の戦略書は確定済みです。PDFは、画面上部の「PDF出力」から確定版を出力できます。</p>
           </div>
         </section>
         )}

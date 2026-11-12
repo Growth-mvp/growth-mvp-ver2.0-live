@@ -4085,7 +4085,7 @@ useEffect(() => {
         prepareRegeneration={prepareRegenerationForDept}
         renderSixQuestions={renderDeptSixQuestions}
         onConfirmed={(message) => refreshAfterWrite(message)}
-        onExportDepartment={(name, confirmedAt) => stage3ExportDeptBookPdf({ departmentName: name, confirmedAt })}
+        onExportDepartment={(name, options) => stage3ExportDeptBookPdf({ departmentName: name, ...options })}
         onAddDepartment={addDepartmentFromDesk}
         onRenameDepartment={renameDepartmentFromDesk}
         onDeleteDepartment={deleteDepartmentFromDesk}

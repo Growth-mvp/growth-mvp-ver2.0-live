@@ -24,6 +24,24 @@ function measureBreakBlocks(cloneEl: HTMLElement, selector: string): { width: nu
   return { width: rect.width, blocks };
 }
 
+/** 日本語の文字は、PDFの標準フォントでは描けないため、ブラウザの日本語フォントで描いた画像にする */
+function footerLabelImage(label: string): { dataUrl: string; ratio: number } {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const font = '28px "Yu Gothic", "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif';
+  if (!ctx) return { dataUrl: '', ratio: 1 };
+  ctx.font = font;
+  canvas.width = Math.ceil(ctx.measureText(label).width) + 8;
+  canvas.height = 40;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = font;
+  ctx.fillStyle = '#5a5a5a';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, 4, canvas.height / 2);
+  return { dataUrl: canvas.toDataURL('image/jpeg', 0.92), ratio: canvas.width / canvas.height };
+}
+
 /** 行・段落の途中を避け、ページ末尾に収まる最も後ろの境界で切る。収まらない場合は強制的に切る */
 function chooseCutPx(startPx: number, endPx: number, blocks: BreakBlock[]): number {
   const minPageGapPx = 40;
@@ -66,8 +84,8 @@ export async function downloadPdfFromElement(
     jsPDF?: { orientation: string; unit: string; format: string };
     /** 指定した要素の境界でだけ改ページする（段落・行の途中で切らない） */
     avoidBreakSelector?: string;
-    /** 各ページの下に入れる文字（ページ番号など）。全ページ分を作った後に入れる */
-    footer?: (pageNo: number, pageCount: number) => string;
+    /** 各ページの下の文字。text は欧文・数字（ページ番号など）、label は日本語の表示（画像で描く） */
+    footer?: (pageNo: number, pageCount: number) => { label?: string; text: string };
   },
 ): Promise<void> {
   const element = document.getElementById(elementId);
@@ -212,11 +230,19 @@ export async function downloadPdfFromElement(
 
     if (options?.footer) {
       const pageCount = pdf.getNumberOfPages();
+      const footerMarginLeft = Array.isArray(margin) ? margin[3] : margin;
       for (let p = 1; p <= pageCount; p++) {
         pdf.setPage(p);
+        const { label, text } = options.footer(p, pageCount);
         pdf.setFontSize(8);
         pdf.setTextColor(90, 90, 90);
-        pdf.text(options.footer(p, pageCount), pageWidth / 2, pageHeight - 5, { align: 'center' });
+        pdf.text(text, pageWidth / 2, pageHeight - 5, { align: 'center' });
+        if (label) {
+          const image = footerLabelImage(label);
+          const heightMm = 3.2;
+          const widthMm = heightMm * image.ratio;
+          pdf.addImage(image.dataUrl, 'JPEG', footerMarginLeft, pageHeight - 5 - heightMm + 0.6, widthMm, heightMm);
+        }
       }
     }
 

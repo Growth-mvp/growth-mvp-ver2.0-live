@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StrategyBookDesk, type StrategyBookGate, type StrategyBookGenerateResult } from '@/components/stage3/StrategyBookDesk';
+import type { StrategyDocumentProps } from '@/components/stage3/StrategyBookDocument';
 import DepartmentQuestionStepper from '@/components/guide/QuestionStepper.dept';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
 import { buildStage3ReportData } from '@/utils/export/buildStage3ReportData';
@@ -131,10 +132,10 @@ function App() {
           (window as unknown as { __confirmMessage?: string }).__confirmMessage = message;
           await load();
         }}
-        onExportDepartment={async (name, confirmedAt) => {
-          const exporter = (window as unknown as { __exportPdf?: (o: { departmentName: string; confirmedAt?: string }) => Promise<void> }).__exportPdf;
+        onExportDepartment={async (name, options) => {
+          const exporter = (window as unknown as { __exportPdf?: (o: { departmentName: string; confirmedAt?: string; working?: StrategyDocumentProps }) => Promise<void> }).__exportPdf;
           if (!exporter) throw new Error('PDF exporter is not ready');
-          await exporter({ departmentName: name, confirmedAt });
+          await exporter({ departmentName: name, ...options });
         }}
         onAddDepartment={async (name, mission) => {
           await post('/harness/department', { op: 'add', name, mission });

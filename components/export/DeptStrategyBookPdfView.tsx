@@ -50,7 +50,7 @@ function Lines({ lines, list = false }: { lines: string[]; list?: boolean }) {
 
 function Labeled({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="report-text" style={{ marginTop: '6px' }}>
+    <div style={{ marginTop: '6px' }}>
       <div style={{ fontSize: '11px', color: '#555555', fontWeight: 700 }}>{label}</div>
       {children}
     </div>
@@ -59,6 +59,7 @@ function Labeled({ label, children }: { label: string; children: ReactNode }) {
 
 export function DeptStrategyBookPdfView({ data }: { data: DeptBookPdfData }) {
   const hasMission = data.mission.length + data.missionDescription.length + data.currentPosition.length > 0;
+  const hasRisk = [data.alignmentRiskPoints, data.reviewSummary, data.stopList, data.riskNotes].some((l) => l.length > 0);
   const shown = [
     hasMission,
     data.strategicRole.length > 0,
@@ -66,6 +67,7 @@ export function DeptStrategyBookPdfView({ data }: { data: DeptBookPdfData }) {
     data.projects.length > 0,
     data.intraCollab.length > 0,
     data.interCollab.length > 0,
+    hasRisk,
   ];
   const no = (index: number) => `${shown.slice(0, index).filter(Boolean).length + 1}. `;
   return (
@@ -76,7 +78,7 @@ export function DeptStrategyBookPdfView({ data }: { data: DeptBookPdfData }) {
           {data.departmentName}　事業・部門戦略書
         </h1>
         <div style={{ fontSize: '12px', color: '#333333' }}>
-          確定版{data.confirmedDate ? `　確定日：${data.confirmedDate}` : ''}
+          {data.status === 'confirmed' ? `確定版${data.confirmedDate ? `　確定日：${data.confirmedDate}` : ''}` : '作業版・未確定'}
         </div>
       </header>
 
@@ -144,6 +146,31 @@ export function DeptStrategyBookPdfView({ data }: { data: DeptBookPdfData }) {
       {data.interCollab.length > 0 && (
         <Chapter title={`${no(5)}他事業・部門との連携と確定した調整事項`}>
           <Lines lines={data.interCollab} list />
+        </Chapter>
+      )}
+
+      {hasRisk && (
+        <Chapter title={`${no(6)}注意点・再考ポイント`}>
+          {data.alignmentRiskPoints.length > 0 && (
+            <Labeled label="認識のズレが起きやすいポイント">
+              <Lines lines={data.alignmentRiskPoints} list />
+            </Labeled>
+          )}
+          {data.reviewSummary.length > 0 && (
+            <Labeled label="再考ポイント・部門横断論点">
+              <Lines lines={data.reviewSummary} list />
+            </Labeled>
+          )}
+          {data.stopList.length > 0 && (
+            <Labeled label="停止事項">
+              <Lines lines={data.stopList} list />
+            </Labeled>
+          )}
+          {data.riskNotes.length > 0 && (
+            <Labeled label="リスク注記">
+              <Lines lines={data.riskNotes} list />
+            </Labeled>
+          )}
         </Chapter>
       )}
     </div>
