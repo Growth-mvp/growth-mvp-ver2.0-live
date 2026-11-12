@@ -197,6 +197,7 @@ export type { UserEdits };
 export type GenerateResult =
   | { status: 'CREATED' | 'EXISTS'; record: PlanDocRecord }
   | { status: 'IN_PROGRESS' | 'DISABLED' | 'NOT_FOUND' | 'DENIED' | 'FAILED' }
+  | { status: 'UNAVAILABLE'; message: string }
   | { status: 'INVALID'; messages: string[] }
   | { status: 'MODEL_FAILED'; message: string };
 
@@ -230,6 +231,7 @@ export function createRemotePlanOps(o: ApiOptions) {
       if (r.status === 409) return { status: 'IN_PROGRESS' };
       if (r.status === 422) return { status: 'INVALID', messages: (body.messages as string[]) ?? [] };
       if (r.status === 502) return { status: 'MODEL_FAILED', message: String(body.message ?? '') };
+      if (r.status === 503 && body.status === 'UNAVAILABLE') return { status: 'UNAVAILABLE', message: String(body.message ?? '') };
       if (r.status === 503) return { status: 'DISABLED' };
       if (r.status === 404) return { status: 'NOT_FOUND' };
       if (r.status === 403) return { status: 'DENIED' };

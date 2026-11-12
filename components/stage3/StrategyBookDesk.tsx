@@ -26,6 +26,7 @@ import {
 import type { Department } from '@/types/strategy';
 import { StrategyBookDocument, type DocProject, type SectionEdit, type StrategyDocumentProps, type TextItemKey } from '@/components/stage3/StrategyBookDocument';
 import { projectDetailOf, type DraftProjectInput } from '@/lib/cascade/stage3ProjectDetail';
+import { judgmentBlockerOf, judgmentSummaryOf } from '@/lib/cascade/stage3Judgments';
 import { projectTextOf } from '@/lib/cascade/stage3Confirm';
 import { stableIdText, type ProjectTextFields, type ProjectEdit } from '@/lib/cascade/stage3StrategyBook';
 import { EditableBlock } from '@/components/okr/execution-plan/PlanDocument';
@@ -922,53 +923,33 @@ export function StrategyBookDesk({
     return { hasInitial, hasRegen, deptConfirmed, current };
   };
 
-  const appliedSelectionCount = state.selections.filter((x) => x.decision === 'applied').length;
-  const adoptedProjectCount = state.projectSelections.filter((p) => p.decision === 'applied').length;
-  const deferredProjectCount = state.projectSelections.filter((p) => p.decision === 'deferred').length;
-  const discardedProjectCount = state.projectSelections.filter((p) => p.decision === 'discarded').length;
-  const decisionValues = Object.values(state.candidateDecisions);
-  const adoptedCandidateCount = decisionValues.filter((d) => d === 'adopted').length;
-  const deferredCandidateCount = decisionValues.filter((d) => d === 'deferred').length;
-  const rejectedCandidateCount = decisionValues.filter((d) => d === 'rejected').length;
+  const judgments = judgmentSummaryOf(state);
+  const confirmBlocker = !canEdit
+    ? '確定・反映は管理者・管理職のみ行えます'
+    : !stage2Ready
+      ? (stage2.status === 'loading' ? '読み込み中です' : 'STAGE2の確定後に確定できます')
+      : state.drafts.length === 0
+        ? '先に、部門の戦略書のたたき台を作成してください'
+        : judgmentBlockerOf(judgments);
 
   const renderConfirm = () => (
     <div className="space-y-2 rounded-xl border border-zinc-200 p-4">
       <div className="space-y-1 text-xs text-gray-700">
+        <p>確定すると、編集した戦略書・採用した新規プロジェクト・採用した部門間調整を、まとめて正式データへ反映します。1件でも反映できなければ、何も変わりません。</p>
+        <p>戦略書の項目：反映 {judgments.appliedItems}件</p>
         <p>
-          確定すると、戦略書の編集内容・採用した新規プロジェクト・採用した部門間調整を、すべて一度に正式データへ反映します。1件でも反映できなければ、何も変わりません。
+          新規プロジェクト候補：全{judgments.projects.total}件（採用 {judgments.projects.adopted}・保留 {judgments.projects.deferred}・不採用 {judgments.projects.rejected}・未判断 {judgments.projects.undecided}）
         </p>
         <p>
-          反映：戦略書の項目 {appliedSelectionCount}件・新規プロジェクト {adoptedProjectCount}件・部門間調整 {adoptedCandidateCount}件
+          部門間調整候補：全{judgments.adjustments.total}件（採用 {judgments.adjustments.adopted}・保留 {judgments.adjustments.deferred}・不採用 {judgments.adjustments.rejected}・未判断 {judgments.adjustments.undecided}）
         </p>
-        <p>
-          保留：新規プロジェクト {deferredProjectCount}件・部門間調整 {deferredCandidateCount}件（確定後も作業内容に残り、あとで判断できます）
-        </p>
-        <p>
-          不採用：新規プロジェクト {discardedProjectCount}件・部門間調整 {rejectedCandidateCount}件（正式データには入りません）
-        </p>
-        {(pendingProjectCount > 0 || undecidedCandidateCount > 0) && (
-          <p className="text-amber-800">
-            未判断：新規プロジェクト {pendingProjectCount}件・調整候補 {undecidedCandidateCount}件（判断すると確定できます）
-          </p>
-        )}
+        <p>各候補は、採用・保留・不採用・未判断のどれか1つにだけ数えます。</p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          onClick={confirm}
-          disabled={!canOperate || !stage2Ready || state.drafts.length === 0}
-          className="rounded-full h-9 px-4"
-        >
+        <Button onClick={confirm} disabled={!canOperate || confirmBlocker !== null} className="rounded-full h-9 px-4">
           {busy === 'confirm' ? '確定しています…' : confirmed ? '変更内容を再確定する' : '戦略書を確定する'}
         </Button>
-        {reasonLine(
-          !canEdit
-            ? '確定・反映は管理者・管理職のみ行えます'
-            : !stage2Ready
-              ? (stage2.status === 'loading' ? '読み込み中です' : 'STAGE2の確定後に確定できます')
-              : state.drafts.length === 0
-                ? '先に、部門の戦略書のたたき台を作成してください'
-                : null,
-        )}
+        {reasonLine(confirmBlocker)}
       </div>
     </div>
   );
@@ -1166,6 +1147,18 @@ export function StrategyBookDesk({
               : effective === 4 ? '再生成された戦略書を読み、必要な部分を編集して、プロジェクトの採否を決めます。'
               : effective === 5 ? '部門間の調整事項を確認し、関係部門の判断が揃ったら戦略書を確定します。'
               : '確定した戦略書です。PDFは上部の「PDF出力」から出せます。'}
+          </p>
+          <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">
+            次の操作：
+            {!progress.hasInitial
+              ? '「AIで戦略書のたたき台を作成」を押してください。'
+              : !progress.hasRegen
+                ? 'たたき台を読み、必要なら6問の回答を反映して戦略書を再生成してください。'
+                : judgments.blockers > 0
+                  ? `${judgmentBlockerOf(judgments)}（「部門間調整・確定」で判断してください）`
+                  : progress.deptConfirmed
+                    ? '確定済みです。下の「STAGE4で実行計画書を作る」から、プロジェクトを選んで作成できます。'
+                    : '「部門間調整・確定」を開き、「戦略書を確定する」を押してください。'}
           </p>
           {previousViews.length > 0 && (
             <details className="text-xs text-zinc-600">
@@ -1500,6 +1493,18 @@ export function StrategyBookDesk({
           <h4 className={summaryClass}>確定した戦略書</h4>
           <div className="space-y-2 border-t px-4 py-4">
             <p className="text-xs text-gray-600">この部門の戦略書は確定済みです。PDFは、画面上部の「PDF出力」から確定版を出力できます。</p>
+            {officialProjects.filter((p) => stableIdText(p.id) !== null).map((p) => {
+              const projectId = stableIdText(p.id) as string;
+              const href = `/okr?from=stage3&dept=${encodeURIComponent(dept.name)}&projectId=${encodeURIComponent(projectId)}`;
+              return (
+                <div key={projectId} className="flex flex-wrap items-center gap-3 border-t pt-2 text-sm">
+                  <span className="font-semibold text-zinc-900">{String(p.title ?? '')}</span>
+                  <a href={href} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-50">
+                    STAGE4で実行計画書を作る
+                  </a>
+                </div>
+              );
+            })}
           </div>
         </section>
         )}

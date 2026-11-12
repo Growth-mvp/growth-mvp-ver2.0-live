@@ -1,5 +1,6 @@
 import {
   ID_MESSAGES,
+  createRemotePlanOps,
   createRemotePlanStore,
   ensureStableProjectId,
   planStoreKindFrom,
@@ -132,5 +133,19 @@ describe('番号を入れた部門の作成（元の状態は変えない）', (
     expect(after[0].projects[1]).toEqual({ title: 'y', id: 'NEW' });
     expect(after[0].projects[0]).toEqual({ title: 'x' });
     expect(before[0].projects[1]).toEqual({ title: 'y' });
+  });
+});
+
+describe('作成（生成）の応答：無効と保存先の未導入を区別する', () => {
+  const KEY_GEN = { companyId: 'c', strategyId: 's', projectId: 'p' };
+  it('機能が無効（DISABLED）と、保存テーブルが未導入（UNAVAILABLE）は、別の状態として返す', async () => {
+    const off = createRemotePlanOps({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(503, { status: 'DISABLED' }) as never });
+    expect((await off.generate(KEY_GEN)).status).toBe('DISABLED');
+    const noTable = createRemotePlanOps({
+      baseUrl: 'http://x',
+      getToken: TOKEN,
+      fetchFn: fetchOf(503, { status: 'UNAVAILABLE', message: '保存テーブルが未導入です' }) as never,
+    });
+    expect(await noTable.generate(KEY_GEN)).toEqual({ status: 'UNAVAILABLE', message: '保存テーブルが未導入です' });
   });
 });

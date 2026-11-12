@@ -101,7 +101,10 @@ const POSITION = /^d(\d+)-p(\d+)$/;
 
 /* 現在の会社の戦略（ストア）を、文書型に並べる。保存は草案の記録だけで、STAGE3の戦略・KPI・okrsV2は変えない。
  * 会社・戦略が変わると、表示の状態ごと作り直す（前の選択や作成・保存の状態を残さない）。 */
-export default function Stage3ReadPanel() {
+/* STAGE3の戦略書から移動してきた時の対象（URLの from=stage3 と dept・projectId）。対象が無ければ何もしない */
+export type Stage3Handoff = { departmentName: string | null; projectId: string | null };
+
+export default function Stage3ReadPanel({ handoff }: { handoff?: Stage3Handoff } = {}) {
   const storeCompanyId = useStrategyStore((s: any) => (s.companyId ?? null) as string | null);
   const storeStrategyId = useStrategyStore((s: any) => (s.strategyId ?? null) as string | null);
   const storeDepartments = useStrategyStore((s: any) => s.departments as unknown);
@@ -153,10 +156,18 @@ export default function Stage3ReadPanel() {
       </p>
     );
   }
-  return <Stage3ProjectBrowser key={`${storeCompanyId}|${storeStrategyId}`} source={source} userId={userId} />;
+  return <Stage3ProjectBrowser key={`${storeCompanyId}|${storeStrategyId}`} source={source} userId={userId} handoff={handoff} />;
 }
 
-function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source, { status: 'READY' }>; userId: string }) {
+function Stage3ProjectBrowser({
+  source,
+  userId,
+  handoff,
+}: {
+  source: Extract<Stage3Source, { status: 'READY' }>;
+  userId: string;
+  handoff?: Stage3Handoff;
+}) {
   const kind = currentPlanStoreKind();
   const store = planStoreFor(kind);
   const identityApi = identityApiFor(kind);
@@ -170,6 +181,12 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
   const [loads, setLoads] = useState<Record<string, LoadState>>({});
   const [gen, setGen] = useState<Record<string, GenState>>({});
   const tree = useMemo(() => buildStage3Tree({ memberships: source.memberships, strategies: source.strategies }), [source]);
+  const handoffProjectKey = handoff?.projectId ? `id:${handoff.projectId}` : null;
+  useEffect(() => {
+    if (selected || !handoffProjectKey) return;
+    const row = tree.flatMap((s) => s.departments.flatMap((d) => d.projects)).find((p) => p.projectKey === handoffProjectKey);
+    if (row) setSelected({ companyId: row.companyId, strategyId: row.strategyId, projectKey: row.projectKey });
+  }, [handoffProjectKey, selected, tree]);
   const companyId = source.strategies[0]?.company_id ?? '';
   const strategyId = source.strategies[0]?.id ?? '';
   const companyLabel = source.companyLabels[companyId] ?? '企業名未設定';
@@ -270,7 +287,8 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
     }
     if (out.status === 'MODEL_FAILED') return failWith(targetId, out.message);
     if (out.status === 'IN_PROGRESS') return failWith(targetId, '他の人がこの計画を作成中です。しばらくしてから開いてください。');
-    if (out.status === 'DISABLED') return failWith(targetId, '実行計画書の作成は現在利用できません。');
+    if (out.status === 'DISABLED') return failWith(targetId, 'この環境では実行計画書の作成機能が有効になっていません。管理者に確認してください。');
+    if (out.status === 'UNAVAILABLE') return failWith(targetId, out.message);
     if (out.status === 'DENIED') return failWith(targetId, 'この計画を作成する権限がありません。');
     return failWith(targetId, '草案を作れませんでした。もう一度お試しください。');
   };
@@ -502,6 +520,11 @@ function Stage3ProjectBrowser({ source, userId }: { source: Extract<Stage3Source
       </section>
 
       <section className="min-w-0">
+        {handoffProjectKey && selected?.projectKey === handoffProjectKey && (
+          <p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-[13px] text-emerald-900">
+            STAGE3で確定したプロジェクトです。事業・部門：{handoff?.departmentName ?? '（未指定）'}／プロジェクト：{titleOf(handoffProjectKey) ?? '（名称なし）'}
+          </p>
+        )}
         {!view && <p className="rounded-lg bg-zinc-50 p-4 text-[13px] text-zinc-700">上の一覧からプロジェクトを選ぶと、STAGE3の情報を表示します。</p>}
         {view && view.status === 'NO_DATA' && <p className="rounded-lg bg-amber-50 p-4 text-[13px] text-amber-900">{REASON_LABEL[view.reason] ?? '情報を表示できません。'}</p>}
         {view && view.status === 'READY' && sel && (
@@ -660,7 +683,7 @@ function ReadOnlyProject({
             <>
               <p className="plan-p">実行計画書はまだ作成されていません。</p>
               <button type="button" className="plan-btn-primary" onClick={onCreate}>
-                AIで実行計画書を作る
+                AIで実行計画書を作成
               </button>
             </>
           )}

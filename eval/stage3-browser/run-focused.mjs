@@ -352,6 +352,16 @@ try {
   let beforeConfirm = null;
   await step('J 確定：編集内容が正式データへ反映され、既存のプロジェクトIDとKPIは変わらず、候補は入らない', async () => {
     beforeConfirm = (await harnessState()).departments[0];
+    if (!(await btn('戦略書を確定する').isVisible())) {
+      const history = page.locator('details', { has: page.locator('summary', { hasText: '以前の内容を見る' }) }).first();
+      if (!(await history.evaluate((d) => d.open))) await history.locator('summary').click();
+      await btn('部門間調整・確定を確認する').click();
+    }
+    await btn('戦略書を確定する').waitFor({ timeout: 15000 });
+    const blockedBefore = await btn('戦略書を確定する').isDisabled();
+    const blockerText = await page.getByText(/あと\d+件の判断が必要です/).first().isVisible();
+    check('J-1 判断が残っている間は「戦略書を確定する」を押せず、あと何件の判断が必要かを表示する', blockedBefore && blockerText, `押せない ${blockedBefore} / 件数の表示 ${blockerText}`);
+    await btn('戦略書の編集に戻る').click();
     await btn('保留する').first().click();
     await tabBtn('部門間調整').click();
     await btn('不採用').first().click();
@@ -362,12 +372,15 @@ try {
       await btn('部門間調整・確定を確認する').click();
     }
     await btn('戦略書を確定する').waitFor({ timeout: 15000 });
+    check('J-2 判断を終えると「戦略書を確定する」が押せる', !(await btn('戦略書を確定する').isDisabled()));
     const [confirmRes] = await Promise.all([
       page.waitForResponse((r) => r.url().includes('/api/stage3/strategy-book/confirm') && r.request().method() === 'POST'),
       btn('戦略書を確定する').click(),
     ]);
     if (confirmRes.status() !== 200) throw new Error(`confirm_status_${confirmRes.status()}`);
     await btn('PDF出力').first().waitFor({ timeout: 30000 });
+    const stage4Href = (await page.locator('a', { hasText: 'STAGE4で実行計画書を作る' }).first().getAttribute('href').catch(() => null)) ?? '';
+    check('J-3 確定後、対象プロジェクトを指す「STAGE4で実行計画書を作る」リンクが出る', stage4Href.includes('from=stage3') && stage4Href.includes('projectId=p-1'), stage4Href);
     const after = (await harnessState()).departments[0];
     const edited = String(after.interDeptCollab ?? '').includes('G編集した連携') || JSON.stringify(after).includes('G編集した連携');
     const p1After = after.projects.find((p) => String(p.id) === 'p-1');
