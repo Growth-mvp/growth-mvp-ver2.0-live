@@ -41,7 +41,7 @@ export async function loadStrategyAccess(
 
   const strategy = await admin
     .from('strategy_data')
-    .select('id, company_id, revision, departments, stage2_final_document_edits, final_story_final')
+    .select('id, company_id, revision, departments, stage2_final_document_edits, final_story_final, final_story_edited')
     .eq('id', ids.strategyId)
     .maybeSingle();
   if (strategy.error) return { ok: false, status: 503, error: 'strategy_check_unavailable' };
@@ -50,7 +50,11 @@ export async function loadStrategyAccess(
   }
   if (!Array.isArray(strategy.data.departments)) return { ok: false, status: 409, error: 'unverifiable_departments' };
 
-  const stage2 = stage2StatusOf(strategy.data.stage2_final_document_edits, strategy.data.final_story_final);
+  const stage2 = stage2StatusOf(
+    strategy.data.stage2_final_document_edits,
+    strategy.data.final_story_final,
+    strategy.data.final_story_edited,
+  );
   return {
     ok: true,
     access: {

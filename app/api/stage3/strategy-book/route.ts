@@ -36,9 +36,11 @@ export async function GET(req: Request) {
     const access = await loadStrategyAccess(admin, req, parsed.data);
     if (!access.ok) return failResponse(access.status, access.error);
 
+    const stage2Access = access.access.stage2;
     const stage2 = {
-      stage2Status: access.access.stage2.status,
-      companyStrategy: access.access.stage2.status === 'confirmed' ? access.access.stage2.companyStrategy : null,
+      stage2Status: stage2Access.status,
+      companyStrategy: stage2Access.status === 'confirmed' ? stage2Access.companyStrategy : null,
+      stage2PendingChanges: stage2Access.status === 'confirmed' ? stage2Access.pendingChanges : false,
     };
     const loaded = await loadWorkspace(admin, parsed.data.strategyId);
     if (!loaded.ok) {

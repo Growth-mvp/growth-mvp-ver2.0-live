@@ -191,6 +191,7 @@ describe('POST /api/stage3/adjustment/analyze', () => {
 
   it('STAGE2の確定版が無い戦略は、下書きがあってもAIを呼ばない', async () => {
     tables.strategy_data[0].stage2_final_document_edits = { conclusion: '下書きだけ', draftChangedAt: '2026-11-02T00:00:00.000Z' };
+    tables.strategy_data[0].final_story_final = [];
     const res = await analyze(req('analyze', { companyId: C1, strategyId: S1 }));
     expect(res.status).toBe(409);
     expect(mockCreate).not.toHaveBeenCalled();
