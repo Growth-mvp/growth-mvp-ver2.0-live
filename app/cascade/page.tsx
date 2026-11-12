@@ -54,7 +54,6 @@ import { Button } from '@/components/ui/button';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { PlusCircle, Save, Sparkles, Building2, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toProbability } from '@/types/strategy';
-import { CascadeHeader } from '@/components/stage3/CascadeHeader';
 import { CascadeControlBar } from '@/components/stage3/CascadeControlBar';
 import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
 import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
@@ -89,8 +88,8 @@ import type {
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
-/* 旧STAGE3の画面（部門カード・旧入力欄）は、新STAGE3に一本化して通常表示しない。処理・データは残す。 */
-const LEGACY_STAGE3_UI_VISIBLE = process.env.NEXT_PUBLIC_LEGACY_STAGE3_UI === '1';
+/* 新STAGE3へ画面を一本化する。旧UIの処理は互換用に維持するが、旧画面は描画しない。 */
+const LEGACY_STAGE3_UI_VISIBLE = false;
 
 /* =========================
    型（store拡張互換）
@@ -4040,35 +4039,13 @@ useEffect(() => {
   };
 
   /* ===== JSX ===== */
-  const financeRows = ((useStrategyStore.getState() as unknown as { financePL?: Array<{ year: number; revenue?: number; operatingIncome?: number }> }).financePL ?? [])
-    .slice()
-    .sort((a, b) => a.year - b.year)
-    .slice(-5);
-  const financeNode =
-    financeRows.length === 0 ? undefined : (
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b text-left text-gray-600">
-            <th className="py-1">年度</th>
-            <th className="py-1">売上高</th>
-            <th className="py-1">営業利益</th>
-          </tr>
-        </thead>
-        <tbody>
-          {financeRows.map((r) => (
-            <tr key={r.year} className="border-b">
-              <td className="py-1">{r.year}</td>
-              <td className="py-1">{typeof r.revenue === 'number' ? r.revenue.toLocaleString('ja-JP') : '—'}</td>
-              <td className="py-1">{typeof r.operatingIncome === 'number' ? r.operatingIncome.toLocaleString('ja-JP') : '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-
+  // 新STAGE3は「戦略書をつくる」操作に集中する。財務表はSTAGE1/2を参照する。
   return (
     <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
-      <CascadeHeader />
+      <header className="space-y-1">
+        <h1 className="text-xl font-semibold tracking-tight text-zinc-900">STAGE3｜各部門の役割は何か</h1>
+        <p className="text-sm text-zinc-600">全社戦略を、各事業・部門の勝ち筋と役割へ展開する。</p>
+      </header>
 
       <NoticeDisplay notice={notice} />
 
@@ -4077,6 +4054,9 @@ useEffect(() => {
         canEdit={canEditDept() && !isHydrating}
         canManageDepartments={canEditCompany}
         getWriteGate={getStrategyBookGate}
+        // 読み取りはstoreの復元が完了してから開始する。書き込みゲートは別途維持。
+        readCompanyId={!isHydrating && hydrated && (!accessCompanyId || scopeCompanyId === accessCompanyId) ? (scopeCompanyId as string | null) : null}
+        readStrategyId={!isHydrating && hydrated ? (strategyId as string | null) : null}
         generateDepartment={(index, mode) => handleDeptCascadeDraft(index, mode)}
         renderSixQuestions={renderDeptSixQuestions}
         onConfirmed={(message) => refreshAfterWrite(message)}
@@ -4084,12 +4064,13 @@ useEffect(() => {
         onAddDepartment={addDepartmentFromDesk}
         onRenameDepartment={renameDepartmentFromDesk}
         onDeleteDepartment={deleteDepartmentFromDesk}
-        financeInfo={financeNode}
+        financeInfo={undefined}
       />
 
-      <ReflectionCandidatesSection
-        onDelete={handleDeleteReflectionCandidate}
-      />
+      {/* 旧画面の候補一覧は、新戦略書の採否・調整UIと重複するため非表示。 */}
+      {LEGACY_STAGE3_UI_VISIBLE && (
+        <ReflectionCandidatesSection onDelete={handleDeleteReflectionCandidate} />
+      )}
 
       {isHydrating && (
         <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">
@@ -4132,6 +4113,10 @@ useEffect(() => {
         </section>
       )}
 
+      {/* 旧STAGE3の操作バー・フォーム・部門カードも通常表示しない。
+          旧コードや保存ロジックは互換用に残し、新UIからの操作はStrategyBookDeskに集約。 */}
+      {LEGACY_STAGE3_UI_VISIBLE && (
+        <>
       <CascadeControlBar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -5316,6 +5301,8 @@ useEffect(() => {
             );
           })}
         </section>
+      )}
+        </>
       )}
     </div>
   );

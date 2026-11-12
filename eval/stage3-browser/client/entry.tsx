@@ -100,6 +100,8 @@ function App() {
         canEdit
         canManageDepartments
         getWriteGate={getWriteGate}
+        readCompanyId={st.companyId}
+        readStrategyId={st.strategyId}
         generateDepartment={generateDepartment}
         renderSixQuestions={renderSixQuestions}
         onConfirmed={async (message) => {
