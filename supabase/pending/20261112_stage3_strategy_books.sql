@@ -24,12 +24,13 @@ begin
     from pg_trigger t
     join pg_class c on c.oid = t.tgrelid
     join pg_namespace n on n.oid = c.relnamespace
+    join pg_proc p on p.oid = t.tgfoid
     where n.nspname = 'public'
       and c.relname = 'strategy_data'
-      and t.tgname = 'trg_strategy_data_bump_revision'
+      and p.proname = 'bump_strategy_data_revision'
       and t.tgenabled <> 'D'
   ) then
-    raise exception 'revision_trigger_missing: strategy_data の revision トリガーが無いため適用しません';
+    raise exception 'revision_trigger_missing: bump_strategy_data_revision を呼ぶ revision トリガーが strategy_data に無いため適用しません';
   end if;
 end $$;
 
