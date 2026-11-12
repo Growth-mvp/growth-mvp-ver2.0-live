@@ -3524,18 +3524,24 @@ useEffect(() => {
           });
         }
       } catch (e) {
-        if (e instanceof AuthFetchError) {
-          if (e.code === 'AUTH_NO_SESSION') {
-            setNotice('❌ セッションが取得できませんでした（再ログインしてください）');
-          } else if (e.status === 403) {
-            setNotice('❌ 権限がありません（Admin/Managerのみ利用可）');
-          } else if (e.status === 401) {
-            setNotice('❌ 認証に失敗しました（ログインし直してください）');
-          } else {
-            setNotice(`❌ 部門のたたき台生成に失敗しました：${e.bodyText || e.message}`);
-          }
+        // 利用者には内部の応答を見せない。詳細は開発者向けログで確認する。
+        console.error('[stage3][cascade-generation-failed]', {
+          mode,
+          deptName: dept.name,
+          status: e instanceof AuthFetchError ? e.status : undefined,
+          body: e instanceof AuthFetchError ? e.bodyText : undefined,
+          message: e instanceof Error ? e.message : String(e),
+        });
+        if (e instanceof AuthFetchError && e.code === 'AUTH_NO_SESSION') {
+          setNotice('❌ セッションが取得できませんでした（再ログインしてください）');
+        } else if (e instanceof AuthFetchError && e.status === 403) {
+          setNotice('❌ 権限がありません（Admin/Managerのみ利用可）');
+        } else if (e instanceof AuthFetchError && e.status === 401) {
+          setNotice('❌ 認証に失敗しました（ログインし直してください）');
         } else {
-          setNotice(`❌ 部門のたたき台生成に失敗しました：${e instanceof Error ? e.message : String(e)}`);
+          setNotice(mode === 'regen'
+            ? '❌ 戦略書を再生成できませんでした。もう一度お試しください。'
+            : '❌ 戦略書のたたき台を作成できませんでした。もう一度お試しください。');
         }
         return;
       }

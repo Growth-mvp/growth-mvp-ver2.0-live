@@ -19,6 +19,14 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignals, ReconsiderationSeverity, ReconsiderationPointInternal } from '@/types/strategy';
+import {
+  businessNameKey,
+  cascadeSlots,
+  cascadeStrategyReferences,
+  generateSlotProjects,
+  normalizeCascadeReview,
+  validateCascadeReview,
+} from '@/lib/cascade/cascadeReview';
 
 /* =========================
  * グローバル定数
@@ -3021,49 +3029,9 @@ function collectKnownBusinessNames(requested: string[], segments: any, portfolio
   });
 }
 
-function businessNameKey(name: unknown): string {
-  return String(name ?? '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
-}
-
-function cascadeSlots(partners: string[]): Array<{ lane: CascadeLaneType; slot: number }> {
-  return [
-    { lane: 'existing' as const, slot: 1 }, { lane: 'existing' as const, slot: 2 },
-    { lane: 'new' as const, slot: 3 }, { lane: 'intraCollab' as const, slot: 4 },
-    ...(partners.length ? [{ lane: 'interCollab' as const, slot: 5 }] : []),
-  ];
-}
-
 function cascadeProjectAt(dept: any, slot: number): any {
   const lane = slot <= 2 ? 'existing' : slot === 3 ? 'new' : slot === 4 ? 'intraCollab' : 'interCollab';
   return dept?.lanes?.[lane]?.projects?.[slot === 2 ? 1 : 0];
-}
-
-function cascadeStrategyReferences(evidence: string): Array<{ id: string; text: string }> {
-  return evidence.split(/(?<=[。！？])\s*|\n+/u).map((text) => text.trim()).filter(Boolean)
-    .map((text, index) => ({ id: `S${index + 1}`, text }));
-}
-
-function normalizeCascadeReview(raw: any, evidence: string): any {
-  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.projects)) return raw;
-  const refs = new Map(cascadeStrategyReferences(evidence).map((ref) => [ref.id, ref.text]));
-  return { ...raw, projects: raw.projects.map((project: any) => {
-    if (!project || typeof project !== 'object') return project;
-    const ids = Array.isArray(project.strategyBasisIds) ? project.strategyBasisIds : [];
-    // Resolve real source text server-side: the model need not transcribe it verbatim.
-    const validIds = ids.length > 0 && ids.every((id: any) => typeof id === 'string' && refs.has(id));
-    const keyResults = Array.isArray(project.keyResults) && project.keyResults.length > 0
-      ? project.keyResults : project.okrs?.[0]?.keyResults;
-    const collab = project.slot === 4 ? raw.intraDeptCollab?.[0] : project.slot === 5 ? raw.interDeptCollab?.[0] : '';
-    return { ...project,
-      // Only inter-business collaboration has a partner business. Ignore stray
-      // metadata on other slots; their participants are described in collaboration.
-      partnerDepartment: project.slot === 5 ? project.partnerDepartment : undefined,
-      strategyBasis: validIds ? ids.map((id: string) => refs.get(id)).join('\n') : project.strategyBasis,
-      keyResults: Array.isArray(keyResults) ? keyResults : [],
-      objective: project.objective || project.okrs?.[0]?.objective,
-      collaboration: project.collaboration || collab || '',
-    };
-  }) };
 }
 
 /** Keep valid company facts; finance describes history, never a promised project effect. */
@@ -3083,101 +3051,6 @@ function cascadeReviewBridge(bridge: string): string {
   return bridge.split('\n').filter((line) =>
     !/^[・\s]*(第[0-9０-９]+章では|財務余力を成長市場$|そして成長市場$|重点市場$)/u.test(line.trim()))
     .join('\n');
-}
-
-/** Validate the complete proposal before mutating any response state. */
-function validateCascadeReview(review: any, partners: string[], evidence: string, deptName = ''): string[] {
-  const issues: string[] = [];
-  const hasText = (v: any): boolean => typeof v === 'string' && v.trim().length > 0;
-  const compact = (v: string): string => v.replace(/\s+/g, '');
-  for (const field of ['missionDraft', 'missionDescription', 'currentPosition', 'strategicRole']) {
-    if (!hasText(review?.[field])) issues.push(`missing_${field}`);
-  }
-  const slots = cascadeSlots(partners);
-  const projects = Array.isArray(review?.projects) ? review.projects : [];
-  if (projects.length !== slots.length) issues.push('project_count');
-  const titles = new Set<string>();
-  for (const spec of slots) {
-    const matches = projects.filter((p: any) => p?.slot === spec.slot);
-    if (matches.length !== 1) { issues.push(`slot_${spec.slot}_count`); continue; }
-    const p = matches[0];
-    for (const field of ['title', 'reason', 'hypothesis', 'objective', 'strategyBasis']) {
-      if (!hasText(p[field])) issues.push(`slot_${spec.slot}_${field}`);
-    }
-    const basisIds = Array.isArray(p.strategyBasisIds) ? p.strategyBasisIds : [];
-    const referenceIds = new Set(cascadeStrategyReferences(evidence).map((ref) => ref.id));
-    const hasSourceReference = basisIds.length > 0 && basisIds.every((id: any) => referenceIds.has(id));
-    if ((basisIds.length > 0 && !hasSourceReference) ||
-        (!hasSourceReference && hasText(p.strategyBasis) && !compact(evidence).includes(compact(p.strategyBasis)))) {
-      issues.push(`slot_${spec.slot}_ungrounded_basis`);
-    }
-    const titleKey = businessNameKey(String(p.title ?? '').replace(`${deptName}：`, ''));
-    if (titles.has(titleKey)) issues.push(`slot_${spec.slot}_duplicate_title`);
-    titles.add(titleKey);
-    if (spec.lane === 'interCollab' && !partners.includes(p.partnerDepartment)) issues.push('unregistered_partner');
-    if (spec.lane !== 'interCollab' && p.partnerDepartment) issues.push(`slot_${spec.slot}_unexpected_partner`);
-    if (['intraCollab', 'interCollab'].includes(spec.lane) && !hasText(p.collaboration)) issues.push(`slot_${spec.slot}_collaboration`);
-    if (!['ACQ', 'ARPU', 'CHURN', 'COST', 'EFFICIENCY', 'FUTURE'].includes(p.mainLever)) issues.push(`slot_${spec.slot}_lever`);
-    if (!['short', 'mid', 'long'].includes(p.horizon) || !['growth', 'cost', 'efficiency', 'future'].includes(p.kind)) issues.push(`slot_${spec.slot}_classification`);
-    if (!Array.isArray(p.skillRequirements?.roleSkills) || p.skillRequirements.roleSkills.length === 0 || !p.skillRequirements.roleSkills.every(hasText) ||
-        !Array.isArray(p.skillRequirements?.executionSkills) || p.skillRequirements.executionSkills.length === 0 || !p.skillRequirements.executionSkills.every(hasText)) issues.push(`slot_${spec.slot}_skills`);
-    const investments = Array.isArray(p.humanInvestments) ? p.humanInvestments : [];
-    if (new Set(investments.map((i: any) => i?.category)).size < 2 || investments.some((i: any) =>
-      !['TRAINING_OJT', 'ALLOCATION', 'TOOLS_PROCESS', 'EXTERNAL', 'HIRING'].includes(i?.category) || !hasText(i?.title) || !hasText(i?.detail))) issues.push(`slot_${spec.slot}_investments`);
-    const causal = p.causalDesign;
-    if (!['buyer', 'problem', 'intervention', 'customerChange', 'revenueMechanism', 'differentiation']
-      .every((field) => hasText(causal?.[field]))) issues.push(`slot_${spec.slot}_causal_design`);
-    // A historical growth rate cannot serve as a quantified forecast for an untested intervention.
-    if (/[0-9０-９]+(?:[.．][0-9０-９]+)?\s*[%％]/u.test(String(p.hypothesis ?? ''))) {
-      issues.push(`slot_${spec.slot}_unagreed_effect_number`);
-    }
-    if (spec.slot === 3 && (!hasText(p.exploration?.payer) || !hasText(p.exploration?.offering) ||
-        !hasText(p.exploration?.paymentTest) || !hasText(p.exploration?.decisionRule))) {
-      issues.push('slot_3_business_validation');
-    }
-
-    if (/別セグメント|別事業|複数事業/.test(String(p.title ?? ''))) issues.push(`slot_${spec.slot}_unspecified_title`);
-    if (spec.slot === 4) {
-      const phases = p.collaborationStructure?.phases;
-      if (!Array.isArray(phases) || phases.length < 2 || !phases.every((phase: any) =>
-        ['phase', 'owner', 'deliverable', 'handoverTo'].every(field => hasText(phase?.[field]))) ||
-        !hasText(p.collaborationStructure?.jointDecision)) issues.push('slot_4_collaboration_structure');
-    }
-    if (spec.slot === 5) {
-      const structure = p.crossBusinessStructure;
-      if (structure?.partnerBusiness !== p.partnerDepartment ||
-        !['ownResponsibility', 'partnerResponsibility', 'revenueAttribution', 'responsibilityBoundary']
-          .every(field => hasText(structure?.[field]))) issues.push('slot_5_collaboration_structure');
-    }
-
-    const krs = Array.isArray(p.keyResults) ? p.keyResults : [];
-    if (krs.length !== 3) issues.push(`slot_${spec.slot}_kpi_count`);
-    const labels = new Set<string>();
-    for (const kr of krs) {
-      if (!['label', 'unit', 'measurementMethod', 'hypothesisLink'].every((field) => hasText(kr?.[field]))) issues.push(`slot_${spec.slot}_kpi_definition`);
-      if (!['customer_outcome', 'business_outcome', 'validation', 'leading'].includes(kr?.kind)) issues.push(`slot_${spec.slot}_kpi_kind`);
-      if (!['client_business', 'own_business', 'end_user', 'internal_process'].includes(kr?.measurementScope) ||
-          !['population', 'calculation', 'dataSource', 'comparison'].every((field) => hasText(kr?.[field]))) {
-        issues.push(`slot_${spec.slot}_kpi_operational_definition`);
-      }
-      if (/または|又は|あるいは/.test(String(kr?.unit ?? ''))) issues.push(`slot_${spec.slot}_ambiguous_unit`);
-      if (['顧客成果指標', '当社の収益指標', '実行の先行指標'].includes(kr?.label)) issues.push(`slot_${spec.slot}_placeholder_kpi`);
-      const key = businessNameKey(kr?.label);
-      if (labels.has(key)) issues.push(`slot_${spec.slot}_duplicate_kpi`);
-      labels.add(key);
-      if (/顧客顧客|に振り向け要求|だけでは.*件数/.test(String(kr?.label ?? ''))) issues.push(`slot_${spec.slot}_broken_kpi`);
-    }
-    if (spec.lane !== 'new' &&
-        (!krs.some((kr: any) => kr?.kind === 'business_outcome' && kr?.measurementScope === 'own_business') ||
-         !krs.some((kr: any) => kr?.kind === 'customer_outcome' &&
-           ['client_business', 'end_user'].includes(kr?.measurementScope)))) {
-      issues.push(`slot_${spec.slot}_customer_and_business_outcomes`);
-    }
-    if (!krs.some((kr: any) => spec.lane === 'new' ? kr?.kind === 'validation' : ['customer_outcome', 'business_outcome'].includes(kr?.kind))) {
-      issues.push(`slot_${spec.slot}_no_outcome`);
-    }
-  }
-  return [...new Set(issues)];
 }
 
 function applyCascadeReview(dept: any, review: any, partners: string[]): any {
@@ -3290,15 +3163,13 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
     if (!planIssues.length) break;
   }
   if (planIssues.length) throw new Error(`theme_design: ${planIssues.join(',')}`);
-  const projects: any[] = [];
-  for (const template of templates) {
-    const theme = plan.themes.find((t: any) => t.slot === template.slot);
-    let candidate: any;
-    let errors: string[] = [];
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const raw = await call(`slot_${template.slot}`, { ...context,
+  const projects: any[] = await generateSlotProjects({
+    templates, plan, allowedPartners: input.allowedPartners, finalStrategy: input.finalStrategy, department: input.department,
+    requestSlot: async (template, feedback) => {
+      const theme = plan.themes.find((t: any) => t.slot === template.slot);
+      return await call(`slot_${template.slot}`, { ...context,
         allThemes: plan.themes, departmentRole: { missionDraft: plan.missionDraft, strategicRole: plan.strategicRole },
-        assignedTheme: theme, previousCandidate: candidate, previousValidationErrors: errors,
+        assignedTheme: theme, previousCandidate: feedback.previousCandidate, previousValidationErrors: feedback.previousValidationErrors, ...(feedback.mainLeverCorrection ? { mainLeverCorrection: feedback.mainLeverCorrection } : {}),
         task: '担当スロット1件だけ生成する。responseTemplate.projectの全項目を具体化しprojectとして返す。他テーマと重複しない。顧客成果と当社採算を区別する。KPIは単一単位・単一測定量。各指標の分類だけでなくラベル・算式・データ源も意味を一致させる。連携売上は同一企業内の部門帰属として扱い、顧客売上を分配する既存契約を創作しない。目標値・能力・実績は創作しない。slot3は有償需要・提供採算・継続可能性の3検証指標。連携構造は本文にも反映する。',
         responseTemplate: { project: { ...template, strategyBasisIds: theme.strategyBasisIds,
           ...(template.slot === 4 ? { collaborationStructure: { phases: [{ phase: '', owner: '', deliverable: '', handoverTo: '' }], jointDecision: '' } } : {}),
@@ -3306,18 +3177,8 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
             partnerBusiness: theme.partnerDepartment, ownResponsibility: '', partnerResponsibility: '',
             revenueAttribution: '', responsibilityBoundary: '', unclarifiedItems: [] } } : {}) } },
       }, 6000);
-      candidate = raw.project ?? raw.projects?.[0];
-      if (candidate) candidate.slot = template.slot;
-      const normalized = normalizeCascadeReview({ ...plan, projects: candidate ? [candidate] : [] }, input.finalStrategy);
-      candidate = normalized.projects[0];
-      errors = validateCascadeReview(normalized, input.allowedPartners, input.finalStrategy, input.department)
-        .filter(e => e.startsWith(`slot_${template.slot}_`) || (template.slot === 5 && e === 'unregistered_partner'));
-      if (!candidate) errors.push(`slot_${template.slot}_missing`);
-      if (!errors.length) break;
-    }
-    if (errors.length) throw new Error(errors.join(','));
-    projects.push(candidate);
-  }
+    },
+  });
   const review = { ...plan, projects };
   const errors = validateCascadeReview(review, input.allowedPartners, input.finalStrategy, input.department);
   if (errors.length) throw new Error(errors.join(','));
