@@ -336,7 +336,6 @@ export function StrategyBookDesk({
   onDeleteDepartment,
 }: StrategyBookDeskProps) {
   const [loaded, setLoaded] = useState(false);
-  const [version, setVersion] = useState<number | null>(null);
   const versionRef = useRef<number | null>(null);
   // 複数スコープの読み込みが競合しても、古い会社の応答は反映しない。
   const loadSequenceRef = useRef(0);
@@ -415,7 +414,6 @@ export function StrategyBookDesk({
       );
       if (requestSeq !== loadSequenceRef.current) return;
       versionRef.current = res.version;
-      setVersion(res.version);
       setState(res.state);
       setLegacySettled(res.legacySettled);
       setWorkspaceErrorCode(null);
@@ -443,7 +441,6 @@ export function StrategyBookDesk({
         json: { companyId: g.companyId, strategyId: g.strategyId, expectedVersion: expected, state: next },
       });
       versionRef.current = res.version;
-      setVersion(res.version);
       setState(next);
       return true;
     } catch (e) {
@@ -1214,23 +1211,20 @@ export function StrategyBookDesk({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-lg font-bold">{dept.name}の戦略書</h3>
             <div className="flex flex-wrap items-center gap-2">
-              <Chip tone={progress.deptConfirmed ? 'ok' : progress.hasRegen ? 'neutral' : 'warn'}>
-                {progress.deptConfirmed ? '確定済み' : progress.hasRegen ? '再生成版・未確定' : progress.hasInitial ? 'たたき台作成済み' : '未作成'}
-              </Chip>
+              {!progress.deptConfirmed && (
+                <Chip tone={progress.hasRegen ? 'neutral' : 'warn'}>
+                  {progress.hasRegen ? '再生成版・未確定' : progress.hasInitial ? 'たたき台作成済み' : '未作成'}
+                </Chip>
+              )}
               {progress.hasInitial && (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={exportDeptPdf}
-                    disabled={isBusy || editingHere}
-                    className="rounded-full h-8 px-3 text-xs"
-                  >
-                    PDF出力
-                  </Button>
-                  <span className="text-xs text-zinc-600">
-                    {progress.deptConfirmed ? '確定版を出力します' : '作業版（未確定）を出力します'}
-                  </span>
-                </>
+                <Button
+                  variant="outline"
+                  onClick={exportDeptPdf}
+                  disabled={isBusy || editingHere}
+                  className="rounded-full h-8 px-3 text-xs"
+                >
+                  PDF出力
+                </Button>
               )}
             </div>
           </div>
@@ -1268,14 +1262,6 @@ export function StrategyBookDesk({
               );
             })}
           </nav>
-          <p className="text-sm leading-6 text-zinc-700">
-            {effective === 1
-              ? progress.hasInitial ? 'AIのたたき台を読んで、部門として考えたい点を確認します。' : 'まず、全社戦略をもとにAIがこの部門の戦略書のたたき台を作ります。'
-              : effective === 2 ? '戦略書を読みながら6つの問いに答えます。回答は空欄でも進められ、反映すると戦略書を再生成できます。'
-              : effective === 4 ? '戦略書の文章とプロジェクトを直接編集します。既存プロジェクトの編集と、計画から外す操作もここで行います。'
-              : effective === 5 ? '新規の候補と部門間の調整を判断し、全社の確定内容を確認して、戦略書を確定します。'
-              : '事業・部門戦略書が確定しました。確定版PDFを出力し、実行計画書の作成へ進めます。'}
-          </p>
           <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">
             次の操作：
             {!progress.hasInitial
@@ -1297,15 +1283,17 @@ export function StrategyBookDesk({
           <div className="space-y-3 border-t px-4 py-4">
             {progress.hasInitial && initialDept ? (
               <>
-                <p className="text-xs text-gray-600">
-                  版 {latestInitial?.version}（初回のたたき台・未確定）。読んでから、6問に進んでください。
-                </p>
-                {!progress.hasRegen && initialDoc ? (
+                {progress.hasRegen ? (
+                  <p className="rounded-lg bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800">
+                    これは最初のたたき台（過去の版）です。現在の戦略書はSTEP3で確認・編集できます。
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-600">読んでから、STEP2の6つの問いに進んでください。</p>
+                )}
+                {initialDoc && (
                   <div className="rounded-xl border border-zinc-200 bg-white px-5 py-6 md:px-8">
                     <StrategyBookDocument {...initialDoc} />
                   </div>
-                ) : (
-                  <p className="text-sm text-zinc-700">再生成版があります。④で文書を確認し、編集できます。</p>
                 )}
                 <Button
                   onClick={() => showPhase(2)}
@@ -1407,9 +1395,6 @@ export function StrategyBookDesk({
                     </>
                   ) : (
                     <>
-                      <p className="text-xs text-gray-600">
-                        版 {latestRegen?.version}（再生成・未確定）。内容を直すときは「戦略書を編集」を押してください。
-                      </p>
                       <Button
                         variant="outline"
                         onClick={startDocEdit}
@@ -1647,32 +1632,22 @@ export function StrategyBookDesk({
       )}
 
       {/* 全社戦略（STAGE2）の状態と、作業の状態 */}
-      <section className="space-y-2 rounded-xl bg-zinc-50 px-4 py-3 text-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold">全社戦略（STAGE2）{stage2.status === 'confirmed' && '｜確定済み'}</span>
-          {stage2.status === 'loading' && <Chip tone="neutral">読み込み中</Chip>}
-          {(stage2.status === 'not_confirmed' || stage2.status === 'story_missing') && <Chip tone="warn">未確定</Chip>}
-          {stage2.status === 'error' && <Chip tone="warn">確認できません</Chip>}
-          {stage2.status === 'confirmed' && (
-            <Link
-              href="/report/stage2-strategy"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-semibold text-white hover:bg-zinc-700"
-            >
-              全社戦略書を読む
-            </Link>
-          )}
-        </div>
-        <p className="text-xs text-gray-600">
-          作業内容は、確定するまで未確定です。確定するまで、正式な部門戦略・KPI・STAGE4〜6のデータは変わりません。
-          {version !== null && `（作業版 ${version}）`}
-          {confirmed && state.confirmed && (
-            <span className="ml-2 font-semibold text-emerald-800">
-              確定済み（{new Date(state.confirmed.confirmedAt).toLocaleString('ja-JP')}・反映{state.confirmed.appliedCount}件）
-            </span>
-          )}
-        </p>
+      <section className="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-50 px-4 py-3 text-sm">
+        <span className="font-semibold">全社戦略（STAGE2）</span>
+        {stage2.status === 'confirmed' && <Chip tone="ok">確定済み</Chip>}
+        {stage2.status === 'loading' && <Chip tone="neutral">読み込み中</Chip>}
+        {(stage2.status === 'not_confirmed' || stage2.status === 'story_missing') && <Chip tone="warn">未確定</Chip>}
+        {stage2.status === 'error' && <Chip tone="warn">確認できません</Chip>}
+        {stage2.status === 'confirmed' && (
+          <Link
+            href="/report/stage2-strategy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-semibold text-white hover:bg-zinc-700"
+          >
+            全社戦略書を読む
+          </Link>
+        )}
       </section>
 
       {/* 事業・部門別タブ（各部門・部門間調整） */}

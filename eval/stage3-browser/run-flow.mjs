@@ -94,7 +94,7 @@ try {
       await deptTab(name).click();
       await stepBtn('STEP2').click();
       await savedOnClick(() => btn('6問を反映して戦略書を再生成').click());
-      await page.getByText('再生成・未確定').first().waitFor({ timeout: 30000 });
+      await page.getByText('再生成版・未確定').first().waitFor({ timeout: 30000 });
     }
     check('STEP2：両部門の再生成が保存される', true);
   });
@@ -213,12 +213,18 @@ try {
     check('作業状態：確定後、未選択の新規候補は保留として残る', projects.every((p) => p.decision !== 'pending') && projects.length > 0, `${projects.map((p) => p.decision).join(',')}`);
   });
 
-  await step('確定後の再読み込み：確定済みの状態とSTEP5が復元される', async () => {
+  await step('確定後の再読み込み：確定済みの事業・部門はSTEP5を初期表示し、上部は簡素な表示になる', async () => {
     await page.reload();
     await page.waitForSelector('text=全社戦略（STAGE2）', { timeout: 30000 });
-    await deptTab('営業部').click();
-    await page.getByText('確定済み（').first().waitFor({ timeout: 15000 });
-    check('再読み込み：確定済みの表示が残る', true);
+    await page.getByText('事業・部門戦略書が確定しました').first().waitFor({ timeout: 15000 });
+    check('再読み込み：確定済みの事業・部門はSTEP5が初期表示される', (await statusOf('STEP5')) === 'step');
+    check('上部：全社戦略の「確定済み」と「全社戦略書を読む」だけが出る', (await page.getByText('全社戦略書を読む').count()) > 0 && (await page.getByText(/作業版 d+/).count()) === 0 && (await page.getByText(/反映d+件/).count()) === 0);
+    await stepBtn('STEP1').click();
+    await page.waitForTimeout(200);
+    check('STEP1：過去のたたき台であることが分かる（確定後も戻れる）', (await page.getByText('これは最初のたたき台（過去の版）です').count()) > 0 && (await statusOf('STEP1')) === 'step');
+    await stepBtn('STEP5').click();
+    await page.waitForTimeout(200);
+    check('STEP5へ戻れる', (await statusOf('STEP5')) === 'step');
   });
 
   await step('PDF：確定版PDFが出力され、開ける', async () => {
