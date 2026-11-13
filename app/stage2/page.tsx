@@ -1018,6 +1018,7 @@ const NS_UNIT_PRESETS = [
   '円',
   '千円',
   '百万円',
+  '億円',
   '%',
   '件',
   '人',
@@ -1129,12 +1130,11 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
 
   const handleEdit = (ct: any) => {
     const presetHit = (NS_LABEL_PRESETS as readonly string[]).includes((ct.label ?? '') as any);
-    const unitHit = (NS_UNIT_PRESETS as readonly string[]).includes((ct.unit ?? '') as any);
 
     setFormData({
       labelPreset: presetHit ? (ct.label ?? '売上') : 'その他',
       labelOther: presetHit ? '' : String(ct.label ?? ''),
-      unit: unitHit ? (ct.unit ?? '百万円') : '百万円',
+      unit: ct.unit ?? '',
       base: String(ct.base ?? ''),
       dueYear: ct.dueYear !== undefined ? String(ct.dueYear) : '',
       prioritySimple: (ct.prioritySimple as PrioritySimple) || 'reference',
@@ -1262,6 +1262,11 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                     {u}
                   </option>
                 ))}
+                {!(NS_UNIT_PRESETS as readonly string[]).includes(formData.unit) && (
+                  <option value={formData.unit}>
+                    {formData.unit ? `${formData.unit}（未対応の単位）` : '未設定（選択してください）'}
+                  </option>
+                )}
               </select>
             </div>
 

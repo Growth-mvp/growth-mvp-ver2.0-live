@@ -156,6 +156,11 @@ export function canonicalizeUnit(unit: unknown): string | undefined {
 
   const u = String(unit).trim().toLowerCase();
 
+  // 億円系（百万円・千円・円のどれにも含まれないため先に判定する）
+  if (u === '億円' || u === 'oku_yen') {
+    return 'oku_yen';
+  }
+
   // 百万円系
   if (u.includes('百万') || u === 'mjpy' || u === 'million_yen') {
     return 'million_yen';
@@ -207,6 +212,9 @@ export function normalizeValueToUnit(
     if (canonTo === 'million_yen') {
       return value / 1_000_000;
     }
+    if (canonTo === 'oku_yen') {
+      return value / 100_000_000;
+    }
     if (canonTo === 'thousand_yen') {
       return value / 1_000;
     }
@@ -231,12 +239,17 @@ export function normalizeValueToUnit(
     valueYen = value * 1_000_000;
   } else if (canonFrom === 'thousand_yen') {
     valueYen = value * 1_000;
+  } else if (canonFrom === 'oku_yen') {
+    valueYen = value * 100_000_000;
   }
   // yen のまま（canonFrom === 'yen'）
 
   // yen -> toUnit
   if (canonTo === 'million_yen') {
     return valueYen / 1_000_000;
+  }
+  if (canonTo === 'oku_yen') {
+    return valueYen / 100_000_000;
   }
   if (canonTo === 'thousand_yen') {
     return valueYen / 1_000;
@@ -357,11 +370,11 @@ export function sumYearly(rows: YearlyPL[], key: 'revenue' | 'op_income'): numbe
 
 /**
  * 北極星目標の表示・比較に使う単位。
- * 円・千円・百万円（MJPY 等の表記を含む）以外は従来どおり円として扱う。
+ * 円・千円・百万円・億円（MJPY 等の表記を含む）以外は従来どおり円として扱う。
  */
-export function northStarDisplayUnit(unit: unknown): 'million_yen' | 'thousand_yen' | 'yen' {
+export function northStarDisplayUnit(unit: unknown): 'million_yen' | 'thousand_yen' | 'oku_yen' | 'yen' {
   const canonical = canonicalizeUnit(unit ?? 'yen');
-  return canonical === 'million_yen' || canonical === 'thousand_yen' ? canonical : 'yen';
+  return canonical === 'million_yen' || canonical === 'thousand_yen' || canonical === 'oku_yen' ? canonical : 'yen';
 }
 
 /** 北極星の目標値（登録単位の値）を百万円へ換算する */
@@ -384,6 +397,7 @@ export function formatNorthStarValue(value: number | null | undefined, unit: unk
   if (value == null || Number.isNaN(value)) return '—';
   const digits = value.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
   const displayUnit = northStarDisplayUnit(unit);
+  if (displayUnit === 'oku_yen') return `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} 億円`;
   if (displayUnit === 'million_yen') return digits;
   if (displayUnit === 'thousand_yen') return `${digits} 千円`;
   return '¥' + digits;

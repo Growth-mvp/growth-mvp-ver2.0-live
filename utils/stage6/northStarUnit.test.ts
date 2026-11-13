@@ -30,8 +30,17 @@ describe('北極星目標: 同一金額は入力単位によらず同じ百万�
     expect(northStarValueToMJPY(AMOUNT_YEN, undefined)).toBe(1300);
   });
 
-  it('未対応の単位（億円など）は従来どおり円として扱う', () => {
-    expect(northStarDisplayUnit('億円')).toBe('yen');
+  it('億円の目標は億円として換算する（円として扱うと1億倍の誤差になる）', () => {
+    expect(northStarDisplayUnit('億円')).toBe('oku_yen');
+    expect(northStarValueToMJPY(1, '億円')).toBe(100);
+    expect(northStarValueToMJPY(1.3, '億円')).toBeCloseTo(130, 9);
+    expect(northStarValueToMJPY(-0.5, '億円')).toBeCloseTo(-50, 9);
+  });
+
+  it('100,000,000円・100百万円・1億円は同じ百万円値になる', () => {
+    expect(northStarValueToMJPY(100_000_000, '円')).toBe(100);
+    expect(northStarValueToMJPY(100, '百万円')).toBe(100);
+    expect(northStarValueToMJPY(1, '億円')).toBe(100);
   });
 });
 
@@ -45,6 +54,12 @@ describe('北極星目標: 表示単位への逆換算', () => {
     expect(mjpyToNorthStarDisplay(1300, '百万円')).toBe(1300);
     expect(yenToNorthStarDisplay(AMOUNT_YEN, '円')).toBe(AMOUNT_YEN);
     expect(yenToNorthStarDisplay(AMOUNT_YEN, undefined)).toBe(AMOUNT_YEN);
+  });
+
+  it('億円の目標は億円の値で表示する', () => {
+    expect(mjpyToNorthStarDisplay(130, '億円')).toBeCloseTo(1.3, 9);
+    expect(yenToNorthStarDisplay(130_000_000, '億円')).toBeCloseTo(1.3, 9);
+    expect(formatNorthStarValue(1.3, '億円')).toBe('1.3 億円');
   });
 
   it('表示文字列: 千円は千円、百万円は数値のみ、円は ¥ 付き', () => {
@@ -81,5 +96,26 @@ describe('北極星目標: 千円で登録した目標の達成率（buildNorthS
     expect(row.unit).toBe('千円');
     expect(row.forecastValue).toBeCloseTo(1_000_000, 6);
     expect(row.gap).toBeCloseTo(-300_000, 6);
+  });
+});
+
+describe('北極星目標: 億円・百万円・円で同じ金額なら同じ達成率になる', () => {
+  const yearly = [{ year: 2026, revenue: 1_000_000_000, op_income: 0 }];
+  const revenueRowFor = (unit: string, base: number) =>
+    buildNorthStarRows({
+      companyTargets: [{ id: 't1', label: '売上高', unit, base, dueYear: 2026 }],
+      yearlyAll: { base: yearly },
+      scenarioKey: 'base',
+      projectContrib: [],
+    })[0];
+
+  it('13億円・1300百万円・1,300,000,000円は同じ達成率と差額になる', () => {
+    const oku = revenueRowFor('億円', 13);
+    const million = revenueRowFor('百万円', 1300);
+    const yen = revenueRowFor('円', 1_300_000_000);
+    expect(oku.unit).toBe('億円');
+    expect(oku.achievementRate).toBeCloseTo(million.achievementRate!, 6);
+    expect(yen.achievementRate).toBeCloseTo(million.achievementRate!, 6);
+    expect(oku.gap).toBeCloseTo(-3, 6);
   });
 });
