@@ -417,7 +417,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
         </details>
         <footer className="plan-paper-foot">
           作成：AIによる草案を基に、担当者が確認・修正します。 ／{' '}
-          {props.persisted ? '修正は「草案として保存」で保存されます' : '開発用の画面内での操作のため、保存されません'}
+          {props.persisted ? '修正は「計画を保存」で保存されます' : '開発用の画面内での操作のため、保存されません'}
         </footer>
       </article>
 

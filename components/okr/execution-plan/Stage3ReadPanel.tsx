@@ -41,7 +41,13 @@ import StartConfirmation, { type StartInput } from './StartConfirmation';
 import { useSetStartMode } from './startMode';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
-import { buildFinanceEffectDrafts, financeWriteReason, periodOfLabel } from '@/lib/stage4/planView/financeBridge';
+import {
+  buildFinanceEffectDrafts,
+  financeSaveSteps,
+  financeWriteReason,
+  periodOfLabel,
+  type FinanceAnswersByKind,
+} from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
 import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
@@ -232,23 +238,7 @@ function Stage3ProjectBrowser({
     : [];
   const financeOverlap = financePos ? findFinanceEffectOverlapCandidates(storeDepartmentsNow, financePos.dIdx, financePos.pIdx).length : 0;
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
-  const financeReason = financeWriteReason({
-    hasIdentity: !!financeProjectId && !!financePos,
-    scopeMatches: financeScopeMatches,
-    planLoaded: !!selectedEntry,
-    planDirty: !!selectedEntry && isDirty(selectedEntry),
-  });
-  const financeWritable = !financeReason;
-  const writeFinance = async (candidate: FinanceEffect, action: 'SAVE_DRAFT' | 'CONFIRM') => {
-    if (!selected || !financeProjectId) return { ok: false as const, message: '施策を特定できないため、保存しませんでした。' };
-    return writeFinanceEffectToProject({
-      companyId: selected.companyId,
-      strategyId: selected.strategyId,
-      projectId: financeProjectId,
-      candidate,
-      action,
-    });
-  };
+  const financeReason = financeWriteReason({ scopeMatches: financeScopeMatches, planLoaded: !!selectedEntry });
 
   const titleOf = (projectKey: string): string | null => {
     for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
@@ -341,7 +331,7 @@ function Stage3ProjectBrowser({
     if (!ops || !entry || !key || !entry.stored) return { ok: false };
     const note = (message: string) => updateEntry(id, (e) => ({ ...e, notice: message }));
     if (checkDirty && isDirty(entry) && (action === 'ADOPT' || action === 'START' || action === 'RECORD_REGULATORY')) {
-      note('修正を草案として保存してから、操作してください。');
+      note('修正を「計画を保存」で保存してから、操作してください。');
       return { ok: false };
     }
     const out = await ops.transition(key, version, action, regulatory);
@@ -365,7 +355,7 @@ function Stage3ProjectBrowser({
     return runTransition(sel, entry.stored.version, action, regulatory).then(() => undefined);
   };
 
-  /* 実行責任者を保存する（計画書の本文は変えない）。保存の窓口は、一覧の「草案として保存」と同じ */
+  /* 実行責任者を保存する（計画書の本文は変えない）。保存の窓口は、「計画を保存」と同じ */
   const saveResponsible = async (sel: Stage3Selection, version: number, responsible: string): Promise<{ ok: true; version: number } | { ok: false }> => {
     const id = selectionKey(sel);
     const entry = entries[id];
@@ -395,7 +385,7 @@ function Stage3ProjectBrowser({
     const entry = entries[id];
     if (!entry?.stored) return;
     if (isBodyDirty(entry)) {
-      updateEntry(id, (e) => ({ ...e, notice: '計画書の本文に未保存の修正があります。計画書に戻り、「草案として保存」してから開始してください。' }));
+      updateEntry(id, (e) => ({ ...e, notice: '計画書の本文に未保存の修正があります。計画書に戻り、「計画を保存」してから開始してください。' }));
       return;
     }
     let version = entry.stored.version;
@@ -489,7 +479,7 @@ function Stage3ProjectBrowser({
         delete next[id];
         return next;
       });
-    if (isBodyDirty(entry)) return note('計画書の本文に未保存の修正があります。先に「草案として保存」してください。');
+    if (isBodyDirty(entry)) return note('計画書の本文に未保存の修正があります。先に「計画を保存」してください。');
     const out = await ops.useDraft(key, entry.stored.version, current.draft, current.previewToken);
     if (out.status === 'OK') {
       setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record, '新しい案を現在の計画書にしました。採用と開始は解除されています。') } : p));
@@ -513,6 +503,31 @@ function Stage3ProjectBrowser({
       delete next[id];
       return next;
     });
+
+  /* 計画の保存のあとに、入力された財務効果を書く。必須項目がそろったものだけ確認する。途中で止まったら理由を残す */
+  const saveFinance = async (sel: Stage3Selection, projectId: string, targetId: string, answers: FinanceAnswersByKind) => {
+    const steps = financeSaveSteps({ drafts: financeDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
+    if (steps.length === 0) return;
+    for (const step of steps) {
+      const out = await writeFinanceEffectToProject({
+        companyId: sel.companyId,
+        strategyId: sel.strategyId,
+        projectId,
+        candidate: step.candidate,
+        action: step.action,
+      });
+      if (!out.ok) {
+        updateEntry(targetId, (e) => ({ ...e, notice: `計画は保存しましたが、財務効果は保存できませんでした：${out.message}` }));
+        return;
+      }
+    }
+    const written = steps.map((s) => s.kind);
+    updateEntry(targetId, (e) => {
+      const rest: FinanceAnswersByKind = { ...(e.finance ?? {}) };
+      for (const kind of written) delete rest[kind];
+      return { ...e, finance: rest };
+    });
+  };
 
   /* 保存：IDのないプロジェクトは、ここで一度だけ既存の戦略保存（競合制御つき）で ID を付ける */
   const save = async (sel: Stage3Selection) => {
@@ -560,6 +575,7 @@ function Stage3ProjectBrowser({
       stored: entry.stored,
     });
     setEntries((p) => (p[targetId] ? { ...p, [targetId]: entryAfterPersist(p[targetId], result) } : p));
+    if (result.status === 'SAVED') await saveFinance(sel, projectId as string, targetId, entry.finance ?? {});
   };
 
   /* 競合の解決：項目ごとに選んだ内容で、最新の版に保存し直す */
@@ -606,9 +622,10 @@ function Stage3ProjectBrowser({
       saved={financeSaved}
       overlapCount={financeOverlap}
       planPeriod={periodOfLabel(planView?.d.period.label)}
-      writable={financeWritable}
+      writable={!financeReason}
       reasonNotWritable={financeReason}
-      onWrite={writeFinance}
+      answers={entry?.finance ?? {}}
+      onAnswer={(kind, a) => id && updateEntry(id, (e) => ({ ...e, finance: { ...(e.finance ?? {}), [kind]: a } }))}
     />
   ) : undefined;
 

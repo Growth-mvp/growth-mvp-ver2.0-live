@@ -1,4 +1,4 @@
-import { financeWriteReason } from './financeBridge';
+import { financeSaveSteps, financeWriteReason } from './financeBridge';
 import { findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
@@ -375,20 +375,51 @@ describe('実行計画の期間との整合', () => {
   });
 });
 
-describe('財務効果を画面から書けない理由（採用・開始の状態では止めない）', () => {
-  const ok = { hasIdentity: true, scopeMatches: true, planLoaded: true, planDirty: false };
+describe('財務効果を画面から書けない理由（計画の保存と一緒に書くので、本文や識別子では止めない）', () => {
+  const ok = { scopeMatches: true, planLoaded: true };
 
-  it('採用済み・開始済みの計画でも、財務効果は書ける', () => {
+  it('採用済み・開始済み・未保存の本文・識別子が無い場合でも、財務効果は書ける', () => {
     expect(financeWriteReason(ok)).toBeUndefined();
   });
 
-  it('計画書の本文に未保存の修正があれば、財務効果は保存済みの前提で止める', () => {
-    expect(financeWriteReason({ ...ok, planDirty: true })).toContain('草案として保存');
-  });
-
-  it('識別子が無い・会社や戦略が切り替わった・計画書が未読込のときは、理由を返す', () => {
-    expect(financeWriteReason({ ...ok, hasIdentity: false })).toContain('識別子');
+  it('会社や戦略が切り替わった・計画書が未読込のときは、理由を返す', () => {
     expect(financeWriteReason({ ...ok, scopeMatches: false })).toContain('切り替わった');
     expect(financeWriteReason({ ...ok, planLoaded: false })).toBe('計画書を読み込んでいます。');
+  });
+});
+
+describe('計画の保存で書く財務効果（financeSaveSteps）', () => {
+  const userDraft = () => {
+    const d = revenueDraft();
+    return { ...d, fromAi: false, base: { ...d.base, source: 'USER_INPUT' as const } };
+  };
+  const complete = { amountBasis: 'MONTHLY' as const, startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' as const };
+
+  it('入力の無い効果は触らない', () => {
+    expect(financeSaveSteps({ drafts: [userDraft()], answers: {}, saved: [], overlapCount: 0 })).toEqual([]);
+  });
+
+  it('必須項目が足りない効果は、未確認の草案として保存し、確認はしない', () => {
+    const steps = financeSaveSteps({ drafts: [userDraft()], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved: [], overlapCount: 0 });
+    expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT']);
+  });
+
+  it('必須項目がそろった効果は、草案の保存のあとに確認まで行う', () => {
+    const steps = financeSaveSteps({ drafts: [userDraft()], answers: { REVENUE_UP: complete }, saved: [], overlapCount: 0 });
+    expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT', 'CONFIRM']);
+    expect(steps[1].candidate.amountBasis).toBe('MONTHLY');
+  });
+
+  it('AI提案の売上は、対象顧客数と追加効果の確認項目が自動では済まないため、確認しない', () => {
+    const d = revenueDraft();
+    const aiDraft = { ...d, fromAi: true, base: { ...d.base, source: 'AI_PROPOSED' as const } };
+    const steps = financeSaveSteps({ drafts: [aiDraft], answers: { REVENUE_UP: complete }, saved: [], overlapCount: 0 });
+    expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT']);
+  });
+
+  it('確認済みの効果は、入力があっても書き直さない', () => {
+    const d = userDraft();
+    const saved = [{ ...d.base, confirmed: true }];
+    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved, overlapCount: 0 })).toEqual([]);
   });
 });

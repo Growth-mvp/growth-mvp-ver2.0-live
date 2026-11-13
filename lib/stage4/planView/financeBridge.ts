@@ -192,7 +192,7 @@ export function planFinanceEffectWrite(args: {
   const idx = list.findIndex((e) => sameKind(e, args.candidate.kind));
 
   if (idx === -1) {
-    if (args.action === 'CONFIRM') return { ok: false, reason: '先に草案として保存してください' };
+    if (args.action === 'CONFIRM') return { ok: false, reason: '先に計画を保存してください' };
     const plan = planCandidateWrite({ primary: args.primary, additional, candidate: args.candidate });
     if (plan.outcome === 'already_has_same_kind') return { ok: false, reason: '同じ種類の財務効果が既にあります' };
     return { ok: true, outcome: plan.outcome, patch: plan.patch };
@@ -213,7 +213,7 @@ export function planFinanceEffectWrite(args: {
     delete next.confirmedAt;
     outcome = 'draft_replaced';
   } else {
-    if (!same) return { ok: false, reason: '保存済みの草案と内容が違います。先に草案として保存し直してください' };
+    if (!same) return { ok: false, reason: '保存済みの草案と内容が違います。先に計画を保存し直してください' };
     next = { ...args.candidate, confirmed: true, confirmedAt: args.nowIso };
     outcome = 'confirmed';
   }
@@ -243,16 +243,62 @@ export function periodOutsidePlanNote(effect: FinanceEffect, plan: PlanPeriod | 
   return `計上期間（${effect.startYm}〜${effect.endYm ?? '未入力'}）が、実行計画の期間（${plan.startYm}〜${plan.endYm}）の外にあります。根拠を確認してください`;
 }
 
-/* 財務効果を画面から書けない理由。採用・開始の状態では止めない：財務効果は戦略データに書き、計画書の本文の採用とは別に扱う */
-export function financeWriteReason(args: {
-  hasIdentity: boolean;
-  scopeMatches: boolean;
-  planLoaded: boolean;
-  planDirty: boolean;
-}): string | undefined {
-  if (!args.hasIdentity) return 'この施策はまだ識別子がありません。「草案として保存」を行うと識別子が作られ、ここから財務効果を確認できます。';
+/* 財務効果を画面から書けない理由。計画の保存と一緒に書くため、識別子や本文の未保存では止めない */
+export function financeWriteReason(args: { scopeMatches: boolean; planLoaded: boolean }): string | undefined {
   if (!args.scopeMatches) return '表示中の会社・戦略が切り替わったため、ここからは保存できません。画面を読み込み直してください。';
   if (!args.planLoaded) return '計画書を読み込んでいます。';
-  if (args.planDirty) return '計画書の修正が保存されていません。計画書の「草案として保存」を押してから、財務効果を確認してください（財務効果は保存済みの前提で計算します）。';
   return undefined;
+}
+
+export type FinanceAnswersByKind = Partial<Record<FinanceDraftKind, FinanceAnswers>>;
+
+/* 入力欄の初期値：保存済みの効果があればその内容、無ければ AI案の期間 */
+export function initialFinanceAnswers(draft: FinanceEffectDraft, saved: FinanceEffect | undefined): FinanceAnswers {
+  if (!saved) return { startYm: draft.base.startYm ?? '', endYm: draft.base.endYm ?? '' };
+  return {
+    amountBasis: saved.amountBasis,
+    startYm: saved.startYm ?? '',
+    endYm: saved.endYm ?? '',
+    meetingBasisConfirmed: saved.meetingBasisConfirmed,
+    isIncremental: saved.isIncremental,
+    operatingIncomeEffectYen: saved.operatingIncomeEffectYen,
+    opIncomeIncludesAddCost: saved.opIncomeIncludesAddCost,
+    revenueKind: saved.revenueKind,
+    overlapNote: saved.overlapNote,
+  };
+}
+
+export function financeConfirmContext(drafts: FinanceEffectDraft[], saved: FinanceEffect[], overlapCount: number): ConfirmContext {
+  const revenueSaved = saved.find((e) => e.kind === 'REVENUE_UP');
+  const costSaved = saved.find((e) => e.kind === 'COST_INCREASE');
+  return {
+    overlapCount,
+    hasCostEffect: drafts.some((d) => d.kind === 'COST_INCREASE') || !!costSaved,
+    costConfirmed: costSaved?.confirmed === true,
+    revenueOpIncludesAddCost: revenueSaved?.opIncomeIncludesAddCost === true && typeof revenueSaved.operatingIncomeEffectYen === 'number',
+  };
+}
+
+export type FinanceSaveStep = { kind: FinanceDraftKind; action: FinanceWriteAction; candidate: FinanceEffect };
+
+/* 「計画を保存」で書く財務効果の手順。利用者が入力した効果だけを対象にする。
+ * 必須項目がそろった効果は、草案の保存のあとに確認（CONFIRM）まで行う。足りない効果は未確認の草案のまま残す。
+ * 確認の判定は confirmBlockers（STAGE6へ反映する条件）と同じで、ここでは緩めない。 */
+export function financeSaveSteps(args: {
+  drafts: FinanceEffectDraft[];
+  answers: FinanceAnswersByKind;
+  saved: FinanceEffect[];
+  overlapCount: number;
+}): FinanceSaveStep[] {
+  const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount);
+  const steps: FinanceSaveStep[] = [];
+  for (const draft of args.drafts) {
+    const answers = args.answers[draft.kind];
+    if (!answers) continue;
+    if (args.saved.find((e) => e.kind === draft.kind)?.confirmed) continue;
+    const candidate = applyFinanceAnswers(draft, answers);
+    steps.push({ kind: draft.kind, action: 'SAVE_DRAFT', candidate });
+    if (confirmBlockers(candidate, ctx).length === 0) steps.push({ kind: draft.kind, action: 'CONFIRM', candidate });
+  }
+  return steps;
 }

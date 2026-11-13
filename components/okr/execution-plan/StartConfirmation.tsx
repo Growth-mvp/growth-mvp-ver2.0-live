@@ -33,7 +33,7 @@ export default function StartConfirmation({ plan, view, bodyDirty, responsible, 
 
   const blockers: string[] = [];
   if (!trimmed) blockers.push('実行責任者を入力してください');
-  if (bodyDirty) blockers.push('計画書の本文に未保存の修正があります。計画書に戻り、「草案として保存」してから開始してください');
+  if (bodyDirty) blockers.push('計画書の本文に未保存の修正があります。計画書に戻り、「計画を保存」してから開始してください');
   if (!view.d.adoption.adoptable) blockers.push(...view.d.adoption.blockers);
   const ready = blockers.length === 0;
 
