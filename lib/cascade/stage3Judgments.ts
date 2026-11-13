@@ -12,7 +12,7 @@ export type JudgmentSummary = {
   appliedItems: number;
   projects: JudgmentCounts;
   adjustments: JudgmentCounts;
-  /** 確定の前に判断が必要な件数（新規プロジェクトの未判断と、部門間調整の未判断の合計） */
+  /** 確定の前に判断が必要な件数（部門間調整の未判断）。新規プロジェクトの未選択は確定時に保留になる。 */
   blockers: number;
 };
 
@@ -34,7 +34,7 @@ export function judgmentSummaryOf(state: WorkspaceState): JudgmentSummary {
     appliedItems: state.selections.filter((s) => s.decision === 'applied').length,
     projects,
     adjustments,
-    blockers: projects.undecided + adjustments.undecided,
+    blockers: adjustments.undecided,
   };
 }
 
@@ -47,8 +47,8 @@ function countOf(values: string[], names: Record<string, keyof Omit<JudgmentCoun
   return counts;
 }
 
-/** 確定ボタンを押せない理由（押せるなら null）。件数は judgmentSummaryOf と同じ数を使う。 */
+/** 確定ボタンを押せない理由（押せるなら null）。 */
 export function judgmentBlockerOf(summary: JudgmentSummary): string | null {
   if (summary.blockers === 0) return null;
-  return `あと${summary.blockers}件の判断が必要です（新規プロジェクト${summary.projects.undecided}件・部門間調整${summary.adjustments.undecided}件）`;
+  return `部門間調整の判断が${summary.blockers}件残っています。採用・保留・不採用のいずれかを選んでください。`;
 }

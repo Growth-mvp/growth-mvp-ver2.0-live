@@ -4040,7 +4040,7 @@ useEffect(() => {
     };
   };
 
-  const renderDeptSixQuestions = (index: number) => {
+  const renderDeptSixQuestions = (index: number, registerFlush: (flush: (() => void) | null) => void) => {
     const dept = departments[index];
     if (!dept) return null;
     return (
@@ -4057,6 +4057,7 @@ useEffect(() => {
         onRegisterFlush={(flush) => {
           if (flush) deptAnswerFlushRef.current[index] = flush;
           else delete deptAnswerFlushRef.current[index];
+          registerFlush(flush);
         }}
       />
     );

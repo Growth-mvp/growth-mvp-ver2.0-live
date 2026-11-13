@@ -18,6 +18,7 @@ import { verifyWorkspaceState, type NewProjectCandidate, type WorkspaceState } f
 import { planConfirm, type ConfirmAdoption, type ConfirmProjectEdit, type ConfirmProjectRemoval } from '@/lib/cascade/stage3Confirm';
 import { findProjectReferences } from '@/lib/server/stage3ProjectReferences';
 import { departmentKeyOf } from '@/lib/cascade/stage3Adjustment';
+import { settleLegacySelections } from '@/lib/cascade/stage3Settle';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -64,8 +65,9 @@ export async function POST(req: Request) {
     const verified = verifyWorkspaceState(loaded.workspace.state, who.departments);
     if (!verified.ok) return failResponse(409, verified.error);
     if (verified.state.status === 'confirmed') return failResponse(409, 'already_confirmed');
+    const current = settleLegacySelections(verified.state, who.departments).state;
 
-    const changes = verified.state.selections
+    const changes = current.selections
       .filter((s) => s.decision === 'applied')
       .map((s) => ({
         departmentKey: s.departmentKey,
@@ -76,20 +78,20 @@ export async function POST(req: Request) {
       }));
 
     const adoptions: ConfirmAdoption[] = [];
-    for (const ps of verified.state.projectSelections.filter((p) => p.decision === 'applied')) {
-      const candidate = findCandidate(verified.state, ps.candidateId);
+    for (const ps of current.projectSelections.filter((p) => p.decision === 'applied')) {
+      const candidate = findCandidate(current, ps.candidateId);
       if (!candidate) return failResponse(409, 'candidate_missing');
       adoptions.push({ departmentKey: ps.departmentKey, departmentName: ps.departmentName, project: candidate.project });
     }
 
-    const projectEdits: ConfirmProjectEdit[] = verified.state.projectEdits.map((e) => ({
+    const projectEdits: ConfirmProjectEdit[] = current.projectEdits.map((e) => ({
       departmentKey: e.departmentKey,
       departmentName: departmentNameOf(who.departments, e.departmentKey),
       projectId: e.projectId,
       fields: e.fields,
       base: e.base,
     }));
-    const projectRemovals: ConfirmProjectRemoval[] = verified.state.projectRemovals.map((r) => ({
+    const projectRemovals: ConfirmProjectRemoval[] = current.projectRemovals.map((r) => ({
       departmentKey: r.departmentKey,
       departmentName: departmentNameOf(who.departments, r.departmentKey),
       projectId: r.projectId,
@@ -126,8 +128,10 @@ export async function POST(req: Request) {
     }
 
     const confirmedState: WorkspaceState = {
-      ...verified.state,
+      ...current,
       status: 'confirmed',
+      // 採用しなかった新規候補は保留として残し、後から再検討できるようにする
+      projectSelections: current.projectSelections.map((p) => (p.decision === 'pending' ? { ...p, decision: 'deferred' } : p)),
       projectEdits: [],
       projectRemovals: [],
       confirmed: { confirmedAt: new Date().toISOString(), appliedCount: plan.appliedCount },

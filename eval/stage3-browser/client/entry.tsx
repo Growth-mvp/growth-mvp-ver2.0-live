@@ -82,7 +82,7 @@ function App() {
     return { ok: false, message: '回答の保存に失敗したため、再生成していません。もう一度保存してから、お試しください。' };
   };
 
-  const renderSixQuestions = (index: number) => {
+  const renderSixQuestions = (index: number, registerFlush: (flush: (() => void) | null) => void) => {
     const dept = st.departments[index];
     return (
       <DepartmentQuestionStepper
@@ -101,6 +101,7 @@ function App() {
         onRegisterFlush={(flush) => {
           if (flush) answerFlushes[index] = flush;
           else delete answerFlushes[index];
+          registerFlush(flush);
         }}
       />
     );

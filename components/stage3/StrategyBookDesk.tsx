@@ -27,6 +27,7 @@ import type { Department } from '@/types/strategy';
 import { StrategyBookDocument, type DocProject, type SectionEdit, type StrategyDocumentProps, type TextItemKey } from '@/components/stage3/StrategyBookDocument';
 import { projectDetailOf, type DraftProjectInput } from '@/lib/cascade/stage3ProjectDetail';
 import { judgmentBlockerOf, judgmentSummaryOf } from '@/lib/cascade/stage3Judgments';
+import type { SettleCounts } from '@/lib/cascade/stage3Settle';
 import { projectTextOf } from '@/lib/cascade/stage3Confirm';
 import { stableIdText, type ProjectTextFields, type ProjectEdit } from '@/lib/cascade/stage3StrategyBook';
 import { EditableBlock } from '@/components/okr/execution-plan/PlanDocument';
@@ -116,7 +117,7 @@ interface StrategyBookDeskProps {
   generateDepartment: (index: number, mode: 'draft' | 'regen') => Promise<StrategyBookGenerateResult | null | undefined | void>;
   /** 再生成の前に、未保存の回答を保存する。保存できなければ再生成しない。 */
   prepareRegeneration?: (index: number) => Promise<{ ok: true } | { ok: false; message: string }>;
-  renderSixQuestions: (index: number) => ReactNode;
+  renderSixQuestions: (index: number, registerFlush: (flush: (() => void) | null) => void) => ReactNode;
   onConfirmed: (message: string) => Promise<void> | void;
   onExportDepartment: (name: string, options: { confirmedAt?: string; working?: StrategyDocumentProps }) => Promise<void>;
   onAddDepartment: (name: string, mission: string) => Promise<boolean>;
@@ -137,6 +138,7 @@ type StateResponse = {
   ok: true;
   version: number;
   state: WorkspaceState;
+  legacySettled: SettleCounts;
   revision: number;
   stage2Status: 'confirmed' | 'not_confirmed' | 'story_missing';
   companyStrategy: string | null;
@@ -257,14 +259,21 @@ function confirmErrorMessage(e: unknown): string {
 }
 
 const dialogueKey = (candidateId: string, topic: string) => `${candidateId} ${topic}`;
-const selectionKey = (s: Selection) => `${s.departmentKey} ${s.item}`;
 const reopen = (state: WorkspaceState): WorkspaceState => ({ ...state, status: 'draft', confirmed: null });
 const nextDraftVersion = (state: WorkspaceState) => Math.max(0, ...state.drafts.map((d) => d.version)) + 1;
 const newDraftId = () => `draft-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-const DECISION_LABEL = { applied: '反映する', deferred: '保留', discarded: '反映しない', pending: '未判断' } as const;
 const CANDIDATE_LABEL = { adopted: '採用', deferred: '保留', rejected: '不採用' } as const;
 const PROJECT_DECISION_LABEL = { applied: '採用する', deferred: '保留する', discarded: '採用しない', pending: '未判断' } as const;
+
+/* 作業の手順。各STEPは内部の段階（phase）に対応する。STEP2は6問と再生成（phase 2・3）をまとめる */
+const STEPS: Array<{ phase: Phase; label: string; title: string }> = [
+  { phase: 1, label: 'STEP1', title: 'たたき台' },
+  { phase: 2, label: 'STEP2', title: '6つの問い' },
+  { phase: 4, label: 'STEP3', title: '戦略書を編集' },
+  { phase: 5, label: 'STEP4', title: '確認・確定' },
+  { phase: 6, label: 'STEP5', title: 'PDF・次へ' },
+];
 
 const linesOf = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : typeof v === 'string' && v ? [v] : []);
 
@@ -331,6 +340,8 @@ export function StrategyBookDesk({
   const versionRef = useRef<number | null>(null);
   // 複数スコープの読み込みが競合しても、古い会社の応答は反映しない。
   const loadSequenceRef = useRef(0);
+  // 6問の未保存の回答を、STEPを移動する前に保存するための関数（部門ごと）
+  const sixFlushRef = useRef<Record<string, () => void>>({});
   const [state, setState] = useState<WorkspaceState>(emptyWorkspaceState());
   const [stage2, setStage2] = useState<Stage2View>({ status: 'loading' });
   const [workspaceErrorCode, setWorkspaceErrorCode] = useState<string | null>(null);
@@ -340,6 +351,7 @@ export function StrategyBookDesk({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [confirmResult, setConfirmResult] = useState<{ tone: 'ok' | 'error'; message: string } | null>(null);
+  const [legacySettled, setLegacySettled] = useState<SettleCounts | null>(null);
   const [tab, setTab] = useState<Tab>('dept:0');
   const [questionsOpen, setQuestionsOpen] = useState(true);
   const [mgmtOpen, setMgmtOpen] = useState(false);
@@ -405,6 +417,7 @@ export function StrategyBookDesk({
       versionRef.current = res.version;
       setVersion(res.version);
       setState(res.state);
+      setLegacySettled(res.legacySettled);
       setWorkspaceErrorCode(null);
       applyStage2(res.stage2Status, res.companyStrategy);
       setResults(Object.fromEntries(res.state.dialogue.map((d) => [dialogueKey(d.candidateId, d.topic), d.result])));
@@ -668,11 +681,6 @@ export function StrategyBookDesk({
     await save(reopen({ ...state, candidateDecisions: { ...state.candidateDecisions, [id]: decision } }));
   };
 
-  const decideSelection = async (target: Selection, decision: Selection['decision']) => {
-    const key = selectionKey(target);
-    await save(reopen({ ...state, selections: state.selections.map((s) => (selectionKey(s) === key ? { ...s, decision } : s)) }));
-  };
-
   const decideProject = async (target: ProjectSelection, decision: ProjectSelection['decision']) => {
     await save(
       reopen({
@@ -884,17 +892,12 @@ export function StrategyBookDesk({
     }
     const undecided = (state.analysis?.candidates ?? []).filter((c) => !state.candidateDecisions[c.id]).length;
     const pending = state.selections.filter((s) => s.decision === 'pending').length;
-    const pendingProjects = state.projectSelections.filter((p) => p.decision === 'pending').length;
     if (pending > 0) {
-      setConfirmResult({ tone: 'error', message: `未判断の変更案が${pending}件あります。反映・保留・反映しないのいずれかを選んでください。` });
-      return;
-    }
-    if (pendingProjects > 0) {
-      setConfirmResult({ tone: 'error', message: `未判断の新規プロジェクトが${pendingProjects}件あります。採用・保留・不採用のいずれかを選んでください。` });
+      setConfirmResult({ tone: 'error', message: `旧形式の未判断の変更案が${pending}件残っています。画面を再読み込みしてから、もう一度確定してください。` });
       return;
     }
     if (undecided > 0) {
-      setConfirmResult({ tone: 'error', message: `未判断の調整候補が${undecided}件あります。採用・保留・不採用のいずれかを選んでください。` });
+      setConfirmResult({ tone: 'error', message: `部門間調整の判断が${undecided}件残っています。STEP4で採用・保留・不採用のいずれかを選んでください。` });
       return;
     }
     const g = getWriteGate();
@@ -915,7 +918,7 @@ export function StrategyBookDesk({
       });
       await load();
       setViewByDept({}); // 確定後は対象部門でPDFが主操作となる
-      const message = `戦略書を確定しました。正式データに反映済みです（変更案の反映${res.appliedCount}件・新規プロジェクトの追加${res.adoptedProjectIds.length}件）。`;
+      const message = `事業・部門戦略書が確定しました。正式データに反映済みです（文章の反映${res.appliedCount}件・新規プロジェクトの追加${res.adoptedProjectIds.length}件）。`;
       setConfirmResult({ tone: 'ok', message });
       await onConfirmed(`✅ ${message}`);
     } catch (e) {
@@ -934,8 +937,6 @@ export function StrategyBookDesk({
   const canOperate = canEdit && loaded && !isBusy;
   const analysis = state.analysis;
   const staleAnalysis = !!analysis && (!latest || analysis.draftVersion !== latest.version);
-  const pendingSelectionCount = state.selections.filter((s) => s.decision === 'pending').length;
-  const pendingProjectCount = state.projectSelections.filter((p) => p.decision === 'pending').length;
   const undecidedCandidateCount = (analysis?.candidates ?? []).filter((c) => !state.candidateDecisions[c.id]).length;
   const genBlocker = blockerFor(isBusy);
 
@@ -978,6 +979,27 @@ export function StrategyBookDesk({
     return { hasInitial, hasRegen, deptConfirmed, current };
   };
 
+  /* 表示中の段階。閲覧できる段階だけを、利用者の選択として採る（それ以外は作業の進み具合の段階） */
+  const phaseOf = (key: string, progress: ReturnType<typeof progressOf>): Phase => {
+    const requested = viewByDept[key];
+    const allowed =
+      requested === 1 ||
+      (requested === 2 && progress.hasInitial) ||
+      ((requested === 4 || requested === 5) && progress.hasRegen) ||
+      (requested === 6 && progress.deptConfirmed);
+    return requested !== undefined && allowed ? requested : progress.current;
+  };
+
+  /* 段階の移動。編集中の内容が残る場合は、保存せずに移動するかを確認する */
+  const goToPhase = (key: string, phase: Phase) => {
+    const hasUnsaved = (docDraft !== null && docDraft.deptKey === key) || candEdit !== null;
+    if (hasUnsaved && !window.confirm('保存していない編集があります。移動すると、この編集内容は破棄されます。移動しますか？')) return;
+    sixFlushRef.current[key]?.();
+    if (docDraft?.deptKey === key) setDocDraft(null);
+    setCandEdit(null);
+    setViewByDept((prev) => ({ ...prev, [key]: phase }));
+  };
+
   const judgments = judgmentSummaryOf(state);
   const confirmBlocker = !canEdit
     ? '確定・反映は管理者・管理職のみ行えます'
@@ -998,19 +1020,40 @@ export function StrategyBookDesk({
     </p>
   );
 
+  /* 確定の内容（全社の件数）。確定処理は全社を対象にするため、件数も全社で数える */
+  const renderConfirmSummary = () => (
+    <div className="space-y-1 text-xs text-gray-700">
+      {departments.map((d) => {
+        const k = departmentKeyOf(d as unknown as AnyRecord);
+        const items = state.selections.filter((s) => s.departmentKey === k && s.decision === 'applied').length;
+        const adopted = state.projectSelections.filter((p) => p.departmentKey === k && p.decision === 'applied').length;
+        const edits = state.projectEdits.filter((e) => e.departmentKey === k).length;
+        const removals = state.projectRemovals.filter((r) => r.departmentKey === k).length;
+        return (
+          <p key={k}>
+            <span className="font-semibold text-zinc-900">{d.name}</span>：文章の変更 {items}項目・新規プロジェクトの採用 {adopted}件・既存プロジェクトの編集 {edits}件・計画から外す {removals}件
+          </p>
+        );
+      })}
+      <p>
+        新規候補：採用 {judgments.projects.adopted}件・保留 {judgments.projects.deferred + judgments.projects.undecided}件（選ばなかった候補は保留として残ります）
+      </p>
+      <p>
+        部門間調整：採用 {judgments.adjustments.adopted}件・保留 {judgments.adjustments.deferred}件・不採用 {judgments.adjustments.rejected}件・未判断 {judgments.adjustments.undecided}件
+      </p>
+      {legacySettled && legacySettled.applied + legacySettled.discarded > 0 && (
+        <p className="rounded bg-zinc-50 px-2 py-1 text-zinc-700">
+          以前の方式で残っていた未判断の変更案を整理しました：戦略書の表示どおりに反映 {legacySettled.applied}件・正式データと合わないため反映しない {legacySettled.discarded}件
+        </p>
+      )}
+    </div>
+  );
+
   const renderConfirm = () => (
     <div className="space-y-2 rounded-xl border border-zinc-200 p-4">
-      <div className="space-y-1 text-xs text-gray-700">
-        <p>確定すると、編集した戦略書・採用した新規プロジェクト・採用した部門間調整を、まとめて正式データへ反映します。1件でも反映できなければ、何も変わりません。</p>
-        <p>戦略書の項目：反映 {judgments.appliedItems}件</p>
-        <p>
-          新規プロジェクト候補：全{judgments.projects.total}件（採用 {judgments.projects.adopted}・保留 {judgments.projects.deferred}・不採用 {judgments.projects.rejected}・未判断 {judgments.projects.undecided}）
-        </p>
-        <p>
-          部門間調整候補：全{judgments.adjustments.total}件（採用 {judgments.adjustments.adopted}・保留 {judgments.adjustments.deferred}・不採用 {judgments.adjustments.rejected}・未判断 {judgments.adjustments.undecided}）
-        </p>
-        <p>各候補は、採用・保留・不採用・未判断のどれか1つにだけ数えます。</p>
-      </div>
+      <p className="text-xs text-gray-700">
+        確定すると、全社（{departments.length}事業・部門）の編集内容・採用した新規プロジェクト・採用した部門間調整を、まとめて正式データへ反映します。1件でも反映できなければ、何も変わりません。
+      </p>
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={confirm} disabled={!canOperate || confirmBlocker !== null} className="rounded-full h-9 px-4">
           {busy === 'confirm' ? '確定しています…' : confirmed ? '変更内容を再確定する' : '戦略書を確定する'}
@@ -1026,28 +1069,25 @@ export function StrategyBookDesk({
     if (!dept) return <p className="text-sm text-gray-600">部門が見つかりません。</p>;
     const key = departmentKeyOf(dept as unknown as AnyRecord);
     const progress = progressOf(key);
-    const requested = viewByDept[key];
-    const allowed = requested === 1 ||
-      (requested === 2 && progress.hasInitial) ||
-      ((requested === 4 || requested === 5) && progress.hasRegen) ||
-      (requested === 6 && progress.deptConfirmed);
-    const effective: Phase = requested !== undefined && allowed ? requested : progress.current;
-    const showPhase = (phase: Phase) => setViewByDept((prev) => ({ ...prev, [key]: phase }));
+    const effective = phaseOf(key, progress);
+    const showPhase = (phase: Phase) => goToPhase(key, phase);
     const latestInitial = [...state.drafts].reverse().find((d) => d.kind === 'initial' && (d.generatedDepartmentKeys ?? []).includes(key));
     const latestRegen = progress.hasRegen ? [...state.drafts].reverse().find((d) => d.kind === 'regenerated' && (d.generatedDepartmentKeys ?? []).includes(key)) : undefined;
     const initialDept = latestInitial?.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
-    const sels = state.selections.filter((s) => s.departmentKey === key);
     const projs = state.projectSelections.filter((p) => p.departmentKey === key);
-    const cands = (analysis?.candidates ?? []).filter((c) => c.departments.some((d) => d.departmentKey === key));
     const officialProjects = (dept.projects ?? []) as unknown as AnyRecord[];
-    const selOf = (item: DeptProposalItem) => sels.find((s) => s.item === item);
+    /* 文書に出るのは採用（反映）された変更だけ。それ以外の項目は、正式データの現在の値を表示する */
+    const selOf = (item: DeptProposalItem) => state.selections.find((s) => s.departmentKey === key && s.item === item && s.decision === 'applied');
     const baseOf = (item: DeptProposalItem) => currentItemValues(dept as unknown as AnyRecord, item);
     const collabInter = linesOf(selOf('collab')?.proposed.interDeptCollab ?? baseOf('collab').interDeptCollab);
     const collabIntra = linesOf(selOf('collab')?.proposed.intraDeptCollab ?? baseOf('collab').intraDeptCollab);
     const docFor = (draft: StrategyDraft | undefined): StrategyDocumentProps | null => {
       if (!draft) return null;
       const draftDept = draft.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
-      const docText = (item: DeptProposalItem) => linesOf(sels.find((s) => s.item === item)?.proposed[DEPT_PROPOSAL_ITEMS[item].keys[0]]);
+      const docText = (item: DeptProposalItem) => {
+        const key0 = DEPT_PROPOSAL_ITEMS[item].keys[0];
+        return linesOf(selOf(item)?.proposed[key0] ?? baseOf(item)[key0]);
+      };
       const candidateProjects = draft.newProjects.map((n) => n.project as AnyRecord);
       /* 確定後は正式データのプロジェクトを表示する（確定で外れた計画を残さないため）。確定前は草案の内容に、作業版の編集を重ねる。 */
       const sourceProjects = (state.status === 'confirmed' ? officialProjects : (draftDept?.projects ?? [])) as unknown as DraftProjectInput[];
@@ -1168,14 +1208,6 @@ export function StrategyBookDesk({
     const isOpen = (...phases: Phase[]) => phases.includes(effective);
     const sectionClass = 'rounded-xl border border-zinc-200 bg-white';
     const summaryClass = 'border-b border-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-900';
-    const previousViews: Array<{ phase: Phase; label: string }> = [
-      ...(progress.hasInitial ? [{ phase: 1 as Phase, label: 'たたき台を読み直す' }] : []),
-      ...(progress.hasInitial ? [{ phase: 2 as Phase, label: '6つの問いを見直す' }] : []),
-      ...(progress.hasRegen ? [{ phase: 4 as Phase, label: '戦略書を編集する' }] : []),
-      ...(progress.hasRegen ? [{ phase: 5 as Phase, label: '部門間調整・確定を確認する' }] : []),
-      ...(progress.deptConfirmed ? [{ phase: 6 as Phase, label: '確定した戦略書' }] : []),
-    ].filter((view) => view.phase !== effective);
-
     return (
       <section className="space-y-4">
         <header className="space-y-3">
@@ -1207,13 +1239,42 @@ export function StrategyBookDesk({
               編集中のためPDFは出力できません。「編集を保存」か「編集をやめる」を押してから、出力してください。
             </p>
           )}
+          <nav className="grid grid-cols-2 gap-2 md:grid-cols-5" aria-label="戦略書の作業手順">
+            {STEPS.map((s) => {
+              const enabled =
+                s.phase === 1 ||
+                (s.phase === 2 && progress.hasInitial) ||
+                ((s.phase === 4 || s.phase === 5) && progress.hasRegen) ||
+                (s.phase === 6 && progress.deptConfirmed);
+              const active = s.phase === effective;
+              return (
+                <button
+                  key={s.phase}
+                  type="button"
+                  disabled={!enabled}
+                  aria-current={active ? 'step' : undefined}
+                  onClick={() => showPhase(s.phase)}
+                  className={`rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                    active
+                      ? 'border-zinc-900 bg-zinc-900 text-white'
+                      : enabled
+                        ? 'border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50'
+                        : 'cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400'
+                  }`}
+                >
+                  <span className="block font-semibold">{s.label}</span>
+                  <span className="block">{s.title}</span>
+                </button>
+              );
+            })}
+          </nav>
           <p className="text-sm leading-6 text-zinc-700">
             {effective === 1
-              ? progress.hasInitial ? 'AIのたたき台を読んで、部門として考えたい点を確認しましょう。' : 'まず、全社戦略をもとにAIがこの部門の戦略書のたたき台を作ります。'
-              : effective === 2 ? 'たたき台を踏まえて、6つの問いを考えます。回答は空欄でも進められます。'
-              : effective === 4 ? '再生成された戦略書を読み、必要な部分を編集して、プロジェクトの採否を決めます。'
-              : effective === 5 ? '部門間の調整事項を確認し、関係部門の判断が揃ったら戦略書を確定します。'
-              : '確定した戦略書です。PDFは上部の「PDF出力」から出せます。'}
+              ? progress.hasInitial ? 'AIのたたき台を読んで、部門として考えたい点を確認します。' : 'まず、全社戦略をもとにAIがこの部門の戦略書のたたき台を作ります。'
+              : effective === 2 ? '戦略書を読みながら6つの問いに答えます。回答は空欄でも進められ、反映すると戦略書を再生成できます。'
+              : effective === 4 ? '戦略書の文章とプロジェクトを直接編集します。既存プロジェクトの編集と、計画から外す操作もここで行います。'
+              : effective === 5 ? '新規の候補と部門間の調整を判断し、全社の確定内容を確認して、戦略書を確定します。'
+              : '事業・部門戦略書が確定しました。確定版PDFを出力し、実行計画書の作成へ進めます。'}
           </p>
           <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">
             次の操作：
@@ -1222,28 +1283,11 @@ export function StrategyBookDesk({
               : !progress.hasRegen
                 ? 'たたき台を読み、必要なら6問の回答を反映して戦略書を再生成してください。'
                 : judgments.blockers > 0
-                  ? `${judgmentBlockerOf(judgments)}（「部門間調整・確定」で判断してください）`
+                  ? `${judgmentBlockerOf(judgments)}（STEP4で判断してください）`
                   : progress.deptConfirmed
-                    ? '確定済みです。下の「STAGE4で実行計画書を作る」から、プロジェクトを選んで作成できます。'
-                    : '「部門間調整・確定」を開き、「戦略書を確定する」を押してください。'}
+                    ? '確定済みです。STEP5で確定版PDFを出力し、確定した計画から実行計画書を作成できます。'
+                    : 'STEP3で内容を確認・編集してから、STEP4で「戦略書を確定する」を押してください。'}
           </p>
-          {previousViews.length > 0 && (
-            <details className="text-xs text-zinc-600">
-              <summary className="cursor-pointer py-1 font-medium">以前の内容を見る・修正する</summary>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {previousViews.map((view) => (
-                  <button
-                    key={view.phase}
-                    type="button"
-                    onClick={() => showPhase(view.phase)}
-                    className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 hover:border-zinc-400 hover:bg-zinc-50"
-                  >
-                    {view.label}
-                  </button>
-                ))}
-              </div>
-            </details>
-          )}
         </header>
 
         {/* ① 初回のたたき台 */}
@@ -1310,7 +1354,10 @@ export function StrategyBookDesk({
               )}
             </div>
             <div className={`min-w-0 space-y-6 ${questionsOpen ? 'block' : 'hidden'} lg:block`}>
-              {renderSixQuestions(i)}
+              {renderSixQuestions(i, (flush) => {
+                if (flush) sixFlushRef.current[key] = flush;
+                else delete sixFlushRef.current[key];
+              })}
               <div className="space-y-3 border-t pt-4">
                 <p className="text-xs text-gray-600">
                   {progress.hasRegen
@@ -1399,116 +1446,10 @@ export function StrategyBookDesk({
                   </details>
                 </div>
 
-                {/* プロジェクト：既存（保護）と新規候補。まず一覧、詳細は展開して確認 */}
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold">既存の計画（変更しません）</h4>
-                  {officialProjects.length === 0 && <p className="text-xs text-gray-600">この部門の既存の計画はまだありません。</p>}
-                  {officialProjects.map((p, idx) => (
-                    <div key={`official-${idx}`} className="rounded-xl bg-zinc-50 p-4 space-y-1">
-                      <div className="text-sm font-semibold">{String(p.title ?? '')}</div>
-                      {Boolean(p.reason || p.hypothesis) && <p className="text-xs text-gray-700">目的：{String(p.reason ?? p.hypothesis)}</p>}
-                      <details className="text-xs text-gray-700">
-                        <summary className="cursor-pointer">仮説・KPIを見る</summary>
-                        <p className="mt-1">仮説：{String(p.hypothesis ?? '（未設定）')}</p>
-                        <p>KPI：{kpisOf(p).length > 0 ? kpisOf(p).join(' / ') : '（未設定）'}</p>
-                        <p className="mt-1 text-[11px] text-gray-500">既存の計画のため、ここでは変更できません（KPIは保護されています）。</p>
-                      </details>
-                    </div>
-                  ))}
-
-                  <h4 className="pt-2 text-sm font-semibold">新規の候補</h4>
-                  {projs.length === 0 && <p className="text-xs text-gray-600">新規の候補プロジェクトはまだありません。</p>}
-                  {projs.map((p) => {
-                    const c = latest?.newProjects.find((np) => np.candidateId === p.candidateId);
-                    const summary = projectSummaryOf(state, p.candidateId);
-                    const editing = candEdit?.candidateId === p.candidateId;
-                    return (
-                      <div key={p.candidateId} className="rounded-xl border border-zinc-200 p-4 space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold">{p.title}</span>
-                          <Chip tone={p.decision === 'applied' ? 'ok' : 'neutral'}>新規の候補・{PROJECT_DECISION_LABEL[p.decision]}</Chip>
-                        </div>
-                        {summary && !editing && <p className="text-xs leading-5 text-gray-700">目的：{summary}</p>}
-                        {editing && candEdit ? (
-                          <div className="grid gap-2 md:grid-cols-2">
-                            <label className="text-xs text-gray-600">
-                              題名
-                              <input value={candEdit.title} onChange={(e) => setCandEdit({ ...candEdit, title: e.target.value })} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
-                            </label>
-                            <label className="text-xs text-gray-600">
-                              目的
-                              <textarea value={candEdit.reason} onChange={(e) => setCandEdit({ ...candEdit, reason: e.target.value })} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
-                            </label>
-                            <label className="text-xs text-gray-600">
-                              仮説（まだ検証していないこと）
-                              <textarea value={candEdit.hypothesis} onChange={(e) => setCandEdit({ ...candEdit, hypothesis: e.target.value })} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
-                            </label>
-                            <label className="text-xs text-gray-600">
-                              取り組み内容
-                              <textarea value={candEdit.description} onChange={(e) => setCandEdit({ ...candEdit, description: e.target.value })} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
-                            </label>
-                            <div className="flex gap-2 md:col-span-2">
-                              <Button onClick={saveCandidateEdit} className="rounded-full h-8 px-3 text-xs">
-                                保存
-                              </Button>
-                              <Button variant="outline" onClick={() => setCandEdit(null)} className="rounded-full h-8 px-3 text-xs">
-                                取り消す
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <details className="text-xs text-gray-700">
-                            <summary className="cursor-pointer">仮説・取り組み内容・KPIを見る</summary>
-                            <p className="mt-1">仮説：{String(c?.project.hypothesis ?? '（未設定）')}</p>
-                            <p>取り組み内容：{String(c?.project.description ?? '（未設定）')}</p>
-                            <p>KPI：{c && kpisOf(c.project).length > 0 ? kpisOf(c.project).join(' / ') : '（未設定）'}</p>
-                            <Button
-                              variant="outline"
-                              disabled={!canOperate || !c}
-                              onClick={() =>
-                                c &&
-                                setCandEdit({
-                                  candidateId: p.candidateId,
-                                  title: String(c.project.title ?? ''),
-                                  reason: String(c.project.reason ?? ''),
-                                  hypothesis: String(c.project.hypothesis ?? ''),
-                                  description: String(c.project.description ?? ''),
-                                })
-                              }
-                              className="mt-2 rounded-full h-7 px-3 text-xs"
-                            >
-                              内容を編集
-                            </Button>
-                          </details>
-                        )}
-                        <div className="flex flex-wrap gap-2">
-                          {(['applied', 'deferred', 'discarded'] as const).map((d) => (
-                            <Button
-                              key={d}
-                              variant={p.decision === d ? 'primary' : 'outline'}
-                              onClick={() => decideProject(p, d)}
-                              disabled={!canOperate}
-                              className="rounded-full h-7 px-3 text-xs"
-                            >
-                              {PROJECT_DECISION_LABEL[d]}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="space-y-2 border-t pt-4">
-                  {sels.filter((s) => s.decision === 'pending').length + projs.filter((p) => p.decision === 'pending').length > 0 && (
-                    <p className="text-xs text-amber-800">
-                      未判断の変更案・プロジェクトがあります。各項目の「反映する・保留・反映しない」または「採用・保留・不採用」を選んでください。
-                    </p>
-                  )}
-                  <div className="flex justify-end">
-                    <Button onClick={() => showPhase(5)} className="rounded-full h-9 px-5">
-                      部門間調整・確定へ進む
-                    </Button>
-                  </div>
+                <div className="flex justify-end border-t pt-4">
+                  <Button onClick={() => showPhase(5)} className="rounded-full h-9 px-5">
+                    確認・確定（STEP4）へ進む
+                  </Button>
                 </div>
               </>
             )}
@@ -1516,69 +1457,175 @@ export function StrategyBookDesk({
         </section>
         )}
 
-        {/* ⑤ 部門間調整の反映・確定 */}
+        {/* STEP4：確認・確定（新規候補・部門間調整・確定内容の要約） */}
         {isOpen(5) && (
         <section className={sectionClass}>
-          <h4 className={summaryClass}>部門間調整と戦略書の確定</h4>
-          <div className="space-y-4 border-t px-4 py-4">
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold">関係する部門間の調整</h4>
-              {cands.length === 0 && (
-                <p className="text-xs text-gray-600">
-                  {analysis ? 'この部門が関係する調整候補はありません。' : '部門間の調整はまだ分析されていません（③の後に自動で分析されます）。'}
-                </p>
-              )}
-              {cands.map((c) => (
-                <div key={c.id} className="rounded-lg border border-gray-200 p-3 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <Chip tone="neutral">{ADJUSTMENT_KIND_LABEL[c.kind]}</Chip>
-                    <span className="ml-auto font-semibold text-gray-700">
-                      {state.candidateDecisions[c.id] ? `判断：${CANDIDATE_LABEL[state.candidateDecisions[c.id]]}` : '未判断'}
-                    </span>
+          <h4 className={summaryClass}>STEP4：確認・確定</h4>
+          <div className="space-y-6 border-t px-4 py-4">
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold">AIが提案した新規プロジェクト候補（{dept.name}）</h4>
+              <p className="text-xs text-gray-600">必要なものだけ採用できます。選ばなかった候補は保留として残り、後から再検討できます。</p>
+              {projs.length === 0 && <p className="text-xs text-gray-600">この部門の新規の候補プロジェクトはまだありません。</p>}
+              {projs.map((p) => {
+                const c = latest?.newProjects.find((np) => np.candidateId === p.candidateId);
+                const summary = projectSummaryOf(state, p.candidateId);
+                const editing = candEdit?.candidateId === p.candidateId;
+                return (
+                  <div key={p.candidateId} className="space-y-2 rounded-xl border border-zinc-200 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold">{p.title}</span>
+                      <Chip tone={p.decision === 'applied' ? 'ok' : 'neutral'}>
+                        {p.decision === 'pending' ? '未選択（確定時に保留）' : `新規の候補・${PROJECT_DECISION_LABEL[p.decision]}`}
+                      </Chip>
+                    </div>
+                    {summary && !editing && <p className="text-xs leading-5 text-gray-700">目的：{summary}</p>}
+                    {editing && candEdit ? (
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <label className="text-xs text-gray-600">
+                          題名
+                          <input value={candEdit.title} onChange={(e) => setCandEdit({ ...candEdit, title: e.target.value })} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
+                        </label>
+                        <label className="text-xs text-gray-600">
+                          目的
+                          <textarea value={candEdit.reason} onChange={(e) => setCandEdit({ ...candEdit, reason: e.target.value })} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
+                        </label>
+                        <label className="text-xs text-gray-600">
+                          仮説（まだ検証していないこと）
+                          <textarea value={candEdit.hypothesis} onChange={(e) => setCandEdit({ ...candEdit, hypothesis: e.target.value })} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
+                        </label>
+                        <label className="text-xs text-gray-600">
+                          取り組み内容
+                          <textarea value={candEdit.description} onChange={(e) => setCandEdit({ ...candEdit, description: e.target.value })} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm" />
+                        </label>
+                        <div className="flex gap-2 md:col-span-2">
+                          <Button onClick={saveCandidateEdit} className="rounded-full h-8 px-3 text-xs">
+                            保存
+                          </Button>
+                          <Button variant="outline" onClick={() => setCandEdit(null)} className="rounded-full h-8 px-3 text-xs">
+                            取り消す
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <details className="text-xs text-gray-700">
+                        <summary className="cursor-pointer">仮説・取り組み内容・KPIを見る</summary>
+                        <p className="mt-1">仮説：{String(c?.project.hypothesis ?? '（未設定）')}</p>
+                        <p>取り組み内容：{String(c?.project.description ?? '（未設定）')}</p>
+                        <p>KPI：{c && kpisOf(c.project).length > 0 ? kpisOf(c.project).join(' / ') : '（未設定）'}</p>
+                        <Button
+                          variant="outline"
+                          disabled={!canOperate || !c}
+                          onClick={() =>
+                            c &&
+                            setCandEdit({
+                              candidateId: p.candidateId,
+                              title: String(c.project.title ?? ''),
+                              reason: String(c.project.reason ?? ''),
+                              hypothesis: String(c.project.hypothesis ?? ''),
+                              description: String(c.project.description ?? ''),
+                            })
+                          }
+                          className="mt-2 h-7 rounded-full px-3 text-xs"
+                        >
+                          内容を編集
+                        </Button>
+                      </details>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {(['applied', 'deferred', 'discarded'] as const).map((d) => (
+                        <Button
+                          key={d}
+                          variant={p.decision === d ? 'primary' : 'outline'}
+                          onClick={() => decideProject(p, d)}
+                          disabled={!canOperate}
+                          className="rounded-full h-7 px-3 text-xs"
+                        >
+                          {PROJECT_DECISION_LABEL[d]}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                  <p className="text-sm font-semibold">{c.title}</p>
-                  <p className="text-xs text-gray-700">{c.summary}</p>
-                </div>
-              ))}
-              {(cands.length > 0 || undecidedCandidateCount > 0) && (
-                <Button variant="outline" onClick={() => setTab('compare')} className="rounded-full h-8 px-3">
-                  部門間調整で判断する
-                </Button>
+                );
+              })}
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <h4 className="text-sm font-semibold">他の事業・部門との調整候補（全社）</h4>
+              {!analysis && <p className="text-xs text-gray-600">部門間の調整はまだ分析されていません（STEP2で6問を反映して再生成すると、自動で分析されます）。</p>}
+              {analysis && analysis.candidates.length === 0 && <p className="text-xs text-gray-600">部門間の調整候補はありません。</p>}
+              {(analysis?.candidates ?? []).map((c) => {
+                const decision = state.candidateDecisions[c.id];
+                return (
+                  <div key={c.id} className="space-y-2 rounded-xl border border-gray-200 p-4">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <Chip tone="neutral">{ADJUSTMENT_KIND_LABEL[c.kind]}</Chip>
+                      <span className="text-gray-600">対象：{c.departments.map((d) => d.name).join('・')}</span>
+                      <span className="ml-auto font-semibold text-gray-700">{decision ? `判断：${CANDIDATE_LABEL[decision]}` : '未判断'}</span>
+                    </div>
+                    <p className="font-semibold">{c.title}</p>
+                    <p className="text-sm text-gray-700">{c.summary}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(['adopted', 'deferred', 'rejected'] as const).map((d) => (
+                        <Button
+                          key={d}
+                          variant={decision === d ? 'primary' : 'outline'}
+                          onClick={() => decideCandidate(c.id, d)}
+                          disabled={!canOperate}
+                          className="rounded-full h-8 px-3"
+                        >
+                          {CANDIDATE_LABEL[d]}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {analysis && analysis.candidates.length > 0 && (
+                <p className="text-xs text-gray-600">話し合いの結果を入力するには「部門間調整」タブを開いてください。</p>
               )}
             </div>
-            <Button variant="outline" onClick={() => showPhase(4)} className="rounded-full h-8 px-3">
-              戦略書の編集に戻る
-            </Button>
-            {renderConfirm()}
+
+            <div className="space-y-3 border-t pt-4">
+              <h4 className="text-sm font-semibold">正式に確定する内容</h4>
+              {renderConfirmSummary()}
+            </div>
+            <div className="border-t pt-4">{renderConfirm()}</div>
+            <div>
+              <Button variant="outline" onClick={() => showPhase(4)} className="rounded-full h-8 px-3 text-xs">
+                STEP3に戻って戦略書を編集する
+              </Button>
+            </div>
           </div>
         </section>
         )}
 
-        {/* ⑥ 確定済みの戦略書（PDFは上部の「PDF出力」から） */}
+        {/* STEP5：確定後のPDF・次へ */}
         {isOpen(6) && (
         <section className={sectionClass}>
-          <h4 className={summaryClass}>確定した戦略書</h4>
-          <div className="space-y-2 border-t px-4 py-4">
+          <h4 className={summaryClass}>事業・部門戦略書が確定しました</h4>
+          <div className="space-y-4 border-t px-4 py-4">
             {confirmResultNote}
             <div className="flex flex-wrap items-center gap-3">
-              <p className="text-xs text-gray-600">この部門の戦略書は確定済みです。</p>
-              <Button variant="outline" onClick={exportDeptPdf} disabled={isBusy} className="rounded-full h-8 px-3 text-xs">
+              <Button onClick={exportDeptPdf} disabled={isBusy} className="rounded-full h-9 px-4">
                 確定版PDFを出力
               </Button>
+              <span className="text-xs text-zinc-600">確定した内容だけを出力します（未確定の内容は含みません）</span>
             </div>
-            <p className="text-xs font-semibold text-zinc-800">実行計画は、下のプロジェクトから「STAGE4で実行計画書を作る」で作成できます。</p>
-            {officialProjects.filter((p) => stableIdText(p.id) !== null).map((p) => {
-              const projectId = stableIdText(p.id) as string;
-              const href = `/okr?from=stage3&dept=${encodeURIComponent(dept.name)}&projectId=${encodeURIComponent(projectId)}`;
-              return (
-                <div key={projectId} className="flex flex-wrap items-center gap-3 border-t pt-2 text-sm">
-                  <span className="font-semibold text-zinc-900">{String(p.title ?? '')}</span>
-                  <a href={href} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-50">
-                    STAGE4で実行計画書を作る
-                  </a>
-                </div>
-              );
-            })}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-zinc-800">確定した計画から、実行計画書を作成できます。</p>
+              {officialProjects.filter((p) => stableIdText(p.id) !== null).map((p) => {
+                const projectId = stableIdText(p.id) as string;
+                const href = `/okr?from=stage3&dept=${encodeURIComponent(dept.name)}&projectId=${encodeURIComponent(projectId)}`;
+                return (
+                  <div key={projectId} className="flex flex-wrap items-center gap-3 border-t pt-2 text-sm">
+                    <span className="font-semibold text-zinc-900">{String(p.title ?? '')}</span>
+                    <a href={href} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-50">
+                      STAGE4で実行計画書を作る
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
         )}

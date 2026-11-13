@@ -261,6 +261,31 @@ describe('POST /api/stage3/strategy-book/confirm', () => {
     expect(sales.projects).toEqual(originalDepartments()[0].projects);
   });
 
+  it('未選択の新規プロジェクトは確定を止めず、保留として確定後の作業状態に残す', async () => {
+    tables.stage3_strategy_books[0] = workspaceWith({
+      ...decidedAll,
+      drafts: [
+        {
+          draftId: 'draft-r1',
+          kind: 'regenerated',
+          version: 1,
+          createdAt: '2026-11-12T00:00:00.000Z',
+          departments: [{ id: 'd-sales', name: '営業部', projects: [] }],
+          newProjects: [newProjectCandidate],
+        },
+      ],
+      projectSelections: [
+        { departmentKey: 'id:d-sales', departmentName: '営業部', candidateId: 'np-0000abcd', title: '6問を反映した新しい案', decision: 'pending' },
+      ],
+    });
+    const res = await POST(post(body));
+    expect(res.status).toBe(200);
+    const sales = (tables.strategy_data[0].departments as Array<{ projects: unknown[] }>)[0];
+    expect(sales.projects).toEqual(originalDepartments()[0].projects);
+    const saved = tables.stage3_strategy_books[0].state as WorkspaceState;
+    expect(saved.projectSelections[0].decision).toBe('deferred');
+  });
+
   it('1件でも現在値が変わっていれば、関数を呼ばず、正式データも作業状態も変えない', async () => {
     tables.strategy_data[0].departments = [
       originalDepartments()[0],
@@ -286,13 +311,24 @@ describe('POST /api/stage3/strategy-book/confirm', () => {
     expect(tables.stage3_strategy_books[0].version).toBe(2);
   });
 
-  it('未判断の変更案や新規プロジェクトが残っている間は確定しない', async () => {
+  it('旧形式の未判断の変更案は、表示中の内容が正式値と一致する時だけ反映し、確定は止めない', async () => {
     tables.stage3_strategy_books[0] = workspaceWith({ ...decidedAll, selections: selections({ sales: 'applied', mkt: 'pending' }) });
-    const before = JSON.stringify(tables);
     const res = await POST(post(body));
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: 'confirmed_with_pending' });
-    expect(JSON.stringify(tables)).toBe(before);
+    expect(res.status).toBe(200);
+    const depts = tables.strategy_data[0].departments as Array<Record<string, unknown>>;
+    expect(depts[1].interDeptCollab).toEqual(['営業と役割を分ける']);
+  });
+
+  it('旧形式の未判断でも、正式値と食い違う項目は反映せず、正式データを上書きしない', async () => {
+    tables.strategy_data[0].departments = [
+      originalDepartments()[0],
+      { ...originalDepartments()[1], interDeptCollab: ['別の人が先に変えた'] },
+    ];
+    tables.stage3_strategy_books[0] = workspaceWith({ ...decidedAll, selections: selections({ sales: 'applied', mkt: 'pending' }) });
+    const res = await POST(post(body));
+    expect(res.status).toBe(200);
+    const depts = tables.strategy_data[0].departments as Array<Record<string, unknown>>;
+    expect(depts[1].interDeptCollab).toEqual(['別の人が先に変えた']);
   });
 
   it('保留・不採用は確定の対象にせず、他の採用だけを反映する', async () => {

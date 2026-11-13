@@ -13,6 +13,7 @@ import { failResponse } from '@/lib/server/stage3DepartmentWrite';
 import { loadStrategyAccess } from '@/lib/server/stage3Adjustment';
 import { loadWorkspace, saveWorkspace } from '@/lib/server/stage3StrategyBook';
 import { verifyWorkspaceState, WorkspaceStateSchema } from '@/lib/cascade/stage3StrategyBook';
+import { settleLegacySelections } from '@/lib/cascade/stage3Settle';
 
 const IdsSchema = z.object({ companyId: z.string().uuid(), strategyId: z.string().uuid() });
 
@@ -46,10 +47,12 @@ export async function GET(req: Request) {
     if (!loaded.ok) {
       return NextResponse.json({ ok: false, error: loaded.error, ...stage2 }, { status: loaded.status });
     }
+    const settled = settleLegacySelections(loaded.workspace.state, access.access.departments);
     return NextResponse.json({
       ok: true,
       version: loaded.workspace.version,
-      state: loaded.workspace.state,
+      state: settled.state,
+      legacySettled: settled.counts,
       revision: access.access.revision,
       ...stage2,
     });

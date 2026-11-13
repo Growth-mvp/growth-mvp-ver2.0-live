@@ -25,7 +25,7 @@ describe('judgmentSummaryOf（判断件数の集計）', () => {
     expect(summary.projects.adopted + summary.projects.deferred + summary.projects.rejected + summary.projects.undecided).toBe(summary.projects.total);
   });
 
-  it('確定の前の判断件数は、未判断の新規プロジェクトと部門間調整の合計になる', () => {
+  it('確定を止めるのは部門間調整の未判断だけで、新規プロジェクトの未選択は保留として確定できる', () => {
     const state: WorkspaceState = {
       ...emptyWorkspaceState(),
       projectSelections: [project('np-00000001', 'pending'), project('np-00000002', 'applied')],
@@ -41,8 +41,8 @@ describe('judgmentSummaryOf（判断件数の集計）', () => {
     };
     const summary = judgmentSummaryOf(state);
     expect(summary.adjustments).toEqual({ total: 2, adopted: 1, deferred: 0, rejected: 0, undecided: 1 });
-    expect(summary.blockers).toBe(2);
-    expect(judgmentBlockerOf(summary)).toBe('あと2件の判断が必要です（新規プロジェクト1件・部門間調整1件）');
+    expect(summary.blockers).toBe(1);
+    expect(judgmentBlockerOf(summary)).toBe('部門間調整の判断が1件残っています。採用・保留・不採用のいずれかを選んでください。');
   });
 
   it('未判断が無ければ、確定を止める理由は無い', () => {

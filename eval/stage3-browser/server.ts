@@ -193,6 +193,17 @@ async function harness(pg: Pg, req: Request, pathname: string): Promise<Response
     const g = globalThis as unknown as { __audit?: unknown[] };
     return json({ audit: g.__audit ?? [] });
   }
+  /* 旧方式（項目ごとの採否）で保存された未判断の状態を再現する。本番で見つかった状態と同じく、選択を pending に戻す */
+  if (pathname === '/harness/legacy-pending' && req.method === 'POST') {
+    const r = await pg.query('select state from stage3_strategy_books where strategy_id = $1', [IDS.strategy]);
+    const state = r.rows[0].state as { selections: Array<Record<string, unknown>> };
+    state.selections = state.selections.map((s) => ({ ...s, decision: 'pending' }));
+    await pg.query(
+      'update stage3_strategy_books set state = $2::jsonb, version = version + 1 where strategy_id = $1',
+      [IDS.strategy, JSON.stringify(state)],
+    );
+    return json({ ok: true, pending: state.selections.length });
+  }
   if (pathname === '/harness/reset' && req.method === 'POST') {
     await seed(pg);
     return json({ ok: true });

@@ -204,8 +204,11 @@ export function currentItemValues(dept: AnyRecord, item: DeptProposalItem): AnyR
   return out;
 }
 
+const comparable = (v: unknown): unknown => (typeof v === 'string' && v.trim() === '' ? null : (v ?? null));
+
+/** 既存値の比較。未設定（undefined・null）と空の文字列は同じとして扱う。 */
 export function sameItemValues(a: AnyRecord, b: AnyRecord): boolean {
-  return Object.keys(a).every((k) => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null));
+  return Object.keys(a).every((k) => JSON.stringify(comparable(a[k])) === JSON.stringify(comparable(b[k])));
 }
 
 /** 生成結果のうち、空でなく既存と異なる項目だけを変更案にする。既存の値は変えない。 */
