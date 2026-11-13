@@ -42,7 +42,13 @@ export function normalizeCascadeReview(raw: any, evidence: string): any {
 }
 
 /** Validate the complete proposal before mutating any response state. */
-export function validateCascadeReview(review: any, partners: string[], evidence: string, deptName = ''): string[] {
+export function validateCascadeReview(
+  review: any,
+  partners: string[],
+  evidence: string,
+  deptName = '',
+  options: { indirect?: boolean } = {},
+): string[] {
   const issues: string[] = [];
   const hasText = (v: any): boolean => typeof v === 'string' && v.trim().length > 0;
   const compact = (v: string): string => v.replace(/\s+/g, '');
@@ -126,7 +132,8 @@ export function validateCascadeReview(review: any, partners: string[], evidence:
     if (spec.lane !== 'new' &&
         (!krs.some((kr: any) => kr?.kind === 'business_outcome' && kr?.measurementScope === 'own_business') ||
          !krs.some((kr: any) => kr?.kind === 'customer_outcome' &&
-           ['client_business', 'end_user'].includes(kr?.measurementScope)))) {
+           (['client_business', 'end_user'].includes(kr?.measurementScope) ||
+            (options.indirect === true && kr?.measurementScope === 'internal_process'))))) {
       issues.push(`slot_${spec.slot}_customer_and_business_outcomes`);
     }
     if (!krs.some((kr: any) => spec.lane === 'new' ? kr?.kind === 'validation' : ['customer_outcome', 'business_outcome'].includes(kr?.kind))) {
@@ -152,17 +159,20 @@ const MAIN_LEVER_DEFINITIONS: Record<MainLever, string> = {
 
 const leverKey = (v: string): string => v.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 
+const LEVER_CODE_TOKEN = /(?<![A-Za-z])(ACQ|ARPU|CHURN|COST|EFFICIENCY|FUTURE)(?![A-Za-z])/giu;
+
 /**
- * 同じ値の表記ゆれ（大文字小文字・空白・全角半角、先頭にコードを明示した「ACQ（…）」、定義文そのもの）だけを
- * レバーのコードへ正規化する。意味を推測して別のレバーへ振り分けることはしない。該当しなければ元の値を返す。
+ * 同じ値の表記ゆれ（大文字小文字・空白・全角半角、説明文の中にコードが1つだけある「ACQ（…）」「人材・組織（FUTURE）」、定義文そのもの）だけを
+ * レバーのコードへ正規化する。コードが複数あるときや、意味を推測しなければ決められないときは元の値を返す（別のレバーへ振り分けない）。
  */
 export function normalizeMainLever(raw: unknown): unknown {
   if (typeof raw !== 'string') return raw;
   const text = raw.normalize('NFKC').trim();
   const upper = text.toUpperCase();
   if ((MAIN_LEVERS as readonly string[]).includes(upper)) return upper;
-  const head = text.match(/^([A-Za-z]+)(?:\s|[（(:：\-–—]|$)/u);
-  if (head && (MAIN_LEVERS as readonly string[]).includes(head[1].toUpperCase())) return head[1].toUpperCase();
+  const codes = new Set(Array.from(text.matchAll(LEVER_CODE_TOKEN), (m) => m[1].toUpperCase()));
+  if (codes.size === 1) return [...codes][0];
+  if (codes.size > 1) return raw;
   const byDefinition = MAIN_LEVERS.find((code) => leverKey(MAIN_LEVER_DEFINITIONS[code]) === leverKey(text));
   return byDefinition ?? raw;
 }
@@ -172,6 +182,12 @@ export const MAIN_LEVER_CORRECTION =
   'mainLever は次のコードのどれか1つだけを英大文字で返す: ACQ, ARPU, CHURN, COST, EFFICIENCY, FUTURE。説明文・日本語・複数の値・配列は入れない。';
 
 const isLeverError = (error: string): boolean => /^slot_\d+_lever$/.test(error);
+
+/** 修復の指示。前回の値を示し、そのスロットの施策が効かせる指標を1つだけ選び直させる。 */
+export function mainLeverCorrectionFor(rejected: unknown): string {
+  const shown = rejected === undefined || rejected === null || rejected === '' ? '（未入力）' : typeof rejected === 'string' ? rejected : JSON.stringify(rejected);
+  return `${MAIN_LEVER_CORRECTION} 前回の値「${shown}」は使えない。このスロットの施策が効かせる指標を1つだけ選び直す。`;
+}
 
 export type SlotFeedback = {
   previousCandidate: unknown;
@@ -183,13 +199,13 @@ export type SlotFeedback = {
 export function reviewSlotCandidate(
   raw: any,
   slot: number,
-  ctx: { plan: any; allowedPartners: string[]; finalStrategy: string; department: string },
+  ctx: { plan: any; allowedPartners: string[]; finalStrategy: string; department: string; indirect?: boolean },
 ): { candidate: any; errors: string[] } {
   const projectRaw = raw?.project ?? raw?.projects?.[0];
   const withSlot = projectRaw && typeof projectRaw === 'object' ? { ...projectRaw, slot } : undefined;
   const normalized = normalizeCascadeReview({ ...ctx.plan, projects: withSlot ? [withSlot] : [] }, ctx.finalStrategy);
   const candidate = normalized.projects[0];
-  const errors = validateCascadeReview(normalized, ctx.allowedPartners, ctx.finalStrategy, ctx.department)
+  const errors = validateCascadeReview(normalized, ctx.allowedPartners, ctx.finalStrategy, ctx.department, { indirect: ctx.indirect === true })
     .filter((e) => e.startsWith(`slot_${slot}_`) || (slot === 5 && e === 'unregistered_partner'));
   if (!candidate) errors.push(`slot_${slot}_missing`);
   return { candidate, errors };
@@ -207,17 +223,20 @@ export async function generateSlotProjects(opts: {
   finalStrategy: string;
   department: string;
   maxAttempts?: number;
+  indirect?: boolean;
 }): Promise<any[]> {
   const projects: any[] = [];
   for (const template of opts.templates) {
     let candidate: any;
     let errors: string[] = [];
     for (let attempt = 0; attempt < (opts.maxAttempts ?? 2); attempt++) {
+      const leverRejected = errors.some(isLeverError);
       const feedback: SlotFeedback = {
         previousCandidate: candidate,
         previousValidationErrors: errors,
-        ...(errors.some(isLeverError) ? { mainLeverCorrection: MAIN_LEVER_CORRECTION } : {}),
+        ...(leverRejected ? { mainLeverCorrection: mainLeverCorrectionFor(candidate?.mainLever) } : {}),
       };
+      if (leverRejected) console.warn('[cascade][slot-lever-rejected]', { slot: template.slot, attempt: attempt + 1, mainLever: candidate?.mainLever ?? null });
       const raw = await opts.requestSlot(template, feedback);
       const reviewed = reviewSlotCandidate(raw, template.slot, opts);
       candidate = reviewed.candidate;

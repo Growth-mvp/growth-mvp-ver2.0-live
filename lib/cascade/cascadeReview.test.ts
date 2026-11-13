@@ -147,7 +147,8 @@ describe('スロットの修復（不正な mainLever は該当スロットだ�
     expect(projects[4].mainLever).toBe('ARPU');
     expect(calls[5]).toHaveLength(2);
     expect(calls[5][1].errors).toEqual(['slot_5_lever']);
-    expect(calls[5][1].correction).toBe(MAIN_LEVER_CORRECTION);
+    expect(calls[5][1].correction).toContain(MAIN_LEVER_CORRECTION);
+    expect(calls[5][1].correction).toContain('入会転換と退会抑制');
     for (const slot of [1, 2, 3, 4]) expect(calls[slot]).toHaveLength(1);
   });
 
@@ -200,5 +201,102 @@ describe('スロットの修復（不正な mainLever は該当スロットだ�
     const r = reviewSlotCandidate(undefined, 3, CTX);
     expect(r.candidate).toBeUndefined();
     expect(r.errors).toContain('slot_3_missing');
+  });
+});
+
+describe('人事部などの間接部門（mainLever と顧客成果の範囲）', () => {
+  const ALL = [1, 2, 3, 4, 5].map((slot) => ({ slot }));
+  const hrReview = (overrides: Record<number, Record<string, unknown>> = {}) =>
+    reviewWith([1, 2, 3, 4, 5].map((slot) => validProject(slot, overrides[slot] ?? {})));
+
+  it('[再現] 説明文の中に、効かせる指標のコードが1つだけあれば、そのコードとして扱う', () => {
+    expect(normalizeMainLever('人材・組織（FUTURE）')).toBe('FUTURE');
+    expect(normalizeMainLever('業務効率化：EFFICIENCY')).toBe('EFFICIENCY');
+  });
+
+  it('[再現] 複数のコードを並べた表記は、どれか1つに決めず、そのスロットの修復に回す', () => {
+    expect(normalizeMainLever('ARPU / ACQ')).toBe('ARPU / ACQ');
+    expect(normalizeMainLever('FUTURE・EFFICIENCY')).toBe('FUTURE・EFFICIENCY');
+    expect(normalizeMainLever('人材育成')).toBe('人材育成');
+  });
+
+  it('[再現] 2回とも不適切な mainLever のスロットは slot_2_lever のまま。修復の指示には前回の値を示す', async () => {
+    const seen: Array<{ prev: unknown; correction?: string }> = [];
+    const requestSlot = async (template: { slot: number }, feedback: { mainLeverCorrection?: string; previousCandidate: any }) => {
+      if (template.slot !== 2) return { project: validProject(template.slot) };
+      seen.push({ prev: feedback.previousCandidate?.mainLever, correction: feedback.mainLeverCorrection });
+      return { project: validProject(2, { mainLever: seen.length === 1 ? '人材育成' : 'FUTURE・EFFICIENCY' }) };
+    };
+    await expect(
+      generateSlotProjects({ templates: [{ slot: 1 }, { slot: 2 }], requestSlot, plan: reviewWith([]), allowedPartners: PARTNERS, finalStrategy: EVIDENCE, department: '人事部', indirect: true }),
+    ).rejects.toThrow('slot_2_lever');
+    expect(seen).toHaveLength(2);
+    expect(seen[1].correction).toContain(MAIN_LEVER_CORRECTION);
+    expect(seen[1].correction).toContain('人材育成');
+  });
+
+  it('修復で1つのコードに決まれば、そのスロットだけを作り直して通る', async () => {
+    const calls: Record<number, number> = {};
+    const requestSlot = async (template: { slot: number }) => {
+      calls[template.slot] = (calls[template.slot] ?? 0) + 1;
+      if (template.slot === 2) return { project: validProject(2, { mainLever: calls[2] === 1 ? '人材育成' : 'FUTURE' }) };
+      return { project: validProject(template.slot) };
+    };
+    const projects = await generateSlotProjects({ templates: ALL, requestSlot, plan: reviewWith([]), allowedPartners: PARTNERS, finalStrategy: EVIDENCE, department: '人事部', indirect: true });
+    expect(projects.find((p) => p.slot === 2).mainLever).toBe('FUTURE');
+    expect(calls).toEqual({ 1: 1, 2: 2, 3: 1, 4: 1, 5: 1 });
+  });
+
+  it('[再現] 間接部門は、顧客の代わりに支援先部門の成果（internal_process）で顧客成果を示せる。通常の部門では顧客の成果が必須のまま', () => {
+    const supportKr = [
+      keyResult('business_outcome', '全社の売上への寄与'),
+      { ...keyResult('customer_outcome', '営業部の提案準備時間'), measurementScope: 'internal_process' },
+      keyResult('leading', '研修後の実施件数'),
+    ];
+    const review = hrReview({ 2: { keyResults: supportKr } });
+    expect(validateCascadeReview(review, PARTNERS, EVIDENCE, '人事部', { indirect: true })).toEqual([]);
+    expect(validateCascadeReview(review, PARTNERS, EVIDENCE, '営業部')).toContain('slot_2_customer_and_business_outcomes');
+  });
+
+  it('間接部門でも、支援先の成果を測らない顧客成果の指標は通さない（基準を緩めない）', () => {
+    const review = hrReview({ 2: { keyResults: [
+      keyResult('business_outcome', '全社の売上への寄与'),
+      { ...keyResult('customer_outcome', '社内の満足度'), measurementScope: 'own_business' },
+      keyResult('leading', '研修後の実施件数'),
+    ] } });
+    expect(validateCascadeReview(review, PARTNERS, EVIDENCE, '人事部', { indirect: true })).toContain('slot_2_customer_and_business_outcomes');
+  });
+});
+
+describe('人事部（間接部門）の初回生成のモック検証', () => {
+  const HR_LEVER: Record<number, string> = { 1: 'FUTURE', 2: 'EFFICIENCY', 3: 'FUTURE', 4: 'COST', 5: 'FUTURE' };
+  const hrProject = (slot: number) =>
+    validProject(slot, slot === 3 ? { mainLever: HR_LEVER[3] } : {
+      title: `人材施策${slot}`,
+      mainLever: HR_LEVER[slot],
+      keyResults: [
+        keyResult('business_outcome', `全社の業績への寄与${slot}`),
+        { ...keyResult('customer_outcome', `営業部の提案準備時間${slot}`), measurementScope: 'internal_process' },
+        keyResult('leading', `研修後の実施件数${slot}`),
+      ],
+    });
+
+  it('1. 人事部の初回生成は、支援先部門の成果を使って品質検証を通過する', async () => {
+    const projects = await generateSlotProjects({
+      templates: ALL_SLOTS.map((slot) => ({ slot })), requestSlot: async (template) => ({ project: hrProject(template.slot) }),
+      plan: reviewWith([]), allowedPartners: PARTNERS, finalStrategy: EVIDENCE, department: '人事部', indirect: true,
+    });
+    expect(projects).toHaveLength(5);
+    expect(validateCascadeReview(reviewWith(projects), PARTNERS, EVIDENCE, '人事部', { indirect: true })).toEqual([]);
+  });
+
+  it('2. 人事部の各施策は、効かせる指標（mainLever）と成果分類（business_outcome・customer_outcome・leading）が設定される', () => {
+    const projects = [1, 2, 3, 4, 5].map(hrProject);
+    expect(projects.map((p) => p.mainLever)).toEqual(['FUTURE', 'EFFICIENCY', 'FUTURE', 'COST', 'FUTURE']);
+    for (const p of projects.filter((p) => p.slot !== 3)) {
+      expect(p.keyResults.map((k: any) => k.kind)).toEqual(['business_outcome', 'customer_outcome', 'leading']);
+      expect(p.keyResults[0].measurementScope).toBe('own_business');
+      expect(p.keyResults[1].measurementScope).toBe('internal_process');
+    }
   });
 });
