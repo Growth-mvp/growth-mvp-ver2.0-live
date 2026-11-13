@@ -53,6 +53,22 @@ describe('AI生成の計画内容は、原則すべて直接編集できる（�
     expect(doc.organization.schedule[0].when).toBe(doc.actions[0].due);
   });
 
+  it('STAGE3由来のKPIの目標・期限・担当は、STAGE4上で変えられ、元のSTAGE3の値を参照できる', () => {
+    const base = buildDocModel(bundle, {});
+    const kpi = base.goals.kpis.find((k) => k.confirmed);
+    expect(kpi).toBeTruthy();
+    expect(kpi?.stage3Changed).toBe(false);
+    expect(kpi?.targetKey).toMatch(/^stage3kpi:/);
+    const doc = buildDocModel(bundle, { [kpi!.targetKey!]: '3社', [kpi!.dueKey!]: '2028-03' });
+    const changed = doc.goals.kpis.find((k) => k.label === kpi!.label);
+    expect(changed?.target).toBe('3社');
+    expect(changed?.due).toBe('2028年3月');
+    expect(changed?.stage3Changed).toBe(true);
+    expect(changed?.stage3Reference).toContain(kpi!.target);
+    // STAGE3の元の表示は変わらない（STAGE4上の修正だけが変わる）
+    expect(base.goals.kpis.find((k) => k.label === kpi!.label)?.target).toBe(kpi!.target);
+  });
+
   it('開始前の確認は、利用者が確認済みとして記録でき、その記録は文書に残る（判定条件は変わらない）', () => {
     const base = buildDocModel(bundle, {});
     const item = base.organization.beforeStart[0] ?? base.impact.regulatory[0];

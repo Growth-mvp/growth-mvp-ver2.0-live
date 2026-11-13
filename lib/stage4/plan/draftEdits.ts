@@ -7,6 +7,8 @@ import type { UserEdits } from './mergeUserEdits';
 
 /* 開始前の確認の記録（task:<id>）。判定条件ではなく利用者の確認結果なので、再生成でも残す */
 const CHECK_EDIT_PREFIX = 'task:';
+/* STAGE3由来KPIのSTAGE4上の修正（STAGE3の元データは変えない）。再生成でも保護する */
+const STAGE3_KPI_EDIT_PREFIX = 'stage3kpi:';
 
 export type DroppedEdit ={ key: string; label: string; before: unknown; reason: 'REMOVED' | 'CHANGED' };
 export type ReplaceEdits = { kept: UserEdits; dropped: DroppedEdit[] };
@@ -32,7 +34,7 @@ export function editsAfterReplace(edits: UserEdits, oldBundle: Record<string, un
   const kept: UserEdits = {};
   const dropped: DroppedEdit[] = [];
   for (const [key, value] of Object.entries(edits)) {
-    if (key === 'responsible' || key.startsWith(IMPACT_EDIT_PREFIX) || key.startsWith(CHECK_EDIT_PREFIX)) {
+    if (key === 'responsible' || key.startsWith(IMPACT_EDIT_PREFIX) || key.startsWith(CHECK_EDIT_PREFIX) || key.startsWith(STAGE3_KPI_EDIT_PREFIX)) {
       kept[key] = value;
       continue;
     }

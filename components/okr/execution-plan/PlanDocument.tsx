@@ -237,7 +237,8 @@ export default function PlanDocument(props: PlanDocumentProps) {
                   <td>
                     {k.label}
                     <span className="plan-tag">{k.statusLabel}</span>
-                    {k.confirmed && <span className="plan-note">変更はSTAGE3で行います</span>}
+                    {k.stage3Changed && <span className="plan-tag plan-tag-hold">STAGE3から変更</span>}
+                    {k.stage3Reference && <div className="plan-note">{k.stage3Reference}</div>}
                   </td>
                   <td>
                     {k.targetKey && mode === 'edit' ? (
@@ -264,7 +265,9 @@ export default function PlanDocument(props: PlanDocumentProps) {
               ))}
             </tbody>
           </table>
-          <p className="plan-note">STAGE3で確定した目標は、この画面では変更できません。変更はSTAGE3で行います。</p>
+          <p className="plan-note">
+            STAGE3由来の目標・期限・担当は、この画面で変更できます。変更した箇所には「STAGE3から変更」と表示し、元の値も示します。STAGE3の正式な戦略は変わりません（関係者が判断して反映します）。
+          </p>
         </section>
 
         <section className="plan-section" aria-labelledby="sec3">

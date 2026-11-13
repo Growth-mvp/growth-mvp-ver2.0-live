@@ -56,6 +56,7 @@ import { RegenPanel, type RegenState } from './RegenPanel';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdits';
+import { buildDocModel } from '@/lib/stage4/planView/documentModel';
 import {
   conflictRows,
   entryAfterPersist,
@@ -821,6 +822,7 @@ function ReadOnlyProject({
           bodyDirty={isBodyDirty(entry)}
           responsible={responsibleOf(entry)}
           actionNotice={entry.notice}
+          stage3Changes={buildDocModel(entry.aiDraft, entry.plan.committed).goals.kpis.filter((k) => k.stage3Changed).length}
           onStart={(input) =>
             remote
               ? onStartPlan(input)

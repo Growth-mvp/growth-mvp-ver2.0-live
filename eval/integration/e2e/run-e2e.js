@@ -15,6 +15,10 @@ const ACTION_CONTENT = 'E2Eで直した主な内容（実施事項1）';
 const ACTION_TITLE = 'E2Eで直した実施事項の名称';
 const ACTION_OWNER = 'E2Eの担当（営業部長・仮）';
 const ACTION_DUE = '2027-06';
+const KPI_TARGET = '3社（E2E変更）';
+const KPI_DUE = '2028-03';
+const KPI_OWNER = 'E2E担当（STAGE4上）';
+const KPI_ORIGINAL_TARGET = '95%';
 
 const results = [];
 const errors = [];
@@ -154,8 +158,7 @@ async function waitServer() {
 
   await check('3 日程表に、編集した担当と期限が出る（同じ期限を別に持たない）', async () => {
     await page.getByText(`（担当：${ACTION_OWNER}）`).first().waitFor({ timeout: 10000 });
-    await page.getByText('変更はSTAGE3で行います').first().waitFor({ timeout: 10000 });
-    return '日程表の担当と、STAGE3確定KPIの注記';
+    return '日程表に編集した担当が出る';
   });
 
   await check('3 財務前提（顧客数）を試算表の入力欄で直接変更し、保存・再読み込みで残る', async () => {
@@ -187,6 +190,29 @@ async function waitServer() {
     expect(await again.isChecked(), '確認済みの記録が再読み込みで残っていない');
     await shot('3-checks');
     return '確認済みの記録が残る';
+  });
+
+  await check('3 STAGE3由来のKPIの目標・期限・担当を、STAGE4上で変更でき、元のSTAGE3は変わらない', async () => {
+    const KPI = '保守契約の継続率';
+    await page.getByRole('button', { name: `${KPI}の目標を修正する` }).click();
+    await page.getByLabel(`${KPI}の目標`, { exact: true }).fill(KPI_TARGET);
+    await page.getByRole('button', { name: `${KPI}の期限を修正する` }).click();
+    await page.getByLabel(`${KPI}の期限`, { exact: true }).fill(KPI_DUE);
+    await page.getByRole('button', { name: `${KPI}の担当を修正する` }).click();
+    await page.getByLabel(`${KPI}の担当`, { exact: true }).fill(KPI_OWNER);
+    await page.getByText('STAGE3から変更').first().waitFor({ timeout: 10000 });
+    await page.getByText(`STAGE3の値：目標 ${KPI_ORIGINAL_TARGET}`).first().waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: '計画を保存' }).click();
+    await page.getByRole('status').filter({ hasText: '保存済み' }).first().waitFor({ timeout: 30000 });
+    const edits = (await state()).plans[0].user_edits;
+    expect(Object.values(edits).includes(KPI_TARGET), 'KPIの目標（STAGE4上）が保存先に無い');
+    expect(Object.values(edits).includes(KPI_OWNER), 'KPIの担当（STAGE4上）が保存先に無い');
+    await page.reload();
+    await page.getByRole('button', { name: new RegExp(RENEWAL) }).first().click();
+    await page.getByText(KPI_TARGET, { exact: true }).first().waitFor({ timeout: 30000 });
+    await page.getByText('STAGE3から変更').first().waitFor({ timeout: 10000 });
+    await shot('3-kpi-changed');
+    return 'STAGE4上の目標・期限・担当を保存し、再読み込み後も残る';
   });
 
   await check('3 財務効果だけ保存に失敗したら、「すべて保存済み」と表示しない', async () => {
@@ -233,6 +259,7 @@ async function waitServer() {
     expect(s.events.some((e) => e.action === 'DRAFT_REPLACED'), '差し替えの履歴が無い');
     await page.getByText(REASON).first().waitFor({ timeout: 10000 });
     await page.getByText(ACTION_CONTENT).first().waitFor({ timeout: 10000 });
+    await page.getByText(KPI_TARGET, { exact: true }).first().waitFor({ timeout: 10000 });
     await openFinance();
     expect((await page.locator('.plan-params input[type="number"]').first().inputValue()) === '12', '再生成後に財務前提が残っていない');
     expect(await page.locator('ol.plan-ordered input[type="checkbox"]').first().isChecked(), '再生成後に確認済みの記録が残っていない');
@@ -253,6 +280,7 @@ async function waitServer() {
 
   await check('5 実行責任者を入れて「実行を開始する」', async () => {
     await page.getByPlaceholder('実行責任者の名前').fill(RESPONSIBLE);
+    await page.getByText('STAGE3の目標・期限・担当を1件変更しています').first().waitFor({ timeout: 10000 });
     await page.getByRole('button', { name: '実行を開始する' }).first().click();
     await page.getByText('実行を開始しました').waitFor({ timeout: 60000 });
     const s = await state();

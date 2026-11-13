@@ -57,7 +57,7 @@ describe('再生成の案に、以前の利用者の修正を引き継ぐ規則�
 
   it('開始前の確認の記録（task:）と、財務前提（impact:）は、再生成でも引き継ぐ', () => {
     const { next } = changeOneItem(bundle);
-    const edits = { 'task:verify-1': true, 'impact:customers': 12 };
+    const edits = { 'task:verify-1': true, 'impact:customers': 12, 'stage3kpi:kr-renew-1:target': '3社' };
     const out = editsAfterReplace(edits, bundle, next);
     expect(out.kept).toEqual(edits);
     expect(out.dropped).toEqual([]);

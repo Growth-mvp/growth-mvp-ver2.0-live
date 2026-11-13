@@ -20,10 +20,14 @@ export type DocKpi = {
   confirmed: boolean;
   /** 表の印。確定・入力済み（確定の印なし）・提案のいずれか */
   statusLabel: string;
-  /** 編集可能なキー（確定KPIは空。STAGE3で変更する） */
+  /** 編集可能なキー。STAGE3由来のKPIは、STAGE4上の修正値のキー（STAGE3の元データは変えない） */
   targetKey: string | null;
   dueKey: string | null;
   ownerKey: string | null;
+  /** STAGE3の値から、STAGE4上で変えたか（「STAGE3から変更」と表示する） */
+  stage3Changed: boolean;
+  /** 変えた場合に、元のSTAGE3の値（参照用） */
+  stage3Reference: string | null;
 };
 
 export type DocAction = {
@@ -131,16 +135,20 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
   const people = s[4].blocks[0];
 
   const kpis: DocKpi[] = [
-    ...kpiBlock.protected.map((k: ProtectedKpiView) => ({
+    ...kpiBlock.protected.map((k: any) => ({
       label: k.label,
       target: k.target,
       due: k.judge && k.judge.value ? `${ymJa(k.due)}（判定時期：${ymJa(k.judge.value)}）` : k.due ? ymJa(k.due) : '未定（STAGE3で未設定）',
       owner: k.owner && k.owner !== '未設定' ? k.owner : '未定',
       confirmed: k.confirmed,
       statusLabel: k.confirmed ? KPI_STATE_LABEL.confirmed : KPI_STATE_LABEL.unconfirmed,
-      targetKey: null,
-      dueKey: null,
-      ownerKey: null,
+      targetKey: k.targetKey ?? null,
+      dueKey: k.dueKey ?? null,
+      ownerKey: k.ownerKey ?? null,
+      stage3Changed: k.stage3Changed === true,
+      stage3Reference: k.stage3Changed
+        ? `STAGE3の値：目標 ${k.targetOriginal}・期限 ${k.dueOriginal ? ymJa(k.dueOriginal) : '未定'}・担当 ${k.ownerOriginal === '未設定' ? '未定' : k.ownerOriginal}`
+        : null,
     })),
     ...kpiBlock.proposed.map((k: ProposedKpiView) => ({
       label: k.label,
@@ -152,6 +160,8 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       targetKey: k.target.key,
       dueKey: k.due.key,
       ownerKey: k.owner.key,
+      stage3Changed: false,
+      stage3Reference: null,
     })),
   ];
 
