@@ -136,20 +136,6 @@ function requestFor(): NextRequest {
   });
 }
 
-function requestFor(): NextRequest {
-  return new NextRequest('http://localhost/api/generate-cascade', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: 'Bearer test' },
-    body: JSON.stringify({
-      industry: '製造業',
-      strategySummary: '人事部の間接部門としての生成の検証',
-      departments: [{ name: '人事部', answers: [] }],
-      businessSegments: [{ id: 'seg-a', name: '営業部', pl: [] }],
-      csvFinanceData: {},
-    }),
-  });
-}
-
 describe('人事部（間接部門）の生成を、ルートの経路で通す（AI呼び出しはモック）', () => {
   it('5スロットの成果分類が検証を通り、人事部の生成結果が返る（各スロットは1回だけ生成）', async () => {
     const res = await POST(requestFor());
