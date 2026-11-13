@@ -675,8 +675,8 @@ function normalizeCompanyTarget(input: unknown): CompanyTarget | null {
   const base = typeof t.base === 'number' ? t.base : Number(t.base);
   if (!Number.isFinite(base)) return null;
 
-  // 必須フィールド確認
-  if (!id || !label || !unit || !rationale || linkedIssueIds.length === 0) return null;
+  // 必須は識別子・名称・基準値のみ。理由と課題の紐付けは空でも目標を残す（脱落させない）
+  if (!id || !label) return null;
 
   return {
     id,

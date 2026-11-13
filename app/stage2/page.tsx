@@ -47,6 +47,7 @@ import {
   mergeMidtermStrategyIntoDocumentEdits,
   pickDisplayedStory,
   pickFinancialTargets,
+  withStoredConfirmedRecord,
   resolveConclusion,
   resolveStrategicAssumptions,
   toConfirmedEdits,
@@ -3238,7 +3239,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             const savePayload = {
               ...storeState,
               storyDraft: newStoryDraft,  // ★ 修正：story ではなく storyDraft として保存
-              stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
+              stage2FinalDocumentEdits: withStoredConfirmedRecord(
+                mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
+                storeState.stage2FinalDocumentEdits,
+              ),  // ★ 補助セクション編集内容を明示的に含める
             };
 
             console.log('[Stage2] DB save attempt:', {
@@ -3485,14 +3489,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           }
           try {
             const storeState = useStrategyStore.getState() as any;
+            const documentEditsToSave = withStoredConfirmedRecord(
+              mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
+              storeState.stage2FinalDocumentEdits,
+            );
             const savePayload = {
               ...storeState,
               finalStory: [], // 旧ストーリーは保存成功時のみ消去する
               finalStoryEdited: data.finalStory, // 生成した未確定案を現在の版として保存し、リロード後も同じ案を表示する
               finalStoryDraft: data.finalStory,
               stage2FinalDocumentEdits: (storeState.finalStoryFinal?.length ?? 0) > 0
-                ? markDraftChanged(mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy), new Date().toISOString())
-                : mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
+                ? markDraftChanged(documentEditsToSave, new Date().toISOString())
+                : documentEditsToSave,
             };
             const result = await runInSaveScope(scopeAtStart, () =>
               saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, stage2SaveRevision(storeState), {}, 'stage2:generateFinal'),
@@ -4299,7 +4307,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             const latestDocumentEdits = editingDocumentEdits;
                             const saveScope = captureSaveScope();
 
-                            const mergedDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy);
+                            const mergedDocumentEdits = withStoredConfirmedRecord(
+                              mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy),
+                              useStrategyStore.getState().stage2FinalDocumentEdits,
+                            );
                             const savedDocumentEdits =
                               (finalStoryFinalRaw?.length ?? 0) > 0
                                 ? markDraftChanged(mergedDocumentEdits, new Date().toISOString())

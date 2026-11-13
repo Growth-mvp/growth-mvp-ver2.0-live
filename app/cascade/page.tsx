@@ -54,11 +54,12 @@ import { Button } from '@/components/ui/button';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { PlusCircle, Save, Sparkles, Building2, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toProbability } from '@/types/strategy';
-import { CascadeHeader } from '@/components/stage3/CascadeHeader';
 import { CascadeControlBar } from '@/components/stage3/CascadeControlBar';
 import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
 import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
 import { ReflectionCandidatesSection, type ReflectionCandidate } from '@/components/stage3/ReflectionCandidatesSection';
+import { StrategyBookDesk, type StrategyBookGate } from '@/components/stage3/StrategyBookDesk';
+import { departmentDeleteBlockers } from '@/lib/cascade/departmentManagement';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
@@ -86,6 +87,9 @@ import type {
 } from '@/types/strategy';
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
+/* 新STAGE3へ画面を一本化する。旧UIの処理は互換用に維持するが、旧画面は描画しない。 */
+const LEGACY_STAGE3_UI_VISIBLE = false;
 
 /* =========================
    型（store拡張互換）
@@ -2130,7 +2134,7 @@ function CascadePageContent() {
   );
 
   /* ===== PDF Export ===== */
-  const { exportToPdf: stage3ExportToPdf } = useStage3PdfExport();
+  const { exportDepartmentStrategyBookPdf: stage3ExportDeptBookPdf } = useStage3PdfExport();
 
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
@@ -3520,18 +3524,24 @@ useEffect(() => {
           });
         }
       } catch (e) {
-        if (e instanceof AuthFetchError) {
-          if (e.code === 'AUTH_NO_SESSION') {
-            setNotice('❌ セッションが取得できませんでした（再ログインしてください）');
-          } else if (e.status === 403) {
-            setNotice('❌ 権限がありません（Admin/Managerのみ利用可）');
-          } else if (e.status === 401) {
-            setNotice('❌ 認証に失敗しました（ログインし直してください）');
-          } else {
-            setNotice(`❌ 部門のたたき台生成に失敗しました：${e.bodyText || e.message}`);
-          }
+        // 利用者には内部の応答を見せない。詳細は開発者向けログで確認する。
+        console.error('[stage3][cascade-generation-failed]', {
+          mode,
+          deptName: dept.name,
+          status: e instanceof AuthFetchError ? e.status : undefined,
+          body: e instanceof AuthFetchError ? e.bodyText : undefined,
+          message: e instanceof Error ? e.message : String(e),
+        });
+        if (e instanceof AuthFetchError && e.code === 'AUTH_NO_SESSION') {
+          setNotice('❌ セッションが取得できませんでした（再ログインしてください）');
+        } else if (e instanceof AuthFetchError && e.status === 403) {
+          setNotice('❌ 権限がありません（Admin/Managerのみ利用可）');
+        } else if (e instanceof AuthFetchError && e.status === 401) {
+          setNotice('❌ 認証に失敗しました（ログインし直してください）');
         } else {
-          setNotice(`❌ 部門のたたき台生成に失敗しました：${e instanceof Error ? e.message : String(e)}`);
+          setNotice(mode === 'regen'
+            ? '❌ 戦略書を再生成できませんでした。もう一度お試しください。'
+            : '❌ 戦略書のたたき台を作成できませんでした。もう一度お試しください。');
         }
         return;
       }
@@ -3663,6 +3673,7 @@ useEffect(() => {
       setNotice(
         `✅ ${dept.name}：未採用のプロジェクト案${candidateProjects.length}件・部門戦略の変更案${proposals.length}件を表示しました。反映・追加は選んだ項目だけです。既存の計画は変更していません。`,
       );
+      return { projects: candidateProjects as unknown as Record<string, unknown>[], proposals };
     } catch (e: any) {
       // ★ TRACE POINT 10b: Function error
       console.log('[diag][stage3:regen:error]', {
@@ -3935,14 +3946,157 @@ useEffect(() => {
     setNotice('✅ 反映候補を削除しました');
   };
 
+  const addDepartmentFromDesk = async (name: string, mission: string): Promise<boolean> => {
+    if (!canEditCompany) {
+      setNotice('⚠️ 部門の追加は管理者のみ可能です');
+      return false;
+    }
+    pushToStore((prev) => {
+      const current = [...prev];
+      const deptId = `dept_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const chapterNames = ['なぜ今', 'どう戦う', 'どんな未来', 'どう実行'];
+      current.push({
+        id: deptId,
+        name,
+        mission: mission || `${name}のミッション`,
+        missionDescription: '',
+        strategy: mission,
+        missionDraft: mission,
+        discussionNotes: '',
+        projects: [],
+        answers2: chapterNames.map((label, i) => ({ chapterIndex: i, chapterTitle: `${name}：${label}`, steps: [] })),
+        finalized: false,
+        source: 'manual',
+        segmentName: name,
+      } as unknown as Department);
+      return current;
+    });
+    return true;
+  };
+
+  const renameDepartmentFromDesk = async (index: number, name: string): Promise<boolean> => {
+    if (!canEditCompany) {
+      setNotice('⚠️ 部門名の変更は管理者のみ可能です');
+      return false;
+    }
+    pushToStore((prev) =>
+      prev.map((d, i) => (i === index ? ({ ...d, name, segmentName: name } as Department) : d)),
+    );
+    return true;
+  };
+
+  const deleteDepartmentFromDesk = async (index: number): Promise<boolean> => {
+    if (!canEditCompany) {
+      setNotice('⚠️ 部門削除は管理者のみ可能です');
+      return false;
+    }
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const target = current[index];
+    if (!target) return false;
+    const blockers = departmentDeleteBlockers(target as unknown as Record<string, unknown>);
+    if (blockers.length > 0) {
+      setNotice(`⚠️ 「${target.name}」は削除できません（関連データを守るため拒否）：${blockers.join('、')}`);
+      return false;
+    }
+    if (!window.confirm(`「${target.name}」を削除しますか？\nこの操作は元に戻せません。`)) return false;
+    pushToStore((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        .map((d, i) => ({
+          ...d,
+          answers2: (d.answers2 ?? []).map((ch) => ({ ...ch, chapterIndex: i, chapterTitle: d.name })),
+        })),
+    );
+    return true;
+  };
+
+  const getStrategyBookGate = (): StrategyBookGate => {
+    if (!canEditDept()) return { ok: false, reason: '⚠️ 編集権限がありません（管理者・管理職のみ）。' };
+    const scope = captureSaveScope();
+    const st = useStrategyStore.getState() as any;
+    if (!scope || !st.strategyId) {
+      return { ok: false, reason: '⚠️ 会社・戦略を確認できません。画面を再読み込みしてください。' };
+    }
+    if (st.dirty || st.pendingConflictRecovery || st.boot?.isSaving) {
+      return { ok: false, reason: '⚠️ 未保存の変更があるため、保存を完了してから操作してください。既存のデータは変更していません。' };
+    }
+    if (typeof st.revision !== 'number') {
+      return { ok: false, reason: '⚠️ 保存状態を確認できません。画面を再読み込みしてください。' };
+    }
+    return { ok: true, companyId: scope.companyId, strategyId: st.strategyId, revision: st.revision };
+  };
+
+  // 6問の部品が持つ「未保存の回答を保存する」関数（部門ごと）
+  const deptAnswerFlushRef = useRef<Record<number, () => void>>({});
+
+  // 再生成の前に、入力中の回答を渡して既存の保存処理で保存し、成功を確認する（未保存の有無によらず毎回保存する）。
+  const prepareRegenerationForDept = async (index: number): Promise<{ ok: true } | { ok: false; message: string }> => {
+    deptAnswerFlushRef.current[index]?.();
+    const saved = await useStrategyStore.getState().saveStrategyData({ force: true, reason: 'stage3:regen-answers' });
+    if (saved.ok) return { ok: true };
+    return {
+      ok: false,
+      message: `回答の保存に失敗したため、再生成していません（${saved.reason}）。もう一度保存してから、お試しください。`,
+    };
+  };
+
+  const renderDeptSixQuestions = (index: number, registerFlush: (flush: (() => void) | null) => void) => {
+    const dept = departments[index];
+    if (!dept) return null;
+    return (
+      <DepartmentQuestionStepper
+        departmentName={dept.name}
+        mission={dept.strategy ?? dept.mission}
+        projects={projectsMemo[index] ?? []}
+        okrs={[]}
+        initialStep={1}
+        initialAnswers={answersMemo[index] ?? []}
+        onChange={({ answers: changedAnswers }) => {
+          handleDeptQuestionChange(index, changedAnswers);
+        }}
+        onRegisterFlush={(flush) => {
+          if (flush) deptAnswerFlushRef.current[index] = flush;
+          else delete deptAnswerFlushRef.current[index];
+          registerFlush(flush);
+        }}
+      />
+    );
+  };
+
   /* ===== JSX ===== */
+  // 新STAGE3は「戦略書をつくる」操作に集中する。財務表はSTAGE1/2を参照する。
   return (
     <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
-      <ReflectionCandidatesSection
-        onDelete={handleDeleteReflectionCandidate}
+      <header className="space-y-1">
+        <h1 className="text-xl font-semibold tracking-tight text-zinc-900">STAGE3｜各部門の役割は何か</h1>
+        <p className="text-sm text-zinc-600">全社戦略を、各事業・部門の勝ち筋と役割へ展開する。</p>
+      </header>
+
+      <NoticeDisplay notice={notice} />
+
+      <StrategyBookDesk
+        departments={(departments as Department[] | undefined) ?? []}
+        canEdit={canEditDept() && !isHydrating}
+        canManageDepartments={canEditCompany}
+        getWriteGate={getStrategyBookGate}
+        // 読み取りはstoreの復元が完了してから開始する。書き込みゲートは別途維持。
+        readCompanyId={!isHydrating && hydrated && (!accessCompanyId || scopeCompanyId === accessCompanyId) ? (scopeCompanyId as string | null) : null}
+        readStrategyId={!isHydrating && hydrated ? (strategyId as string | null) : null}
+        generateDepartment={(index, mode) => handleDeptCascadeDraft(index, mode)}
+        prepareRegeneration={prepareRegenerationForDept}
+        renderSixQuestions={renderDeptSixQuestions}
+        onConfirmed={(message) => refreshAfterWrite(message)}
+        onExportDepartment={(name, options) => stage3ExportDeptBookPdf({ departmentName: name, ...options })}
+        onAddDepartment={addDepartmentFromDesk}
+        onRenameDepartment={renameDepartmentFromDesk}
+        onDeleteDepartment={deleteDepartmentFromDesk}
+        financeInfo={undefined}
       />
 
-      <CascadeHeader exportToPdf={stage3ExportToPdf} />
+      {/* 旧画面の候補一覧は、新戦略書の採否・調整UIと重複するため非表示。 */}
+      {LEGACY_STAGE3_UI_VISIBLE && (
+        <ReflectionCandidatesSection onDelete={handleDeleteReflectionCandidate} />
+      )}
 
       {isHydrating && (
         <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">
@@ -3958,7 +4112,7 @@ useEffect(() => {
         </div>
       )}
 
-      {!isHydrating && (
+      {LEGACY_STAGE3_UI_VISIBLE && !isHydrating && (
         <section>
           <div className="mb-3">
             <h2 className="text-sm font-semibold tracking-wide text-zinc-900"></h2>
@@ -3985,6 +4139,10 @@ useEffect(() => {
         </section>
       )}
 
+      {/* 旧STAGE3の操作バー・フォーム・部門カードも通常表示しない。
+          旧コードや保存ロジックは互換用に残し、新UIからの操作はStrategyBookDeskに集約。 */}
+      {LEGACY_STAGE3_UI_VISIBLE && (
+        <>
       <CascadeControlBar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -4011,7 +4169,6 @@ useEffect(() => {
         onAddDepartment={handleAddDepartment}
       />
 
-      <NoticeDisplay notice={notice} />
       {activeTab === 'visual' ? (
         <section>{VisualView}</section>
       ) : (
@@ -5170,6 +5327,8 @@ useEffect(() => {
             );
           })}
         </section>
+      )}
+        </>
       )}
     </div>
   );

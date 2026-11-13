@@ -927,7 +927,7 @@ function reportDuplicateProjectIds(departments: unknown): void {
   if (duplicates.length > 0) console.error('[stage3:duplicate-project-id] 同じIDのプロジェクトが複数あります（自動では直しません）', duplicates);
 }
 
-function buildSavePayload(s: StrategyState) {
+export function buildSavePayload(s: StrategyState) {
   const plForSave = financePLForSave(s);
   // okrsV2 サニタイズ（空labelを除外）
   const sanitizeOkrsV2 = (list: any[]) => {
@@ -1024,7 +1024,7 @@ function buildSavePayload(s: StrategyState) {
     midtermStrategy: s.midtermStrategy,
 
     // ★ 追加：companyTargets / finalStory 3-state（北星・最終ストーリー編集用）
-    companyTargets: (s as any).companyTargets,
+    companyTargets: s.hydrated || ((s as any).companyTargets ?? []).length > 0 ? (s as any).companyTargets : undefined,
     finalStoryDraft: (s as any).finalStoryDraft,
     finalStoryEdited: (s as any).finalStoryEdited,
     finalStoryFinal: (s as any).finalStoryFinal,

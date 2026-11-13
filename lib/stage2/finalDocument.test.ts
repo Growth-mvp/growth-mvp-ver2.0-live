@@ -7,6 +7,7 @@ import {
   resolveConclusion,
   resolveStrategicAssumptions,
   toConfirmedEdits,
+  withStoredConfirmedRecord,
 } from './finalDocument';
 import type { CompanyTarget, Stage2FinalDocumentEdits, StoryChapter } from '@/types/strategy';
 
@@ -41,6 +42,28 @@ describe('mergeMidtermStrategyIntoDocumentEdits', () => {
     const edits: Stage2FinalDocumentEdits = { conclusion: '結論' };
     expect(mergeMidtermStrategyIntoDocumentEdits(edits, undefined)).toBe(edits);
     expect(mergeMidtermStrategyIntoDocumentEdits(undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe('withStoredConfirmedRecord', () => {
+  const confirmed = { conclusion: '確定した結論', assumptions: {}, confirmedAt: '2026-11-01T00:00:00.000Z' };
+
+  it('編集内容に確定記録が無ければ、保存済みの確定記録を引き継ぐ', () => {
+    const edits: Stage2FinalDocumentEdits = { conclusion: '編集中の結論' };
+    const result = withStoredConfirmedRecord(edits, { confirmed });
+    expect(result?.confirmed).toEqual(confirmed);
+    expect(result?.conclusion).toBe('編集中の結論');
+  });
+
+  it('保存済みの確定記録が無ければ、編集内容をそのまま返す', () => {
+    const edits: Stage2FinalDocumentEdits = { draftChangedAt: '2026-11-12T00:00:00.000Z' };
+    expect(withStoredConfirmedRecord(edits, undefined)).toBe(edits);
+    expect(withStoredConfirmedRecord(undefined, { draftChangedAt: '2026-11-12T00:00:00.000Z' })).toBeUndefined();
+  });
+
+  it('編集内容に確定記録があれば、それを優先する', () => {
+    const own = { ...confirmed, conclusion: '新しく確定した結論' };
+    expect(withStoredConfirmedRecord({ confirmed: own }, { confirmed })?.confirmed).toEqual(own);
   });
 });
 

@@ -171,7 +171,7 @@ describe('確定版の再確定（旧データ→下書き→再確定）', () =
 
     // STAGE4の確定本文と、STAGE6・KPIの元データは書き換わらない
     expect(reconfirmed.finalStory[0].body).toBe('下書き本文');
-    expect(reconfirmed.companyTargets).toEqual(companyTargets);
+    expect(reconfirmed.companyTargets).toEqual(companyTargets.map((t) => ({ ...t, rationale: '', linkedIssueIds: [] })));
   });
 });
 

@@ -24,6 +24,95 @@ function measureBreakBlocks(cloneEl: HTMLElement, selector: string): { width: nu
   return { width: rect.width, blocks };
 }
 
+/** 日本語の文字は、PDFの標準フォントでは描けないため、ブラウザの日本語フォントで描いた画像にする */
+function footerLabelImage(label: string): { dataUrl: string; ratio: number } {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const font = '28px "Yu Gothic", "Hiragino Sans", "Meiryo", "Noto Sans JP", sans-serif';
+  if (!ctx) return { dataUrl: '', ratio: 1 };
+  ctx.font = font;
+  canvas.width = Math.ceil(ctx.measureText(label).width) + 8;
+  canvas.height = 40;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = font;
+  ctx.fillStyle = '#5a5a5a';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, 4, canvas.height / 2);
+  return { dataUrl: canvas.toDataURL('image/jpeg', 0.92), ratio: canvas.width / canvas.height };
+}
+
+type LineBox = { top: number; bottom: number };
+
+/** 描画された画像で、最初に文字（インク）が現れる行。DOMの位置と描画の位置を合わせるために使う */
+function firstInkRow(canvas: HTMLCanvasElement): number {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return 0;
+  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width * 4;
+    for (let x = 0; x < width * 4; x += 4) {
+      if (data[row + x] < 240 || data[row + x + 1] < 240 || data[row + x + 2] < 240) return y;
+    }
+  }
+  return 0;
+}
+
+/** 文字の行ごとの位置を、描画されたクローン上で測る（CSS px）。見出し等は keepSelector で指定する */
+function measureLines(cloneEl: HTMLElement, keepSelector: string): { width: number; lines: LineBox[]; keeps: LineBox[] } {
+  const root = cloneEl.getBoundingClientRect();
+  const doc = cloneEl.ownerDocument;
+  const fragments: LineBox[] = [];
+  const walker = doc.createTreeWalker(cloneEl, NodeFilter.SHOW_TEXT);
+  const range = doc.createRange();
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.textContent || node.textContent.trim() === '') continue;
+    range.selectNodeContents(node);
+    for (const r of Array.from(range.getClientRects())) {
+      if (r.width > 0 && r.height > 0) fragments.push({ top: r.top - root.top, bottom: r.bottom - root.top });
+    }
+  }
+  fragments.sort((a, b) => a.top - b.top);
+  const lines: LineBox[] = [];
+  for (const f of fragments) {
+    const last = lines[lines.length - 1];
+    if (last && f.top < last.bottom - 1) {
+      last.top = Math.min(last.top, f.top);
+      last.bottom = Math.max(last.bottom, f.bottom);
+    } else {
+      lines.push({ ...f });
+    }
+  }
+  const keeps = Array.from(cloneEl.querySelectorAll<HTMLElement>(keepSelector)).map((el) => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top - root.top, bottom: r.bottom - root.top };
+  });
+  return { width: root.width, lines, keeps };
+}
+
+/**
+ * 文字の行と行のあいだでだけ切る。見出し・項目名は、直後の行と同じページに置く。
+ * どの候補も使えない場合は、最も後ろの行の境界で切る（行の途中では切らない）。
+ */
+function chooseLineCutPx(startPx: number, endPx: number, lines: LineBox[], keeps: LineBox[]): number {
+  const minPageGapPx = 80;
+  const boundaries: number[] = [];
+  for (let i = 0; i + 1 < lines.length; i += 1) {
+    const upper = lines[i].bottom;
+    const lower = lines[i + 1].top;
+    boundaries.push(lower >= upper ? (upper + lower) / 2 : upper);
+  }
+  const blocked = (c: number) =>
+    keeps.some((k) => {
+      if (!(k.top < c)) return false;
+      const next = lines.find((l) => l.top >= k.bottom - 1);
+      return next !== undefined && c < next.top;
+    });
+  const inPage = boundaries.filter((c) => c > startPx && c <= endPx).sort((a, b) => b - a);
+  const preferred = inPage.filter((c) => c > startPx + minPageGapPx);
+  return preferred.find((c) => !blocked(c)) ?? inPage.find((c) => !blocked(c)) ?? inPage[0] ?? endPx;
+}
+
 /** 行・段落の途中を避け、ページ末尾に収まる最も後ろの境界で切る。収まらない場合は強制的に切る */
 function chooseCutPx(startPx: number, endPx: number, blocks: BreakBlock[]): number {
   const minPageGapPx = 40;
@@ -66,6 +155,10 @@ export async function downloadPdfFromElement(
     jsPDF?: { orientation: string; unit: string; format: string };
     /** 指定した要素の境界でだけ改ページする（段落・行の途中で切らない） */
     avoidBreakSelector?: string;
+    /** 文字の行と行のあいだで改ページし、指定した要素（見出し・項目名）は直後の行と同じページに置く */
+    keepWithNextSelector?: string;
+    /** 各ページの下の文字。text は欧文・数字（ページ番号など）、label は日本語の表示（画像で描く） */
+    footer?: (pageNo: number, pageCount: number) => { label?: string; text: string };
   },
 ): Promise<void> {
   const element = document.getElementById(elementId);
@@ -117,6 +210,7 @@ export async function downloadPdfFromElement(
     // ★ html2canvas でキャンバス化
     console.log('[downloadPdf] Starting html2canvas conversion...');
     let cloneMeasure: { width: number; blocks: BreakBlock[] } | null = null;
+    let lineMeasure: { width: number; lines: LineBox[]; keeps: LineBox[] } | null = null;
     const canvas = await html2canvasFn(element, {
       scale: html2CanvasScale,
       useCORS: true,
@@ -127,7 +221,9 @@ export async function downloadPdfFromElement(
       scrollY: 0,
       onclone: (doc: Document) => {
         const cloneEl = doc.getElementById(elementId);
-        if (cloneEl && options?.avoidBreakSelector) {
+        if (cloneEl && options?.keepWithNextSelector) {
+          lineMeasure = measureLines(cloneEl as HTMLElement, options.keepWithNextSelector);
+        } else if (cloneEl && options?.avoidBreakSelector) {
           cloneMeasure = measureBreakBlocks(cloneEl as HTMLElement, options.avoidBreakSelector);
         }
       },
@@ -167,6 +263,11 @@ export async function downloadPdfFromElement(
       bottom: b.bottom * cssToCanvasPx,
       keepWithNext: b.keepWithNext,
     }));
+    const lineLayout = lineMeasure as { width: number; lines: LineBox[]; keeps: LineBox[] } | null;
+    const lineScale = lineLayout ? canvas.width / lineLayout.width : 1;
+    const inkShift = lineLayout?.lines[0] ? firstInkRow(canvas) - lineLayout.lines[0].top * lineScale : 0;
+    const lineBoxes = (lineLayout?.lines ?? []).map((l) => ({ top: l.top * lineScale + inkShift, bottom: l.bottom * lineScale + inkShift }));
+    const keepBoxes = (lineLayout?.keeps ?? []).map((k) => ({ top: k.top * lineScale + inkShift, bottom: k.bottom * lineScale + inkShift }));
 
     // 複数ページに分割（指定があれば段落・行の境界で切る）
     let startPx = 0;
@@ -177,7 +278,11 @@ export async function downloadPdfFromElement(
       }
 
       const endPx = Math.min(canvas.height, startPx + pageCapacityPx);
-      const cutPx = endPx < canvas.height ? chooseCutPx(startPx, endPx, breakBlocks) : endPx;
+      const cutPx = endPx >= canvas.height
+        ? endPx
+        : lineLayout
+          ? chooseLineCutPx(startPx, endPx, lineBoxes, keepBoxes)
+          : chooseCutPx(startPx, endPx, breakBlocks);
       const sliceHeightPx = cutPx - startPx;
 
       const tempCanvas = document.createElement('canvas');
@@ -205,6 +310,24 @@ export async function downloadPdfFromElement(
         // 無限ループ防止
         console.warn('[downloadPdf] Exceeded 100 pages, stopping');
         break;
+      }
+    }
+
+    if (options?.footer) {
+      const pageCount = pdf.getNumberOfPages();
+      const footerMarginLeft = Array.isArray(margin) ? margin[3] : margin;
+      for (let p = 1; p <= pageCount; p++) {
+        pdf.setPage(p);
+        const { label, text } = options.footer(p, pageCount);
+        pdf.setFontSize(8);
+        pdf.setTextColor(90, 90, 90);
+        pdf.text(text, pageWidth / 2, pageHeight - 5, { align: 'center' });
+        if (label) {
+          const image = footerLabelImage(label);
+          const heightMm = 3.2;
+          const widthMm = heightMm * image.ratio;
+          pdf.addImage(image.dataUrl, 'JPEG', footerMarginLeft, pageHeight - 5 - heightMm + 0.6, widthMm, heightMm);
+        }
       }
     }
 

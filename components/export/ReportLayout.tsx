@@ -72,7 +72,7 @@ export function PdfReportWrapper({
           flex-direction: column;
           justify-content: center;
           align-items: center;
-          min-height: 100vh;
+          min-height: 297mm;
           text-align: center;
           page-break-inside: avoid;
           padding: 2rem;

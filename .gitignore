@@ -75,3 +75,6 @@ prompt.txt
 
 # 検証用DB（PGlite）のビルド出力（評価専用・Git管理外）
 /eval/db/.build/
+
+# ブラウザ検証用のビルド出力（評価専用・Git管理外）
+/eval/stage3-browser/out/

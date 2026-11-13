@@ -88,6 +88,26 @@
       "modelRole": "reasoning",
       "maxCompletionTokens": 8000,
       "jsonMode": false
+    },
+    "stage3AdjustmentAnalyze": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 8000,
+      "jsonMode": true
+    },
+    "stage3AdjustmentRegenerate": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 6000,
+      "jsonMode": true
+    },
+    "deptQuestion": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 2000,
+      "jsonMode": true
+    },
+    "deptQuestionRewrite": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 1000,
+      "jsonMode": true
     }
   }
 }

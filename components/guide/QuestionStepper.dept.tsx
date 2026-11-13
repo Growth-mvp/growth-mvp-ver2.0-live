@@ -5,6 +5,21 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAccess } from '@/utils/access'; // ★ 編集ガード
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
+import { QUESTION_FAILURE_MESSAGE } from '@/lib/cascade/deptQuestionOutput';
+
+/** 利用者に見せるエラーの文言。内部のエラー文字列（生の応答など）は見せない。 */
+function questionErrorMessage(e: unknown): string {
+  if (e instanceof AuthFetchError && e.status === 401) return 'セッションが切れています。ログインし直してください。';
+  if (e instanceof AuthFetchError && e.bodyText) {
+    try {
+      const body = JSON.parse(e.bodyText) as { message?: unknown };
+      if (typeof body?.message === 'string' && body.message.trim() !== '') return body.message;
+    } catch {
+      /* 本文が JSON でなければ、既定の案内を使う */
+    }
+  }
+  return QUESTION_FAILURE_MESSAGE;
+}
 
 export type StepNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -42,6 +57,8 @@ export type DeptQuestionStepperProps = {
   onChange?: (p: { answers: DeptAnswerStep[]; currentStep: StepNumber }) => void;
   /** 親へ：生成したドラフト（mission/projects/okrs）通知（任意） */
   onDraftGenerated?: (p: { mission?: string; projects?: string[]; okrs?: OKR[] }) => void;
+  /** 親へ：未保存の回答を親へ渡す関数を登録する（外れるときは null）。再生成の前に呼ばれる */
+  onRegisterFlush?: (flush: (() => void) | null) => void;
 };
 
 function clampStep(n: number): StepNumber {
@@ -82,6 +99,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     initialStep = 1,
     initialAnswers = [],
     onChange,
+    onRegisterFlush,
   } = props;
 
   // ★ 閲覧はOK、編集は部門レベル（Admin/Manager）
@@ -105,6 +123,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const [loading, setLoading] = useState(false);
 
 
+  // 表示中のテーマを、どのステップについて読み込んだか（ステップが変わったときだけ初期化する）
+  const resetForStepRef = useRef<StepNumber | null>(null);
+
   // リクエスト多重防止
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -117,12 +138,6 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const lastNotifiedRef = useRef<DeptAnswerStep[] | null>(null);
   const lastStepNotifiedRef = useRef<StepNumber | null>(null);
 
-  // 直前の内容
-  const previousAnswer = useMemo(() => {
-    const prev = answers.find(a => a.stepNumber === (step - 1));
-    return prev?.answer || '';
-  }, [answers, step]);
-
   const answersSoFarPayload = useMemo(
     () => answers.map(a => ({ stepNumber: a.stepNumber, answer: a.answer })),
     [answers]
@@ -132,11 +147,6 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     const has = (n: StepNumber) => answers.some(a => a.stepNumber === n && a.answer?.trim());
     return has(1) && has(2) && has(3) && has(4) && has(5) && has(6);
   }, [answers]);
-
-  const hasQuestionForCurrentStep = useMemo(
-    () => !!answers.find(a => a.stepNumber === step) || !!question,
-    [answers, step, question]
-  );
 
   // ★ 安定キー化：参照が変わっても JSON文字列が同じなら effect 再実行を避ける
   const projectsKey = useMemo(() => JSON.stringify(projects ?? []), [projects]);
@@ -241,6 +251,16 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       return;
     }
 
+    if (resetForStepRef.current !== step) {
+      resetForStepRef.current = step;
+      setLabel(undefined);
+      setQuestion('');
+      setReason('');
+      setHint(undefined);
+      setShowHint(false);
+      setAnswerText('');
+    }
+
     // 6問すべて入力済みなら、それ以上はテーマを生成しない
     if (isCompletedAll6) {
       // ★ ここで setState しない（deps が揺れた時に無限ループになるので何もしない）
@@ -294,13 +314,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         setShowHint(false);
       } catch (e: any) {
         if (e?.name !== 'AbortError') {
-          const msg =
-            e instanceof AuthFetchError
-              ? e.status === 401
-                ? 'セッションが切れています。ログインし直してください。'
-                : e.bodyText || e.message
-              : e?.message || 'エラーが発生しました';
-          setErrorMsg(msg);
+          setErrorMsg(questionErrorMessage(e));
         }
       } finally {
         inFlightRef.current = false;
@@ -412,7 +426,22 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     }
   }, [answers, step, label, question, reason, hint, answerText, canEdit, onChange]);
 
-  const canGoNext = (answerText || '').trim().length > 0 && canEdit;
+  // 入力中の回答があれば、親へ渡す（再生成の前に呼ばれる）
+  const flushPendingAnswer = useCallback((): void => {
+    if (!canEdit || !question) return;
+    const existing = answers.find(a => a.stepNumber === step);
+    if (answerText.trim() === (existing?.answer ?? '').trim()) return;
+    handleSaveAnswerLocally();
+  }, [canEdit, question, answers, step, answerText, handleSaveAnswerLocally]);
+
+  useEffect(() => {
+    if (!onRegisterFlush) return;
+    onRegisterFlush(flushPendingAnswer);
+    return () => onRegisterFlush(null);
+  }, [onRegisterFlush, flushPendingAnswer]);
+
+  // 回答は任意。空欄でも次のテーマへ進める（回答はそのまま保存する）
+  const canGoNext = canEdit;
   const isLastStep = step === 6;
 
   const onClickNext = useCallback(() => {
@@ -422,7 +451,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       setStep(s => clampStep(s + 1));
       setAnswerText('');
       setShowHint(false);
-      // 次のステップのテーマは、ユーザーが「テーマを生成」を押したときだけ取得
+      setShouldFetchQuestion(true);
     }
   }, [canGoNext, isLastStep, handleSaveAnswerLocally]);
 
@@ -446,7 +475,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   return (
     <div className="w-full space-y-6">
       {/* Ver4 summary（任意表示） */}
-      {(direction || expectations.length || focusThemes.length) && (
+      {(direction || expectations.length > 0 || focusThemes.length > 0) && (
         <div className="rounded-2xl border border-gray-300 bg-white shadow-sm">
           <div className="p-4 border-b border-gray-200 text-sm font-semibold tracking-[0.02em] text-gray-900">AIたたき台（方向性）</div>
           <div className="p-4 space-y-3 text-sm leading-6 text-gray-700">
@@ -471,170 +500,128 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         </div>
       )}
 
-      {/* ステップインジケータ（進捗バッジ付き） */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold tracking-[0.02em] text-gray-900">戦略議論のための6つのディスカッションテーマ（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
-          <div className="flex gap-2 text-xs text-gray-600">
-            <span className="inline-flex items-center gap-1 rounded-full border border-gray-300 px-2 py-0.5 bg-white">完了</span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-gray-900 px-2 py-0.5 bg-gray-900 text-white">現在</span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 py-0.5 bg-gray-50">未入力</span>
-          </div>
+      {/* 6つのテーマの一覧。テーマ名が見え、現在の問いだけを開いて回答する */}
+      <div className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-base font-semibold text-gray-900">6つのディスカッションテーマ</h3>
+          <span className="text-xs text-gray-500">回答 {answers.filter(a => a.answer?.trim()).length}/6</span>
         </div>
-        <div className="grid grid-cols-6 gap-2">
+        <div className="divide-y divide-gray-200 rounded-2xl border border-gray-300 bg-white">
           {[1, 2, 3, 4, 5, 6].map(n => {
             const sn = n as StepNumber;
-            const done = answers.some(a => a.stepNumber === sn && a.answer?.trim());
+            const item = answers.find(a => a.stepNumber === sn);
             const active = step === sn;
+            const answered = !!item?.answer?.trim();
+            const title = (active && question) || item?.question || '';
+            const dirty = active && answerText.trim() !== (item?.answer ?? '').trim();
             return (
-              <button
-                key={sn}
-                onClick={() => setStep(sn)}
-                className={[
-                  'rounded-xl border px-3 py-2 text-xs font-semibold tracking-[0.02em] transition-all',
-                  active
-                    ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
-                    : done
-                      ? 'border-gray-500 bg-gray-100 text-gray-900 hover:bg-gray-200'
-                      : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
-                ].join(' ')}
-                title={`Q${sn}${done ? '（入力済）' : '（未入力）'}`}
-              >
-                <div className="flex items-center justify-center gap-1">
-                  Q{sn}
-                  {done && <span className={active ? 'text-white' : 'text-gray-700'}>✓</span>}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 質問カード */}
-      <div className="rounded-2xl border border-gray-300 bg-white shadow-sm">
-        <div className="p-5 border-b border-gray-200 flex items-center justify-between">
-          <div className="text-sm font-semibold tracking-[0.02em] text-gray-900">
-            {label ? `ステップ：${label}` : '次のテーマ'}
-          </div>
-          <div className="flex items-center gap-3">
-            {hint && (
-              <button
-                type="button"
-                onClick={() => setShowHint(v => !v)}
-                className="rounded-lg px-3 py-1.5 text-xs font-semibold border border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
-              >
-                ヒントを見る
-              </button>
-            )}
-
-            {canEdit && (
-              <>
+              <div key={sn}>
                 <button
                   type="button"
-                  onClick={() => { setShouldFetchQuestion(true); setErrorMsg(''); }}
-                  disabled={loading || isCompletedAll6}
-                  className={[
-                    'rounded-lg px-3 py-1.5 text-xs font-semibold border',
-                    (loading || isCompletedAll6)
-                      ? 'bg-gray-100 text-gray-400 border-gray-200'
-                      : 'bg-gray-900 text-white border-gray-900 hover:bg-black',
-                  ].join(' ')}
-                  title={isCompletedAll6 ? '6テーマすべて入力済みです' : 'このステップのテーマを生成します'}
+                  onClick={() => setStep(sn)}
+                  aria-expanded={active}
+                  className={active ? 'flex w-full items-start gap-3 bg-gray-50 px-5 py-4 text-left' : 'flex w-full items-start gap-3 px-5 py-4 text-left hover:bg-gray-50'}
                 >
-                  テーマを生成
+                  <span className="w-8 shrink-0 pt-0.5 text-xs font-semibold text-gray-500">Q{sn}</span>
+                  <span className={title ? 'flex-1 text-sm leading-6 text-gray-900' : 'flex-1 text-sm leading-6 text-gray-400'}>
+                    {title || '未生成'}
+                  </span>
+                  <span className="shrink-0 pt-0.5 text-xs text-gray-500">{answered ? '回答済み' : item ? '空欄' : ''}</span>
                 </button>
 
-                {hasQuestionForCurrentStep && (
-                  <button
-                    type="button"
-                    onClick={onRedoFromHere}
-                    disabled={loading || isCompletedAll6}
-                    className={[
-                      'rounded-lg px-3 py-1.5 text-xs font-medium border',
-                      (loading || isCompletedAll6)
-                        ? 'bg-gray-100 text-gray-400 border-gray-200'
-                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
-                    ].join(' ')}
-                    title="このステップのテーマを再生成します（このステップ以降の内容はリセット）"
-                  >
-                    再生成
-                  </button>
+                {active && (
+                  <div className="space-y-4 px-5 pb-5">
+                    {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
+                    {loading && <p className="text-sm text-gray-500">テーマを生成しています…</p>}
+
+                    {question ? (
+                      <>
+                        {reason && <p className="text-sm leading-7 text-gray-700">{reason}</p>}
+                        {showHint && hint && (
+                          <p className="rounded-lg bg-gray-50 px-4 py-3 text-sm leading-7 text-gray-800">{hint}</p>
+                        )}
+                        {canEdit ? (
+                          <div className="space-y-2">
+                            <label className="text-xs font-semibold text-gray-600">回答（任意）</label>
+                            <AutoResizeTextarea
+                              minRows={4}
+                              maxRows={20}
+                              className="rounded-xl border-gray-300 bg-white text-[15px] leading-7 text-gray-900 focus:ring-gray-400"
+                              placeholder="数値や期限、役割、連携相手などを書くと、次のテーマが具体的になります（空欄でも進めます）。"
+                              value={answerText}
+                              onChange={(e) => setAnswerText(e.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap text-sm leading-7 text-gray-700">{item?.answer?.trim() || '（回答なし）'}</p>
+                        )}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex gap-2">
+                            {hint && (
+                              <button
+                                type="button"
+                                onClick={() => setShowHint(v => !v)}
+                                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-100"
+                              >
+                                ヒント
+                              </button>
+                            )}
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={onRedoFromHere}
+                                disabled={loading || isCompletedAll6}
+                                title="このテーマを作り直します（以降の回答はリセット）"
+                                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:text-gray-400"
+                              >
+                                このテーマから作り直す
+                              </button>
+                            )}
+                          </div>
+                          {canEdit && (
+                            <div className="flex flex-wrap items-center gap-3">
+                              {dirty && <span className="text-xs text-amber-700">未保存の変更があります</span>}
+                              {!isLastStep && (
+                                <button
+                                  type="button"
+                                  onClick={handleSaveAnswerLocally}
+                                  disabled={!dirty || loading}
+                                  className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:text-gray-400"
+                                >
+                                  回答を保存
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={onClickNext}
+                                disabled={!canGoNext || loading}
+                                className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-black disabled:bg-gray-200 disabled:text-gray-500"
+                                title={isLastStep ? '内容を保存して完了にします' : '回答を保存して、次のテーマを作ります'}
+                              >
+                                {isLastStep ? '内容を保存' : '次のテーマへ'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : canEdit ? (
+                      <button
+                        type="button"
+                        onClick={() => { setShouldFetchQuestion(true); setErrorMsg(''); }}
+                        disabled={loading || isCompletedAll6}
+                        className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:bg-gray-100 disabled:text-gray-400"
+                        title={isCompletedAll6 ? '6テーマすべて入力済みです' : 'このテーマを生成します'}
+                      >
+                        このテーマを生成
+                      </button>
+                    ) : (
+                      <p className="text-sm text-gray-500">閲覧モードです。テーマの生成は管理者のみ行えます。</p>
+                    )}
+                  </div>
                 )}
-              </>
-            )}
-
-            {loading && <div className="text-xs text-gray-500">生成中…</div>}
-          </div>
-        </div>
-        <div className="p-5 space-y-4">
-          {errorMsg ? (
-            <div className="text-sm text-red-600">{errorMsg}</div>
-          ) : (
-            <>
-              <p className="text-[17px] font-semibold leading-8 text-gray-900">
-                {question
-                  ? question
-                  : canEdit
-                    ? 'まだテーマは生成されていません。「テーマを生成」を押してください。'
-                    : '（閲覧モード：新しいテーマの生成は無効です）'}
-              </p>
-              {reason && <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3"><div className="text-xs font-semibold tracking-[0.04em] text-gray-500">狙い</div><p className="mt-1 text-sm leading-7 text-gray-700">{reason}</p></div>}
-              {showHint && hint && (
-                <div className="text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded-xl p-4 leading-7">
-                  {hint}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* 内容欄 */}
-      <div className="space-y-2">
-        <label className="text-sm font-semibold tracking-[0.02em] text-gray-900">ディスカッションの内容</label>
-        <AutoResizeTextarea
-          minRows={5}
-          maxRows={24}
-          className="rounded-2xl border-gray-300 bg-white text-[15px] leading-7 text-gray-900 focus:ring-gray-400 disabled:bg-gray-50"
-          placeholder="考えを具体的に書いてください。数値や期限、役割、連携相手などを明記すると次のテーマが鋭くなります。"
-          value={answerText}
-          onChange={(e) => setAnswerText(e.target.value)}
-          disabled={!canEdit}
-          title={canEdit ? '' : '閲覧モード（管理者のみ編集可）'}
-        />
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-500 leading-5">
-            {previousAnswer ? '直前の内容を踏まえてテーマ設定されています。' : '最初のテーマです。'}
-          </span>
-          <button
-            type="button"
-            onClick={onClickNext}
-            disabled={!(answerText || '').trim() || loading || !canEdit}
-            className={[
-              'rounded-xl px-4 py-2.5 text-sm font-semibold tracking-[0.02em]',
-              (!(answerText || '').trim() || loading || !canEdit)
-                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                : 'bg-gray-900 text-white hover:bg-black',
-            ].join(' ')}
-            title={canEdit ? (isLastStep ? '内容を保存して完了にします' : '次のテーマへ') : '閲覧モード（管理者のみ編集可）'}
-          >
-            {isLastStep ? '内容を保存' : '次のテーマへ'}
-          </button>
-        </div>
-      </div>
-
-      {/* 既出Q/Aの簡易ログ */}
-      <div className="rounded-2xl border border-gray-300 bg-white">
-        <div className="p-4 border-b border-gray-200 text-sm font-semibold tracking-[0.02em] text-gray-900">これまでの議論の内容（この部門）</div>
-        <div className="divide-y">
-          {answers.length === 0 && <div className="p-3 text-sm text-gray-500">まだありません</div>}
-          {answers.map((a) => (
-            <div key={a.stepNumber} className="p-4 text-sm space-y-2">
-              <div className="text-xs font-semibold tracking-[0.04em] text-gray-500">Step {a.stepNumber}{a.label ? `（${a.label}）` : ''}</div>
-              <div className="text-sm font-semibold leading-6 text-gray-900">Q: {a.question}</div>
-              <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">A: {a.answer || '（未入力）'}</div>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -240,6 +240,19 @@ describe('STAGE1手入力の売上・利益と、確定したセグメントPL�
   });
 });
 
+describe('STAGE3 の財務サマリー（会社PLの年度別行）の単位', () => {
+  it('[再現] 会社PLは円で保存されているため、財務サマリーの金額は百万円へ換算して渡す（円の値を百万円と書かない）', async () => {
+    const text = await runWith({
+      ...requestBody([SEG_A], undefined),
+      financeSummary: { rows: [{ year: 2025, revenue: 11_259_429_000, operatingIncome: 300_000_000 }] },
+    });
+
+    expect(text).not.toMatch(/d{10,}百万円/);
+    expect(text).toContain('売上=11259.4百万円');
+    expect(text).toContain('営業利益=300百万円');
+  });
+});
+
 async function runWithCsvSegments(csvFinanceData: unknown, segments: unknown[], financeUnitConfirmed: unknown): Promise<string> {
   return runWith({
     industry: '製造業',

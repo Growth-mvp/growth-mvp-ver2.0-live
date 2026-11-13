@@ -101,8 +101,41 @@ describe('正規化でのデータ保全', () => {
     const targets = [{ id: 'rev', label: '売上', unit: '百万円', base: 1000 }];
     const rows = [{ projectId: 'uid-A', targetId: 'rev', delta: 10, source: 'manual', locked: true }];
     const out: any = normalizeStrategyData({ companyTargets: targets, projectTargetImpacts: rows } as any);
-    expect(out.companyTargets).toEqual(targets);
+    expect(out.companyTargets).toEqual(targets.map((t) => ({ ...t, rationale: '', linkedIssueIds: [] })));
     expect(out.projectTargetImpacts).toEqual(rows);
+  });
+});
+
+describe('業績目標（companyTargets）の保存・復元', () => {
+  it('理由と課題の紐付けが空でも、目標の値・単位・年度は変えずに残す', () => {
+    const out: any = normalizeStrategyData({
+      companyTargets: [{ id: 't1', label: '売上高', unit: '百万円', base: 12000, dueYear: 2030, priority: 4 }],
+    } as any);
+    expect(out.companyTargets).toEqual([
+      { id: 't1', label: '売上高', unit: '百万円', base: 12000, dueYear: 2030, priority: 4, rationale: '', linkedIssueIds: [] },
+    ]);
+  });
+
+  it('複数の目標のうち一部だけ理由が空でも、すべての目標を残す', () => {
+    const out: any = normalizeStrategyData({
+      companyTargets: [
+        { id: 't1', label: '売上高', unit: '百万円', base: 12000, rationale: '成長の要', linkedIssueIds: ['課題A'] },
+        { id: 't2', label: '営業利益', unit: '百万円', base: 50 },
+      ],
+    } as any);
+    expect(out.companyTargets.map((t: any) => t.id)).toEqual(['t1', 't2']);
+    expect(out.companyTargets[1].base).toBe(50);
+  });
+
+  it('識別子・名称・基準値が無い項目だけ除外する', () => {
+    const out: any = normalizeStrategyData({
+      companyTargets: [
+        { id: 't1', label: '売上高', unit: '百万円', base: 12000 },
+        { id: 't2', label: '', unit: '百万円', base: 1 },
+        { id: 't3', label: '利益', unit: '百万円', base: 'x' },
+      ],
+    } as any);
+    expect(out.companyTargets.map((t: any) => t.id)).toEqual(['t1']);
   });
 });
 

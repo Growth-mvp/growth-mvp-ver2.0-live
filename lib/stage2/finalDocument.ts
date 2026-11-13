@@ -41,7 +41,7 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function sameChapters(a: StoryChapter[], b: StoryChapter[]): boolean {
+export function sameChapters(a: StoryChapter[], b: StoryChapter[]): boolean {
   return a.length === b.length && a.every((ch, i) => ch.title === b[i]?.title && ch.body === b[i]?.body);
 }
 
@@ -159,6 +159,15 @@ export function markDraftChanged(
   changedAt: string,
 ): Stage2FinalDocumentEdits {
   return { ...(edits ?? {}), draftChangedAt: changedAt };
+}
+
+/** 保存する編集内容に確定記録が無い場合、保存済みの確定記録を引き継ぐ（編集中の値で確定記録を消さない） */
+export function withStoredConfirmedRecord(
+  edits: Stage2FinalDocumentEdits | undefined,
+  stored: Stage2FinalDocumentEdits | undefined | null,
+): Stage2FinalDocumentEdits | undefined {
+  if (edits?.confirmed || !stored?.confirmed) return edits;
+  return { ...(edits ?? {}), confirmed: stored.confirmed };
 }
 
 export function buildConfirmedDocumentEdits(input: {
