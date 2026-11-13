@@ -106,6 +106,7 @@ export async function createTestEnv(opts: { apiEnabled?: boolean } = {}): Promis
     },
     gatewayFor: (_req, userId) => new PgliteGateway(db, userId),
     enabled: opts.apiEnabled ?? true,
+    previewSecret: 'verification-only-preview-secret',
     generation: {
       currentYm: () => '2026-11',
       mapStrategy: mapStrategyRow,

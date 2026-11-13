@@ -47,7 +47,6 @@ import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stag
 import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
 import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
-import { applyPreview, comparePreview, type PreviewEdits } from '@/lib/stage4/planView/regenPreview';
 import { RegenPanel, type RegenState } from './RegenPanel';
 import { PLAN_OPERATION_GUIDE, planStatusOf } from '@/lib/stage4/planView/planStatus';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
@@ -462,7 +461,7 @@ function Stage3ProjectBrowser({
   const updatePlan = (id: string, fn: (p: ProjectPlanState) => ProjectPlanState) =>
     updateEntry(id, (e) => ({ ...e, plan: fn(e.plan) }));
 
-  /* AIでもう一度作る：新しい案を保存せずに取り、現在の計画書と比べる。反映は画面の修正として入るだけ（保存は既存の操作） */
+  /* AIでもう一度作る：新しい案は保存せず、文書として見せる。「この案を使う」を押した時だけ、現在の計画書になる */
   const [regen, setRegen] = useState<Record<string, RegenState>>({});
   const regenStart = async (sel: Stage3Selection) => {
     const id = selectionKey(sel);
@@ -472,8 +471,7 @@ function Stage3ProjectBrowser({
     setRegen((p) => ({ ...p, [id]: { status: 'BUSY' } }));
     const out = await ops.preview(key);
     if (out.status === 'PREVIEW') {
-      const rows = comparePreview({ currentBundle: entry.aiDraft, committed: entry.plan.committed as PreviewEdits, newBundle: out.draft });
-      return setRegen((p) => ({ ...p, [id]: { status: 'READY', rows, selected: [] } }));
+      return setRegen((p) => ({ ...p, [id]: { status: 'READY', draft: out.draft, previewToken: out.previewToken, notice: null } }));
     }
     const message =
       out.status === 'INVALID'
@@ -487,26 +485,34 @@ function Stage3ProjectBrowser({
               : '新しい案を作れませんでした。現在の計画書はそのままです。';
     setRegen((p) => ({ ...p, [id]: { status: 'FAILED', message } }));
   };
-  const regenToggle = (id: string, itemId: string) =>
-    setRegen((p) => {
-      const s = p[id];
-      if (!s || s.status !== 'READY') return p;
-      const selected = s.selected.includes(itemId) ? s.selected.filter((x) => x !== itemId) : [...s.selected, itemId];
-      return { ...p, [id]: { ...s, selected } };
-    });
-  const regenApply = (id: string) => {
-    const s = regen[id];
-    if (!s || s.status !== 'READY') return;
-    updatePlan(id, (p) => ({
-      ...p,
-      committed: applyPreview(p.committed as PreviewEdits, s.rows, s.selected) as typeof p.committed,
-      notice: '新しい案の内容を反映しました（未保存）。確認して「草案として保存」を押してください。',
-    }));
-    setRegen((p) => {
-      const next = { ...p };
-      delete next[id];
-      return next;
-    });
+  const regenUse = async (sel: Stage3Selection) => {
+    const id = selectionKey(sel);
+    const entry = entries[id];
+    const key = keyOf(sel);
+    const current = regen[id];
+    if (!ops || !entry || !key || !entry.stored || !current || current.status !== 'READY') return;
+    const note = (text: string) => setRegen((p) => (p[id]?.status === 'READY' ? { ...p, [id]: { ...p[id], notice: text } } : p));
+    const clear = () =>
+      setRegen((p) => {
+        const next = { ...p };
+        delete next[id];
+        return next;
+      });
+    if (isBodyDirty(entry)) return note('計画書の本文に未保存の修正があります。先に「草案として保存」してください。');
+    const out = await ops.useDraft(key, entry.stored.version, current.draft, current.previewToken);
+    if (out.status === 'OK') {
+      setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record, '新しい案を現在の計画書にしました。採用と開始は解除されています。') } : p));
+      return clear();
+    }
+    if (out.status === 'CONFLICT') {
+      setEntries((p) => (p[id] ? { ...p, [id]: { ...entryFromRecord(out.current), notice: '他の人が先に変更しました。最新の計画書を表示しています。' } } : p));
+      return clear();
+    }
+    note(
+      out.status === 'EXPIRED'
+        ? '新しい案の有効期限が切れました。「AIでもう一度作る」からやり直してください。'
+        : '新しい案を使えませんでした。現在の計画書はそのままです。'
+    );
   };
   const regenCancel = (id: string) =>
     setRegen((p) => {
@@ -686,8 +692,7 @@ function Stage3ProjectBrowser({
             onView={(v) => id && updateEntry(id, (e) => ({ ...e, view: v }))}
             regen={id ? regen[id] : undefined}
             onRegenStart={() => sel && regenStart(sel)}
-            onRegenToggle={(itemId) => id && regenToggle(id, itemId)}
-            onRegenApply={() => id && regenApply(id)}
+            onRegenUse={() => sel && regenUse(sel)}
             onRegenCancel={() => id && regenCancel(id)}
             remote={ops !== null}
             onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
@@ -733,8 +738,7 @@ function ReadOnlyProject({
   financeSection,
   regen,
   onRegenStart,
-  onRegenToggle,
-  onRegenApply,
+  onRegenUse,
   onRegenCancel,
 }: {
   view: Extract<Stage3ReadView, { status: 'READY' }>;
@@ -759,8 +763,7 @@ function ReadOnlyProject({
   financeSection: ReactNode;
   regen: RegenState | undefined;
   onRegenStart: () => void;
-  onRegenToggle: (itemId: string) => void;
-  onRegenApply: () => void;
+  onRegenUse: () => void;
   onRegenCancel: () => void;
 }) {
   const loadPending = stableId && (load === undefined || load.status === 'LOADING');
@@ -931,17 +934,18 @@ function ReadOnlyProject({
           )}
           {(
             <>
-              {remote && entry.plan.mode === 'read' && !entry.plan.adopted && !entry.plan.started && (
+              {remote && entry.plan.mode === 'read' && !entry.plan.adopted && !entry.plan.started && !regen && (
                 <div className="plan-regen">
-                  {regen ? (
-                    <RegenPanel state={regen} onToggle={onRegenToggle} onApply={onRegenApply} onCancel={onRegenCancel} />
-                  ) : (
-                    <button type="button" className="plan-btn-quiet" onClick={onRegenStart}>
-                      AIでもう一度作る
-                    </button>
-                  )}
+                  <button type="button" className="plan-btn-quiet" onClick={onRegenStart}>
+                    AIでもう一度作る
+                  </button>
                 </div>
               )}
+              {regen ? (
+                <div className="plan-regen">
+                  <RegenPanel state={regen} onUse={onRegenUse} onCancel={onRegenCancel} />
+                </div>
+              ) : (
               <PlanDocument
                 bundle={entry.aiDraft}
                 mode={entry.plan.mode}
@@ -967,6 +971,7 @@ function ReadOnlyProject({
                 onUnadopt={() => (remote ? onTransition('UNADOPT') : onPlan(unadopt))}
                 onOpenStart={() => onView('start')}
               />
+              )}
               {entry.plan.started && !planView.gate.startable && <Reconcile onPlan={onPlan} />}
             </>
           )}

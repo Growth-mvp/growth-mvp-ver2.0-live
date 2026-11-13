@@ -79,10 +79,9 @@ describe('planState: 採用と実行開始の分離', () => {
 });
 
 describe('planState: 表示の計算（架空の成長戦略型）', () => {
-  it('採用していない計画は、開始できない理由に採用が含まれる', () => {
+  it('採用していなくても、開始の条件は実行責任者だけ（採用は開始の処理の中で行う）', () => {
     const view = computePlanView(growth, INITIAL_PLAN_STATE);
-    expect(view.gate.startable).toBe(false);
-    expect(view.gate.blockers).toContain('先に計画案を採用してください');
+    expect(view.gate.blockers).not.toContain('先に計画案を採用してください');
   });
 
   it('実行責任者が未確定なら、開始できない理由に含まれる', () => {

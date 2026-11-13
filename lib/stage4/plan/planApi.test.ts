@@ -57,6 +57,7 @@ const deps = (g: PlanGateway, over: Partial<PlanApiDeps> = {}): PlanApiDeps => (
     modelFor: async () => async () => ({ text: 'not json' }),
   },
   now: () => '2026-11-10T00:00:00.000Z',
+  previewSecret: 'test-secret-for-api',
   ...over,
 });
 const api = (g: PlanGateway, over: Partial<PlanApiDeps> = {}) => createPlanApi(deps(g, over));
@@ -305,6 +306,23 @@ describe('再生成のプレビュー（POST …/preview）', () => {
     expect(res.status).toBe(503);
   });
 
+  it('署名の秘密の値が無ければ、案を作らず 503（AIを呼ばない）', async () => {
+    let modelCalled = false;
+    const res = await api(gateway(), {
+      previewSecret: null,
+      generation: {
+        currentYm: () => '2026-11',
+        mapStrategy: (row) => row as never,
+        modelFor: async () => {
+          modelCalled = true;
+          return async () => ({ text: '' });
+        },
+      },
+    }).preview(previewReq());
+    expect(res.status).toBe(503);
+    expect(modelCalled).toBe(false);
+  });
+
   it('新しい案を 200 PREVIEW で返し、保存（権利・完了・失敗・更新）は一切しない', async () => {
     const w = writes();
     const res = await api(w.g, {
@@ -314,6 +332,7 @@ describe('再生成のプレビュー（POST …/preview）', () => {
     const body = await res.json();
     expect(body.status).toBe('PREVIEW');
     expect(body.draft.generatedBy).toBe('SERVER');
+    expect(typeof body.previewToken).toBe('string');
     expect(w.calls.n).toBe(0);
   });
 
@@ -323,7 +342,7 @@ describe('再生成のプレビュー（POST …/preview）', () => {
   });
 });
 
-describe('採用・開始は、計画書が参照した確定KPIが正式データと一致する時だけ進める（API経路）', () => {
+describe('採用・開始は、計画書の参照KPIを最新の正式KPIに合わせ、止めない（API経路）', () => {
   const PROJ = 'fict-proj-renewal';
   const k = { companyId: CO, strategyId: ST, projectId: PROJ };
   const recP = (version: number, over: Partial<PlanDocRecord> = {}): PlanDocRecord => ({ ...rec(version), key: k, ...over });
@@ -342,17 +361,122 @@ describe('採用・開始は、計画書が参照した確定KPIが正式デー�
   }
   const patchKpi = (id: string, patch: Record<string, unknown>) => (list: Array<Record<string, unknown>>) =>
     list.map((x) => (x.id === id ? { ...x, ...patch } : x));
+  type Written = { aiDraft?: { plan: { section3: { protectedKpis: Array<Record<string, unknown>> } } } };
+  const keptList = (w: Written) => w.aiDraft?.plan.section3.protectedKpis ?? [];
 
   it('KPIが変わっていなければ、採用できる（従来どおり 200）', async () => {
     const res = await api(gateway({ findPlan: async () => ok(recP(1)) })).transition(adopt(1));
     expect(res.status).toBe(200);
   });
 
-  it('目標値が変わった計画は採用できない（422・KPI名と変更内容を返し、計画書は書き換えない）', async () => {
-    let written = false;
+  it('目標値が変わった計画も採用でき、参照は最新の目標値に合い、計画本文は変わらない', async () => {
+    let written: Written | null = null;
     const g = gateway({
       findPlan: async () => ok(recP(1)),
       readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { target: 120 }))),
+      updatePlan: async (_key, _v, patch) => {
+        written = patch as Written;
+        return ok(recP(2));
+      },
+    });
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(200);
+    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-1')?.target).toBe(120);
+    expect(written!.aiDraft!.plan).toEqual(expect.objectContaining({ section1: expect.anything() }));
+  });
+
+  it.each([
+    ['単位', { unit: '件' }, 'unit', '件'],
+    ['期限', { due: '2027-12' }, 'due', '2027-12'],
+    ['担当', { owner: '別の担当（仮）' }, 'owner', '別の担当（仮）'],
+    ['名称', { label: '保守契約の更新件数' }, 'label', '保守契約の更新件数'],
+  ])('%sが変わった計画も採用でき、参照に最新の値が入る（200）', async (_name, patch, field, value) => {
+    let written: Written | null = null;
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', patch))),
+      updatePlan: async (_key, _v, p) => {
+        written = p as Written;
+        return ok(recP(2));
+      },
+    });
+    expect((await api(g).transition(adopt(1))).status).toBe(200);
+    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-1')?.[field]).toBe(value);
+  });
+
+  it('KPIが正式データから消えても止めず、旧い目標値は出さず、名称に注記する（200）', async () => {
+    let written: Written | null = null;
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(strategyWhere((list) => list.filter((x) => x.id !== 'kr-renew-1'))),
+      updatePlan: async (_key, _v, p) => {
+        written = p as Written;
+        return ok(recP(2));
+      },
+    });
+    expect((await api(g).transition(adopt(1))).status).toBe(200);
+    const gone = keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-1');
+    expect(gone).toMatchObject({ target: null, confirmation: 'UNCONFIRMED' });
+    expect(String(gone?.label)).toContain('正式データにありません');
+  });
+
+  it('KPIが計画書の作成後に追加されても止めず、最新の確定KPIを保護一覧に加える（200）', async () => {
+    let written: Written | null = null;
+    const added = strategyWhere((list) => [
+      ...list,
+      { id: 'kr-renew-4', label: '新しく確定した指標', target: 10, unit: '%', due: '2027-08', owner: null, targetBasis: 'USER_CONFIRMED' },
+    ]);
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(added),
+      updatePlan: async (_key, _v, p) => {
+        written = p as Written;
+        return ok(recP(2));
+      },
+    });
+    expect((await api(g).transition(adopt(1))).status).toBe(200);
+    expect(keptList(written!).map((x) => x.stage3KpiId)).toContain('kr-renew-4');
+  });
+
+  it('目標値が未入力のKPIは、0にせず未設定のまま（200）', async () => {
+    let written: Written | null = null;
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-2', { target: null }))),
+      updatePlan: async (_key, _v, p) => {
+        written = p as Written;
+        return ok(recP(2));
+      },
+    });
+    expect((await api(g).transition(adopt(1))).status).toBe(200);
+    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-2')?.target).toBeNull();
+  });
+
+  it('AIが仮に置いたKPI（確定ではない）が変わっても、確定の保護一覧は変えない（200）', async () => {
+    let written: Written | null = null;
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-3', { target: 4 }))),
+      updatePlan: async (_key, _v, p) => {
+        written = p as Written;
+        return ok(recP(2));
+      },
+    });
+    expect((await api(g).transition(adopt(1))).status).toBe(200);
+    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-3')).toBeUndefined();
+  });
+
+  it('対象プロジェクトが正式データに無ければ、採用せず、計画書も書き換えない（422）', async () => {
+    let written = false;
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => {
+        const row = strategyRow();
+        for (const d of row.departments as Array<{ projects: Array<Record<string, unknown>> }>) {
+          d.projects = d.projects.filter((p) => p.id !== PROJ);
+        }
+        return ok(row);
+      },
       updatePlan: async () => {
         written = true;
         return ok(recP(2));
@@ -360,94 +484,23 @@ describe('採用・開始は、計画書が参照した確定KPIが正式デー�
     });
     const res = await api(g).transition(adopt(1));
     expect(res.status).toBe(422);
-    const blockers: string[] = (await res.json()).blockers;
-    expect(blockers.join('\n')).toContain('保守契約の継続率');
-    expect(blockers.join('\n')).toContain('目標値が変わっています');
-    expect(blockers.join('\n')).toContain('95');
-    expect(blockers.join('\n')).toContain('120');
+    expect((await res.json()).blockers.join('\n')).toContain('対象プロジェクト');
     expect(written).toBe(false);
   });
 
-  it.each([
-    ['単位', { unit: '件' }, '単位が変わっています'],
-    ['期限', { due: '2027-12' }, '期限が変わっています'],
-    ['担当', { owner: '別の担当（仮）' }, '担当が変わっています'],
-    ['名称', { label: '保守契約の更新件数' }, '名称が変わっています'],
-    ['確定の状態', { targetBasis: 'AI_PROVISIONAL' }, '確定の状態が変わっています'],
-  ])('%sが変わった計画は採用できない（422）', async (_name, patch, text) => {
-    const g = gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', patch))) });
-    const res = await api(g).transition(adopt(1));
-    expect(res.status).toBe(422);
-    expect((await res.json()).blockers.join('\n')).toContain(text);
-  });
-
-  it('KPIが削除された、または番号が変わった計画は採用できない（422）', async () => {
-    const removed = gateway({
-      findPlan: async () => ok(recP(1)),
-      readStrategyRow: async () => ok(strategyWhere((list) => list.filter((x) => x.id !== 'kr-renew-1'))),
-    });
-    const removedRes = await api(removed).transition(adopt(1));
-    expect(removedRes.status).toBe(422);
-    expect((await removedRes.json()).blockers.join('\n')).toContain('正式データにありません');
-
-    const renumbered = gateway({
-      findPlan: async () => ok(recP(1)),
-      readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { id: 'kr-renew-9' }))),
-    });
-    const renumberedRes = await api(renumbered).transition(adopt(1));
-    expect(renumberedRes.status).toBe(422);
-    const text = (await renumberedRes.json()).blockers.join('\n');
-    expect(text).toContain('正式データにありません');
-    expect(text).toContain('追加されています');
-  });
-
-  it('KPIが計画書の作成後に追加された計画は採用できない（422）', async () => {
-    const added = strategyWhere((list) => [
-      ...list,
-      { id: 'kr-renew-4', label: '新しく確定した指標', target: 10, unit: '%', due: '2027-08', owner: null, targetBasis: 'USER_CONFIRMED' },
-    ]);
-    const res = await api(gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(added) })).transition(adopt(1));
-    expect(res.status).toBe(422);
-    expect((await res.json()).blockers.join('\n')).toContain('新しく確定した指標');
-  });
-
-  it('目標0と未入力は区別する：目標0のKPIが5に変われば採用できない', async () => {
-    const res = await api(
-      gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-2', { target: 5 }))) })
-    ).transition(adopt(1));
-    expect(res.status).toBe(422);
-    expect((await res.json()).blockers.join('\n')).toContain('目標値が変わっています');
-  });
-
-  it('AIが仮に置いたKPI（確定ではない）が変わっても、確定KPIの照合では止めない', async () => {
-    const res = await api(
-      gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-3', { target: 4 }))) })
-    ).transition(adopt(1));
-    expect(res.status).toBe(200);
-  });
-
-  it('計画書の利用者の修正は、正式KPIの変更とみなさない（正式データが同じなら採用できる）', async () => {
-    const res = await api(
-      gateway({ findPlan: async () => ok(recP(1, { userEdits: { 'section1.purpose': '利用者が修正した目的' } })) })
-    ).transition(adopt(1));
-    expect(res.status).toBe(200);
-  });
-
-  it('採用後にKPIが変わった計画は、開始できない（422・計画書は書き換えない）', async () => {
-    let written = false;
-    const adoptedRec = recP(2, { adoption: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z', edits: {} } });
+  it('採用後にKPIが変わった計画も、開始できる（200）', async () => {
+    let written: Written | null = null;
+    const adoptedRec = recP(2, { adoption: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z', edits: { responsible: '佐藤（仮）' } }, userEdits: { responsible: '佐藤（仮）' } });
     const g = gateway({
       findPlan: async () => ok(adoptedRec),
       readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { target: 120 }))),
-      updatePlan: async () => {
-        written = true;
+      updatePlan: async (_key, _v, p) => {
+        written = p as Written;
         return ok(recP(3));
       },
     });
-    const res = await api(g).transition(start(2));
-    expect(res.status).toBe(422);
-    expect((await res.json()).blockers.join('\n')).toContain('目標値が変わっています');
-    expect(written).toBe(false);
+    expect((await api(g).transition(start(2))).status).toBe(200);
+    expect(written).not.toBeNull();
   });
 
   it('正式データを読めなければ、採用せず、計画書も書き換えない（500）', async () => {
@@ -476,7 +529,7 @@ describe('実行開始の一連の操作（保存された草案から、API経�
   const bundleWithoutRegulatoryItems = (): Record<string, unknown> =>
     JSON.parse(JSON.stringify(bundle).replace(/規制|法令|薬機|医療機器|安全|認証|許認可|コンプライアンス/g, '運用'));
 
-  /* 状態を保持する保存先（採用・規制・開始の結果が次の操作に引き継がれる） */
+  /* 状態を保持する保存先（採用・規制・開始・草案の差し替えの結果が次の操作に引き継がれる） */
   function statefulGateway(initial: PlanDocRecord) {
     let current = initial;
     const g = gateway({
@@ -486,6 +539,7 @@ describe('実行開始の一連の操作（保存された草案から、API経�
         current = {
           ...current,
           version: current.version + 1,
+          aiDraft: patch.aiDraft !== undefined ? patch.aiDraft : current.aiDraft,
           adoption: patch.adoption !== undefined ? patch.adoption : current.adoption,
           startInfo: patch.startInfo !== undefined ? patch.startInfo : current.startInfo,
           regulatory: patch.regulatory !== undefined ? patch.regulatory : current.regulatory,
@@ -517,27 +571,33 @@ describe('実行開始の一連の操作（保存された草案から、API経�
     expect(store.state().adoption).not.toBeNull();
   });
 
-  it('規制・安全の項目が無い案件でも、未確認や適用ありを勝手に対象外にはしない', async () => {
-    const store = statefulGateway(saved(bundleWithoutRegulatoryItems()));
-    const a = api(store.g);
-    await a.transition(call('ADOPT', 1));
-    const undecided = await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'UNCONFIRMED' } }));
-    expect(undecided.status).toBe(200);
-    const blocked = await a.transition(call('START', 3));
-    expect(blocked.status).toBe(422);
-    expect((await blocked.json()).blockers.join('\n')).toContain('開始を保留');
-    expect(store.state().startInfo).toBeNull();
-  });
-
   it('規制・安全の項目がある案件も、語では開始を妨げない（記録が無くても開始でき、規制の記録は作られない）', async () => {
     const store = statefulGateway(saved(bundle));
     const a = api(store.g);
     expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
-    const start = await a.transition(call('START', 2));
-    expect(start.status).toBe(200);
+    expect((await a.transition(call('START', 2))).status).toBe(200);
     expect(store.state().startInfo).not.toBeNull();
     expect(store.state().regulatory).toBeUndefined();
   });
+
+  it('規制の記録の入力の検査は従来どおり（対象外だけでは、項目がある案件は記録できない）', async () => {
+    const store = statefulGateway(saved(bundle));
+    const a = api(store.g);
+    await a.transition(call('ADOPT', 1));
+    const onlyNa = await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'NOT_APPLICABLE' } }));
+    expect(onlyNa.status).toBe(400);
+  });
+
+  it('「未確認」の記録は開始を止めず、記録も確認済みに変えない', async () => {
+    const store = statefulGateway(saved(bundle));
+    const a = api(store.g);
+    expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
+    expect((await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'UNCONFIRMED' } }))).status).toBe(200);
+    expect((await a.transition(call('START', 3))).status).toBe(200);
+    expect(store.state().startInfo).not.toBeNull();
+    expect(store.state().regulatory).toMatchObject({ decision: 'UNCONFIRMED' });
+  });
+
   it('確認事項の無い案件は、規制の記録が無くても、採用から開始まで進める', async () => {
     const store = statefulGateway(saved(bundleWithoutRegulatoryItems()));
     const a = api(store.g);
@@ -547,22 +607,100 @@ describe('実行開始の一連の操作（保存された草案から、API経�
     expect(store.state().regulatory).toBeUndefined();
   });
 
-  it('明示的に「未確認」と記録された案件は開始が保留され、記録を済ませれば同じ操作で開始できる', async () => {
-    const store = statefulGateway(saved(bundle));
-    const a = api(store.g);
-    expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
-    expect((await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'UNCONFIRMED' } }))).status).toBe(200);
-    const held = await a.transition(call('START', 3));
-    expect(held.status).toBe(422);
-    expect((await held.json()).blockers.join('\n')).toContain('開始を保留');
+  it('採用せずに開始しても、開始の処理の中で採用されてから開始する', async () => {
+    const store = statefulGateway(saved(bundleWithoutRegulatoryItems()));
+    expect((await api(store.g).transition(call('START', 1))).status).toBe(200);
     expect(store.state().adoption).not.toBeNull();
+    expect(store.state().startInfo).not.toBeNull();
+  });
+
+  it('実行責任者が無ければ、開始は止まる（理由つき）', async () => {
+    const store = statefulGateway({ ...saved(bundleWithoutRegulatoryItems()), userEdits: {} });
+    const res = await api(store.g).transition(call('START', 1));
+    expect(res.status).toBe(422);
+    expect((await res.json()).blockers.join('\n')).toContain('実行責任者');
     expect(store.state().startInfo).toBeNull();
-    const recorded = await a.transition(
-      call('RECORD_REGULATORY', 3, {
-        regulatory: { decision: 'NOT_APPLICABLE', judgement: '医療機器に当たらない', basis: '該当性チェック表', confirmer: '法務 山田', confirmedOn: '2026-11-08' },
-      })
+  });
+});
+
+describe('再生成の案：プレビューの署名と「この案を使う」（POST …/use-draft）', () => {
+  const PROJ = 'fict-proj-renewal';
+  const k = { companyId: CO, strategyId: ST, projectId: PROJ };
+  const previewReq = () => req('POST', 'plan-documents/preview', { ...k });
+  const generation = {
+    currentYm: () => '2026-11',
+    mapStrategy: (row: Record<string, unknown>) => row as never,
+    modelFor: (async (raw: never) => {
+      const { createMockModel } = await import('./mockGenerate');
+      const m = createMockModel(raw);
+      return async (prompt: string) => m(prompt);
+    }) as never,
+  };
+
+  function holder(initial: PlanDocRecord) {
+    let current = initial;
+    const g = gateway({
+      findPlan: async () => ok(current),
+      updatePlan: async (_key, expected, patch) => {
+        if (current.version !== expected) return ok(null);
+        current = {
+          ...current,
+          version: current.version + 1,
+          aiDraft: patch.aiDraft !== undefined ? patch.aiDraft : current.aiDraft,
+          adoption: patch.adoption !== undefined ? patch.adoption : current.adoption,
+          startInfo: patch.startInfo !== undefined ? patch.startInfo : current.startInfo,
+          userEdits: patch.userEdits ?? current.userEdits,
+        };
+        return ok(current);
+      },
+    });
+    return { g, state: () => current };
+  }
+  const base = (): PlanDocRecord => ({ ...rec(1), key: k, aiDraft: bundle, userEdits: { responsible: '佐藤（仮）', 'action:1:title': '利用者の修正' } });
+
+  it('プレビューの案を「この案を使う」で現在の計画書にする。利用者の編集は残り、採用・開始の記録は外れる', async () => {
+    const h = holder(base());
+    const previewed = await api(h.g, { generation }).preview(previewReq());
+    expect(previewed.status).toBe(200);
+    const body = await previewed.json();
+    const used = await api(h.g, { generation }).useDraft(
+      req('POST', 'plan-documents/use-draft', { ...k, expectedVersion: 1, draft: body.draft, previewToken: body.previewToken })
     );
-    expect(recorded.status).toBe(200);
-    expect((await a.transition(call('START', 4))).status).toBe(200);
+    expect(used.status).toBe(200);
+    expect(h.state().aiDraft).toEqual(body.draft);
+    expect(h.state().userEdits).toEqual({ responsible: '佐藤（仮）', 'action:1:title': '利用者の修正' });
+    expect(h.state().adoption).toBeNull();
+    expect(h.state().startInfo).toBeNull();
+  });
+
+  it('案の内容を書き換えた場合や、別の署名の場合は使えない（409 PREVIEW_EXPIRED・計画書は変わらない）', async () => {
+    const h = holder(base());
+    const body = await (await api(h.g, { generation }).preview(previewReq())).json();
+    const tampered = { ...body.draft, plan: { ...body.draft.plan, section1: { purpose: '差し替えた内容' } } };
+    const res = await api(h.g, { generation }).useDraft(
+      req('POST', 'plan-documents/use-draft', { ...k, expectedVersion: 1, draft: tampered, previewToken: body.previewToken })
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).status).toBe('PREVIEW_EXPIRED');
+    expect(h.state().aiDraft).toBe(bundle);
+  });
+
+  it('採用・開始の済んだ計画は差し替えられない（409 NOT_READY）', async () => {
+    const h = holder({ ...base(), adoption: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z', edits: {} }, adopted: true });
+    const body = await (await api(h.g, { generation }).preview(previewReq())).json();
+    const res = await api(h.g, { generation }).useDraft(
+      req('POST', 'plan-documents/use-draft', { ...k, expectedVersion: 1, draft: body.draft, previewToken: body.previewToken })
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).status).toBe('NOT_READY');
+  });
+
+  it('秘密の値が無い環境では、差し替えも 503（保存しない）', async () => {
+    const h = holder(base());
+    const res = await api(h.g, { previewSecret: null }).useDraft(
+      req('POST', 'plan-documents/use-draft', { ...k, expectedVersion: 1, draft: bundle, previewToken: 'x.y' })
+    );
+    expect(res.status).toBe(503);
+    expect(h.state().aiDraft).toBe(bundle);
   });
 });

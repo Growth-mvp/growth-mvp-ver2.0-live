@@ -72,6 +72,7 @@ function world(bundle: Bundle) {
         ...record,
         version: record.version + 1,
         updatedBy: USER,
+        aiDraft: patch.aiDraft !== undefined ? (patch.aiDraft as Record<string, unknown>) : record.aiDraft,
         userEdits: (patch.userEdits as PlanDocRecord['userEdits'] | undefined) ?? record.userEdits,
         adoption: patch.adoption !== undefined ? (patch.adoption as PlanDocRecord['adoption']) : record.adoption,
         startInfo: patch.startInfo !== undefined ? (patch.startInfo as PlanDocRecord['startInfo']) : record.startInfo,
@@ -198,7 +199,7 @@ describe('STAGE4 の実行開始 → STAGE5 の表示（保存・認証・状態
     expect(stage5.views[0].responsible).toContain('佐藤');
   });
 
-  it('明示的に「未確認」と記録された案件は開始が保留され、STAGE5にも出ない', async () => {
+  it('明示的に「未確認」と記録された案件も開始でき、記録は確認済みに変えず、STAGE5に表示される', async () => {
     const w = world(withRegulatoryItems);
     const saved = await w.store().update(ACTOR, KEY, 1, { userEdits: { responsible: '佐藤（仮）' }, adopted: false });
     if (saved.status !== 'SAVED') throw new Error('save');
@@ -206,14 +207,13 @@ describe('STAGE4 の実行開始 → STAGE5 の表示（保存・認証・状態
     if (adopted.status !== 'OK') throw new Error('adopt');
     const held = await w.ops.transition(KEY, adopted.record.version, 'RECORD_REGULATORY', { decision: 'UNCONFIRMED' });
     if (held.status !== 'OK') throw new Error('record');
-    const blocked = await w.ops.transition(KEY, held.record.version, 'START');
-    expect(blocked.status).toBe('BLOCKED');
-    if (blocked.status !== 'BLOCKED') throw new Error('blocked');
-    expect(blocked.blockers.join('\n')).toContain('開始を保留');
-    expect((await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) })).views).toHaveLength(0);
+    const started = await w.ops.transition(KEY, held.record.version, 'START');
+    expect(started.status).toBe('OK');
+    expect(w.record().regulatory).toMatchObject({ decision: 'UNCONFIRMED' });
+    expect((await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) })).views).toHaveLength(1);
   });
 
-  it('正式なKPIが変わった計画は開始できず、STAGE5にも開始済みとして出ない（理由は422で返る）', async () => {
+  it('正式なKPIが変わった計画も開始でき、STAGE5には最新のKPIの目標値が出る', async () => {
     const w = world(withoutRegulatoryItems);
     const saved = await w.store().update(ACTOR, KEY, 1, { userEdits: { responsible: '佐藤（仮）' }, adopted: false });
     if (saved.status !== 'SAVED') throw new Error('save');
@@ -223,13 +223,11 @@ describe('STAGE4 の実行開始 → STAGE5 の表示（保存・認証・状態
     if (recorded.status !== 'OK') throw new Error('record');
 
     w.setFormalKpiTarget('kr-renew-1', 120);
-    const blocked = await w.ops.transition(KEY, recorded.record.version, 'START');
-    expect(blocked.status).toBe('BLOCKED');
-    if (blocked.status !== 'BLOCKED') throw new Error('blocked');
-    expect(blocked.blockers.join('\n')).toContain('保守契約の継続率');
-    expect(blocked.blockers.join('\n')).toContain('目標値が変わっています');
-    expect(w.record().startInfo).toBeNull();
-    expect((await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) })).views).toHaveLength(0);
+    const started = await w.ops.transition(KEY, recorded.record.version, 'START');
+    expect(started.status).toBe('OK');
+    const views = (await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) })).views;
+    expect(views).toHaveLength(1);
+    expect(views[0].kpis.find((k) => k.label === '保守契約の継続率')?.target).toContain('120');
   });
 
   it('別のプロジェクトや別の会社の計画は、STAGE5に混ざらない', async () => {

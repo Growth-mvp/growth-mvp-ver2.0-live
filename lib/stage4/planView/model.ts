@@ -17,12 +17,12 @@ export const EMPTY_REGULATORY: RegulatoryRecord = { decision: null, judgement: '
 export const REGULATORY_DECISION_LABEL: Record<RegulatoryDecision, string> = {
   NOT_APPLICABLE: '適用なし',
   APPLICABLE_PROCEDURE_CONFIRMED: '適用あり（必要な手続きを確認した）',
-  UNCONFIRMED: '未確認（開始を保留する）',
+  UNCONFIRMED: '未確認',
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-/** 規制の記録が、開始の判断に使える程度に揃っているか。「未確認」は揃っていても開始を保留する。
+/** 規制の記録が、確認済みとして揃っているか。「未確認」は完了としない（開始は止めない）。
  * 確認事項が無い案件（required=false）は、利用者が「未確認」と明示した時だけ保留する。確認事項が無いことを理由に、判断を勝手に決めない */
 export function regulatoryComplete(r: RegulatoryRecord, required = true): boolean {
   if (!required) return r.decision !== 'UNCONFIRMED';
@@ -36,27 +36,12 @@ export function regulatoryComplete(r: RegulatoryRecord, required = true): boolea
   );
 }
 
-export type StartInput = {
-  adopted: boolean;
-  responsibleConfirmed: boolean;
-  regulatory: RegulatoryRecord;
-};
+export type StartInput = { responsibleConfirmed: boolean };
 
-export const ADOPT_FIRST_BLOCKER = '先に計画案を採用してください';
-export const REGULATORY_HOLD_BLOCKER = '規制・安全は「未確認」として記録されているため、開始を保留しています';
-
-/* 規制・安全の記録が「未確認」と明示されている時だけ、開始を保留する。
- * 計画書の語（「安全」「規制」など）や、確認事項の有無では止めない。 */
-export function regulatoryHeld(r: RegulatoryRecord): boolean {
-  return r.decision === 'UNCONFIRMED';
-}
-
-/* 実行開始の条件：採用、実行責任者、規制・安全の明示的な保留がないこと */
+/* 実行開始の条件は、実行責任者が設定されていること。採用・KPIの整合・規制の記録は、開始の処理の中で扱い、ここでは止めない */
 export function startGate(input: StartInput): { startable: boolean; blockers: string[] } {
   const blockers: string[] = [];
-  if (!input.adopted) blockers.push(ADOPT_FIRST_BLOCKER);
   if (!input.responsibleConfirmed) blockers.push('実行責任者を確定してください');
-  if (regulatoryHeld(input.regulatory)) blockers.push(REGULATORY_HOLD_BLOCKER);
   return { startable: blockers.length === 0, blockers };
 }
 

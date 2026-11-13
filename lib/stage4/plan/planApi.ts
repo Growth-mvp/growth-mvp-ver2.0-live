@@ -5,7 +5,8 @@ import { z } from 'zod';
 
 import { generatePlanDraft, previewPlanDraft, type GenerateDeps } from './planGenerate';
 import { listPlans } from './planService';
-import { TRANSITION_ACTIONS, transitionPlan } from './planTransitions';
+import { TRANSITION_ACTIONS, transitionPlan, type TransitionOutcome } from './planTransitions';
+import { signPreview, verifyPreview } from './previewToken';
 import {
   SAVE_FAILED,
   assignProjectIdentity,
@@ -26,9 +27,32 @@ export type PlanApiDeps = {
   /** 保存テーブルがこの環境のデータベースにあるか（読み取りのみで確認する）。無ければ 503 UNAVAILABLE を返す */
   storeAvailable?: (req: Request) => Promise<boolean>;
   generation: Omit<GenerateDeps, 'now'> & { now?: () => string };
+  /* 再生成の案の署名に使う秘密の値。無ければ、再生成の案は作らず、保存もしない（503） */
+  previewSecret?: string | null;
   companyNameOf?: (companyId: string) => string;
   now?: () => string;
 };
+
+function transitionResponse(out: TransitionOutcome): Response {
+  switch (out.status) {
+    case 'OK':
+      return json(200, { status: 'OK', record: out.record });
+    case 'CONFLICT':
+      return json(409, { status: 'CONFLICT', current: out.current });
+    case 'BLOCKED':
+      return json(422, { status: 'BLOCKED', blockers: out.blockers });
+    case 'INVALID':
+      return json(400, { status: 'INVALID', message: out.message });
+    case 'NOT_FOUND':
+      return json(404, { status: 'NOT_FOUND' });
+    case 'NOT_READY':
+      return json(409, { status: 'NOT_READY' });
+    case 'DENIED':
+      return json(403, { status: 'DENIED' });
+    default:
+      return json(500, { status: 'FAILED', message: out.message });
+  }
+}
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -51,6 +75,11 @@ const TransitionBody = Key.extend({
   expectedVersion: z.number().int().min(1),
   action: z.enum(TRANSITION_ACTIONS),
   regulatory: z.unknown().optional(),
+});
+const UseDraftBody = Key.extend({
+  expectedVersion: z.number().int().min(1),
+  draft: z.record(z.string(), z.unknown()),
+  previewToken: z.string().min(1).max(20000),
 });
 const IdentityBody = z.object({
   companyId: z.string().uuid(),
@@ -176,6 +205,7 @@ export function createPlanApi(deps: PlanApiDeps) {
   /* 再生成のプレビュー（POST …/preview）：保存せず、新しい案だけを返す */
   async function preview(req: Request): Promise<Response> {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+    if (!deps.previewSecret) return json(503, { status: 'DISABLED' });
     const auth = await withUser(req);
     if ('error' in auth) return auth.error;
 
@@ -188,8 +218,11 @@ export function createPlanApi(deps: PlanApiDeps) {
       { ...deps.generation, now: deps.generation.now ?? now }
     );
     switch (out.status) {
-      case 'PREVIEW':
-        return json(200, { status: 'PREVIEW', draft: out.draft });
+      case 'PREVIEW': {
+        const key = { companyId, strategyId, projectId };
+        const previewToken = signPreview(deps.previewSecret, key, out.draft, Date.parse(now()));
+        return json(200, { status: 'PREVIEW', draft: out.draft, previewToken });
+      }
       case 'NOT_FOUND':
         return json(404, { status: 'NOT_FOUND' });
       case 'DENIED':
@@ -215,24 +248,24 @@ export function createPlanApi(deps: PlanApiDeps) {
       regulatory,
       now: now(),
     });
-    switch (out.status) {
-      case 'OK':
-        return json(200, { status: 'OK', record: out.record });
-      case 'CONFLICT':
-        return json(409, { status: 'CONFLICT', current: out.current });
-      case 'BLOCKED':
-        return json(422, { status: 'BLOCKED', blockers: out.blockers });
-      case 'INVALID':
-        return json(400, { status: 'INVALID', message: out.message });
-      case 'NOT_FOUND':
-        return json(404, { status: 'NOT_FOUND' });
-      case 'NOT_READY':
-        return json(409, { status: 'NOT_READY' });
-      case 'DENIED':
-        return json(403, { status: 'DENIED' });
-      default:
-        return json(500, { status: 'FAILED', message: out.message });
+    return transitionResponse(out);
+  }
+
+  /* 再生成の案を、現在の計画書として保存する（POST …/use-draft）。案は、プレビューでサーバーが作って署名したものだけ */
+  async function useDraft(req: Request): Promise<Response> {
+    if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+    if (!deps.previewSecret) return json(503, { status: 'DISABLED' });
+    const auth = await withUser(req);
+    if ('error' in auth) return auth.error;
+    const parsed = UseDraftBody.safeParse(await readJson(req));
+    if (!parsed.success) return json(400, { error: 'Invalid input' });
+    const { companyId, strategyId, projectId, expectedVersion, draft, previewToken } = parsed.data;
+    const key = { companyId, strategyId, projectId };
+    if (!verifyPreview(deps.previewSecret, previewToken, key, draft, Date.parse(now()))) {
+      return json(409, { status: 'PREVIEW_EXPIRED' });
     }
+    const out = await transitionPlan(auth.ctx, key, expectedVersion, 'USE_DRAFT', { now: now(), aiDraft: draft });
+    return transitionResponse(out);
   }
 
   /* プロジェクトの番号：GET（戦略の版番号と各プロジェクトの番号）、POST（番号の付与） */
@@ -279,6 +312,7 @@ export function createPlanApi(deps: PlanApiDeps) {
     preview: (req: Request) => (deps.enabled ? preview(req) : off()),
     list: (req: Request) => (deps.enabled ? list(req) : off()),
     transition: (req: Request) => (deps.enabled ? transition(req) : off()),
+    useDraft: (req: Request) => (deps.enabled ? useDraft(req) : off()),
     identity: (req: Request) => (deps.enabled ? identity(req) : off()),
   };
 }

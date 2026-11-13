@@ -3,7 +3,6 @@ import {
   financeAmountText,
   isRegulatoryTask,
   regulatoryComplete,
-  regulatoryHeld,
   startGate,
   type RegulatoryRecord,
 } from './model';
@@ -21,7 +20,7 @@ describe('規制・安全の記録', () => {
     expect(regulatoryComplete(complete)).toBe(true);
   });
 
-  it('「未確認」は、他が揃っていても完了としない（開始を保留する）', () => {
+  it('「未確認」は、他が揃っていても完了としない', () => {
     expect(regulatoryComplete({ ...complete, decision: 'UNCONFIRMED' })).toBe(false);
   });
 
@@ -38,41 +37,15 @@ describe('規制・安全の記録', () => {
   });
 });
 
-describe('実行開始の条件', () => {
-  const base = {
-    adopted: true,
-    responsibleConfirmed: true,
-    regulatory: complete,
-  };
-
-  it('すべて揃えば開始できる', () => {
-    expect(startGate(base)).toEqual({ startable: true, blockers: [] });
-  });
-
-  it('採用していなければ開始できない', () => {
-    const r = startGate({ ...base, adopted: false });
-    expect(r.startable).toBe(false);
-    expect(r.blockers).toContain('先に計画案を採用してください');
+describe('実行開始の条件（実行責任者があれば開始できる）', () => {
+  it('実行責任者が設定されていれば開始できる（採用・規制の記録・KPIの整合は、ここでは止めない）', () => {
+    expect(startGate({ responsibleConfirmed: true })).toEqual({ startable: true, blockers: [] });
   });
 
   it('責任者が未確定なら開始できない', () => {
-    expect(startGate({ ...base, responsibleConfirmed: false }).blockers).toContain('実行責任者を確定してください');
-  });
-
-  it('規制・安全の記録が「未確認」と明示されていれば、開始を保留する', () => {
-    const r = startGate({ ...base, regulatory: { ...complete, decision: 'UNCONFIRMED' } });
+    const r = startGate({ responsibleConfirmed: false });
     expect(r.startable).toBe(false);
-    expect(r.blockers.join(' ')).toContain('開始を保留');
-  });
-
-  it('規制・安全の記録が無くても、語（規制・安全など）では開始を妨げない（準備活動として開始できる）', () => {
-    expect(startGate({ ...base, regulatory: EMPTY_REGULATORY }).startable).toBe(true);
-  });
-
-  it('「未確認」の判定だけを保留と扱い、記録が無いことは虚偽の完了として扱わない', () => {
-    expect(regulatoryHeld(EMPTY_REGULATORY)).toBe(false);
-    expect(regulatoryHeld({ ...EMPTY_REGULATORY, decision: 'UNCONFIRMED' })).toBe(true);
-    expect(regulatoryHeld({ ...EMPTY_REGULATORY, decision: 'NOT_APPLICABLE' })).toBe(false);
+    expect(r.blockers).toEqual(['実行責任者を確定してください']);
   });
 });
 

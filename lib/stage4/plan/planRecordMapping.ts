@@ -47,6 +47,7 @@ export function rowToEvent(row: Row): PlanDocEvent {
 /* 更新の内容を、表の列の値にする（省略した項目は含めない） */
 export function patchColumns(patch: PlanPatch, userId: string): Record<string, unknown> {
   const cols: Record<string, unknown> = { updated_by: userId };
+  if (patch.aiDraft !== undefined) cols.ai_draft = patch.aiDraft;
   if (patch.userEdits !== undefined) cols.user_edits = patch.userEdits;
   if (patch.adoption !== undefined) {
     cols.adopted = patch.adoption !== null;

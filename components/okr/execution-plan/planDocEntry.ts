@@ -83,6 +83,7 @@ export const entryFromRecord = (record: PlanDocRecord): PlanDocEntry => ({
 export function entryAfterTransition(entry: PlanDocEntry, record: PlanDocRecord, notice: string | null = null): PlanDocEntry {
   return {
     ...entry,
+    aiDraft: record.aiDraft,
     stored: { version: record.version, base: record.userEdits, adopted: record.adopted },
     plan: {
       ...entry.plan,

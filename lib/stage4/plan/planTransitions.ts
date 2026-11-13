@@ -1,16 +1,14 @@
 /* 採用・規制の記録・実行開始・開始の取り消しの規則（サーバー側）。
  * 判定は画面と同じ関数（computePlanView）を使い、保存された内容だけで決める。画面の表示は信用しない。
  * 採用は AI提案KPI の確定を意味しない。ここでは okrsV2 や経路Bには触れない。 */
-import { regulatoryComplete, regulatoryHeld, REGULATORY_HOLD_BLOCKER, EMPTY_REGULATORY, type RegulatoryRecord } from '../planView/model';
+import { regulatoryComplete, EMPTY_REGULATORY, type RegulatoryRecord } from '../planView/model';
 import { computePlanView, INITIAL_PLAN_STATE } from '../planView/planState';
 import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
 import { allowed, type ServiceContext } from './planService';
-import { splitKpisByBasis } from './kpiBasis';
-import { stableIdOf } from './projectResolver';
-import { kpisOfProject } from './source';
+import { refreshKpiReference } from './kpiReference';
 
 export const TRANSITION_ACTIONS = ['ADOPT', 'UNADOPT', 'RECORD_REGULATORY', 'START', 'UNSTART'] as const;
-export type TransitionAction = (typeof TRANSITION_ACTIONS)[number];
+export type TransitionAction = (typeof TRANSITION_ACTIONS)[number] | 'USE_DRAFT';
 
 const DECISIONS = ['NOT_APPLICABLE', 'APPLICABLE_PROCEDURE_CONFIRMED', 'UNCONFIRMED'] as const;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -56,72 +54,18 @@ export function validateRegulatory(
   return { ok: true, value };
 }
 
-const CONFIRMATION_TEXT = { USER_CONFIRMED: '確定', UNCONFIRMED: '未確認' } as const;
-const shown = (v: unknown) => (v === null || v === undefined || v === '' ? '未設定' : String(v));
+type Reference = { failed: true } | { failed: false; blockers: string[]; aiDraft: Record<string, unknown> };
 
-type PlannedKpi = {
-  stage3KpiId: string;
-  label: string;
-  target: number | null;
-  unit: string;
-  due: string | null;
-  owner: string | null;
-  confirmation?: keyof typeof CONFIRMATION_TEXT;
-};
-
-/* 計画書が参照した確定KPIと、いま正式データにあるKPIの食い違い（採用・開始を止める理由）。照合は安定IDで行う。 */
-export function kpiDriftOf(aiDraft: Record<string, unknown>, departments: unknown, projectId: string): string[] {
-  const plan = aiDraft.plan as { section3?: { protectedKpis?: unknown } } | null | undefined;
-  const planned = plan?.section3?.protectedKpis;
-  if (!Array.isArray(planned)) return ['計画書に確定KPIの記録がありません。計画書を作り直してください'];
-  const projects = (Array.isArray(departments) ? (departments as Array<{ projects?: unknown }>) : [])
-    .flatMap((d) => (Array.isArray(d?.projects) ? (d.projects as Array<Record<string, unknown>>) : []))
-    .filter((p) => stableIdOf(p) === projectId);
-  if (projects.length !== 1) {
-    return ['計画書の対象プロジェクトを正式データで確定できません（削除、または番号の変更の可能性）。計画書を作り直してください'];
-  }
-  const all = kpisOfProject(projects[0]);
-  const byId = new Map(all.map((c) => [c.id, c]));
-  const messages: string[] = [];
-  for (const p of planned as PlannedKpi[]) {
-    const c = byId.get(p.stage3KpiId);
-    if (!c) {
-      messages.push(`KPI「${p.label}」が正式データにありません（削除、または番号の変更）`);
-      continue;
-    }
-    const now = c.basis === 'USER_CONFIRMED' ? 'USER_CONFIRMED' : 'UNCONFIRMED';
-    const fields: Array<[string, string, string]> = [
-      ['名称', p.label, c.label],
-      ['目標値', shown(p.target), shown(c.target)],
-      ['単位', shown(p.unit), shown(c.unit)],
-      ['期限', shown(p.due), shown(c.due)],
-      ['担当', shown(p.owner), shown(c.owner)],
-      ['確定の状態', CONFIRMATION_TEXT[p.confirmation ?? 'UNCONFIRMED'], CONFIRMATION_TEXT[now]],
-    ];
-    for (const [name, was, current] of fields) {
-      if (was !== current) messages.push(`KPI「${p.label}」の${name}が変わっています（計画書: ${was} → 正式データ: ${current}）`);
-    }
-  }
-  const plannedIds = new Set((planned as PlannedKpi[]).map((p) => p.stage3KpiId));
-  for (const c of splitKpisByBasis(all).locked) {
-    if (!plannedIds.has(c.id)) messages.push(`KPI「${c.label}」が計画書の作成後に追加されています`);
-  }
-  return messages.length > 0
-    ? ['正式なKPIが計画書の作成後に変わりました。計画書を作り直してから採用・開始してください', ...messages]
-    : [];
-}
-
-async function kpiBlockersOf(
-  ctx: ServiceContext,
-  key: PlanDocKey,
-  record: PlanDocRecord
-): Promise<{ failed: true } | { failed: false; blockers: string[] }> {
+/* 採用・開始の時に、計画書の参照KPIを最新の正式KPIに合わせる。整合できない時（対象が無い等）だけ止める */
+async function referenceOf(ctx: ServiceContext, key: PlanDocKey, record: PlanDocRecord): Promise<Reference> {
   const row = await ctx.gateway.readStrategyRow(key.companyId, key.strategyId);
   if (!row.ok) return { failed: true };
   if (!row.value || String(row.value.id) !== key.strategyId || String(row.value.company_id) !== key.companyId) {
-    return { failed: false, blockers: ['正式な戦略データを確認できません'] };
+    return { failed: false, blockers: ['正式な戦略データを確認できません'], aiDraft: record.aiDraft };
   }
-  return { failed: false, blockers: kpiDriftOf(record.aiDraft, row.value.departments, key.projectId) };
+  const refreshed = refreshKpiReference(record.aiDraft, row.value.departments, key.projectId);
+  if (!refreshed.ok) return { failed: false, blockers: [refreshed.message], aiDraft: record.aiDraft };
+  return { failed: false, blockers: [], aiDraft: refreshed.aiDraft };
 }
 
 export type TransitionOutcome =
@@ -141,7 +85,7 @@ export async function transitionPlan(
   key: PlanDocKey,
   expectedVersion: number,
   action: TransitionAction,
-  args: { regulatory?: unknown; now: string }
+  args: { regulatory?: unknown; now: string; aiDraft?: Record<string, unknown> }
 ): Promise<TransitionOutcome> {
   const access = await allowed(ctx, key.companyId);
   if (access === 'DENIED') return { status: 'DENIED' };
@@ -169,12 +113,13 @@ export async function transitionPlan(
   switch (action) {
     case 'ADOPT': {
       if (record.adoption) return { status: 'OK', record };
-      const kpi = await kpiBlockersOf(ctx, key, record);
-      if (kpi.failed) return { status: 'FAILED', message: FAILED };
-      if (kpi.blockers.length > 0) return { status: 'BLOCKED', blockers: kpi.blockers };
-      const view = computePlanView(record.aiDraft, state);
+      const reference = await referenceOf(ctx, key, record);
+      if (reference.failed) return { status: 'FAILED', message: FAILED };
+      if (reference.blockers.length > 0) return { status: 'BLOCKED', blockers: reference.blockers };
+      const view = computePlanView(reference.aiDraft, state);
       if (!view.d.adoption.adoptable) return { status: 'BLOCKED', blockers: view.d.adoption.blockers };
       patch = {
+        ...(reference.aiDraft !== record.aiDraft ? { aiDraft: reference.aiDraft } : {}),
         adoption: { version: expectedVersion, byUserId: ctx.userId, at: args.now, edits: record.userEdits },
       };
       break;
@@ -191,17 +136,24 @@ export async function transitionPlan(
       break;
     }
     case 'START': {
-      if (!record.adoption) return { status: 'BLOCKED', blockers: ['先に計画案を採用してください'] };
       if (record.startInfo) return { status: 'OK', record };
-      const kpi = await kpiBlockersOf(ctx, key, record);
-      if (kpi.failed) return { status: 'FAILED', message: FAILED };
-      if (kpi.blockers.length > 0) return { status: 'BLOCKED', blockers: kpi.blockers };
-      const gate = computePlanView(record.aiDraft, state).gate;
-      if (!gate.startable) return { status: 'BLOCKED', blockers: gate.blockers };
-      if (regulatoryHeld(record.regulatory ?? EMPTY_REGULATORY)) {
-        return { status: 'BLOCKED', blockers: [REGULATORY_HOLD_BLOCKER] };
-      }
-      patch = { startInfo: { version: expectedVersion, byUserId: ctx.userId, at: args.now } };
+      const reference = await referenceOf(ctx, key, record);
+      if (reference.failed) return { status: 'FAILED', message: FAILED };
+      if (reference.blockers.length > 0) return { status: 'BLOCKED', blockers: reference.blockers };
+      const view = computePlanView(reference.aiDraft, { ...state, adopted: true });
+      if (!view.d.adoption.adoptable) return { status: 'BLOCKED', blockers: view.d.adoption.blockers };
+      if (!view.gate.startable) return { status: 'BLOCKED', blockers: view.gate.blockers };
+      patch = {
+        ...(reference.aiDraft !== record.aiDraft ? { aiDraft: reference.aiDraft } : {}),
+        ...(record.adoption ? {} : { adoption: { version: expectedVersion, byUserId: ctx.userId, at: args.now, edits: record.userEdits } }),
+        startInfo: { version: expectedVersion, byUserId: ctx.userId, at: args.now },
+      };
+      break;
+    }
+    case 'USE_DRAFT': {
+      if (!args.aiDraft) return { status: 'INVALID', message: '新しい案がありません' };
+      if (record.adoption || record.startInfo) return { status: 'NOT_READY' };
+      patch = { aiDraft: args.aiDraft, adoption: null, startInfo: null };
       break;
     }
     case 'UNSTART': {

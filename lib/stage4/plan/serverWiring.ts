@@ -54,6 +54,7 @@ export const stage4PlanApi = createPlanApi({
   verifyUser: (req) => getAuthUserIdFromBearer(getSupabaseAdmin(), req),
   gatewayFor: (req) => createSupabasePlanGateway(userScopedClient(req)),
   enabled: process.env.STAGE4_PLAN_API_ENABLED === 'true',
+  previewSecret: process.env.STAGE4_PREVIEW_SECRET || null,
   storeAvailable: async (req) => {
     const { error } = await userScopedClient(req).from('stage4_plan_documents').select('id').limit(0);
     return !error || !MISSING_TABLE_CODES.has(error.code ?? '');

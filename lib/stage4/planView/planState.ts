@@ -104,10 +104,6 @@ export function computePlanView(bundle: unknown, s: ProjectPlanState) {
   const responsibleConfirmed = owner?.done === true;
   const regulatoryTasks = d.tasks.filter(isRegulatoryTask);
   const keyTasks = d.tasks.filter((t) => t.gate === 'START' && t.id !== 'owner' && !isRegulatoryTask(t));
-  const gate = startGate({
-    adopted: s.adopted,
-    responsibleConfirmed,
-    regulatory: s.regulatory,
-  });
+  const gate = startGate({ responsibleConfirmed });
   return { d, responsibleConfirmed, regulatoryTasks, keyTasks, gate };
 }

@@ -29,6 +29,7 @@ export type IdentityRpcResult = {
 
 /* 草案の更新で書き換える項目だけを表す（省略した項目は変えない） */
 export type PlanPatch = {
+  aiDraft?: Record<string, unknown>;
   userEdits?: UserEdits;
   adoption?: AdoptionInfo | null;
   regulatory?: RegulatoryRecord;

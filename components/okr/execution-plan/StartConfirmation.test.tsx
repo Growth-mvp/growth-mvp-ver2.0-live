@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { generateMockExecutionPlan } from '@/lib/stage4/plan/mockGenerate';
 import { computePlanView, INITIAL_PLAN_STATE, type ProjectPlanState } from '@/lib/stage4/planView/planState';
-import { EMPTY_REGULATORY, REGULATORY_HOLD_BLOCKER } from '@/lib/stage4/planView/model';
+import { EMPTY_REGULATORY } from '@/lib/stage4/planView/model';
 import StartConfirmation from './StartConfirmation';
 
 const CO = 'fict-co-a';
@@ -92,15 +92,14 @@ describe('実行開始の画面：見出し・実行責任者・「実行を開�
     expect(h.onStart.mock.calls[0][0]).toEqual({ responsible: '佐藤（仮）' });
   });
 
-  it('明示的に「未確認」と記録された案件は、開始を保留し、理由を示す', () => {
+  it('「未確認」と記録されていても、実行責任者があれば開始できる（規制の記録は開始を止めない）', () => {
     const h = renderStart(bundle, {
       responsible: '佐藤（仮）',
       plan: { regulatory: { ...EMPTY_REGULATORY, decision: 'UNCONFIRMED' } },
     });
-    expect(startButton().disabled).toBe(true);
-    expect(screen.getByText(REGULATORY_HOLD_BLOCKER)).not.toBeNull();
+    expect(startButton().disabled).toBe(false);
     fireEvent.click(startButton());
-    expect(h.onStart).not.toHaveBeenCalled();
+    expect(h.onStart.mock.calls[0][0]).toEqual({ responsible: '佐藤（仮）' });
   });
 
   it('実行責任者が空なら、開始できず、理由を近くに示す', () => {

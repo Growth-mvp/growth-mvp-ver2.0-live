@@ -204,7 +204,7 @@ export type GenerateResult =
 export type ListResult = { status: 'FOUND'; records: PlanDocRecord[] } | { status: 'DISABLED' | 'DENIED' | 'FAILED' };
 
 export type PreviewResult =
-  | { status: 'PREVIEW'; draft: Record<string, unknown> }
+  | { status: 'PREVIEW'; draft: Record<string, unknown>; previewToken: string }
   | { status: 'DISABLED' | 'NOT_FOUND' | 'DENIED' | 'FAILED' }
   | { status: 'INVALID'; messages: string[] }
   | { status: 'MODEL_FAILED'; message: string };
@@ -217,6 +217,8 @@ export type TransitionResult =
   | { status: 'NOT_FOUND' | 'NOT_READY' | 'DENIED' | 'FAILED' };
 
 export type TransitionAction = 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART';
+
+export type UseDraftResult = TransitionResult | { status: 'EXPIRED' };
 
 /* 生成と採用・開始の操作の窓口。結果は、サーバーが決めたものをそのまま画面の型にする */
 export function createRemotePlanOps(o: ApiOptions) {
@@ -255,10 +257,32 @@ export function createRemotePlanOps(o: ApiOptions) {
       const r = await request(o, 'POST', '/api/stage4/plan-documents/preview', key);
       if (!r) return { status: 'FAILED' };
       const body = r.json as Record<string, unknown>;
-      if (r.status === 200 && body.status === 'PREVIEW') return { status: 'PREVIEW', draft: body.draft as Record<string, unknown> };
+      if (r.status === 200 && body.status === 'PREVIEW') {
+        return { status: 'PREVIEW', draft: body.draft as Record<string, unknown>, previewToken: String(body.previewToken ?? '') };
+      }
       if (r.status === 422) return { status: 'INVALID', messages: (body.messages as string[]) ?? [] };
       if (r.status === 502) return { status: 'MODEL_FAILED', message: String(body.message ?? '') };
       if (r.status === 503) return { status: 'DISABLED' };
+      if (r.status === 404) return { status: 'NOT_FOUND' };
+      if (r.status === 403) return { status: 'DENIED' };
+      return { status: 'FAILED' };
+    },
+
+    /* 再生成の案を現在の計画書にする。案は、プレビューで受け取ったものと、その署名をそのまま渡す */
+    async useDraft(
+      key: PlanDocKey,
+      expectedVersion: number,
+      draft: Record<string, unknown>,
+      previewToken: string
+    ): Promise<UseDraftResult> {
+      const r = await request(o, 'POST', '/api/stage4/plan-documents/use-draft', { ...key, expectedVersion, draft, previewToken });
+      if (!r) return { status: 'FAILED' };
+      const body = r.json as Record<string, unknown>;
+      if (r.status === 200 && body.status === 'OK') return { status: 'OK', record: body.record as PlanDocRecord };
+      if (r.status === 409 && body.status === 'PREVIEW_EXPIRED') return { status: 'EXPIRED' };
+      if (r.status === 409 && body.status === 'CONFLICT') return { status: 'CONFLICT', current: body.current as PlanDocRecord };
+      if (r.status === 409) return { status: 'NOT_READY' };
+      if (r.status === 400) return { status: 'INVALID', message: String(body.message ?? '入力を確認してください') };
       if (r.status === 404) return { status: 'NOT_FOUND' };
       if (r.status === 403) return { status: 'DENIED' };
       return { status: 'FAILED' };

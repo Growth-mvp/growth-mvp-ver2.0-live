@@ -1,34 +1,16 @@
 'use client';
 
-import type { PreviewRow } from '@/lib/stage4/planView/regenPreview';
+import PlanDocument from './PlanDocument';
 
 export type RegenState =
   | { status: 'BUSY' }
   | { status: 'FAILED'; message: string }
-  | { status: 'READY'; rows: PreviewRow[]; selected: string[] };
+  | { status: 'READY'; draft: Record<string, unknown>; previewToken: string; notice: string | null };
 
-const STATUS_LABEL: Record<PreviewRow['status'], string> = {
-  SAME: '変更なし',
-  AVAILABLE: '反映できる',
-  MANUAL: '修正あり（上書きしない）',
-  EXCLUDED: '反映しない',
-  NOT_IN_CURRENT: '現在の計画にない',
-  NOT_IN_NEW: '新しい案にない',
-};
+const noop = () => {};
 
-const show = (v: unknown): string => (v === null || v === undefined || v === '' ? '（なし）' : String(v));
-
-export function RegenPanel({
-  state,
-  onToggle,
-  onApply,
-  onCancel,
-}: {
-  state: RegenState;
-  onToggle: (itemId: string) => void;
-  onApply: () => void;
-  onCancel: () => void;
-}) {
+/* 再生成の案は、従来の文書形式でそのまま見せる。選べるのは「この案を使う」と「元の計画に戻る」の2つだけ */
+export function RegenPanel({ state, onUse, onCancel }: { state: RegenState; onUse: () => void; onCancel: () => void }) {
   if (state.status === 'BUSY') {
     return (
       <section aria-label="新しい案" className="plan-regen-panel">
@@ -46,65 +28,45 @@ export function RegenPanel({
       </section>
     );
   }
-  const changed = state.rows.filter((r) => r.status !== 'SAME');
-  const available = state.rows.filter((r) => r.status === 'AVAILABLE');
   return (
     <section aria-label="新しい案" className="plan-regen-panel">
-      <h3 className="plan-h3">新しいAI案との比較（保存されていません）</h3>
+      <h2 className="plan-h2">新しいAI案</h2>
       <p className="plan-note">
-        反映すると、画面の修正として入ります。「草案として保存」を押すまでは、保存された計画書のままです。利用者が修正した項目は上書きしません。
+        「この案を使う」を押すと、現在の計画書がこの案に替わります。利用者が書いた修正は残ります。採用と開始は解除されるため、改めて採用・開始してください。
       </p>
-      {changed.length === 0 ? (
-        <p className="plan-p">新しい案と現在の計画書に、違いはありません。</p>
-      ) : (
-        <table className="plan-table">
-          <thead>
-            <tr>
-              <th>反映</th>
-              <th>項目</th>
-              <th>現在の内容</th>
-              <th>新しいAI案</th>
-              <th>状態</th>
-            </tr>
-          </thead>
-          <tbody>
-            {changed.map((r) => (
-              <tr key={r.itemId}>
-                <td>
-                  {r.status === 'AVAILABLE' && (
-                    <input
-                      type="checkbox"
-                      aria-label={`${r.label}を反映する`}
-                      checked={state.selected.includes(r.itemId)}
-                      onChange={() => onToggle(r.itemId)}
-                    />
-                  )}
-                </td>
-                <td>{r.label}</td>
-                <td>{show(r.currentValue)}</td>
-                <td>{show(r.newValue)}</td>
-                <td>
-                  <span className="plan-tag">{STATUS_LABEL[r.status]}</span>
-                  {r.reason && <div className="plan-note">{r.reason}</div>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {state.notice && (
+        <p role="status" className="plan-note">
+          {state.notice}
+        </p>
       )}
       <div className="plan-toolbar">
-        <button
-          type="button"
-          className="plan-btn-primary"
-          onClick={onApply}
-          disabled={available.length === 0 || state.selected.length === 0}
-        >
-          選んだ項目を反映する（未保存）
+        <button type="button" className="plan-btn-primary" onClick={onUse}>
+          この案を使う
         </button>
         <button type="button" className="plan-btn-quiet" onClick={onCancel}>
-          キャンセル
+          元の計画に戻る
         </button>
       </div>
+      <PlanDocument
+        bundle={state.draft}
+        readOnly
+        showAdoption={false}
+        persisted
+        mode="read"
+        committed={{}}
+        draft={{}}
+        adopted={false}
+        adoptable={false}
+        blockers={[]}
+        notice={null}
+        onEnterEdit={noop}
+        onApply={noop}
+        onDiscard={noop}
+        onDraftChange={noop}
+        onAdopt={noop}
+        onUnadopt={noop}
+        onOpenStart={noop}
+      />
     </section>
   );
 }

@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { REGULATORY_HOLD_BLOCKER, regulatoryHeld } from '@/lib/stage4/planView/model';
 import type { ProjectPlanState, PlanView } from '@/lib/stage4/planView/planState';
 import type { SectionViews } from '@/lib/stage4/planView/types';
 
@@ -36,7 +35,6 @@ export default function StartConfirmation({ plan, view, bodyDirty, responsible, 
   if (!trimmed) blockers.push('実行責任者を入力してください');
   if (bodyDirty) blockers.push('計画書の本文に未保存の修正があります。計画書に戻り、「草案として保存」してから開始してください');
   if (!view.d.adoption.adoptable) blockers.push(...view.d.adoption.blockers);
-  if (regulatoryHeld(plan.regulatory)) blockers.push(REGULATORY_HOLD_BLOCKER);
   const ready = blockers.length === 0;
 
   if (plan.started) {
