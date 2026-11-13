@@ -270,6 +270,38 @@ async function main() {
   );
   check('操作履歴：開始の解除が記録される（START_RESET）', startResetEvents.length === 1);
 
+  /* ---- 5a-0. 迂回検査：印（set_config）を立てても、利用者の直接UPDATEで AI原案は変えられない ---- */
+  const bypassRun = async (statements: Array<[string, unknown[]]>): Promise<string> => {
+    try {
+      await db.transaction(async (tx) => {
+        await tx.query("select set_config('request.jwt.claim.sub', $1, true)", [ALICE]);
+        await tx.query('set local role authenticated');
+        for (const [text, params] of statements) await tx.query(text, params);
+      });
+      return 'ALLOWED';
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  };
+  const draftOfInspection = async () =>
+    JSON.stringify((await env.sql('select ai_draft from stage4_plan_documents where project_id = $1', [INSPECTION]))[0]?.ai_draft ?? null);
+  const draftBeforeBypass = await draftOfInspection();
+  const forgedUpdate: [string, unknown[]] = [
+    "update stage4_plan_documents set ai_draft = '{\"x\":9}'::jsonb, version = version + 1 where project_id = $1",
+    [INSPECTION],
+  ];
+  const bypassFlag = await bypassRun([["select set_config('stage4.draft_replace', 'on', true)", []], forgedUpdate]);
+  const bypassSession = await bypassRun([["select set_config('stage4.draft_replace', 'on', false)", []], forgedUpdate]);
+  const bypassSpoof = await bypassRun([
+    ["select set_config('request.jwt.claim.sub', $1, true)", [MANAGER]],
+    ["select set_config('stage4.draft_replace', 'on', true)", []],
+    forgedUpdate,
+  ]);
+  check('迂回検査：印（同じトランザクション）を立てても、利用者の直接UPDATEは拒否される', /AI draft is immutable/.test(bypassFlag), bypassFlag);
+  check('迂回検査：印（セッション全体）を立てても、利用者の直接UPDATEは拒否される', /AI draft is immutable/.test(bypassSession), bypassSession);
+  check('迂回検査：JWTのなりすましと印を組み合わせても、利用者の直接UPDATEは拒否される', /AI draft is immutable/.test(bypassSpoof), bypassSpoof);
+  check('迂回検査：拒否された後も、AI原案は変わっていない', (await draftOfInspection()) === draftBeforeBypass);
+
   /* ---- 5a. 「この案を使う」：AI原案の差し替え（専用の操作だけ。前の内容を履歴に残す） ---- */
   const inspBefore = await loadPlan(ctxOf(db, ALICE), KEY(INSPECTION));
   if (inspBefore.status !== 'FOUND') throw new Error('INSPECTION の計画が読めません');

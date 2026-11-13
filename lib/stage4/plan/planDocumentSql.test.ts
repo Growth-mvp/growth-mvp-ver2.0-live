@@ -63,10 +63,17 @@ describe('実行計画書の保存テーブル（未適用のSQL）', () => {
     expect(active).not.toContain('generated_plans');
   });
 
-  it('AI原案の差し替えは、専用の関数だけが、トランザクション内の印を立てて行う', () => {
-    expect(active).toContain("current_setting('stage4.draft_replace', true)");
-    expect(active).toContain("perform set_config('stage4.draft_replace', 'on', true)");
-    expect(active).toContain("perform set_config('stage4.draft_replace', 'off', true)");
+  it('AI原案の不変性は、印（設定値）ではなく、更新する役割（所有者かどうか）で判定する', () => {
+    expect(active).not.toContain('stage4.draft_replace');
+    expect(active).not.toContain('set_config');
+    const guard = active.slice(active.indexOf('create or replace function public.stage4_plan_documents_draft_guard'));
+    expect(guard).toContain('security invoker');
+    expect(guard).toContain('current_user <> public.stage4_plan_documents_owner()');
+    expect(guard).toContain('new.ai_draft <> old.ai_draft');
+    expect(active).toContain('create trigger stage4_plan_documents_draft_guard_trg');
+    const owner = active.slice(active.indexOf('create or replace function public.stage4_plan_documents_owner'), guard.length ? active.indexOf('create or replace function public.stage4_plan_documents_draft_guard') : undefined);
+    expect(owner).toContain('security definer');
+    expect(owner).not.toContain('grant execute on function public.stage4_plan_documents_owner() to anon');
     const fn = active.slice(active.indexOf('create or replace function public.stage4_use_draft'));
     expect(fn).toContain('security definer');
     expect(fn).toContain('set search_path = public');

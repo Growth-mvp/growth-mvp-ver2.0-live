@@ -9,7 +9,7 @@
 --       execution_plans は STAGE5 の実行計画の既存の名前なので使わない。
 -- 状態: GENERATING（生成中）→ DRAFT（草案あり）。生成に失敗したら GENERATION_FAILED（再試行できる）。
 --       草案（DRAFT）は、作った後に ai_draft を変えられない。草案からは GENERATING 以外へ戻らない。
---       例外：「この案を使う」の専用関数 stage4_use_draft だけが、トランザクション内の印を立てて ai_draft を差し替える。
+--       例外：「この案を使う」の専用関数 stage4_use_draft（所有者として実行）だけが ai_draft を差し替える。
 --       差し替え前の原案と修正は、操作履歴（DRAFT_REPLACED）に残る。
 -- 競合制御: version（版番号）。更新は「読んだ版番号と同じ時だけ」行い、違えば 0 件になる（競合）。
 -- 採用・開始: 利用者の修正内容が変わったら、採用・開始・規制の判断は自動で解除される（トリガー）。修正版は改めて確認する。
@@ -91,11 +91,6 @@ begin
       raise exception 'stage4_plan_documents: a draft cannot return to generation'
         using errcode = '42501';
     end if;
-    if new.ai_draft <> old.ai_draft
-       and coalesce(current_setting('stage4.draft_replace', true), '') <> 'on' then
-      raise exception 'stage4_plan_documents: AI draft is immutable'
-        using errcode = '42501';
-    end if;
   elsif old.status = 'GENERATING' then
     if new.status not in ('DRAFT', 'GENERATION_FAILED') then
       raise exception 'stage4_plan_documents: invalid generation transition'
@@ -136,6 +131,45 @@ drop trigger if exists stage4_plan_documents_guard_trg on public.stage4_plan_doc
 create trigger stage4_plan_documents_guard_trg
   before insert or update on public.stage4_plan_documents
   for each row execute function public.stage4_plan_documents_guard();
+
+-- 草案（DRAFT）の ai_draft は、テーブルの所有者（stage4_use_draft の実行者）以外は変えられない。
+-- SECURITY INVOKER にするのは、呼び出し元の役割で判定するため（SECURITY DEFINER では所有者になり判定できない）。
+-- 印（set_config）には頼らない。利用者は所有者の役割へ切り替えられず、設定値で役割は変わらないので、迂回できない。
+-- テーブルの所有者の名前だけを返す（所有者の権限で読む。利用者はカタログを直接読めないため）
+create or replace function public.stage4_plan_documents_owner()
+returns name
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select pg_get_userbyid(c.relowner) from pg_class c where c.oid = 'public.stage4_plan_documents'::regclass
+$$;
+
+revoke all on function public.stage4_plan_documents_owner() from public;
+grant execute on function public.stage4_plan_documents_owner() to authenticated;
+
+create or replace function public.stage4_plan_documents_draft_guard()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if old.status = 'DRAFT'
+     and new.ai_draft <> old.ai_draft
+     and current_user <> public.stage4_plan_documents_owner() then
+    raise exception 'stage4_plan_documents: AI draft is immutable'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists stage4_plan_documents_draft_guard_trg on public.stage4_plan_documents;
+create trigger stage4_plan_documents_draft_guard_trg
+  before update on public.stage4_plan_documents
+  for each row execute function public.stage4_plan_documents_draft_guard();
 
 -- 操作履歴（追記のみ）。利用者は読めるが、書き換え・削除はできない。書き込みはトリガーだけが行う。
 create table if not exists public.stage4_plan_document_events (
@@ -448,7 +482,7 @@ grant execute on function public.stage4_assign_project_identity(uuid, uuid, inte
 
 -- ============================================================
 -- 「この案を使う」：再生成の案（サーバーで作られ、署名された案）で、草案のAI原案を差し替える専用の操作。
--- 通常の更新では AI原案を変えられない（ガードトリガー）。この関数だけが、トランザクション内の印を立てて差し替える。
+-- 通常の更新では AI原案を変えられない（草案の不変トリガー）。この関数は所有者として実行されるため、差し替えられる。
 -- 権限（同じ会社の admin / manager / member）、戦略・プロジェクトの整合、版番号、状態を、保存先の中で確かめる。
 -- 開始済みの計画は止める（STAGE5の進捗に関わるため）。採用は解除する。
 -- 利用者の修正は、新しい案にある項目（p_user_edits）だけを残す。元の修正に無い値は入れない。
@@ -525,7 +559,6 @@ begin
     return jsonb_build_object('status', 'INVALID');
   end if;
 
-  perform set_config('stage4.draft_replace', 'on', true);
   update public.stage4_plan_documents d
   set ai_draft = p_ai_draft,
       user_edits = p_user_edits,
@@ -535,10 +568,8 @@ begin
     and d.version = p_expected_version
   returning * into v_updated;
   if not found then
-    perform set_config('stage4.draft_replace', 'off', true);
     return jsonb_build_object('status', 'CONFLICT');
   end if;
-  perform set_config('stage4.draft_replace', 'off', true);
   return jsonb_build_object('status', 'REPLACED', 'row', to_jsonb(v_updated));
 end;
 $$;
