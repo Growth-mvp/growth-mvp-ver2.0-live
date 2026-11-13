@@ -5,6 +5,9 @@ import { regulatoryComplete, EMPTY_REGULATORY, type RegulatoryRecord } from '../
 import { computePlanView, INITIAL_PLAN_STATE } from '../planView/planState';
 import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
 import { allowed, type ServiceContext } from './planService';
+import { splitKpisByBasis } from './kpiBasis';
+import { stableIdOf } from './projectResolver';
+import { kpisOfProject } from './source';
 
 export const TRANSITION_ACTIONS = ['ADOPT', 'UNADOPT', 'RECORD_REGULATORY', 'START', 'UNSTART'] as const;
 export type TransitionAction = (typeof TRANSITION_ACTIONS)[number];
@@ -39,6 +42,74 @@ export function validateRegulatory(input: unknown): { ok: true; value: Regulator
     if (!DATE.test(value.confirmedOn)) return { ok: false, message: '確認日（YYYY-MM-DD）を入れてください' };
   }
   return { ok: true, value };
+}
+
+const CONFIRMATION_TEXT = { USER_CONFIRMED: '確定', UNCONFIRMED: '未確認' } as const;
+const shown = (v: unknown) => (v === null || v === undefined || v === '' ? '未設定' : String(v));
+
+type PlannedKpi = {
+  stage3KpiId: string;
+  label: string;
+  target: number | null;
+  unit: string;
+  due: string | null;
+  owner: string | null;
+  confirmation?: keyof typeof CONFIRMATION_TEXT;
+};
+
+/* 計画書が参照した確定KPIと、いま正式データにあるKPIの食い違い（採用・開始を止める理由）。照合は安定IDで行う。 */
+export function kpiDriftOf(aiDraft: Record<string, unknown>, departments: unknown, projectId: string): string[] {
+  const plan = aiDraft.plan as { section3?: { protectedKpis?: unknown } } | null | undefined;
+  const planned = plan?.section3?.protectedKpis;
+  if (!Array.isArray(planned)) return ['計画書に確定KPIの記録がありません。計画書を作り直してください'];
+  const projects = (Array.isArray(departments) ? (departments as Array<{ projects?: unknown }>) : [])
+    .flatMap((d) => (Array.isArray(d?.projects) ? (d.projects as Array<Record<string, unknown>>) : []))
+    .filter((p) => stableIdOf(p) === projectId);
+  if (projects.length !== 1) {
+    return ['計画書の対象プロジェクトを正式データで確定できません（削除、または番号の変更の可能性）。計画書を作り直してください'];
+  }
+  const all = kpisOfProject(projects[0]);
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const messages: string[] = [];
+  for (const p of planned as PlannedKpi[]) {
+    const c = byId.get(p.stage3KpiId);
+    if (!c) {
+      messages.push(`KPI「${p.label}」が正式データにありません（削除、または番号の変更）`);
+      continue;
+    }
+    const now = c.basis === 'USER_CONFIRMED' ? 'USER_CONFIRMED' : 'UNCONFIRMED';
+    const fields: Array<[string, string, string]> = [
+      ['名称', p.label, c.label],
+      ['目標値', shown(p.target), shown(c.target)],
+      ['単位', shown(p.unit), shown(c.unit)],
+      ['期限', shown(p.due), shown(c.due)],
+      ['担当', shown(p.owner), shown(c.owner)],
+      ['確定の状態', CONFIRMATION_TEXT[p.confirmation ?? 'UNCONFIRMED'], CONFIRMATION_TEXT[now]],
+    ];
+    for (const [name, was, current] of fields) {
+      if (was !== current) messages.push(`KPI「${p.label}」の${name}が変わっています（計画書: ${was} → 正式データ: ${current}）`);
+    }
+  }
+  const plannedIds = new Set((planned as PlannedKpi[]).map((p) => p.stage3KpiId));
+  for (const c of splitKpisByBasis(all).locked) {
+    if (!plannedIds.has(c.id)) messages.push(`KPI「${c.label}」が計画書の作成後に追加されています`);
+  }
+  return messages.length > 0
+    ? ['正式なKPIが計画書の作成後に変わりました。計画書を作り直してから採用・開始してください', ...messages]
+    : [];
+}
+
+async function kpiBlockersOf(
+  ctx: ServiceContext,
+  key: PlanDocKey,
+  record: PlanDocRecord
+): Promise<{ failed: true } | { failed: false; blockers: string[] }> {
+  const row = await ctx.gateway.readStrategyRow(key.companyId, key.strategyId);
+  if (!row.ok) return { failed: true };
+  if (!row.value || String(row.value.id) !== key.strategyId || String(row.value.company_id) !== key.companyId) {
+    return { failed: false, blockers: ['正式な戦略データを確認できません'] };
+  }
+  return { failed: false, blockers: kpiDriftOf(record.aiDraft, row.value.departments, key.projectId) };
 }
 
 export type TransitionOutcome =
@@ -84,6 +155,9 @@ export async function transitionPlan(
   switch (action) {
     case 'ADOPT': {
       if (record.adoption) return { status: 'OK', record };
+      const kpi = await kpiBlockersOf(ctx, key, record);
+      if (kpi.failed) return { status: 'FAILED', message: FAILED };
+      if (kpi.blockers.length > 0) return { status: 'BLOCKED', blockers: kpi.blockers };
       const view = computePlanView(record.aiDraft, state);
       if (!view.d.adoption.adoptable) return { status: 'BLOCKED', blockers: view.d.adoption.blockers };
       patch = {
@@ -105,6 +179,9 @@ export async function transitionPlan(
     case 'START': {
       if (!record.adoption) return { status: 'BLOCKED', blockers: ['先に計画案を採用してください'] };
       if (record.startInfo) return { status: 'OK', record };
+      const kpi = await kpiBlockersOf(ctx, key, record);
+      if (kpi.failed) return { status: 'FAILED', message: FAILED };
+      if (kpi.blockers.length > 0) return { status: 'BLOCKED', blockers: kpi.blockers };
       const gate = computePlanView(record.aiDraft, state).gate;
       if (!gate.startable) return { status: 'BLOCKED', blockers: gate.blockers };
       if (!regulatoryComplete(record.regulatory ?? EMPTY_REGULATORY)) {

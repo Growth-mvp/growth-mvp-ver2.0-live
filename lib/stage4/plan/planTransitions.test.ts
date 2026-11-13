@@ -56,6 +56,7 @@ function fake(initial: PlanDocRecord | null, opts: { role?: string | null } = {}
   const ok = <T,>(value: T): GatewayResult<T> => ({ ok: true, value });
   const gateway = {
     membershipRole: async () => ok(opts.role === undefined ? 'member' : opts.role),
+    readStrategyRow: async () => ok(JSON.parse(JSON.stringify(STAGE3_SNAPSHOT_STRATEGIES[0]))),
     findPlan: async () => ok(current),
     updatePlan: async (_k: unknown, expected: number, patch: PlanPatch, userId: string) => {
       patches.push(patch);

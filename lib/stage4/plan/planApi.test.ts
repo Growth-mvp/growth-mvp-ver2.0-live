@@ -20,7 +20,7 @@ beforeAll(async () => {
   bundle = r.bundle;
 });
 const rec = (version: number, status: PlanDocRecord['status'] = 'DRAFT'): PlanDocRecord => ({
-  key: { companyId: CO, strategyId: ST, projectId: 'p-1' },
+  key: { companyId: CO, strategyId: ST, projectId: 'fict-proj-renewal' },
   version,
   aiDraft: bundle,
   userEdits: {},
@@ -68,8 +68,8 @@ const req = (method: string, path: string, body?: unknown, search = '') =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-const key = { companyId: CO, strategyId: ST, projectId: 'p-1' };
-const SEARCH = `?companyId=${CO}&strategyId=${ST}&projectId=p-1`;
+const key = { companyId: CO, strategyId: ST, projectId: 'fict-proj-renewal' };
+const SEARCH = `?companyId=${CO}&strategyId=${ST}&projectId=fict-proj-renewal`;
 
 describe('入口の認証と入力の検査', () => {
   it('認証されていなければ 401（どの操作でも、データベースに触れない）', async () => {
@@ -320,5 +320,148 @@ describe('再生成のプレビュー（POST …/preview）', () => {
   it('入力が正しくなければ 400', async () => {
     const res = await api(gateway()).preview(req('POST', 'plan-documents/preview', { companyId: CO }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe('採用・開始は、計画書が参照した確定KPIが正式データと一致する時だけ進める（API経路）', () => {
+  const PROJ = 'fict-proj-renewal';
+  const k = { companyId: CO, strategyId: ST, projectId: PROJ };
+  const recP = (version: number, over: Partial<PlanDocRecord> = {}): PlanDocRecord => ({ ...rec(version), key: k, ...over });
+  const adopt = (version: number) => req('POST', 'plan-documents/transition', { ...k, action: 'ADOPT', expectedVersion: version });
+  const start = (version: number) => req('POST', 'plan-documents/transition', { ...k, action: 'START', expectedVersion: version });
+
+  /* 計画書の作成後に、正式データのKPIが変わった戦略（STAGE3で変更された状態を再現する） */
+  function strategyWhere(edit: (list: Array<Record<string, unknown>>) => Array<Record<string, unknown>>) {
+    const row = strategyRow();
+    for (const d of row.departments as Array<{ projects: Array<Record<string, unknown>> }>) {
+      for (const project of d.projects) {
+        if (project.id === PROJ) project.okrsV2 = edit(project.okrsV2 as Array<Record<string, unknown>>);
+      }
+    }
+    return row;
+  }
+  const patchKpi = (id: string, patch: Record<string, unknown>) => (list: Array<Record<string, unknown>>) =>
+    list.map((x) => (x.id === id ? { ...x, ...patch } : x));
+
+  it('KPIが変わっていなければ、採用できる（従来どおり 200）', async () => {
+    const res = await api(gateway({ findPlan: async () => ok(recP(1)) })).transition(adopt(1));
+    expect(res.status).toBe(200);
+  });
+
+  it('目標値が変わった計画は採用できない（422・KPI名と変更内容を返し、計画書は書き換えない）', async () => {
+    let written = false;
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { target: 120 }))),
+      updatePlan: async () => {
+        written = true;
+        return ok(recP(2));
+      },
+    });
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(422);
+    const blockers: string[] = (await res.json()).blockers;
+    expect(blockers.join('\n')).toContain('保守契約の継続率');
+    expect(blockers.join('\n')).toContain('目標値が変わっています');
+    expect(blockers.join('\n')).toContain('95');
+    expect(blockers.join('\n')).toContain('120');
+    expect(written).toBe(false);
+  });
+
+  it.each([
+    ['単位', { unit: '件' }, '単位が変わっています'],
+    ['期限', { due: '2027-12' }, '期限が変わっています'],
+    ['担当', { owner: '別の担当（仮）' }, '担当が変わっています'],
+    ['名称', { label: '保守契約の更新件数' }, '名称が変わっています'],
+    ['確定の状態', { targetBasis: 'AI_PROVISIONAL' }, '確定の状態が変わっています'],
+  ])('%sが変わった計画は採用できない（422）', async (_name, patch, text) => {
+    const g = gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', patch))) });
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(422);
+    expect((await res.json()).blockers.join('\n')).toContain(text);
+  });
+
+  it('KPIが削除された、または番号が変わった計画は採用できない（422）', async () => {
+    const removed = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(strategyWhere((list) => list.filter((x) => x.id !== 'kr-renew-1'))),
+    });
+    const removedRes = await api(removed).transition(adopt(1));
+    expect(removedRes.status).toBe(422);
+    expect((await removedRes.json()).blockers.join('\n')).toContain('正式データにありません');
+
+    const renumbered = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { id: 'kr-renew-9' }))),
+    });
+    const renumberedRes = await api(renumbered).transition(adopt(1));
+    expect(renumberedRes.status).toBe(422);
+    const text = (await renumberedRes.json()).blockers.join('\n');
+    expect(text).toContain('正式データにありません');
+    expect(text).toContain('追加されています');
+  });
+
+  it('KPIが計画書の作成後に追加された計画は採用できない（422）', async () => {
+    const added = strategyWhere((list) => [
+      ...list,
+      { id: 'kr-renew-4', label: '新しく確定した指標', target: 10, unit: '%', due: '2027-08', owner: null, targetBasis: 'USER_CONFIRMED' },
+    ]);
+    const res = await api(gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(added) })).transition(adopt(1));
+    expect(res.status).toBe(422);
+    expect((await res.json()).blockers.join('\n')).toContain('新しく確定した指標');
+  });
+
+  it('目標0と未入力は区別する：目標0のKPIが5に変われば採用できない', async () => {
+    const res = await api(
+      gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-2', { target: 5 }))) })
+    ).transition(adopt(1));
+    expect(res.status).toBe(422);
+    expect((await res.json()).blockers.join('\n')).toContain('目標値が変わっています');
+  });
+
+  it('AIが仮に置いたKPI（確定ではない）が変わっても、確定KPIの照合では止めない', async () => {
+    const res = await api(
+      gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-3', { target: 4 }))) })
+    ).transition(adopt(1));
+    expect(res.status).toBe(200);
+  });
+
+  it('計画書の利用者の修正は、正式KPIの変更とみなさない（正式データが同じなら採用できる）', async () => {
+    const res = await api(
+      gateway({ findPlan: async () => ok(recP(1, { userEdits: { 'section1.purpose': '利用者が修正した目的' } })) })
+    ).transition(adopt(1));
+    expect(res.status).toBe(200);
+  });
+
+  it('採用後にKPIが変わった計画は、開始できない（422・計画書は書き換えない）', async () => {
+    let written = false;
+    const adoptedRec = recP(2, { adoption: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z', edits: {} } });
+    const g = gateway({
+      findPlan: async () => ok(adoptedRec),
+      readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { target: 120 }))),
+      updatePlan: async () => {
+        written = true;
+        return ok(recP(3));
+      },
+    });
+    const res = await api(g).transition(start(2));
+    expect(res.status).toBe(422);
+    expect((await res.json()).blockers.join('\n')).toContain('目標値が変わっています');
+    expect(written).toBe(false);
+  });
+
+  it('正式データを読めなければ、採用せず、計画書も書き換えない（500）', async () => {
+    let written = false;
+    const g = gateway({
+      findPlan: async () => ok(recP(1)),
+      readStrategyRow: async () => ({ ok: false, code: 'ERROR' }),
+      updatePlan: async () => {
+        written = true;
+        return ok(recP(2));
+      },
+    });
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(500);
+    expect(written).toBe(false);
   });
 });

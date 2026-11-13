@@ -50,7 +50,7 @@ type RawDept = {
   projects: Array<Record<string, unknown> & { id?: string | number; title?: string }>;
 };
 
-function kpisOfProject(project: Record<string, unknown>) {
+export function kpisOfProject(project: Record<string, unknown>) {
   const list = Array.isArray(project.okrsV2) ? (project.okrsV2 as Array<Record<string, unknown>>) : [];
   return list.map((k, i) => ({
     // 番号のない既存のKPIは、順番から一時的な番号を付ける（STAGE3には書き戻さない）
