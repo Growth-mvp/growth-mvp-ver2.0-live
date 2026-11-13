@@ -840,6 +840,11 @@ function ReadOnlyProject({
       <section className="plan-main" aria-label="実行計画書">
         <section className="plan-section">
           <h2 className="plan-h2">実行計画書</h2>
+          {entry?.plan.started && (
+            <p role="status" className="plan-note">
+              現在の状態：実行中（進捗はSTAGE5で管理します）
+            </p>
+          )}
           {!entry && loadPending && <p className="plan-p">保存された草案を読み込んでいます…</p>}
           {!entry && !loadPending && load?.status === 'FAILED' && (
             <>

@@ -130,6 +130,8 @@ export async function createTestEnv(opts: { apiEnabled?: boolean } = {}): Promis
       const pathname = new URL(req.url).pathname;
       if (pathname.endsWith('/plan-documents/generate')) return api.generate(req);
       if (pathname.endsWith('/plan-documents/transition')) return api.transition(req);
+      if (pathname.endsWith('/plan-documents/preview')) return api.preview(req);
+      if (pathname.endsWith('/plan-documents/use-draft')) return api.useDraft(req);
       if (pathname.endsWith('/plan-documents')) return api.plans(req);
       if (pathname.endsWith('/project-identity')) return api.identity(req);
       return new Response('not found', { status: 404 });

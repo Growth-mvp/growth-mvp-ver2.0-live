@@ -1,0 +1,223 @@
+/* 実ブラウザ（Chromium）で、STAGE4の5操作を通しで確認する（評価専用。隔離DB・架空データ・モックAI）。
+ * 1 作成 → 2 文章・財務効果の編集 → 3 保存して再読み込み → 4 再生成して反映 → 5 実行開始 */
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+const { chromium } = require('playwright');
+
+const PORT = 4174;
+const BASE = `http://127.0.0.1:${PORT}`;
+const outDir = path.join(__dirname, '.results');
+const RENEWAL = '既存顧客の保守契約更新';
+const REASON = 'E2Eで直した取り組む理由（実ブラウザ）';
+const RESPONSIBLE = '佐藤（仮）';
+
+const results = [];
+const errors = [];
+const check = async (name, fn) => {
+  try {
+    const detail = (await fn()) ?? '';
+    results.push({ name, status: 'PASS', detail });
+  } catch (e) {
+    results.push({ name, status: 'FAIL', detail: String(e.message || e).split('\n')[0] });
+  }
+};
+const expect = (cond, msg) => {
+  if (!cond) throw new Error(msg);
+};
+const state = async () => (await fetch(`${BASE}/__state`)).json();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function waitServer() {
+  for (let i = 0; i < 120; i++) {
+    try {
+      if ((await fetch(`${BASE}/__state`)).ok) return;
+    } catch {}
+    await sleep(500);
+  }
+  throw new Error('server did not start');
+}
+
+(async () => {
+  fs.mkdirSync(outDir, { recursive: true });
+  const server = spawn(process.execPath, [path.join(__dirname, '.build', 'server.mjs')], {
+    env: { ...process.env, E2E_PORT: String(PORT) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  server.stderr.on('data', (d) => errors.push('SERVER ' + String(d).slice(0, 300)));
+  await waitServer();
+
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  await page.route('**/*', (route) => (route.request().url().startsWith(BASE) ? route.continue() : route.abort()));
+  page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message.slice(0, 300)));
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push('CONSOLE ' + m.text().slice(0, 300));
+  });
+  const shot = (name) => page.screenshot({ path: path.join(outDir, `${name}.png`), fullPage: true });
+  const finance = () => page.locator('details.plan-finance-toggle').first();
+  const openFinance = async () => {
+    if (!(await finance().evaluate((d) => d.open))) await finance().locator(':scope > summary').click();
+  };
+
+  const before = await state();
+  const strategyBefore = JSON.stringify(before.strategy.departments);
+
+  await page.goto(`${BASE}/`);
+  await page.getByRole('button', { name: new RegExp(RENEWAL) }).first().waitFor({ timeout: 60000 });
+
+  /* 1. 計画書を作成 */
+  await check('1 プロジェクトを選び、実行計画書を作成する', async () => {
+    await page.getByRole('button', { name: new RegExp(RENEWAL) }).first().click();
+    await page.getByRole('button', { name: 'AIで実行計画書を作成' }).click();
+    await page.getByRole('article', { name: '実行計画書' }).waitFor({ timeout: 60000 });
+    const s = await state();
+    expect(s.plans.length === 1 && s.plans[0].status === 'DRAFT' && Number(s.plans[0].version) === 1, '保存先に草案が1件できていない');
+    await shot('1-created');
+    return `版 ${s.plans[0].version}`;
+  });
+
+  /* 2. 文章・財務効果を編集 */
+  await check('2 文章を文書上で直接編集する（未保存の変更を知らせる）', async () => {
+    await page.getByRole('button', { name: '取り組む理由を修正する' }).click();
+    await page.getByLabel('取り組む理由', { exact: true }).fill(REASON);
+    await page.getByText('未保存の修正があります').first().waitFor({ timeout: 10000 });
+    await shot('2-edited');
+    return '未保存の表示あり';
+  });
+
+  await check('2 財務効果を入力する（開閉の中で、金額・頻度・期間）', async () => {
+    await openFinance();
+    const freq = page.getByLabel(/の発生頻度$/).first();
+    await freq.waitFor({ timeout: 10000 });
+    await freq.selectOption('ANNUAL');
+    await page.getByLabel(/の開始年月$/).first().fill('2026-12');
+    await page.getByLabel(/の終了年月$/).first().fill('2027-05');
+    await shot('2-finance');
+    return '発生頻度・期間を入力';
+  });
+
+  /* 3. 保存して再読み込み */
+  await check('3 「計画を保存」で本文と財務効果を保存する（数値が不確かなものは未確認の草案）', async () => {
+    await page.getByRole('button', { name: '計画を保存' }).click();
+    await page.getByRole('status').filter({ hasText: '保存済み' }).first().waitFor({ timeout: 30000 });
+    const s = await state();
+    expect(s.plans[0].user_edits && Object.values(s.plans[0].user_edits).includes(REASON), '本文の修正が保存先に入っていない');
+    expect(s.events.some((e) => e.action === 'SAVED'), '保存の履歴が無い');
+    await openFinance();
+    await page.getByText('草案（未確認のため').first().waitFor({ timeout: 10000 });
+    await shot('3-saved');
+    return `版 ${s.plans[0].version}・財務効果は未確認の草案`;
+  });
+
+  await check('3 保存後に開き直しても、本文と財務効果が残る', async () => {
+    await page.reload();
+    await page.getByRole('button', { name: new RegExp(RENEWAL) }).first().click();
+    await page.getByText(REASON).first().waitFor({ timeout: 30000 });
+    await openFinance();
+    const freq = page.getByLabel(/の発生頻度$/).first();
+    await freq.waitFor({ timeout: 10000 });
+    expect((await freq.inputValue()) === 'ANNUAL', '発生頻度が再読み込みで残っていない');
+    await shot('3-reloaded');
+    return '本文・発生頻度が残る';
+  });
+
+  await check('3 財務効果だけ保存に失敗したら、「すべて保存済み」と表示しない', async () => {
+    await page.evaluate(() => window.localStorage.setItem('e2e-fail-finance', '1'));
+    await page.getByLabel(/の終了年月$/).first().fill('2028-03');
+    await page.getByRole('button', { name: '計画を保存' }).click();
+    await page.getByText('財務効果は保存できませんでした').first().waitFor({ timeout: 30000 });
+    expect((await page.getByText(/すべて保存/).count()) === 0, '「すべて保存」と表示されている');
+    await page.evaluate(() => window.localStorage.removeItem('e2e-fail-finance'));
+    await page.getByRole('button', { name: '計画を保存' }).click();
+    await page.getByText('財務効果は保存できませんでした').first().waitFor({ state: 'detached', timeout: 30000 }).catch(() => {});
+    return '失敗時は警告のみ・「すべて保存」なし';
+  });
+
+  /* 4. 再生成して新しい案を反映 */
+  await check('4 「AIでもう一度作る」で新しい案が表示され、既存の計画は変わらない', async () => {
+    const versionBefore = (await state()).plans[0].version;
+    await page.getByRole('button', { name: 'AIでもう一度作る' }).click();
+    await page.getByRole('button', { name: 'この案を使う' }).waitFor({ timeout: 60000 });
+    const s = await state();
+    expect(Number(s.plans[0].version) === Number(versionBefore), '案を見ただけで計画が変わった');
+    await shot('4-regen-preview');
+    return '案を表示・保存は変わらず';
+  });
+
+  await check('4 「元の計画に戻る」で案を閉じると、計画は変わらない', async () => {
+    const versionBefore = Number((await state()).plans[0].version);
+    await page.getByRole('button', { name: '元の計画に戻る' }).click();
+    await page.getByRole('button', { name: 'この案を使う' }).waitFor({ state: 'detached', timeout: 10000 });
+    expect(Number((await state()).plans[0].version) === versionBefore, '戻ったのに版が変わった');
+    await page.getByText(REASON).first().waitFor({ timeout: 10000 });
+    return '元の計画書に戻る';
+  });
+
+  await check('4 「この案を使う」で新しい案を反映する', async () => {
+    await page.getByRole('button', { name: 'AIでもう一度作る' }).click();
+    await page.getByRole('button', { name: 'この案を使う' }).waitFor({ timeout: 60000 });
+    const versionBefore = Number((await state()).plans[0].version);
+    await page.getByRole('button', { name: 'この案を使う' }).click();
+    await page.getByRole('status').filter({ hasText: '新しい案' }).first().waitFor({ timeout: 30000 });
+    const s = await state();
+    expect(Number(s.plans[0].version) === versionBefore + 1, `版が進んでいない（${s.plans[0].version}）`);
+    expect(s.events.some((e) => e.action === 'DRAFT_REPLACED'), '差し替えの履歴が無い');
+    await page.getByText(REASON).first().waitFor({ timeout: 10000 });
+    await shot('4-regen-used');
+    return `版 ${s.plans[0].version}`;
+  });
+
+  /* 5. 実行開始 */
+  await check('5 責任者が未入力なら開始できず、不足を示す', async () => {
+    await page.getByRole('button', { name: '実行を開始する' }).first().click();
+    await page.getByPlaceholder('実行責任者の名前').waitFor({ timeout: 10000 });
+    const startBtn = page.getByRole('button', { name: '実行を開始する' }).first();
+    expect(await startBtn.isDisabled(), '責任者が空なのに開始できる');
+    await page.getByText('実行責任者を入力してください').waitFor({ timeout: 10000 });
+    await shot('5-start-blocked');
+    return '開始は無効・不足を表示';
+  });
+
+  await check('5 実行責任者を入れて「実行を開始する」', async () => {
+    await page.getByPlaceholder('実行責任者の名前').fill(RESPONSIBLE);
+    await page.getByRole('button', { name: '実行を開始する' }).first().click();
+    await page.getByText('実行を開始しました').waitFor({ timeout: 60000 });
+    const s = await state();
+    expect(s.plans[0].start_info !== null && s.plans[0].adopted === true, '開始の記録が保存先に無い');
+    await shot('5-started');
+    return '開始・採用の記録あり';
+  });
+
+  await check('5 開始後にSTAGE5への導線があり、計画書に戻ると「実行中」と分かる', async () => {
+    await page.getByRole('link', { name: 'STAGE5で進捗を確認する' }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: '計画書に戻る' }).click();
+    await page.getByText('現在の状態：実行中').waitFor({ timeout: 10000 });
+    await shot('5-running');
+    return '実行中の表示あり';
+  });
+
+  await check('全体：STAGE3の正式データ（okrsV2 を含む戦略）は、保存先で変わっていない', async () => {
+    const after = await state();
+    expect(JSON.stringify(after.strategy.departments) === strategyBefore, '戦略データが変わった');
+    return '変化なし';
+  });
+
+  await check('全体：画面・サーバーのエラーが無い', async () => {
+    const serious = errors.filter((e) => !/favicon|React DevTools/.test(e));
+    expect(serious.length === 0, serious.slice(0, 3).join(' / '));
+    return `${serious.length}件`;
+  });
+
+  await browser.close();
+  server.kill();
+
+  const passed = results.filter((r) => r.status === 'PASS').length;
+  for (const r of results) console.log(`${r.status}  ${r.name}${r.detail ? '  -- ' + r.detail : ''}`);
+  console.log(`\n${passed}/${results.length} passed`);
+  fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify({ results, errors }, null, 2));
+  process.exit(passed === results.length ? 0 : 1);
+})().catch((e) => {
+  console.error('runner error', e);
+  process.exit(2);
+});

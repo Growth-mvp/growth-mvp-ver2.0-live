@@ -78,3 +78,5 @@ prompt.txt
 
 # ブラウザ検証用のビルド出力（評価専用・Git管理外）
 /eval/stage3-browser/out/
+/eval/integration/e2e/.build/
+/eval/integration/e2e/.results/
