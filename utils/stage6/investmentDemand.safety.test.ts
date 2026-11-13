@@ -227,3 +227,28 @@ describe('部門・プロジェクトの分離', () => {
     ]);
   });
 });
+
+describe('KR目標が未入力の投資は、投資額0として計上しない', () => {
+  const projectWith = (okrsV2: any[]) => [{ name: '営業部', projects: [{ id: 'p1', title: 'P', okrsV2 }] }] as any;
+  const investKr = (extra: Record<string, unknown>) => ({
+    id: 'kr-invest',
+    kind: 'INVEST',
+    label: '改善投資',
+    unit: 'JPY',
+    scope: 'project',
+    baseKey: 'invest',
+    ...extra,
+  });
+
+  it('目標が未入力なら金額は未入力（MISSING）で、0円としては計上しない', () => {
+    const [item] = buildInvestmentItems(projectWith([investKr({})]));
+    expect(item.amountStatus).toBe('MISSING');
+    expect(item.amountYen).toBeNull();
+  });
+
+  it('利用者が入力した0は、0円の投資として保持する', () => {
+    const [item] = buildInvestmentItems(projectWith([investKr({ target: 0 })]));
+    expect(item.amountStatus).toBe('OK');
+    expect(item.amountYen).toBe(0);
+  });
+});

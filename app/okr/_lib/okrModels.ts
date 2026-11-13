@@ -591,7 +591,7 @@ export function diffKrSets(committed: KRStructuredX[], candidate: KRStructuredX[
 
     const fields: string[] = [];
     if (ka.kind !== kb.kind) fields.push('kind');
-    if (Number(ka.target ?? 0) !== Number(kb.target ?? 0)) fields.push('target');
+    if (ka.target !== kb.target) fields.push('target');
     if ((ka.unit ?? '') !== (kb.unit ?? '')) fields.push('unit');
     if ((ka.scope ?? '') !== (kb.scope ?? '')) fields.push('scope');
     if ((ka.baseKey ?? '') !== (kb.baseKey ?? '')) fields.push('baseKey');

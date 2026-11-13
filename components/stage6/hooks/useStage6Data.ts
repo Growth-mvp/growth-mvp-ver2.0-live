@@ -286,7 +286,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
             id: (kr as any).id ?? `kr-${projKey}-${krIndex}`,
             kind,
             label: (kr as any).label ?? '（ラベル未設定）',
-            target: (kr as any).target ?? 0,
+            target: (kr as any).target,
             scope: (kr as any).scope ?? 'company',
             baseKey: (kr as any).baseKey ?? 'revenue',
             baseOverride: (kr as any).baseOverride,

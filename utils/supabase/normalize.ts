@@ -248,6 +248,12 @@ function normalizeOKR(input: AnyOKR): OKR {
   return base as OKR;
 }
 
+export function optionalFiniteNumber(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /* KR は許可リストで写すと戦略メタ・実績・支出条件が落ちるため、未知の項目は残し、既知の項目は型を整えて上書きする */
 function normalizeKrRecord(r: any): KRStructured {
   const rest: any = { ...r };
@@ -260,7 +266,7 @@ function normalizeKrRecord(r: any): KRStructured {
     id: String(r?.id ?? ''),
     kind: r?.kind,
     label: String(r?.label ?? ''),
-    target: Number(r?.target ?? 0),
+    target: optionalFiniteNumber(r?.target),
     unit: r?.unit,
     due: typeof r?.due === 'string' ? r.due : undefined,
     owner: typeof r?.owner === 'string' ? r.owner : undefined,

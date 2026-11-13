@@ -1,4 +1,4 @@
-import { normalizeStrategyData } from './normalize';
+import { normalizeDepartmentsAny, normalizeStrategyData } from './normalize';
 import { buildExecutionSummaryBlock } from '../../lib/ceoChat/stage4Projection';
 
 const krBase = {
@@ -193,5 +193,35 @@ describe('KRの保存・再読込で、単位・目標を補わない（Phase 3-
     const line = text.split('\n').find((l) => l.includes('KR: KR0')) ?? '';
     expect(line).toContain('登録目標 0（単位未設定）（設定内容の確認を推奨）');
     expect(line).not.toContain('目標 0%');
+  });
+});
+
+describe('KR目標の未入力と0の区別（正規化・保存・再読込）', () => {
+  const krsOf = (okrsV2: any[]) => {
+    const deps: any = normalizeDepartmentsAny([{ id: 'd1', name: '営業部', projects: [{ id: 'p1', title: '施策A', okrsV2 }] }] as any);
+    return deps[0].projects[0].okrsV2 as any[];
+  };
+
+  it('目標が未入力のKRは未設定のまま保持し、0にしない（IDなど他の項目も保持）', () => {
+    const [kr] = krsOf([{ id: 'kr-blank', kind: 'INVEST', label: '投資額', unit: 'JPY', baseKey: 'invest', scope: 'project' }]);
+    expect(kr.target).toBeUndefined();
+    expect(kr.id).toBe('kr-blank');
+    expect(kr.label).toBe('投資額');
+    expect(kr.unit).toBe('JPY');
+  });
+
+  it('利用者が明示的に入力した0は0のまま保持する', () => {
+    const [kr] = krsOf([{ id: 'kr-zero', kind: 'REVENUE', label: '売上増', unit: 'JPY', baseKey: 'revenue', scope: 'company', target: 0 }]);
+    expect(kr.target).toBe(0);
+  });
+
+  it('正の値・負の値・数値文字列は変えない。数値にできない値は未設定にする', () => {
+    const krs = krsOf([
+      { id: 'a', kind: 'REVENUE', label: 'a', unit: 'JPY', baseKey: 'revenue', scope: 'company', target: 1_300_000 },
+      { id: 'b', kind: 'COST_FIXED', label: 'b', unit: 'JPY', baseKey: 'cost', scope: 'company', target: -500 },
+      { id: 'c', kind: 'REVENUE', label: 'c', unit: 'JPY', baseKey: 'revenue', scope: 'company', target: '20' },
+      { id: 'd', kind: 'REVENUE', label: 'd', unit: 'JPY', baseKey: 'revenue', scope: 'company', target: 'abc' },
+    ]);
+    expect(krs.map((k) => k.target)).toEqual([1_300_000, -500, 20, undefined]);
   });
 });

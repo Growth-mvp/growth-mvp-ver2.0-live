@@ -6,6 +6,7 @@
 // ----------------------------------------------------------
 
 import type { StrategyData, KRStructured } from '@/types/strategy';
+import { optionalFiniteNumber } from '@/utils/supabase/normalize';
 import {
   buildBridgeDeltas,
   type BridgeKR,
@@ -261,10 +262,7 @@ function collectBridgeKRs(strategy: StrategyData): BridgeKR[] {
             id: (kr as any).id || `${depName}:${projTitle}:${idx}`,
             kind: normalizeKind((kr as any).kind),
             label: ((kr as any).label ?? (kr as any).kind ?? 'KR').toString(),
-            target:
-              typeof (kr as any).target === 'number'
-                ? (kr as any).target
-                : Number((kr as any).target ?? 0) || 0,
+            target: optionalFiniteNumber((kr as any).target),
             unit: (kr as any).unit,
             scope: ((kr as any).scope ?? 'project') as BridgeKR['scope'],
             baseKey: normalizeBaseKey((kr as any).baseKey),
@@ -300,10 +298,7 @@ function collectBridgeKRs(strategy: StrategyData): BridgeKR[] {
           id: (kr as any).id || `${depName}:${projTitle}:${idx}`,
           kind: normalizeKind((kr as any).kind),
           label: ((kr as any).label ?? (kr as any).kind ?? 'KR').toString(),
-          target:
-            typeof (kr as any).target === 'number'
-              ? (kr as any).target
-              : Number((kr as any).target ?? 0) || 0,
+          target: optionalFiniteNumber((kr as any).target),
           unit: (kr as any).unit,
           scope: ((kr as any).scope ?? 'project') as BridgeKR['scope'],
           baseKey: normalizeBaseKey((kr as any).baseKey),

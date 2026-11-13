@@ -428,8 +428,8 @@ export type KRStructured = {
   kind: KRKind;
   label: string;
 
-  /** 目標値（% は 0.10 のように小数推奨） */
-  target: number;
+  /** 目標値（% は 0.10 のように小数推奨）。未入力は undefined で、0 とは区別する */
+  target?: number;
   /** AIが提案した目標値（仮目標）か、利用者が採用・入力した目標値か。未設定は利用者入力の既存値 */
   targetBasis?: 'AI_PROVISIONAL' | 'USER_CONFIRMED';
   targetAdoptedAt?: string;

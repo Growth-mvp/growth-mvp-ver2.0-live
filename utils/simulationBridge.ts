@@ -40,7 +40,7 @@ export type BridgeKR = {
     | 'SYNERGY'
     | 'ACTIVITY';
   label: string;
-  target: number;
+  target?: number;
   unit?: '%' | 'JPY' | 'people' | 'items' | string;
   scope: 'company' | 'department' | 'project';
   baseKey:
@@ -237,6 +237,7 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
 
   for (const kr of safeKrs) {
     if (krFinancialExclusionReason(kr.kind)) continue;
+    if (kr.target === undefined) continue;
     const applyMonths = getApplyMonths(startYm, endYm, kr, effectFloorYm);
     if (!applyMonths.length) continue;
 

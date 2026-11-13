@@ -939,11 +939,12 @@ export function calcYearlyFromKrs(args: {
 
   const scenarioKrs: BridgeKR[] = krs.map((kr) => {
     const unit = normalizeUnit((kr as any).unit);
-    let target = kr.kind === 'SUCCESS_RATE' ? (Number(kr.target) || 0) * scenario.successRate : kr.target;
+    let target: number | undefined =
+      kr.target === undefined ? undefined : kr.kind === 'SUCCESS_RATE' ? (Number(kr.target) || 0) * scenario.successRate : kr.target;
     const targetBefore = target;
 
     // プロジェクト固有の executionWeight を適用
-    if (kr.projectKey && executionWeights?.has(kr.projectKey)) {
+    if (target !== undefined && kr.projectKey && executionWeights?.has(kr.projectKey)) {
       const weight = executionWeights.get(kr.projectKey)?.weight ?? 1.0;
       target = target * weight;
 
