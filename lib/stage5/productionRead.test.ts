@@ -63,7 +63,7 @@ describe('本番読込相当の経路（DB行 → 状態）での北極星の行
     const rows = [{ projectId: 'uid-A', targetId: 'rev', delta: 10, source: 'manual', locked: true }];
     const targets = [{ id: 'rev', label: '売上', unit: '百万円', base: 1000 }];
     const out: any = normalizeStrategyData({ departments: [], companyTargets: targets, projectTargetImpacts: rows } as any);
-    expect(out.companyTargets).toEqual(targets);
+    expect(out.companyTargets).toEqual(targets.map((t) => ({ ...t, rationale: '', linkedIssueIds: [] })));
     expect(out.projectTargetImpacts).toEqual(rows);
   });
 
