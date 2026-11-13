@@ -412,21 +412,27 @@ function computeInvestedCapital(row: FinanceBSRow | SegmentBSRow): number | unde
 }
 
 /**
- * PL行から NOPAT を計算
- * - NOPAT = operatingIncome * (1 - taxRate)
- * - taxRate が未指定の場合は 0.3（30%）をデフォルト使用
+ * 適用税率 = 実効税率（法人税等 ÷ 税引前利益、税引前利益 = 営業利益 − 支払利息。STAGE6 の推計と同じ定義）
+ * 実効税率を出せない時（税・利息が未入力、税引前利益が0以下、率が0〜100%の外）は仮定値を使い、理由を注記する
  */
-function computeNOPAT(pl: FinancePLRow, taxRate: number = 0.3): number | undefined {
+function appliedTaxRateOf(pl: FinancePLRow, assumedRate: number): { rate: number; note?: string } {
+  const assumed = `税率は仮定値 ${(assumedRate * 100).toFixed(0)}% を使用`;
+  if (pl.tax == null) return { rate: assumedRate, note: assumed };
+  if (pl.interest == null) return { rate: assumedRate, note: `${assumed}（支払利息が未入力のため実効税率を計算しない）` };
+  const pretax = toNumber(pl.operatingIncome) - toNumber(pl.interest);
+  if (pretax <= 0) return { rate: assumedRate, note: `${assumed}（税引前利益が0以下のため実効税率を計算しない）` };
+  const effective = toNumber(pl.tax) / pretax;
+  if (!(effective >= 0 && effective <= 1)) return { rate: assumedRate, note: `${assumed}（算出した実効税率が0〜100%の範囲外のため）` };
+  return { rate: effective };
+}
+
+/**
+ * PL行から NOPAT を計算（NOPAT = 営業利益 × (1 − 適用税率)）
+ */
+function computeNOPAT(pl: FinancePLRow, assumedRate: number = 0.3): number | undefined {
   const opIncome = toNumber(pl.operatingIncome);
   if (!opIncome) return undefined;
-
-  // PL に tax があればそれを使って実効税率を推定
-  if (pl.tax !== undefined && opIncome > 0) {
-    const effectiveTaxRate = Math.min(1, Math.max(0, toNumber(pl.tax) / opIncome));
-    return opIncome * (1 - effectiveTaxRate);
-  }
-
-  return opIncome * (1 - taxRate);
+  return opIncome * (1 - appliedTaxRateOf(pl, assumedRate).rate);
 }
 
 /**
@@ -538,10 +544,8 @@ export function computeROICFromPLBS(
     return { roic: undefined, meta };
   }
 
-  // デフォルト税率使用時は明記
-  if (latestPL.tax === undefined) {
-    meta.push(`税率は仮定値 ${(taxRate * 100).toFixed(0)}% を使用`);
-  }
+  const taxApplied = appliedTaxRateOf(latestPL, taxRate);
+  if (taxApplied.note) meta.push(taxApplied.note);
 
   // 赤字判定
   if (nopat < 0) {
@@ -827,9 +831,8 @@ export function computeSegmentValueAnalysis(args: {
 
       if (nopat !== undefined && investedCapital && investedCapital > 0) {
         roic = safePct(nopat, investedCapital);
-        if (latestPL.tax === undefined) {
-          metaNotes.push(`税率は仮定値 ${(taxRate * 100).toFixed(0)}% を使用`);
-        }
+        const taxNote = appliedTaxRateOf(latestPL, taxRate).note;
+        if (taxNote) metaNotes.push(taxNote);
       } else {
         metaNotes.push('セグメントROIC算出不可（NOPAT or 投下資本不足）');
       }
@@ -932,7 +935,14 @@ export type Stage1ValueAnalysisInput = {
   segmentPL?: Record<string, FinancePLRow[]>;
   segmentBS?: Record<string, SegmentBSRow[]>;
   pbrManual?: string;
+  waccManual?: number | null;
 };
+
+/* 手入力WACC（%。8は8%）。未入力・0以下・100以上は採用せず、0%として扱わない */
+function withManualWacc(company: ValueAnalysis, waccManual: number | null | undefined): ValueAnalysis {
+  if (typeof waccManual !== 'number' || !Number.isFinite(waccManual) || waccManual <= 0 || waccManual >= 100) return company;
+  return { ...company, wacc: waccManual };
+}
 
 /**
  * 会社PL（新形式）があれば PL/BS から、なければ financeSummary から算出する。
@@ -951,17 +961,20 @@ export function computeStage1ValueAnalysis(input: Stage1ValueAnalysisInput): {
       pbrManual: input.pbrManual,
     });
     return {
-      company: result.company,
+      company: withManualWacc(result.company, input.waccManual),
       segments: Object.keys(result.segments).length > 0 ? result.segments : undefined,
     };
   }
 
   return {
-    company: computeValueAnalysis({
-      financeSummary: input.financeSummary,
-      financeBS: input.financeBS,
-      pbrManual: input.pbrManual,
-    }),
+    company: withManualWacc(
+      computeValueAnalysis({
+        financeSummary: input.financeSummary,
+        financeBS: input.financeBS,
+        pbrManual: input.pbrManual,
+      }),
+      input.waccManual,
+    ),
     segments: undefined,
   };
 }

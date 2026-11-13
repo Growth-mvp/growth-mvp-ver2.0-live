@@ -1,4 +1,4 @@
-import { computeStage1ValueAnalysis, computeValueAnalysisBundle, computeValueAnalysis } from './valueAnalysis';
+import { computeROICFromPLBS, computeStage1ValueAnalysis, computeValueAnalysisBundle, computeValueAnalysis } from './valueAnalysis';
 
 const PL = [
   { year: 2021, revenue: 1_000_000_000, operatingIncome: 50_000_000 },
@@ -103,5 +103,72 @@ describe('computeStage1ValueAnalysis（STAGE1 と CEO チャットの共通算�
       segmentPL: { 事業A: PL },
     });
     expect(Object.keys(segments ?? {})).toEqual(['事業A']);
+  });
+});
+
+describe('ROIC の税率（実効税率 = 法人税等 ÷ 税引前利益）', () => {
+  const BS = [{ year: 2024, netAssets: 500, interestBearingDebt: 200 }]; // 投下資本 700
+  const roicOf = (pl: Record<string, number>) => computeROICFromPLBS([{ year: 2024, ...pl }] as any, BS as any);
+
+  it('正常値：税引前利益90・法人税等27なら実効税率30%、NOPAT70、ROIC10%', () => {
+    const r = roicOf({ operatingIncome: 100, interest: 10, tax: 27 });
+    expect(r.roic).toBeCloseTo(10, 6);
+    expect(r.meta.join('|')).not.toContain('税率は仮定値');
+  });
+
+  it('利益0：NOPATを出せず、ROICは出さない', () => {
+    expect(roicOf({ operatingIncome: 0, interest: 0, tax: 0 }).roic).toBeUndefined();
+  });
+
+  it('赤字：税引前利益が負なら仮定値30%で推定し、参考値と明記する', () => {
+    const r = roicOf({ operatingIncome: -20, interest: 2, tax: 0 });
+    expect(r.roic).toBeCloseTo(-2, 6);
+    expect(r.meta.join('|')).toContain('税率は仮定値 30% を使用');
+    expect(r.meta.join('|')).toContain('参考値');
+  });
+
+  it('税引前利益0：税率を計算せず、仮定値30%を使う', () => {
+    const r = roicOf({ operatingIncome: 10, interest: 10, tax: 3 });
+    expect(r.roic).toBeCloseTo(1, 6);
+    expect(r.meta.join('|')).toContain('税引前利益が0以下');
+  });
+
+  it('税率が異常（税額が税引前利益を超える・負）なら、異常な率を使わず仮定値30%を使う', () => {
+    const over = roicOf({ operatingIncome: 100, interest: 10, tax: 120 });
+    expect(over.roic).toBeCloseTo(10, 6);
+    expect(over.meta.join('|')).toContain('範囲外');
+    expect(roicOf({ operatingIncome: 100, interest: 10, tax: -5 }).roic).toBeCloseTo(10, 6);
+  });
+
+  it('支払利息が未入力なら税引前利益を確定できないので、仮定値30%を使い注記する', () => {
+    const r = roicOf({ operatingIncome: 100, tax: 27 });
+    expect(r.roic).toBeCloseTo(10, 6);
+    expect(r.meta.join('|')).toContain('支払利息が未入力');
+  });
+});
+
+describe('手入力WACC（STAGE1 → 価値分析）', () => {
+  const PL = [{ year: 2024, revenue: 1_000_000_000, operatingIncome: 100_000_000 }];
+
+  it('手入力WACC（%）があれば、その値を価値分析の WACC として引き継ぐ', () => {
+    expect(computeStage1ValueAnalysis({ financePL: PL, waccManual: 8 }).company.wacc).toBe(8);
+  });
+
+  it('未入力（undefined・null）は0%とせず、WACCを設定しない', () => {
+    expect(computeStage1ValueAnalysis({ financePL: PL }).company.wacc).toBeUndefined();
+    expect(computeStage1ValueAnalysis({ financePL: PL, waccManual: null }).company.wacc).toBeUndefined();
+  });
+
+  it('0以下・100以上の値は採用しない', () => {
+    expect(computeStage1ValueAnalysis({ financePL: PL, waccManual: 0 }).company.wacc).toBeUndefined();
+    expect(computeStage1ValueAnalysis({ financePL: PL, waccManual: 120 }).company.wacc).toBeUndefined();
+  });
+
+  it('単位は％。0.08は0.08%として扱い、比率へ換算しない', () => {
+    expect(computeStage1ValueAnalysis({ financePL: PL, waccManual: 0.08 }).company.wacc).toBe(0.08);
+  });
+
+  it('PLがない（financeSummary の経路）でも手入力WACCを引き継ぐ', () => {
+    expect(computeStage1ValueAnalysis({ waccManual: 8 }).company.wacc).toBe(8);
   });
 });

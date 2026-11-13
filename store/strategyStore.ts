@@ -2908,6 +2908,7 @@ export const useStrategyStore = create<StrategyState>()(
           segmentPL: s.segmentPL,
           segmentBS: s.segmentBS,
           pbrManual: s.pbrManual,
+          waccManual: s.stage1Benchmarks?.waccManual,
         });
         newValueAnalysis = stage1Result.company;
         newSegmentValueAnalysis = stage1Result.segments;

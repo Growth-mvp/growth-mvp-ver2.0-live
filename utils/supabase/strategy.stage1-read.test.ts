@@ -1,5 +1,6 @@
 import { buildStateFromDbRow } from './strategy';
 import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
+import { buildStage6FourMetricCards } from '@/utils/stage6/compute';
 
 describe('STAGE1 5指標の入力は、DB の行から復元される', () => {
   it('finance_pl・csv の financeBS・pbr_manual・stage1_benchmarks から同じ 5 指標を算出できる', () => {
@@ -32,10 +33,14 @@ describe('STAGE1 5指標の入力は、DB の行から復元される', () => {
       segmentPL: state.segmentPL,
       segmentBS: state.segmentBS,
       pbrManual: state.pbrManual,
+      waccManual: state.stage1Benchmarks?.waccManual,
     });
     expect(company.revenueCagrPct).toBeCloseTo(10, 6);
     expect(company.operatingMarginPctLatest).toBeCloseTo(8, 6);
     expect(company.roic).toBeCloseTo(10.648, 6);
     expect(company.pbr).toBe(1.5);
+    expect(company.wacc).toBe(8);
+    const wacc = buildStage6FourMetricCards({ currentValueAnalysis: company }).find((c) => c.key === 'wacc');
+    expect(wacc?.current).toBe(8);
   });
 });
