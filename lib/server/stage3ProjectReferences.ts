@@ -1,5 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveManualImpacts, stage6ProjectKeyOf } from '@/lib/okr/impactRows';
 
 export type ProjectReferences = Record<string, string[]>;
 
@@ -8,7 +9,7 @@ export type ProjectReferenceResult = { ok: true; references: ProjectReferences }
 const MISSING_TABLE_CODES = new Set(['42P01', 'PGRST205']);
 
 /**
- * 既存プロジェクトの ID を、実行計画書（STAGE4）と OKR が参照しているかを調べる。
+ * 既存プロジェクトの ID を、実行計画書（STAGE4）・OKR・業績影響（STAGE6）が参照しているかを調べる。
  * 参照を確認できない時（照会に失敗した時）は、安全側に倒して失敗を返す。
  * 実行計画書の表が無い環境では、その表に行は無いものとして扱う。
  */
@@ -43,6 +44,27 @@ export async function findProjectReferences(
     .in('project_id', args.projectIds);
   if (okrs.error) return { ok: false, error: 'reference_check_failed' };
   for (const row of okrs.data ?? []) add(String(row.project_id), 'OKR（STAGE4〜5）で使われています');
+
+  const strategy = await admin
+    .from('strategy_data')
+    .select('departments, project_target_impacts')
+    .eq('id', args.strategyId)
+    .eq('company_id', args.companyId)
+    .maybeSingle();
+  if (strategy.error) return { ok: false, error: 'reference_check_failed' };
+  const departments: any[] = Array.isArray(strategy.data?.departments) ? strategy.data.departments : [];
+  const impactRows: any[] = Array.isArray(strategy.data?.project_target_impacts) ? strategy.data.project_target_impacts : [];
+  const impactOwnerKeys = new Set(
+    resolveManualImpacts({ rows: impactRows, departments, companyTargets: [] }).owners.map((o) => o.projectKey),
+  );
+  departments.forEach((dept) => {
+    (Array.isArray(dept?.projects) ? dept.projects : []).forEach((project: any, pIdx: number) => {
+      const projectId = String(project?.id ?? '');
+      if (args.projectIds.includes(projectId) && impactOwnerKeys.has(stage6ProjectKeyOf(dept, project, pIdx))) {
+        add(projectId, '業績影響（STAGE6）で使われています');
+      }
+    });
+  });
 
   return { ok: true, references };
 }
