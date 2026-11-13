@@ -147,6 +147,7 @@ describe('人事部（間接部門）の生成を、ルートの経路で通す�
       expect(p.departmentScope).toBe('indirect');
       expect(p.departmentGuidance).toContain('間接部門');
       expect(p.responseTemplate.project.mainLever).toBeNull();
+      expect(p.responseTemplate.project.causalDesign.buyer).not.toContain('発注企業');
       const kpiScopes = p.responseTemplate.project.keyResults.map((k: any) => k.measurementScope);
       expect(kpiScopes).toContain('internal_process');
       expect(kpiScopes).not.toContain('client_business');

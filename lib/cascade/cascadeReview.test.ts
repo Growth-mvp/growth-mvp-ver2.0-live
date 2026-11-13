@@ -5,6 +5,11 @@ import {
   reviewSlotCandidate,
   validateCascadeReview,
   MAIN_LEVER_CORRECTION,
+  INDIRECT_DEPARTMENT_GUIDANCE,
+  departmentScopeFields,
+  designTemplateFor,
+  isIndirectDepartment,
+  leverForTemplate,
 } from './cascadeReview';
 
 const EVIDENCE = '既存顧客の再発注は、書類作成の手間で止まっている。手続きを半分にできる点が選ばれる理由になる。';
@@ -323,5 +328,50 @@ describe("[再現] 修復しても同じ不正値が返る場合の診断", () =
     expect(slot2.map((d) => d.rawMainLever)).toEqual(["6コードのうち施策が効かせる1つ", "6コードのうち施策が効かせる1つ"]);
     expect(slot2[0].errors).toEqual(["slot_2_lever"]);
     expect(diagnostics.filter((d) => d.slot === 1)).toHaveLength(1);
+  });
+});
+
+describe('間接部門の判定と入力（事業セグメントに対応しない部門）', () => {
+  it('セグメントに対応しなかった部門は間接部門。対応した部門・対応結果が無い部門は事業部門', () => {
+    expect(isIndirectDepartment({ segmentMatched: false })).toBe(true);
+    expect(isIndirectDepartment({ segmentMatched: true })).toBe(false);
+    expect(isIndirectDepartment(undefined)).toBe(false);
+    expect(isIndirectDepartment({})).toBe(false);
+  });
+
+  it('間接部門の入力には区分と指示を付け、事業部門の入力には指示を付けない', () => {
+    expect(departmentScopeFields(true)).toEqual({ departmentScope: 'indirect', departmentGuidance: INDIRECT_DEPARTMENT_GUIDANCE });
+    expect(departmentScopeFields(false)).toEqual({ departmentScope: 'business' });
+  });
+
+  it('間接部門の指示は、支援・協働の成果を示し、既定の指標や創作を求めない', () => {
+    expect(INDIRECT_DEPARTMENT_GUIDANCE).toContain('支援');
+    expect(INDIRECT_DEPARTMENT_GUIDANCE).toContain('internal_process');
+    expect(INDIRECT_DEPARTMENT_GUIDANCE).toContain('ARPUを既定にしない');
+    expect(INDIRECT_DEPARTMENT_GUIDANCE).toContain('顧客や市場の数値を創作しない');
+    expect(INDIRECT_DEPARTMENT_GUIDANCE).toContain('研修件数や制度整備を最終目的にしない');
+    expect(INDIRECT_DEPARTMENT_GUIDANCE).toContain('buyer は支援を受ける事業部門・全社');
+  });
+});
+
+describe('応答テンプレートの指定（間接部門）', () => {
+  it('間接部門の mainLever は説明文を入れず、事業部門の既定値は変えない', () => {
+    expect(leverForTemplate(true, 2)).toBeNull();
+    expect(leverForTemplate(true, 3)).toBeNull();
+    expect(leverForTemplate(false, 2)).toBe('ARPU');
+    expect(leverForTemplate(false, 3)).toBe('FUTURE');
+  });
+
+  it('間接部門の因果設計と顧客成果は支援先部門の成果で指定し、事業部門の指定は従来どおり', () => {
+    const indirect = designTemplateFor(true);
+    expect(indirect.buyer).not.toContain('発注企業');
+    expect(indirect.customerChange).not.toContain('利用者');
+    expect(indirect.kpi.measurementScope).toBe('internal_process');
+    expect(indirect.kpi.population).not.toContain('顧客');
+    expect(designTemplateFor(false)).toEqual({
+      buyer: '発注企業・施設運営者',
+      customerChange: '発注企業・利用者の変化',
+      kpi: { measurementScope: 'client_business', population: '対象施設・利用者の範囲' },
+    });
   });
 });

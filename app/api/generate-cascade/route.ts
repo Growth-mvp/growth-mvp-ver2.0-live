@@ -16,7 +16,6 @@ import {
   normalizeConfirmedSegmentIds,
 } from '@/utils/finance/financeInputUnits';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { customerOutcomeTemplate, departmentScopeFields, isIndirectDepartment, leverForTemplate } from '@/lib/cascade/departmentScope';
 import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignals, ReconsiderationSeverity, ReconsiderationPointInternal } from '@/types/strategy';
@@ -27,6 +26,10 @@ import {
   generateSlotProjects,
   normalizeCascadeReview,
   validateCascadeReview,
+  designTemplateFor,
+  departmentScopeFields,
+  isIndirectDepartment,
+  leverForTemplate,
 } from '@/lib/cascade/cascadeReview';
 
 /* =========================
@@ -3203,6 +3206,7 @@ async function reviewCascadeDepartment(dept: any, partners: string[], context: {
   for (let attempt = 0; attempt < 1; attempt++) {
     try {
       const indirect = isIndirectDepartment(context.facts);
+      const design = designTemplateFor(indirect);
       const completion = await generateCascadeBySlot({
         model: CASCADE_MODEL,
         response_format: { type: 'json_object' },
@@ -3254,8 +3258,8 @@ slot4とslot5のcollaborationは空欄禁止。必ず連携する担当・事業
               currentPosition: '根拠ある現状と全社での位置づけ', strategicRole: '全社戦略で担う中計上の役割',
               projects: cascadeSlots(partners).map(({ slot }) => ({ slot,
                 title: '対象・実行内容・価値が伝わる具体的なテーマ',
-                causalDesign: { buyer: '発注企業・施設運営者', problem: '解く事業課題',
-                  intervention: '具体的に提供・実行すること', customerChange: '発注企業・利用者の変化',
+                causalDesign: { buyer: design.buyer, problem: '解く事業課題',
+                  intervention: '具体的に提供・実行すること', customerChange: design.customerChange,
                   revenueMechanism: '当社の単価・採算・継続収益につながる仕組み',
                   differentiation: '他のスロットと異なる対象・提供段階・収益機会' },
                 ...(slot === 3 ? { exploration: { payer: '対価を払う対象',
@@ -3273,7 +3277,7 @@ slot4とslot5のcollaborationは空欄禁止。必ず連携する担当・事業
                 ],
                 keyResults: [
                   { label: '仮説の直接成果を測る指標名（単位）', unit: '単位', kind: slot === 3 ? 'validation' : 'business_outcome', measurementScope: 'own_business', population: '対象契約・案件の範囲', calculation: '算式または集計方法', dataSource: '案件原価・契約等の具体的データ', comparison: '比較期間と条件', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '仮説のどの成否を測るか' },
-                  { label: '1本目とは異なる顧客成果・検証指標名（単位）', unit: '単位', kind: slot === 3 ? 'validation' : 'customer_outcome', ...customerOutcomeTemplate(indirect), calculation: '算式または集計方法', dataSource: '顧客から合意して取得する具体的データ', comparison: '改修前後・比較施設等の条件', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '仮説との関係' },
+                  { label: '1本目とは異なる顧客成果・検証指標名（単位）', unit: '単位', kind: slot === 3 ? 'validation' : 'customer_outcome', ...design.kpi, calculation: '算式または集計方法', dataSource: '顧客から合意して取得する具体的データ', comparison: '改修前後・比較施設等の条件', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '仮説との関係' },
                   { label: '成果につながる先行指標名（単位）', unit: '単位', kind: 'leading', measurementScope: 'internal_process', population: '対象施策・案件の範囲', calculation: '算式または集計方法', dataSource: '実行状況の記録', comparison: '比較条件。不要なら理由', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '成果を先行して確認できる理由' },
                 ],
               })),
