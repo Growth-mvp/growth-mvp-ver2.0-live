@@ -2,10 +2,8 @@
  * 判定は画面と同じ関数（computePlanView）を使い、保存された内容だけで決める。画面の表示は信用しない。
  * 採用は AI提案KPI の確定を意味しない。ここでは okrsV2 や経路Bには触れない。 */
 import { regulatoryComplete, EMPTY_REGULATORY, type RegulatoryRecord } from '../planView/model';
-import { IMPACT_EDIT_PREFIX } from '../planView/impactEstimate';
 import { computePlanView, INITIAL_PLAN_STATE } from '../planView/planState';
-import { listEditableItems } from '../planView/regen';
-import type { UserEdits } from './mergeUserEdits';
+import { editsAfterReplace } from './draftEdits';
 import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
 import { allowed, displayedRecord, type ServiceContext } from './planService';
 import { refreshKpiReference } from './kpiReference';
@@ -168,16 +166,6 @@ async function transitionStored(
   return { status: 'CONFLICT', current: current.value };
 }
 
-/* 修正の残し方：実行責任者と参考試算の前提は AI原案に依らないので残す。原案の項目に無い修正は外す（外した修正は履歴に残る） */
-function keepEdits(edits: UserEdits, aiDraft: Record<string, unknown>): UserEdits {
-  const bundle = aiDraft as { rawOutput?: unknown; plan?: unknown };
-  const draft = typeof bundle.rawOutput === 'string' ? JSON.parse(bundle.rawOutput) : bundle.plan;
-  const itemIds = new Set(draft ? listEditableItems(draft).map((i) => i.itemId) : []);
-  return Object.fromEntries(
-    Object.entries(edits).filter(([k]) => k === 'responsible' || k.startsWith(IMPACT_EDIT_PREFIX) || itemIds.has(k))
-  );
-}
-
 /* 「この案を使う」：版番号・状態・開始の有無と整合（戦略・プロジェクト・正式KPI）を確かめてから、AI原案と修正を差し替える */
 async function useDraftStored(
   ctx: ServiceContext,
@@ -201,7 +189,8 @@ async function useDraftStored(
   if (structure.failed) return { status: 'FAILED', message: FAILED };
   if (structure.blockers.length > 0) return { status: 'BLOCKED', blockers: structure.blockers };
 
-  const out = await ctx.gateway.replaceDraft(key, expectedVersion, { aiDraft, userEdits: keepEdits(record.userEdits, aiDraft) }, ctx.userId);
+  const { kept } = editsAfterReplace(record.userEdits, record.aiDraft, aiDraft);
+  const out = await ctx.gateway.replaceDraft(key, expectedVersion, { aiDraft, userEdits: kept }, ctx.userId);
   if (!out.ok) return { status: 'FAILED', message: FAILED };
   const result = out.value;
   switch (result.status) {

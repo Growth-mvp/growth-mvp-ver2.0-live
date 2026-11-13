@@ -55,6 +55,7 @@ import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
 import { RegenPanel, type RegenState } from './RegenPanel';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
+import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdits';
 import {
   conflictRows,
   entryAfterPersist,
@@ -108,6 +109,19 @@ const newStableId = (): string => {
   return c?.randomUUID ? c.randomUUID() : `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 };
 const POSITION = /^d(\d+)-p(\d+)$/;
+
+/* 差し替えで引き継がれない修正を、項目名と前の修正で示す（外れるものが無ければ null） */
+function droppedNotice(dropped: DroppedEdit[], lead: string): string | null {
+  if (dropped.length === 0) return null;
+  const shown = (v: unknown) => {
+    const s = String(v ?? '');
+    return s.length > 40 ? `${s.slice(0, 40)}…` : s;
+  };
+  const items = dropped
+    .map((d) => `「${d.label}」（${d.reason === 'CHANGED' ? '内容が変わった' : 'なくなった'}・前の修正：${shown(d.before)}）`)
+    .join('、');
+  return `${lead}次の修正は引き継がれません（操作の履歴には残ります）：${items}。必要なら計画書で書き直してください。`;
+}
 
 /* 現在の会社の戦略（ストア）を、文書型に並べる。保存は草案の記録だけで、STAGE3の戦略・KPI・okrsV2は変えない。
  * 会社・戦略が変わると、表示の状態ごと作り直す（前の選択や作成・保存の状態を残さない）。 */
@@ -452,7 +466,11 @@ function Stage3ProjectBrowser({
     setRegen((p) => ({ ...p, [id]: { status: 'BUSY' } }));
     const out = await ops.preview(key);
     if (out.status === 'PREVIEW') {
-      return setRegen((p) => ({ ...p, [id]: { status: 'READY', draft: out.draft, previewToken: out.previewToken, notice: null } }));
+      const report = editsAfterReplace(entry.plan.committed, entry.aiDraft, out.draft);
+      return setRegen((p) => ({
+        ...p,
+        [id]: { status: 'READY', draft: out.draft, previewToken: out.previewToken, notice: droppedNotice(report.dropped, 'この案にすると、') },
+      }));
     }
     const message =
       out.status === 'INVALID'
@@ -482,10 +500,8 @@ function Stage3ProjectBrowser({
     if (isBodyDirty(entry)) return note('計画書の本文に未保存の修正があります。先に「計画を保存」してください。');
     const out = await ops.useDraft(key, entry.stored.version, current.draft, current.previewToken);
     if (out.status === 'OK') {
-      const dropped = Object.keys(entry.plan.committed).filter((k) => !Object.prototype.hasOwnProperty.call(out.record.userEdits, k));
-      const notice = dropped.length
-        ? `新しい案にした。採用と開始は解除されています。新しい案にない項目への修正 ${dropped.length} 件は外しました（操作の履歴に残ります）。`
-        : '新しい案を現在の計画書にしました。採用と開始は解除されています。';
+      const report = editsAfterReplace(entry.plan.committed, entry.aiDraft, current.draft);
+      const notice = droppedNotice(report.dropped, '新しい案にしました。採用と開始は解除されています。') ?? '新しい案を現在の計画書にしました。採用と開始は解除されています。';
       setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record, notice) } : p));
       return clear();
     }
