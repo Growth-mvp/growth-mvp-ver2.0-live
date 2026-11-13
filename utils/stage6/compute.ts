@@ -161,6 +161,11 @@ export function canonicalizeUnit(unit: unknown): string | undefined {
     return 'oku_yen';
   }
 
+  // 万円系（百万円・億円とは別の単位）
+  if (u === '万円' || u === 'man_yen') {
+    return 'man_yen';
+  }
+
   // 百万円系
   if (u.includes('百万') || u === 'mjpy' || u === 'million_yen') {
     return 'million_yen';
@@ -177,7 +182,7 @@ export function canonicalizeUnit(unit: unknown): string | undefined {
   }
 
   // パーセント系
-  if (u === '%' || u === 'percent') {
+  if (u === '%' || u === '％' || u === 'percent') {
     return 'percent';
   }
 
@@ -212,6 +217,9 @@ export function normalizeValueToUnit(
     if (canonTo === 'million_yen') {
       return value / 1_000_000;
     }
+    if (canonTo === 'man_yen') {
+      return value / 10_000;
+    }
     if (canonTo === 'oku_yen') {
       return value / 100_000_000;
     }
@@ -239,6 +247,8 @@ export function normalizeValueToUnit(
     valueYen = value * 1_000_000;
   } else if (canonFrom === 'thousand_yen') {
     valueYen = value * 1_000;
+  } else if (canonFrom === 'man_yen') {
+    valueYen = value * 10_000;
   } else if (canonFrom === 'oku_yen') {
     valueYen = value * 100_000_000;
   }
@@ -247,6 +257,9 @@ export function normalizeValueToUnit(
   // yen -> toUnit
   if (canonTo === 'million_yen') {
     return valueYen / 1_000_000;
+  }
+  if (canonTo === 'man_yen') {
+    return valueYen / 10_000;
   }
   if (canonTo === 'oku_yen') {
     return valueYen / 100_000_000;
@@ -368,36 +381,59 @@ export function sumYearly(rows: YearlyPL[], key: 'revenue' | 'op_income'): numbe
  * North Star 関連（タブ2用）
  * ======================================================= */
 
+/* 北極星目標の金額として換算できる単位（表記の揺れを含む） */
+const NORTH_STAR_MONEY_UNITS: ReadonlySet<string> = new Set([
+  '円', 'jpy', 'yen', '¥', '千円', 'kjpy', 'thousand_yen', '万円', 'man_yen', '百万円', 'mjpy', 'million_yen', '億円', 'oku_yen',
+]);
+
+/* 金額以外の単位。換算の対象にせず、従来どおり扱う */
+const NORTH_STAR_NON_MONEY_UNITS: ReadonlySet<string> = new Set(['%', '％', 'percent', '件', '人', '回']);
+
+/** 空でなく、金額としても金額以外としても確認できない単位。円と推測せず、換算しない */
+export function isUnsupportedNorthStarUnit(unit: unknown): boolean {
+  if (typeof unit !== 'string') return false;
+  const key = unit.trim().toLowerCase();
+  if (key === '') return false;
+  return !NORTH_STAR_MONEY_UNITS.has(key) && !NORTH_STAR_NON_MONEY_UNITS.has(key);
+}
+
 /**
  * 北極星目標の表示・比較に使う単位。
- * 円・千円・百万円・億円（MJPY 等の表記を含む）以外は従来どおり円として扱う。
+ * 円・千円・万円・百万円・億円（MJPY 等の表記を含む）以外は従来どおり円として扱う。
  */
-export function northStarDisplayUnit(unit: unknown): 'million_yen' | 'thousand_yen' | 'oku_yen' | 'yen' {
+export function northStarDisplayUnit(unit: unknown): 'million_yen' | 'thousand_yen' | 'man_yen' | 'oku_yen' | 'yen' {
   const canonical = canonicalizeUnit(unit ?? 'yen');
-  return canonical === 'million_yen' || canonical === 'thousand_yen' || canonical === 'oku_yen' ? canonical : 'yen';
+  return canonical === 'million_yen' || canonical === 'thousand_yen' || canonical === 'man_yen' || canonical === 'oku_yen'
+    ? canonical
+    : 'yen';
 }
 
 /** 北極星の目標値（登録単位の値）を百万円へ換算する */
 export function northStarValueToMJPY(value: number, unit: unknown): number {
+  if (isUnsupportedNorthStarUnit(unit)) return Number.NaN;
   return normalizeValueToUnit(value, northStarDisplayUnit(unit), 'million_yen') ?? value;
 }
 
 /** 百万円の値を北極星の表示単位へ換算する（逆方向） */
 export function mjpyToNorthStarDisplay(mjpy: number, unit: unknown): number {
+  if (isUnsupportedNorthStarUnit(unit)) return Number.NaN;
   return normalizeValueToUnit(mjpy, 'million_yen', northStarDisplayUnit(unit)) ?? mjpy;
 }
 
 /** 円の値を北極星の表示単位へ換算する（逆方向） */
 export function yenToNorthStarDisplay(yen: number, unit: unknown): number {
+  if (isUnsupportedNorthStarUnit(unit)) return Number.NaN;
   return normalizeValueToUnit(yen, 'yen', northStarDisplayUnit(unit)) ?? yen;
 }
 
 /** 北極星の値を表示用の文字列にする（千円は「千円」、百万円は数値のみ、円は ¥ 付き） */
 export function formatNorthStarValue(value: number | null | undefined, unit: unknown): string {
   if (value == null || Number.isNaN(value)) return '—';
+  if (isUnsupportedNorthStarUnit(unit)) return '—';
   const digits = value.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
   const displayUnit = northStarDisplayUnit(unit);
   if (displayUnit === 'oku_yen') return `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} 億円`;
+  if (displayUnit === 'man_yen') return `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} 万円`;
   if (displayUnit === 'million_yen') return digits;
   if (displayUnit === 'thousand_yen') return `${digits} 千円`;
   return '¥' + digits;
@@ -450,7 +486,7 @@ export function buildNorthStarRows(args: {
   return companyTargets.map((target) => {
     // ★ TASK-3: unit を先に正規化（百万円 → million_yen など）
     const normalizedUnit = canonicalizeUnit(target.unit);
-    if (!normalizedUnit || normalizedUnit === '') {
+    if (!normalizedUnit || normalizedUnit === '' || isUnsupportedNorthStarUnit(target.unit)) {
       console.warn('[TASK-3] Unknown unit in companyTarget', {
         targetLabel: target.label,
         rawUnit: target.unit,

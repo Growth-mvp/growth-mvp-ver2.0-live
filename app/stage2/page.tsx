@@ -6,6 +6,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation';
 import { safeGetSession } from '@/utils/supabase/client';
 import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio, formatPct } from '@/utils/unit';
+import { COMPANY_TARGET_UNIT_PRESETS as NS_UNIT_PRESETS, editableUnitOf, isPresetUnit } from '@/lib/stage2/companyTargetUnit';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { buildStage2FinancePayload } from '@/utils/finance/stage2FinancePayload';
@@ -1014,17 +1015,6 @@ const NS_LABEL_PRESETS = [
   '解約率',
 ] as const;
 
-const NS_UNIT_PRESETS = [
-  '円',
-  '千円',
-  '百万円',
-  '億円',
-  '%',
-  '件',
-  '人',
-  '回',
-] as const;
-
 type PrioritySimple = 'primary' | 'secondary' | 'reference';
 
 function priorityLabel(p?: PrioritySimple) {
@@ -1134,7 +1124,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
     setFormData({
       labelPreset: presetHit ? (ct.label ?? '売上') : 'その他',
       labelOther: presetHit ? '' : String(ct.label ?? ''),
-      unit: ct.unit ?? '',
+      unit: editableUnitOf(ct.unit),
       base: String(ct.base ?? ''),
       dueYear: ct.dueYear !== undefined ? String(ct.dueYear) : '',
       prioritySimple: (ct.prioritySimple as PrioritySimple) || 'reference',
@@ -1262,7 +1252,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                     {u}
                   </option>
                 ))}
-                {!(NS_UNIT_PRESETS as readonly string[]).includes(formData.unit) && (
+                {!isPresetUnit(formData.unit) && (
                   <option value={formData.unit}>
                     {formData.unit ? `${formData.unit}（未対応の単位）` : '未設定（選択してください）'}
                   </option>

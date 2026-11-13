@@ -39,6 +39,7 @@ import {
   calcYearlyFromKrs,
   buildStage6FourMetricCards,
   mjpyToNorthStarDisplay,
+  isUnsupportedNorthStarUnit,
   northStarDisplayUnit,
   northStarValueToMJPY,
   yenToNorthStarDisplay,
@@ -1099,7 +1100,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       const isRevenueLike = isRevenueLabel(row.label);
       const isOpIncomeLike = isOperatingIncomeLabel(row.label);
 
-      if (isRevenueLike || isOpIncomeLike) {
+      if ((isRevenueLike || isOpIncomeLike) && !isUnsupportedNorthStarUnit(row.unit)) {
         // ★修正 FIX-FINAL：Unit Normalization 追加修正
         // - 北極星の baseline/forecast/target をすべて同一単位（MJPY推奨）に正規化
         // - achievementRate = forecastMJPY / targetMJPY * 100
@@ -1603,8 +1604,10 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
 
     // Gap = target - forecast (key change from base - forecast)
     // Math.max(0, ...) で負の値を避ける（達成済みの場合は0）
-    const revenueGapMJPY = Math.max(0, targetRevenueMJPY - forecastRevenueMJPY);
-    const opGapMJPY = Math.max(0, targetOpMJPY - forecastOpMJPY);
+    const revenueTargetKnown = Number.isFinite(targetRevenueMJPY);
+    const opTargetKnown = Number.isFinite(targetOpMJPY);
+    const revenueGapMJPY = revenueTargetKnown ? Math.max(0, targetRevenueMJPY - forecastRevenueMJPY) : null;
+    const opGapMJPY = opTargetKnown ? Math.max(0, targetOpMJPY - forecastOpMJPY) : null;
 
     // Top projects by revenue and op contribution
     const topRevenueProjects = projectContribForUI
@@ -1621,13 +1624,13 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       revenue: {
         baseline: baselineRevenueMJPY,
         forecast: forecastRevenueMJPY,
-        target: targetRevenueMJPY,
+        target: revenueTargetKnown ? targetRevenueMJPY : null,
         gap: revenueGapMJPY,
       },
       op: {
         baseline: baselineOpMJPY,
         forecast: forecastOpMJPY,
-        target: targetOpMJPY,
+        target: opTargetKnown ? targetOpMJPY : null,
         gap: opGapMJPY,
       },
       topRevenueProjects,
@@ -1658,8 +1661,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       forecastRevenue: forecastYearlyFinal?.revenue,
       forecastOp: forecastYearlyFinal?.op_income,
       forecastYear,
-      targetRevenue: dashboardSummary.revenue.target * 1_000_000, // MJPY -> yen
-      targetOp: dashboardSummary.op.target * 1_000_000, // MJPY -> yen
+      targetRevenue: dashboardSummary.revenue.target === null ? undefined : dashboardSummary.revenue.target * 1_000_000, // MJPY -> yen
+      targetOp: dashboardSummary.op.target === null ? undefined : dashboardSummary.op.target * 1_000_000, // MJPY -> yen
       targetYear,
       investedCapital: estimatedInvestedCapital,
       baselineTaxRate: 0.3,

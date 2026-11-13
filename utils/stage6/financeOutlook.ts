@@ -51,8 +51,11 @@ export function unifiedTargetOf(companyTargets: CompanyTarget[] | null | undefin
   const targets = companyTargets ?? [];
   const revenueTarget = targets.find((t) => isRevenueLabel(t.label));
   const opTarget = targets.find((t) => isOperatingIncomeLabel(t.label));
-  const toYen = (t: CompanyTarget | undefined) =>
-    t && Number.isFinite(t.base) && t.base > 0 ? northStarValueToMJPY(t.base, t.unit) * 1_000_000 : null;
+  const toYen = (t: CompanyTarget | undefined) => {
+    if (!t || !Number.isFinite(t.base) || t.base <= 0) return null;
+    const mjpy = northStarValueToMJPY(t.base, t.unit);
+    return Number.isFinite(mjpy) ? mjpy * 1_000_000 : null;
+  };
   return {
     revenueYen: toYen(revenueTarget),
     operatingIncomeYen: toYen(opTarget),

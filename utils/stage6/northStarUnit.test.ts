@@ -1,11 +1,13 @@
 import {
   buildNorthStarRows,
   formatNorthStarValue,
+  isUnsupportedNorthStarUnit,
   mjpyToNorthStarDisplay,
   northStarDisplayUnit,
   northStarValueToMJPY,
   yenToNorthStarDisplay,
 } from './compute';
+import { unifiedTargetOf } from './financeOutlook';
 
 const AMOUNT_YEN = 1_300_000_000;
 
@@ -117,5 +119,86 @@ describe('北極星目標: 億円・百万円・円で同じ金額なら同じ�
     expect(oku.achievementRate).toBeCloseTo(million.achievementRate!, 6);
     expect(yen.achievementRate).toBeCloseTo(million.achievementRate!, 6);
     expect(oku.gap).toBeCloseTo(-3, 6);
+  });
+});
+
+describe('北極星目標: 万円の換算', () => {
+  it('1円＝0.000001百万円、1万円＝0.01百万円、1億円＝100百万円、1百万円＝1百万円', () => {
+    expect(northStarValueToMJPY(1, '円')).toBeCloseTo(0.000001, 12);
+    expect(northStarValueToMJPY(1, '万円')).toBeCloseTo(0.01, 12);
+    expect(northStarValueToMJPY(1, '百万円')).toBe(1);
+    expect(northStarValueToMJPY(1, '億円')).toBe(100);
+  });
+
+  it('万円の換算は、同じ金額の億円・百万円・円と一致する', () => {
+    expect(northStarValueToMJPY(10_000, '万円')).toBeCloseTo(northStarValueToMJPY(1, '億円'), 9);
+    expect(northStarValueToMJPY(1300, '万円')).toBeCloseTo(13, 9);
+    expect(northStarValueToMJPY(130_000_000, '円')).toBeCloseTo(130, 9);
+  });
+
+  it('万円の表示単位は万円で、表示文字列も万円になる', () => {
+    expect(northStarDisplayUnit('万円')).toBe('man_yen');
+    expect(mjpyToNorthStarDisplay(1, '万円')).toBeCloseTo(100, 9);
+    expect(formatNorthStarValue(12.5, '万円')).toBe('12.5 万円');
+  });
+});
+
+describe('北極星目標: 未対応の金額単位は円と推測せず、値を出さない', () => {
+  it('金額として確認できない単位は未対応として判定する', () => {
+    expect(isUnsupportedNorthStarUnit('米ドル')).toBe(true);
+    expect(isUnsupportedNorthStarUnit('千件')).toBe(true);
+    expect(isUnsupportedNorthStarUnit('ドル')).toBe(true);
+  });
+
+  it('金額・金額以外の既知の単位と、単位が無い値は未対応としない（従来どおり）', () => {
+    for (const u of ['円', 'JPY', '¥', '千円', '万円', '百万円', 'MJPY', '億円', '%', '％', '件', '人', '回', '', undefined]) {
+      expect(isUnsupportedNorthStarUnit(u)).toBe(false);
+    }
+  });
+
+  it('未対応の単位は換算・表示の値を返さない（NaN・表示は「—」）', () => {
+    expect(northStarValueToMJPY(1, '米ドル')).toBeNaN();
+    expect(mjpyToNorthStarDisplay(1, '米ドル')).toBeNaN();
+    expect(yenToNorthStarDisplay(1, '米ドル')).toBeNaN();
+    expect(formatNorthStarValue(1, '米ドル')).toBe('—');
+  });
+
+  it('未対応の単位の目標は、予測・差額・達成率を出さず、目標の値と単位は残す', () => {
+    const yearly = [{ year: 2026, revenue: 1_000_000_000, op_income: 0 }];
+    const [row] = buildNorthStarRows({
+      companyTargets: [{ id: 't1', label: '売上高', unit: '米ドル', base: 13, dueYear: 2026 }],
+      yearlyAll: { base: yearly },
+      scenarioKey: 'base',
+      projectContrib: [],
+    });
+    expect(row.unit).toBe('米ドル');
+    expect(row.base).toBe(13);
+    expect(row.forecastValue).toBeUndefined();
+    expect(row.gap).toBeUndefined();
+    expect(row.achievementRate).toBeUndefined();
+  });
+
+  it('財務サマリーの目標は、未対応の単位では円として作らない（未算出）', () => {
+    const out = unifiedTargetOf([{ id: 't1', label: '売上高', unit: '米ドル', base: 13, dueYear: 2026 } as any]);
+    expect(out.revenueYen).toBeNull();
+    const ok = unifiedTargetOf([{ id: 't2', label: '売上高', unit: '万円', base: 13, dueYear: 2026 } as any]);
+    expect(ok.revenueYen).toBeCloseTo(130_000, 6);
+  });
+});
+
+describe('北極星目標: 万円の達成率は、同じ金額の円・億円の目標と一致する', () => {
+  it('13万円・130,000円・0.0013億円は同じ達成率になる', () => {
+    const yearly = [{ year: 2026, revenue: 1_000_000_000, op_income: 0 }];
+    const rowFor = (unit: string, base: number) =>
+      buildNorthStarRows({
+        companyTargets: [{ id: 't1', label: '売上高', unit, base, dueYear: 2026 }],
+        yearlyAll: { base: yearly },
+        scenarioKey: 'base',
+        projectContrib: [],
+      })[0];
+    const man = rowFor('万円', 13);
+    expect(rowFor('円', 130_000).achievementRate).toBeCloseTo(man.achievementRate!, 6);
+    expect(rowFor('億円', 0.0013).achievementRate).toBeCloseTo(man.achievementRate!, 6);
+    expect(man.gap).toBeCloseTo(99_987, 6);
   });
 });
