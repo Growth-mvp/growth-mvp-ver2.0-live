@@ -271,7 +271,7 @@ export function Stage4FinanceConfirm({
         財務効果の確認（STAGE6へ反映）
       </h3>
       <p className="plan-note">
-        参考試算の数値から、財務効果の草案を作ります。内容を確認して「確認」を押したものだけ、STAGE6のPL・CFに反映されます。投資額は財務効果ではなく投資計画で扱うため、ここでは確認しません。
+        内容を確認して「この内容を財務効果として確認」を押したものだけ、STAGE6に反映されます。投資額は投資計画で扱うため、ここでは確認しません。
       </p>
       {planPeriod && (
         <p className="plan-note">

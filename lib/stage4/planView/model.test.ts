@@ -50,13 +50,13 @@ describe('実行開始の条件（実行責任者があれば開始できる）'
 });
 
 describe('財務効果の表示', () => {
-  it('未算定は、金額があっても 0 円にしない', () => {
-    expect(financeAmountText('NOT_CALCULATED', null)).toBe('未算定');
-    expect(financeAmountText('NOT_CALCULATED', '0.0 百万円（0 円）')).toBe('未算定');
+  it('未試算は、金額があっても 0 円にしない', () => {
+    expect(financeAmountText('NOT_CALCULATED', null)).toBe('未試算');
+    expect(financeAmountText('NOT_CALCULATED', '0.0 百万円（0 円）')).toBe('未試算');
   });
 
-  it('金額が無い試算も、未算定とする', () => {
-    expect(financeAmountText('AI_ESTIMATE', null)).toBe('未算定');
+  it('金額が無い試算も、未試算とする', () => {
+    expect(financeAmountText('AI_ESTIMATE', null)).toBe('未試算');
   });
 
   it('金額のある区分は、その表示をそのまま使う', () => {

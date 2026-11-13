@@ -195,19 +195,3 @@ export function conflictRows(entry: PlanDocEntry): ConflictRow[] {
     };
   });
 }
-
-/* 操作履歴の文言（サーバーの記録の種類を、利用者に分かる言葉にする） */
-export const EVENT_LABEL: Record<string, string> = {
-  GENERATION_STARTED: '草案の作成を開始',
-  GENERATED: '草案を作成',
-  GENERATION_FAILED: '草案の作成に失敗（やり直せます）',
-  GENERATION_RETRIED: '草案の作成をやり直し',
-  SAVED: '修正を保存',
-  ADOPTED: '計画書を採用',
-  ADOPTION_CANCELLED: '採用を取り消し',
-  ADOPTION_RESET: '修正により採用を解除',
-  REGULATORY_RECORDED: '規制・安全の判断を記録',
-  STARTED: '実行を開始',
-  START_CANCELLED: '実行の開始を取り消し',
-  START_RESET: '修正により実行の開始を解除',
-};

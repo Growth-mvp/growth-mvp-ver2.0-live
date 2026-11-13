@@ -52,12 +52,12 @@ export type FinanceStatus = 'CONFIRMED' | 'AI_ESTIMATE' | 'NOT_CALCULATED';
 export const FINANCE_STATUS_LABEL: Record<FinanceStatus, string> = {
   CONFIRMED: '確認済みの計画数値',
   AI_ESTIMATE: 'AIによる参考試算（未確認）',
-  NOT_CALCULATED: '未算定',
+  NOT_CALCULATED: '未試算',
 };
 
-/** 金額の表示。金額が無い（未算定）の場合は「未算定」を返し、0 円にはしない */
+/** 金額の表示。金額が無い（未試算）の場合は「未試算」を返し、0 円にはしない */
 export function financeAmountText(status: FinanceStatus, amountDisplay: string | null | undefined): string {
-  if (status === 'NOT_CALCULATED' || !amountDisplay) return '未算定';
+  if (status === 'NOT_CALCULATED' || !amountDisplay) return '未試算';
   return amountDisplay;
 }
 

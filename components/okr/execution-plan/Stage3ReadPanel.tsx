@@ -40,7 +40,6 @@ import PlanDocument from './PlanDocument';
 import StartConfirmation, { type StartInput } from './StartConfirmation';
 import { useSetStartMode } from './startMode';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
-import { REGULATORY_DECISION_LABEL, type RegulatoryRecord } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
 import { buildFinanceEffectDrafts, financeWriteReason, periodOfLabel } from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
@@ -48,11 +47,9 @@ import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
 import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
 import { RegenPanel, type RegenState } from './RegenPanel';
-import { PLAN_OPERATION_GUIDE, planStatusOf } from '@/lib/stage4/planView/planStatus';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import {
-  EVENT_LABEL,
   conflictRows,
   entryAfterPersist,
   saveWillReset,
@@ -64,7 +61,6 @@ import {
   responsibleOf,
   toEdits,
   type PlanDocEntry,
-  type ServerState,
 } from './planDocEntry';
 
 const ROLE_LABEL: Record<string, string> = { REVENUE: '売上を伸ばす', COST: 'ムダを減らす', FUTURE: '将来の成長に備える' };
@@ -694,7 +690,6 @@ function Stage3ProjectBrowser({
             remote={ops !== null}
             onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
             onStartPlan={(input) => sel && startPlanRemote(sel, input)}
-            version={entry?.stored && entry.save.status !== 'CONFLICT' ? entry.stored.version : null}
           />
         )}
       </section>
@@ -705,11 +700,11 @@ function Stage3ProjectBrowser({
 function saveStatusText(entry: PlanDocEntry): string {
   const s = entry.save;
   if (s.status === 'SAVING') return '保存しています…';
-  if (s.status === 'SAVED') return `保存済み（版 ${s.version}${s.mergedFromRemote ? '。他の人の修正を取り込みました' : ''}）`;
+  if (s.status === 'SAVED') return s.mergedFromRemote ? '保存済み（他の人の修正を取り込みました）' : '保存済み';
   if (s.status === 'FAILED') return s.message;
   if (s.status === 'DENIED') return 'この計画を保存する権限がありません。';
   if (s.status === 'CONFLICT') return '他の人が先に保存しています。下で、項目ごとに選んでください。';
-  return entry.stored ? '保存済み' : '未保存の草案（AIの草案に、利用者の修正を重ねています）';
+  return entry.stored ? '保存済み' : '未保存';
 }
 
 function ReadOnlyProject({
@@ -727,7 +722,6 @@ function ReadOnlyProject({
   onResolve,
   onPlan,
   onView,
-  version,
   remote,
   onTransition,
   onStartPlan,
@@ -752,7 +746,6 @@ function ReadOnlyProject({
   onResolve: () => void;
   onPlan: (fn: (p: ProjectPlanState) => ProjectPlanState) => void;
   onView: (v: 'document' | 'start') => void;
-  version: number | null;
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
   onStartPlan: (input: StartInput) => void;
@@ -776,12 +769,6 @@ function ReadOnlyProject({
   const errors = gen?.status === 'FAILED' ? gen.issues.filter((i) => i.severity === 'error') : [];
   const conflicts = entry && entry.save.status === 'CONFLICT' ? conflictRows(entry) : [];
   const saveView = entry?.save;
-  const planStatus = planStatusOf({
-    hasDraft: entry !== null,
-    dirty: entry !== null && isDirty(entry),
-    adopted: entry?.plan.adopted === true,
-    started: entry?.plan.started === true,
-  });
   const allPicked = saveView?.status === 'CONFLICT' && saveView.conflicts.every((k) => !!saveView.picks[k]);
 
   if (entry && planView && entry.view === 'start') {
@@ -811,22 +798,7 @@ function ReadOnlyProject({
     <div className="plan-page">
       <section className="plan-main" aria-label="実行計画書">
         <section className="plan-section">
-          <h2 className="plan-h2">
-            実行計画書
-          </h2>
-          <div className="plan-status" role="status" aria-live="polite">
-            <p className="plan-status-title">現在の状態：{planStatus.title}</p>
-            <p className="plan-note">{planStatus.detail}</p>
-            <p className="plan-status-next">次に行うこと：{planStatus.next}</p>
-          </div>
-          <dl className="plan-guide">
-            {PLAN_OPERATION_GUIDE.map((g) => (
-              <div key={g.name} className="plan-guide-item">
-                <dt>{g.name}</dt>
-                <dd>{g.meaning}</dd>
-              </div>
-            ))}
-          </dl>
+          <h2 className="plan-h2">実行計画書</h2>
           {!entry && loadPending && <p className="plan-p">保存された草案を読み込んでいます…</p>}
           {!entry && !loadPending && load?.status === 'FAILED' && (
             <>
@@ -867,14 +839,10 @@ function ReadOnlyProject({
             </>
           )}
           {entry && (
-            <p className="plan-note">
+            <p className="plan-note" role="status">
               {saveStatusText(entry)}
-              {version !== null && ` ／ 版 ${version}`}
               {isDirty(entry) && entry.save.status !== 'SAVING' && entry.save.status !== 'CONFLICT' && '（未保存の修正があります）'}
             </p>
-          )}
-          {entry && !stableId && (
-            <p className="plan-note">このプロジェクトにはまだ番号（安定ID）がありません。保存するときに、番号を一度だけ付けます。</p>
           )}
         </section>
       </section>
@@ -914,14 +882,14 @@ function ReadOnlyProject({
               </button>
             </section>
           )}
-          <div className="plan-toolbar" role="toolbar" aria-label="草案の保存">
+          <div className="plan-toolbar" role="toolbar" aria-label="計画の保存">
             <button
               type="button"
               className="plan-btn-primary"
               onClick={onSave}
               disabled={entry.save.status === 'SAVING' || entry.save.status === 'CONFLICT'}
             >
-              草案として保存
+              計画を保存
             </button>
           </div>
           {remote && saveWillReset(entry) && (
@@ -944,6 +912,7 @@ function ReadOnlyProject({
                 </div>
               ) : (
               <PlanDocument
+                key={`doc-${entry.stored?.version ?? 0}`}
                 bundle={entry.aiDraft}
                 mode={entry.plan.mode}
                 committed={entry.plan.committed}
@@ -953,6 +922,8 @@ function ReadOnlyProject({
                 blockers={planView.d.adoption.blockers}
                 notice={entry.plan.notice}
                 persisted={remote}
+                directEdit={remote}
+                onDirectChange={(k, v) => onPlan((p) => setCommittedValue(p, k, v))}
                 impactEstimate={impactEstimate}
                 financeSection={financeSection}
                 onImpactEdit={
@@ -973,7 +944,6 @@ function ReadOnlyProject({
             </>
           )}
           {entry.notice && <p role="status" className="plan-note">{entry.notice}</p>}
-          {remote && entry.server && <ServerRecords server={entry.server} />}
           {entry.save.status === 'FAILED' && <p role="alert" className="plan-note">{entry.save.message}</p>}
         </div>
       )}
@@ -1067,44 +1037,3 @@ function Reconcile({ onPlan }: { onPlan: (fn: (p: ProjectPlanState) => ProjectPl
   return null;
 }
 
-const dateText = (at: string): string => (at ? at.slice(0, 16).replace('T', ' ') : '');
-const shortUser = (id: string): string => (id ? `…${id.slice(-4)}` : '不明');
-
-/* 採用・実行開始・規制の記録と、操作の履歴（サーバーが保存した内容を、そのまま表示する） */
-function ServerRecords({ server }: { server: ServerState }) {
-  const reg = server.regulatory;
-  return (
-    <section className="plan-section" aria-label="採用・実行開始の記録">
-      <h2 className="plan-h3">採用・実行開始の記録</h2>
-      <ul className="plan-list">
-        <li>
-          {server.adoption
-            ? `採用：版 ${server.adoption.version}（採用者 ${shortUser(server.adoption.byUserId)}、${dateText(server.adoption.at)}）`
-            : '採用：まだ採用していません'}
-        </li>
-        <li>
-          {server.startInfo
-            ? `実行開始：版 ${server.startInfo.version}（開始者 ${shortUser(server.startInfo.byUserId)}、${dateText(server.startInfo.at)}）`
-            : '実行開始：まだ開始していません'}
-        </li>
-        <li>
-          {reg.decision
-            ? `規制・安全：${REGULATORY_DECISION_LABEL[reg.decision]}（確認者 ${reg.confirmer || '未入力'}、確認日 ${reg.confirmedOn || '未入力'}）`
-            : '規制・安全：未記録'}
-        </li>
-      </ul>
-      <h3 className="plan-h3">操作の記録</h3>
-      {server.events.length === 0 ? (
-        <p className="plan-note">まだ記録はありません。</p>
-      ) : (
-        <ol className="plan-list">
-          {server.events.map((e, i) => (
-            <li key={`${e.at}-${i}`}>
-              {dateText(e.at)}　{EVENT_LABEL[e.action] ?? e.action}（版 {e.version}）
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}

@@ -23,6 +23,9 @@ export type PlanDocumentProps = {
   onImpactEdit?: (key: ParamKey, value: number | null) => void;
   /** 第5章の下に出す財務効果の確認欄（STAGE6へ反映する操作）。計画書の保存状態とは別に扱う */
   financeSection?: ReactNode;
+  /** 文章をクリックして、そのまま利用者の修正として書く（修正の反映の操作は無い。保存は計画書の「計画を保存」） */
+  directEdit?: boolean;
+  onDirectChange?: (key: string, value: EditValue) => void;
   mode: Mode;
   committed: Edits;
   draft: Edits;
@@ -108,11 +111,12 @@ function toMonthInput(ja: string): string {
 export default function PlanDocument(props: PlanDocumentProps) {
   const { bundle, committed, draft, adopted, adoptable, blockers, notice } = props;
   const readOnly = props.readOnly === true;
-  const mode: Mode = readOnly ? 'read' : props.mode;
-  const edits = mode === 'edit' ? draft : committed;
+  const directEdit = props.directEdit === true && !readOnly;
+  const mode: Mode = readOnly ? 'read' : directEdit ? 'edit' : props.mode;
+  const edits = !directEdit && mode === 'edit' ? draft : committed;
   const doc: DocModel = useMemo(() => buildDocModel(bundle, edits), [bundle, edits]);
 
-  const setEdit = (key: string, value: EditValue) => props.onDraftChange(key, value);
+  const setEdit = (key: string, value: EditValue) => (directEdit ? props.onDirectChange?.(key, value) : props.onDraftChange(key, value));
   const editable = (key: string, label: string, original: string) => ({
     label,
     value: Object.prototype.hasOwnProperty.call(edits, key) ? String(edits[key] ?? '') : original,
@@ -125,7 +129,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
   return (
     <div className="plan-page">
       <style>{PLAN_DOC_CSS}</style>
-      {!readOnly && (
+      {!readOnly && !directEdit && (
       <div className="plan-toolbar" role="toolbar" aria-label="計画書の操作">
         <div className="plan-toolbar-actions">
           {mode === 'read' ? (
@@ -164,7 +168,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
               <tr>
                 <th>実行責任者</th>
                 <td colSpan={3}>
-                  {mode === 'edit' ? (
+                  {mode === 'edit' && !directEdit ? (
                     <EditableBlock
                       {...editable('responsible', '実行責任者', doc.responsible.raw)}
                       multiline={false}
@@ -325,14 +329,21 @@ export default function PlanDocument(props: PlanDocumentProps) {
           <p className="plan-p">{doc.goals.customerOutcome.text}</p>
           <h3 className="plan-h3">自社の売上・利益への貢献</h3>
           <EditableBlock {...editable(doc.impact.companyResult.key, '自社の売上・利益への貢献', doc.impact.companyResult.text)} />
-          {props.impactEstimate && <ImpactEstimateBlock estimate={props.impactEstimate} onEdit={props.onImpactEdit} />}
-          {props.financeSection}
+          {(props.impactEstimate || props.financeSection) && (
+            <details className="plan-supplement plan-finance-toggle">
+              <summary>財務効果を設定する</summary>
+              <div className="plan-supplement-body">
+                {props.impactEstimate && <ImpactEstimateBlock estimate={props.impactEstimate} onEdit={props.onImpactEdit} />}
+                {props.financeSection}
+              </div>
+            </details>
+          )}
           <h3 className="plan-h3">財務効果の算定</h3>
           <ul className="plan-list">
             {doc.impact.financeLines.map((f) => (
               <li key={f.label}>
                 <span className={`plan-fin plan-fin-${f.status === 'NOT_CALCULATED' ? 'none' : 'some'}`}>
-                  {f.status === 'NOT_CALCULATED' ? '未算定' : f.status === 'CONFIRMED' ? '確認済み' : '参考試算（未確認）'}
+                  {f.status === 'NOT_CALCULATED' ? '未試算' : f.status === 'CONFIRMED' ? '確認済み' : '参考試算（未確認）'}
                 </span>{' '}
                 {f.text}
               </li>
@@ -410,7 +421,16 @@ export default function PlanDocument(props: PlanDocumentProps) {
         </footer>
       </article>
 
-      {!readOnly && props.showAdoption !== false && (
+      {!readOnly && directEdit && (
+      <section className="plan-next" aria-label="実行開始へ進む">
+        <div className="plan-next-actions">
+          <button type="button" className="plan-btn-primary" onClick={props.onOpenStart}>
+            実行を開始する
+          </button>
+        </div>
+      </section>
+      )}
+      {!readOnly && !directEdit && props.showAdoption !== false && (
       <section className="plan-next" aria-label="計画案の採用">
         <h2 className="plan-h3">計画書の採用</h2>
         {mode === 'edit' ? (
