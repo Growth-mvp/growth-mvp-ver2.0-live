@@ -141,7 +141,14 @@ type StateResponse = {
   stage2Status: 'confirmed' | 'not_confirmed' | 'story_missing';
   companyStrategy: string | null;
 };
-type FailedStateBody = { ok: false; error: string; stage2Status?: 'confirmed' | 'not_confirmed' | 'story_missing'; companyStrategy?: string | null };
+type FailedStateBody = {
+  ok: false;
+  error: string;
+  stage2Status?: 'confirmed' | 'not_confirmed' | 'story_missing';
+  companyStrategy?: string | null;
+  departmentName?: string;
+  item?: string;
+};
 type SaveResponse = { ok: true; version: number };
 type AnalyzeResponse = {
   ok: true;
@@ -182,6 +189,34 @@ const ERROR_MESSAGE: Record<string, string> = {
   current_value_changed: '反映予定の値が、案を作った後に変わっていました。正式データは変わっていません。もう一度生成からやり直してください。',
   confirm_failed: '確定できませんでした。正式データも作業内容も変わっていません。',
   insufficient_role: '確定は管理者・管理職のみ行えます。',
+  reference_check_failed: '計画からの参照を確認できず、外す処理を止めました。時間をおいて再度お試しください。',
+  invalid_request: '送信内容を確認できませんでした。画面を再読み込みしてから、もう一度お試しください。',
+  membership_check_unavailable: '権限を確認できませんでした（保存先に接続できません）。時間をおいて再度お試しください。',
+  strategy_check_unavailable: '戦略の情報を確認できませんでした（保存先に接続できません）。時間をおいて再度お試しください。',
+  stored_state_invalid: '保存済みの作業内容を読み込めませんでした。管理者に確認してください。',
+  candidate_missing: '確定の対象の新規プロジェクト案が見つかりません。画面を再読み込みしてください。',
+  project_referenced: '計画から外そうとしたプロジェクトが、実行計画などから参照されています。外さずに確定してください。',
+  project_missing: '確定の対象のプロジェクトが正式データに見つかりません。画面を再読み込みしてください。',
+  project_unknown: '確定の対象のプロジェクトが正式データに見つかりません。画面を再読み込みしてください。',
+  project_changed: '対象のプロジェクトが、案を作った後に変わっていました。正式データは変わっていません。画面を再読み込みしてください。',
+  project_edit_duplicated: '同じプロジェクトの編集が重複しています。画面を再読み込みしてください。',
+  project_removal_duplicated: '同じプロジェクトを外す操作が重複しています。画面を再読み込みしてください。',
+  invalid_project: '新規プロジェクトの内容を確認できませんでした。内容を見直してから、もう一度お試しください。',
+  invalid_change: '戦略書の変更内容を確認できませんでした。内容を見直してから、もう一度お試しください。',
+  duplicate_change: '同じ項目への変更が重複しています。画面を再読み込みしてください。',
+  department_missing: '確定の対象の部門が正式データに見つかりません。画面を再読み込みしてください。',
+  adoption_department_missing: '採用するプロジェクトの部門が正式データに見つかりません。画面を再読み込みしてください。',
+  invalid_departments: '部門の情報を確認できませんでした。画面を再読み込みしてください。',
+  draft_id_duplicated: '保存済みの作業内容が正式データと合わなくなりました。画面を再読み込みしてください。',
+  draft_department_unknown: '保存済みの作業内容が正式データと合わなくなりました。画面を再読み込みしてください。',
+  draft_project_duplicated: '保存済みの作業内容が正式データと合わなくなりました。画面を再読み込みしてください。',
+  analysis_draft_unknown: '保存済みの作業内容が正式データと合わなくなりました。画面を再読み込みしてください。',
+  analysis_candidates_invalid: '部門間の調整候補が古くなっています。分析し直してから確定してください。',
+  selection_department_unknown: '保存済みの作業内容が正式データと合わなくなりました。画面を再読み込みしてください。',
+  decision_unknown_candidate: '保存済みの作業内容が正式データと合わなくなりました。画面を再読み込みしてください。',
+  dialogue_invalid: '話し合いの結果の内容を確認してください。',
+  confirmed_without_record: '確定の記録が不完全です。画面を再読み込みしてください。',
+  internal_error: '確定できませんでした（サーバーで処理できませんでした）。正式データも作業内容も変わっていません。',
 };
 
 const DEFAULT_ERROR = '処理に失敗しました。時間をおいて再度お試しください。';
@@ -210,6 +245,15 @@ function errorMessage(e: unknown): string {
   if (e instanceof TypeError) return '通信に失敗しました。接続を確認して、もう一度お試しください。';
   const code = errorCode(e);
   return (code && ERROR_MESSAGE[code]) || DEFAULT_ERROR;
+}
+
+/** 確定の失敗理由。部門・項目が分かる場合は、どこで止まったかを添える（プロジェクトは項目名を出さない）。 */
+function confirmErrorMessage(e: unknown): string {
+  const body = errorBody(e);
+  const reason = errorMessage(e);
+  if (!body?.departmentName) return reason;
+  const where = body.item && body.item !== 'project' ? `「${body.departmentName}」の「${body.item}」` : `「${body.departmentName}」`;
+  return `${where}で確定を止めました。${reason}`;
 }
 
 const dialogueKey = (candidateId: string, topic: string) => `${candidateId} ${topic}`;
@@ -295,6 +339,7 @@ export function StrategyBookDesk({
   const [candEdit, setCandEdit] = useState<{ candidateId: string; title: string; reason: string; hypothesis: string; description: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [confirmResult, setConfirmResult] = useState<{ tone: 'ok' | 'error'; message: string } | null>(null);
   const [tab, setTab] = useState<Tab>('dept:0');
   const [questionsOpen, setQuestionsOpen] = useState(true);
   const [mgmtOpen, setMgmtOpen] = useState(false);
@@ -831,28 +876,36 @@ export function StrategyBookDesk({
 
   /* 確定：未判断が残っていれば確定しない。確定は全件をサーバーで検証してから、1回の処理で書く */
   const confirm = async () => {
+    setConfirmResult(null);
     const blocker = blockerFor(false);
     if (blocker) {
-      setNotice(blocker);
+      setConfirmResult({ tone: 'error', message: blocker });
       return;
     }
     const undecided = (state.analysis?.candidates ?? []).filter((c) => !state.candidateDecisions[c.id]).length;
     const pending = state.selections.filter((s) => s.decision === 'pending').length;
     const pendingProjects = state.projectSelections.filter((p) => p.decision === 'pending').length;
     if (pending > 0) {
-      setNotice(`未判断の変更案が${pending}件あります。反映・保留・反映しないのいずれかを選んでください。`);
+      setConfirmResult({ tone: 'error', message: `未判断の変更案が${pending}件あります。反映・保留・反映しないのいずれかを選んでください。` });
       return;
     }
     if (pendingProjects > 0) {
-      setNotice(`未判断の新規プロジェクトが${pendingProjects}件あります。採用・保留・不採用のいずれかを選んでください。`);
+      setConfirmResult({ tone: 'error', message: `未判断の新規プロジェクトが${pendingProjects}件あります。採用・保留・不採用のいずれかを選んでください。` });
       return;
     }
     if (undecided > 0) {
-      setNotice(`未判断の調整候補が${undecided}件あります。採用・保留・不採用のいずれかを選んでください。`);
+      setConfirmResult({ tone: 'error', message: `未判断の調整候補が${undecided}件あります。採用・保留・不採用のいずれかを選んでください。` });
       return;
     }
-    const g = gate();
-    if (!g || versionRef.current === null) return;
+    const g = getWriteGate();
+    if (!g.ok) {
+      setConfirmResult({ tone: 'error', message: g.reason });
+      return;
+    }
+    if (versionRef.current === null) {
+      setConfirmResult({ tone: 'error', message: '作業内容を読み込めていません。画面を再読み込みしてください。' });
+      return;
+    }
     setBusy('confirm');
     setNotice('');
     try {
@@ -862,10 +915,12 @@ export function StrategyBookDesk({
       });
       await load();
       setViewByDept({}); // 確定後は対象部門でPDFが主操作となる
-      await onConfirmed(`✅ 戦略書を確定しました（変更案の反映${res.appliedCount}件・新規プロジェクトの追加${res.adoptedProjectIds.length}件）。`);
+      const message = `戦略書を確定しました。正式データに反映済みです（変更案の反映${res.appliedCount}件・新規プロジェクトの追加${res.adoptedProjectIds.length}件）。`;
+      setConfirmResult({ tone: 'ok', message });
+      await onConfirmed(`✅ ${message}`);
     } catch (e) {
       const code = errorCode(e);
-      setNotice(errorMessage(e));
+      setConfirmResult({ tone: 'error', message: confirmErrorMessage(e) });
       if (code === 'revision_changed' || code === 'version_conflict') await load();
     } finally {
       setBusy(null);
@@ -932,6 +987,17 @@ export function StrategyBookDesk({
         ? '先に、部門の戦略書のたたき台を作成してください'
         : judgmentBlockerOf(judgments);
 
+  const confirmResultNote = confirmResult && (
+    <p
+      role={confirmResult.tone === 'ok' ? 'status' : 'alert'}
+      className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+        confirmResult.tone === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'
+      }`}
+    >
+      {confirmResult.message}
+    </p>
+  );
+
   const renderConfirm = () => (
     <div className="space-y-2 rounded-xl border border-zinc-200 p-4">
       <div className="space-y-1 text-xs text-gray-700">
@@ -951,6 +1017,7 @@ export function StrategyBookDesk({
         </Button>
         {reasonLine(confirmBlocker)}
       </div>
+      {confirmResultNote}
     </div>
   );
 
@@ -1492,7 +1559,14 @@ export function StrategyBookDesk({
         <section className={sectionClass}>
           <h4 className={summaryClass}>確定した戦略書</h4>
           <div className="space-y-2 border-t px-4 py-4">
-            <p className="text-xs text-gray-600">この部門の戦略書は確定済みです。PDFは、画面上部の「PDF出力」から確定版を出力できます。</p>
+            {confirmResultNote}
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-xs text-gray-600">この部門の戦略書は確定済みです。</p>
+              <Button variant="outline" onClick={exportDeptPdf} disabled={isBusy} className="rounded-full h-8 px-3 text-xs">
+                確定版PDFを出力
+              </Button>
+            </div>
+            <p className="text-xs font-semibold text-zinc-800">実行計画は、下のプロジェクトから「STAGE4で実行計画書を作る」で作成できます。</p>
             {officialProjects.filter((p) => stableIdText(p.id) !== null).map((p) => {
               const projectId = stableIdText(p.id) as string;
               const href = `/okr?from=stage3&dept=${encodeURIComponent(dept.name)}&projectId=${encodeURIComponent(projectId)}`;
