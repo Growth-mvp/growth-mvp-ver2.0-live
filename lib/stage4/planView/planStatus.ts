@@ -35,7 +35,7 @@ export function planStatusOf(s: PlanStatusInput): PlanStatusView {
     return {
       title: '採用済み（実行は未開始）',
       detail: '利用者が内容を承認し、この方針で実行すると決めています。',
-      next: '「実行開始の確認へ進む」から、責任者と必要な確認事項を確かめて開始してください。',
+      next: '「この計画で実行を開始する」から、責任者と必要な確認事項を確かめて開始してください。',
     };
   }
   return {

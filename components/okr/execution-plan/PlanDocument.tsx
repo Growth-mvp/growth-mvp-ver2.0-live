@@ -423,8 +423,8 @@ export default function PlanDocument(props: PlanDocumentProps) {
             </button>
           </p>
         ) : (
-          <button type="button" className="plan-btn-primary" onClick={props.onAdopt} disabled={!adoptable}>
-            この計画書を採用
+          <button type="button" className="plan-btn-quiet" onClick={props.onAdopt} disabled={!adoptable}>
+            この計画書を採用（採用のみ）
           </button>
         )}
         <p className="plan-note">未確認の事項があっても採用できます。実行の開始は、別の操作で確認します。</p>
@@ -436,8 +436,8 @@ export default function PlanDocument(props: PlanDocumentProps) {
           </ul>
         )}
         <div className="plan-next-actions">
-          <button type="button" className="plan-btn-quiet" onClick={props.onOpenStart}>
-            実行開始の確認へ進む
+          <button type="button" className="plan-btn-primary" onClick={props.onOpenStart}>
+            この計画で実行を開始する
           </button>
         </div>
       </section>

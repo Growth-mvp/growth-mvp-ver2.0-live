@@ -21,7 +21,7 @@ describe('planStatusOf（今の状態と次の操作）', () => {
   it('採用済みは、実行開始の確認へ進むよう案内する（開始とは別と分かる）', () => {
     const s = planStatusOf({ hasDraft: true, dirty: false, adopted: true, started: false });
     expect(s.title).toBe('採用済み（実行は未開始）');
-    expect(s.next).toContain('実行開始の確認へ進む');
+    expect(s.next).toContain('この計画で実行を開始する');
   });
 
   it('実行開始済みは、STAGE5での確認を案内する', () => {
