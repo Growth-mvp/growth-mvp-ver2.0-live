@@ -55,6 +55,14 @@ describe('再生成の案に、以前の利用者の修正を引き継ぐ規則�
     expect(oldText).not.toBe('');
   });
 
+  it('開始前の確認の記録（task:）と、財務前提（impact:）は、再生成でも引き継ぐ', () => {
+    const { next } = changeOneItem(bundle);
+    const edits = { 'task:verify-1': true, 'impact:customers': 12 };
+    const out = editsAfterReplace(edits, bundle, next);
+    expect(out.kept).toEqual(edits);
+    expect(out.dropped).toEqual([]);
+  });
+
   it('案から無くなった項目への修正は、引き継がず「なくなった」として示す', () => {
     const out = editsAfterReplace({ 'action:999:title': '原案に無い修正' }, bundle, bundle);
     expect(out.kept).toEqual({});

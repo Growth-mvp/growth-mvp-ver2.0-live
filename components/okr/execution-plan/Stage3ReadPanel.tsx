@@ -973,7 +973,7 @@ function ReadOnlyProject({
                 impactEstimate={impactEstimate}
                 financeSection={financeSection}
                 onImpactEdit={
-                  remote && !entry.plan.adopted && !entry.plan.started
+                  remote && !entry.plan.started
                     ? (k, v) => onPlan((p) => setCommittedValue(p, `${IMPACT_EDIT_PREFIX}${k}`, v === null ? undefined : v))
                     : undefined
                 }

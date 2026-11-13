@@ -5,7 +5,10 @@ import { IMPACT_EDIT_PREFIX } from '../planView/impactEstimate';
 import { hashValue, listEditableItems, type EditableItem } from '../planView/regen';
 import type { UserEdits } from './mergeUserEdits';
 
-export type DroppedEdit = { key: string; label: string; before: unknown; reason: 'REMOVED' | 'CHANGED' };
+/* 開始前の確認の記録（task:<id>）。判定条件ではなく利用者の確認結果なので、再生成でも残す */
+const CHECK_EDIT_PREFIX = 'task:';
+
+export type DroppedEdit ={ key: string; label: string; before: unknown; reason: 'REMOVED' | 'CHANGED' };
 export type ReplaceEdits = { kept: UserEdits; dropped: DroppedEdit[] };
 
 const planOf = (bundle: Record<string, unknown>): unknown => {
@@ -29,7 +32,7 @@ export function editsAfterReplace(edits: UserEdits, oldBundle: Record<string, un
   const kept: UserEdits = {};
   const dropped: DroppedEdit[] = [];
   for (const [key, value] of Object.entries(edits)) {
-    if (key === 'responsible' || key.startsWith(IMPACT_EDIT_PREFIX)) {
+    if (key === 'responsible' || key.startsWith(IMPACT_EDIT_PREFIX) || key.startsWith(CHECK_EDIT_PREFIX)) {
       kept[key] = value;
       continue;
     }

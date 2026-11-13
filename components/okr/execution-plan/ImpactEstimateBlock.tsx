@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+
 import { SOURCE_LABEL, type EstimateRow, type ImpactEstimate, type ParamKey } from '@/lib/stage4/planView/impactEstimate';
 
 const CHECK_LABEL: Record<EstimateRow['check'], string> = {
@@ -8,6 +10,7 @@ const CHECK_LABEL: Record<EstimateRow['check'], string> = {
   NOT_CALCULATED: '未算定',
 };
 
+/* 前提の入力欄。入力すると、その値を保存された編集に載せ、試算は保存された編集から計算し直す（試算の式は変えない） */
 function ParamInput({
   param,
   onEdit,
@@ -15,25 +18,36 @@ function ParamInput({
   param: { key: ParamKey; label: string; unit: string; value: number | null; source: keyof typeof SOURCE_LABEL };
   onEdit: (key: ParamKey, value: number | null) => void;
 }) {
+  const [text, setText] = useState(param.value === null ? '' : String(param.value));
+  useEffect(() => {
+    const parsed = text.trim() === '' ? null : Number(text);
+    if (parsed !== null && !Number.isFinite(parsed)) return;
+    // 入力中の表記（例：「3.」）は、同じ値なら書き換えない
+    if (parsed !== param.value) setText(param.value === null ? '' : String(param.value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [param.value]);
   const isYear = param.key === 'startYear' || param.key === 'endYear';
   return (
     <div className="plan-param">
       <label className="plan-param-label">
         {param.label}（{param.unit}）
         <input
-          key={`${param.key}-${param.value ?? 'none'}-${param.source}`}
           type="number"
           inputMode="decimal"
           step={isYear ? 1 : 'any'}
           min={0}
-          defaultValue={param.value ?? ''}
+          value={text}
           aria-label={`${param.label}を修正する`}
-          onBlur={(e) => {
-            const raw = e.currentTarget.value.trim();
-            const next = raw === '' ? null : Number(raw);
-            if (next !== null && !Number.isFinite(next)) return;
-            if (next === param.value) return;
-            onEdit(param.key, next);
+          onChange={(e) => {
+            const raw = e.target.value;
+            setText(raw);
+            const t = raw.trim();
+            if (t === '') {
+              onEdit(param.key, null);
+              return;
+            }
+            const n = Number(t);
+            if (Number.isFinite(n)) onEdit(param.key, n);
           }}
         />
       </label>
@@ -47,7 +61,7 @@ export function ImpactEstimateBlock({
   onEdit,
 }: {
   estimate: ImpactEstimate;
-  /** 修正の保存口。省略時は修正欄を出さない（保存できない文書） */
+  /** 前提の修正の保存口。省略時は前提の入力欄を出さない（保存できない文書） */
   onEdit?: (key: ParamKey, value: number | null) => void;
 }) {
   return (
@@ -59,14 +73,14 @@ export function ImpactEstimateBlock({
         AIの仮説や既存データから算出した参考試算です。利用者の修正は、この計画書の修正として保存されます。確定した業績予測ではなく、STAGE6の正式な計画には反映していません。
       </p>
       {onEdit && (
-        <details className="plan-impact-edit">
-          <summary>計算の前提を修正する（空欄にすると、元の出所の値に戻る）</summary>
+        <>
+          <p className="plan-note">前提は直接入力できます。変えると、下の試算を自動で計算し直します（計算結果は入力できません）。</p>
           <div className="plan-params">
             {estimate.params.map((p) => (
               <ParamInput key={p.key} param={p} onEdit={onEdit} />
             ))}
           </div>
-        </details>
+        </>
       )}
       {estimate.status === 'NOT_CALCULATED' ? (
         <p className="plan-p">未算定：{estimate.reason}</p>

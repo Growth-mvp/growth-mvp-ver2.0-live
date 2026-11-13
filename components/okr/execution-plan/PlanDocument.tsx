@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { buildDocModel, type DocModel, type Edits, type EditValue } from '@/lib/stage4/planView/documentModel';
+import { buildDocModel, type CheckItem, type DocModel, type Edits, type EditValue } from '@/lib/stage4/planView/documentModel';
 import type { ImpactEstimate, ParamKey } from '@/lib/stage4/planView/impactEstimate';
 import type { PlanMode } from '@/lib/stage4/planView/planState';
 import { ImpactEstimateBlock } from './ImpactEstimateBlock';
@@ -126,6 +126,22 @@ export default function PlanDocument(props: PlanDocumentProps) {
 
   const editCount = Object.keys(committed).length;
 
+  /* 開始前の確認の1行。判定条件は表示のみ。確認結果（確認済み）だけを利用者が記録する */
+  const checkRow = (t: CheckItem, hold: boolean) => (
+    <li key={`${hold ? 'reg' : 'pre'}-${t.key}`}>
+      {t.title}
+      {hold && <span className="plan-tag plan-tag-hold">開始前に確認</span>}{' '}
+      {mode === 'edit' ? (
+        <label className="plan-check">
+          <input type="checkbox" checked={t.done} aria-label={`${t.title}を確認済みにする`} onChange={(e) => setEdit(t.key, e.target.checked)} />
+          確認済みにする
+        </label>
+      ) : (
+        <span className="plan-note">{t.done ? '（確認済みと記録）' : '（未確認）'}</span>
+      )}
+    </li>
+  );
+
   return (
     <div className="plan-page">
       <style>{PLAN_DOC_CSS}</style>
@@ -221,6 +237,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
                   <td>
                     {k.label}
                     <span className="plan-tag">{k.statusLabel}</span>
+                    {k.confirmed && <span className="plan-note">変更はSTAGE3で行います</span>}
                   </td>
                   <td>
                     {k.targetKey && mode === 'edit' ? (
@@ -348,20 +365,14 @@ export default function PlanDocument(props: PlanDocumentProps) {
             {doc.organization.schedule.map((s, i) => (
               <li key={`${s.when}-${i}`}>
                 <strong>{s.when}</strong>：{s.what}
+                <span className="plan-note">（担当：{s.who || '未定'}）</span>
               </li>
             ))}
           </ul>
           <h3 className="plan-h3">実行開始の前に確認すること</h3>
           <ol className="plan-list plan-ordered">
-            {doc.impact.regulatory.map((t) => (
-              <li key={`reg-${t}`}>
-                {t}
-                <span className="plan-tag plan-tag-hold">開始前に確認</span>
-              </li>
-            ))}
-            {doc.organization.beforeStart.map((t) => (
-              <li key={`pre-${t}`}>{t}</li>
-            ))}
+            {doc.impact.regulatory.map((t) => checkRow(t, true))}
+            {doc.organization.beforeStart.map((t) => checkRow(t, false))}
           </ol>
         </section>
 

@@ -46,6 +46,24 @@ describe('AI生成の計画内容は、原則すべて直接編集できる（�
     expect(doc.responsible.raw).toBe('佐藤（仮）');
   });
 
+  it('スケジュールは、実施事項の期限・内容と一緒に担当も表示する（期限は一箇所だけに保存する）', () => {
+    const doc = buildDocModel(bundle, { 'action:1:owner': '営業部長（仮）', 'action:1:due': '2027-06' });
+    expect(doc.organization.schedule[0].who).toBe(doc.actions[0].owner);
+    expect(doc.organization.schedule[0].who).toBe('営業部長（仮）');
+    expect(doc.organization.schedule[0].when).toBe(doc.actions[0].due);
+  });
+
+  it('開始前の確認は、利用者が確認済みとして記録でき、その記録は文書に残る（判定条件は変わらない）', () => {
+    const base = buildDocModel(bundle, {});
+    const item = base.organization.beforeStart[0] ?? base.impact.regulatory[0];
+    expect(item).toBeTruthy();
+    expect(item.done).toBe(false);
+    const doc = buildDocModel(bundle, { [item.key]: true });
+    const again = [...doc.organization.beforeStart, ...doc.impact.regulatory].find((c) => c.key === item.key);
+    expect(again?.done).toBe(true);
+    expect(again?.title).toBe(item.title);
+  });
+
   it('編集の欄の鍵は、表示の鍵と同じ形で、実施事項ごとに分かれる', () => {
     const doc = buildDocModel(bundle, {});
     expect(doc.actions[1].contentKey).toBe('action:2:content');

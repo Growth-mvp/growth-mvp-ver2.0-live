@@ -48,6 +48,9 @@ export type DocAction = {
 };
 
 
+/** 開始前の確認の1件。確認結果（done）は利用者が記録する編集で、判定条件そのものは編集しない */
+export type CheckItem = { id: string; key: string; title: string; done: boolean };
+
 export type DocModel = {
   projectTitle: string;
   department: string;
@@ -67,14 +70,14 @@ export type DocModel = {
   actions: DocAction[];
   organization: {
     roles: Array<{ unit: string; unitKey: string; role: string; roleKey: string }>;
-    beforeStart: string[];
-    schedule: Array<{ when: string; what: string }>;
+    beforeStart: CheckItem[];
+    schedule: Array<{ when: string; what: string; who: string }>;
   };
   impact: {
     companyResult: { text: string; key: string };
     financeLines: Array<{ label: string; status: 'CONFIRMED' | 'AI_ESTIMATE' | 'NOT_CALCULATED'; text: string }>;
     risks: Array<{ risk: string; riskKey: string; countermeasure: string; countermeasureKey: string; by: string; byKey: string }>;
-    regulatory: string[];
+    regulatory: CheckItem[];
   };
   supplement: {
     evidence: Array<{ label: string; text: string }>;
@@ -170,10 +173,16 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
     stageKey: `action:${a.order}:stage`,
   }));
 
-  const regulatoryTitles = tasks.filter((t) => isRegulatoryTask(t)).map((t) => t.title);
-  const beforeStart = tasks
+  const toCheck = (t: { id: string; title: string; done?: unknown }): CheckItem => ({
+    id: t.id,
+    key: `task:${t.id}`,
+    title: t.title,
+    done: t.done === true,
+  });
+  const regulatoryChecks = tasks.filter((t) => isRegulatoryTask(t)).map(toCheck);
+  const beforeStartChecks = tasks
     .filter((t) => t.gate === 'START' && t.id !== 'owner' && !isRegulatoryTask(t))
-    .map((t) => t.title);
+    .map(toCheck);
 
   const risks: DocModel['impact']['risks'] = (people.risks as any[]).map((r: any) => ({
     risk: r.risk,
@@ -222,14 +231,14 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
     actions: actionRows,
     organization: {
       roles: (people.roles as any[]).map((r: any) => ({ unit: r.unit, unitKey: r.unitKey, role: r.role, roleKey: r.roleKey })),
-      beforeStart,
-      schedule: actionRows.map((a) => ({ when: a.due, what: a.title })),
+      beforeStart: beforeStartChecks,
+      schedule: actionRows.map((a) => ({ when: a.due, what: a.title, who: a.owner })),
     },
     impact: {
       companyResult: { text: textOf(finance.companyResult), key: finance.companyResult.key },
       financeLines: finance.effects.map((e) => ({ label: e.label, status: e.status, text: financeSentence(e) })),
       risks,
-      regulatory: regulatoryTitles,
+      regulatory: regulatoryChecks,
     },
     supplement: {
       evidence: uniqueEvidence,

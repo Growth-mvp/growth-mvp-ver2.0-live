@@ -152,6 +152,43 @@ async function waitServer() {
     return '名称・主な内容・担当・期限が保存され、再読み込み後も残る';
   });
 
+  await check('3 日程表に、編集した担当と期限が出る（同じ期限を別に持たない）', async () => {
+    await page.getByText(`（担当：${ACTION_OWNER}）`).first().waitFor({ timeout: 10000 });
+    await page.getByText('変更はSTAGE3で行います').first().waitFor({ timeout: 10000 });
+    return '日程表の担当と、STAGE3確定KPIの注記';
+  });
+
+  await check('3 財務前提（顧客数）を試算表の入力欄で直接変更し、保存・再読み込みで残る', async () => {
+    await openFinance();
+    const input = page.locator('.plan-params input[type="number"]').first();
+    await input.waitFor({ timeout: 10000 });
+    await input.fill('12');
+    await page.getByRole('button', { name: '計画を保存' }).click();
+    await page.getByRole('status').filter({ hasText: '保存済み' }).first().waitFor({ timeout: 30000 });
+    await page.reload();
+    await page.getByRole('button', { name: new RegExp(RENEWAL) }).first().click();
+    await openFinance();
+    const again = page.locator('.plan-params input[type="number"]').first();
+    await again.waitFor({ timeout: 10000 });
+    expect((await again.inputValue()) === '12', `前提が保存されていない（${await again.inputValue()}）`);
+    return '前提12を保存・再読み込み';
+  });
+
+  await check('3 開始前の確認を「確認済みにする」で記録し、保存・再読み込みで残る', async () => {
+    const box = page.locator('ol.plan-ordered input[type="checkbox"]').first();
+    await box.waitFor({ timeout: 10000 });
+    await box.check();
+    await page.getByRole('button', { name: '計画を保存' }).click();
+    await page.getByRole('status').filter({ hasText: '保存済み' }).first().waitFor({ timeout: 30000 });
+    await page.reload();
+    await page.getByRole('button', { name: new RegExp(RENEWAL) }).first().click();
+    const again = page.locator('ol.plan-ordered input[type="checkbox"]').first();
+    await again.waitFor({ timeout: 10000 });
+    expect(await again.isChecked(), '確認済みの記録が再読み込みで残っていない');
+    await shot('3-checks');
+    return '確認済みの記録が残る';
+  });
+
   await check('3 財務効果だけ保存に失敗したら、「すべて保存済み」と表示しない', async () => {
     await page.evaluate(() => window.localStorage.setItem('e2e-fail-finance', '1'));
     await openFinance();
@@ -196,6 +233,9 @@ async function waitServer() {
     expect(s.events.some((e) => e.action === 'DRAFT_REPLACED'), '差し替えの履歴が無い');
     await page.getByText(REASON).first().waitFor({ timeout: 10000 });
     await page.getByText(ACTION_CONTENT).first().waitFor({ timeout: 10000 });
+    await openFinance();
+    expect((await page.locator('.plan-params input[type="number"]').first().inputValue()) === '12', '再生成後に財務前提が残っていない');
+    expect(await page.locator('ol.plan-ordered input[type="checkbox"]').first().isChecked(), '再生成後に確認済みの記録が残っていない');
     await shot('4-regen-used');
     return `版 ${s.plans[0].version}`;
   });
