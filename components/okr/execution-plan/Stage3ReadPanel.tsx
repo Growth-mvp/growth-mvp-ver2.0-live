@@ -42,7 +42,7 @@ import { useSetStartMode } from './startMode';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { REGULATORY_DECISION_LABEL, type RegulatoryRecord } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
-import { buildFinanceEffectDrafts, periodOfLabel } from '@/lib/stage4/planView/financeBridge';
+import { buildFinanceEffectDrafts, financeWriteReason, periodOfLabel } from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
 import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
@@ -236,17 +236,12 @@ function Stage3ProjectBrowser({
     : [];
   const financeOverlap = financePos ? findFinanceEffectOverlapCandidates(storeDepartmentsNow, financePos.dIdx, financePos.pIdx).length : 0;
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
-  const financeReason: string | undefined = !financeProjectId || !financePos
-    ? 'この施策はまだ識別子がありません。「草案として保存」を行うと識別子が作られ、ここから財務効果を確認できます。'
-    : !financeScopeMatches
-      ? '表示中の会社・戦略が切り替わったため、ここからは保存できません。画面を読み込み直してください。'
-      : !selectedEntry
-        ? '計画書を読み込んでいます。'
-        : selectedEntry.plan.adopted || selectedEntry.plan.started
-          ? '採用・開始済みの計画書では、財務効果の確認を変更できません。'
-          : isDirty(selectedEntry)
-            ? '計画書の修正が保存されていません。計画書の「草案として保存」を押してから、財務効果を確認してください（財務効果は保存済みの前提で計算します）。'
-            : undefined;
+  const financeReason = financeWriteReason({
+    hasIdentity: !!financeProjectId && !!financePos,
+    scopeMatches: financeScopeMatches,
+    planLoaded: !!selectedEntry,
+    planDirty: !!selectedEntry && isDirty(selectedEntry),
+  });
   const financeWritable = !financeReason;
   const writeFinance = async (candidate: FinanceEffect, action: 'SAVE_DRAFT' | 'CONFIRM') => {
     if (!selected || !financeProjectId) return { ok: false as const, message: '施策を特定できないため、保存しませんでした。' };

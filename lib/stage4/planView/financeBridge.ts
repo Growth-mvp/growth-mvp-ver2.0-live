@@ -242,3 +242,17 @@ export function periodOutsidePlanNote(effect: FinanceEffect, plan: PlanPeriod | 
   if (!startsBefore && !endsAfter) return null;
   return `計上期間（${effect.startYm}〜${effect.endYm ?? '未入力'}）が、実行計画の期間（${plan.startYm}〜${plan.endYm}）の外にあります。根拠を確認してください`;
 }
+
+/* 財務効果を画面から書けない理由。採用・開始の状態では止めない：財務効果は戦略データに書き、計画書の本文の採用とは別に扱う */
+export function financeWriteReason(args: {
+  hasIdentity: boolean;
+  scopeMatches: boolean;
+  planLoaded: boolean;
+  planDirty: boolean;
+}): string | undefined {
+  if (!args.hasIdentity) return 'この施策はまだ識別子がありません。「草案として保存」を行うと識別子が作られ、ここから財務効果を確認できます。';
+  if (!args.scopeMatches) return '表示中の会社・戦略が切り替わったため、ここからは保存できません。画面を読み込み直してください。';
+  if (!args.planLoaded) return '計画書を読み込んでいます。';
+  if (args.planDirty) return '計画書の修正が保存されていません。計画書の「草案として保存」を押してから、財務効果を確認してください（財務効果は保存済みの前提で計算します）。';
+  return undefined;
+}

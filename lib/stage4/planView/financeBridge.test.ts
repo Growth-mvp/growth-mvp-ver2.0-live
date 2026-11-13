@@ -1,3 +1,4 @@
+import { financeWriteReason } from './financeBridge';
 import { findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
@@ -371,5 +372,23 @@ describe('実行計画の期間との整合', () => {
     const inside = { ...early, startYm: '2026-12', endYm: '2027-05' } as FinanceEffect;
     expect(periodOutsidePlanNote(inside, plan)).toBeNull();
     expect(periodOutsidePlanNote(inside, null)).toBeNull();
+  });
+});
+
+describe('財務効果を画面から書けない理由（採用・開始の状態では止めない）', () => {
+  const ok = { hasIdentity: true, scopeMatches: true, planLoaded: true, planDirty: false };
+
+  it('採用済み・開始済みの計画でも、財務効果は書ける', () => {
+    expect(financeWriteReason(ok)).toBeUndefined();
+  });
+
+  it('計画書の本文に未保存の修正があれば、財務効果は保存済みの前提で止める', () => {
+    expect(financeWriteReason({ ...ok, planDirty: true })).toContain('草案として保存');
+  });
+
+  it('識別子が無い・会社や戦略が切り替わった・計画書が未読込のときは、理由を返す', () => {
+    expect(financeWriteReason({ ...ok, hasIdentity: false })).toContain('識別子');
+    expect(financeWriteReason({ ...ok, scopeMatches: false })).toContain('切り替わった');
+    expect(financeWriteReason({ ...ok, planLoaded: false })).toBe('計画書を読み込んでいます。');
   });
 });
