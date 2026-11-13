@@ -529,18 +529,15 @@ describe('実行開始の一連の操作（保存された草案から、API経�
     expect(store.state().startInfo).toBeNull();
   });
 
-  it('規制・安全の項目がある案件は、対象外だけでは記録できず、開始も止まる（従来どおり）', async () => {
+  it('規制・安全の項目がある案件も、語では開始を妨げない（記録が無くても開始でき、規制の記録は作られない）', async () => {
     const store = statefulGateway(saved(bundle));
     const a = api(store.g);
-    await a.transition(call('ADOPT', 1));
-    const onlyNa = await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'NOT_APPLICABLE' } }));
-    expect(onlyNa.status).toBe(400);
+    expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
     const start = await a.transition(call('START', 2));
-    expect(start.status).toBe(422);
-    expect((await start.json()).blockers.join('\n')).toContain('判断内容・判断根拠・確認者・確認日');
-    expect(store.state().startInfo).toBeNull();
+    expect(start.status).toBe(200);
+    expect(store.state().startInfo).not.toBeNull();
+    expect(store.state().regulatory).toBeUndefined();
   });
-
   it('確認事項の無い案件は、規制の記録が無くても、採用から開始まで進める', async () => {
     const store = statefulGateway(saved(bundleWithoutRegulatoryItems()));
     const a = api(store.g);
@@ -550,18 +547,22 @@ describe('実行開始の一連の操作（保存された草案から、API経�
     expect(store.state().regulatory).toBeUndefined();
   });
 
-  it('途中で止まっても、採用の状態は残り、規制の記録を済ませれば同じ操作で開始できる', async () => {
+  it('明示的に「未確認」と記録された案件は開始が保留され、記録を済ませれば同じ操作で開始できる', async () => {
     const store = statefulGateway(saved(bundle));
     const a = api(store.g);
-    await a.transition(call('ADOPT', 1));
-    expect((await a.transition(call('START', 2))).status).toBe(422);
+    expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
+    expect((await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'UNCONFIRMED' } }))).status).toBe(200);
+    const held = await a.transition(call('START', 3));
+    expect(held.status).toBe(422);
+    expect((await held.json()).blockers.join('\n')).toContain('開始を保留');
     expect(store.state().adoption).not.toBeNull();
+    expect(store.state().startInfo).toBeNull();
     const recorded = await a.transition(
-      call('RECORD_REGULATORY', 2, {
+      call('RECORD_REGULATORY', 3, {
         regulatory: { decision: 'NOT_APPLICABLE', judgement: '医療機器に当たらない', basis: '該当性チェック表', confirmer: '法務 山田', confirmedOn: '2026-11-08' },
       })
     );
     expect(recorded.status).toBe(200);
-    expect((await a.transition(call('START', 3))).status).toBe(200);
+    expect((await a.transition(call('START', 4))).status).toBe(200);
   });
 });

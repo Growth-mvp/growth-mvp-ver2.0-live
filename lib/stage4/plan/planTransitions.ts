@@ -1,7 +1,7 @@
 /* 採用・規制の記録・実行開始・開始の取り消しの規則（サーバー側）。
  * 判定は画面と同じ関数（computePlanView）を使い、保存された内容だけで決める。画面の表示は信用しない。
  * 採用は AI提案KPI の確定を意味しない。ここでは okrsV2 や経路Bには触れない。 */
-import { regulatoryComplete, EMPTY_REGULATORY, type RegulatoryRecord } from '../planView/model';
+import { regulatoryComplete, regulatoryHeld, REGULATORY_HOLD_BLOCKER, EMPTY_REGULATORY, type RegulatoryRecord } from '../planView/model';
 import { computePlanView, INITIAL_PLAN_STATE } from '../planView/planState';
 import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
 import { allowed, type ServiceContext } from './planService';
@@ -198,15 +198,8 @@ export async function transitionPlan(
       if (kpi.blockers.length > 0) return { status: 'BLOCKED', blockers: kpi.blockers };
       const gate = computePlanView(record.aiDraft, state).gate;
       if (!gate.startable) return { status: 'BLOCKED', blockers: gate.blockers };
-      if (!regulatoryComplete(record.regulatory ?? EMPTY_REGULATORY, required)) {
-        return {
-          status: 'BLOCKED',
-          blockers: [
-            required
-              ? '規制・安全の判断（該当性・根拠・確認者・確認日）を記録してください'
-              : '規制・安全は「未確認」のため、開始を保留しています',
-          ],
-        };
+      if (regulatoryHeld(record.regulatory ?? EMPTY_REGULATORY)) {
+        return { status: 'BLOCKED', blockers: [REGULATORY_HOLD_BLOCKER] };
       }
       patch = { startInfo: { version: expectedVersion, byUserId: ctx.userId, at: args.now } };
       break;

@@ -122,11 +122,7 @@ export default function DevPlanDocument() {
           responsible={typeof plan.committed.responsible === 'string' ? plan.committed.responsible : ''}
           actionNotice={null}
           onStart={(input) =>
-            update((p) => {
-              const withResponsible = setCommittedValue(p, 'responsible', input.responsible || undefined);
-              const withRegulatory = input.regulatory ? setRegulatory(withResponsible, input.regulatory) : withResponsible;
-              return startWithAdoption(withRegulatory, sample.bundle);
-            })
+            update((p) => startWithAdoption(setCommittedValue(p, 'responsible', input.responsible || undefined), sample.bundle))
           }
           onBack={() => setView('document')}
         />

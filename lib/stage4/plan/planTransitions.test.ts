@@ -158,11 +158,20 @@ describe('規制・安全の記録と実行開始', () => {
     expect(out.status === 'BLOCKED' && out.blockers.join(' ')).toContain('実行責任者');
   });
 
-  it('規制・安全の判断が無いと、条件が揃っていても開始できない', async () => {
+  it('明示的に「未確認」と記録された案件は、条件が揃っていても開始を保留する', async () => {
+    const edits = { responsible: '鈴木一郎（仮）', 'task:verify-1': true };
+    const f = fake(record({ userEdits: edits, regulatory: { decision: 'UNCONFIRMED' } as never, adopted: true, adoption: { version: 5, byUserId: 'alice', at: NOW, edits } }));
+    const out = await act(f.gateway, 5, 'START');
+    expect(out.status === 'BLOCKED' && out.blockers.join(' ')).toContain('開始を保留');
+    expect(f.get()?.startInfo).toBeNull();
+  });
+
+  it('規制・安全の判断が無くても、条件が揃えば開始でき、規制の記録は作られない', async () => {
     const edits = { responsible: '鈴木一郎（仮）', 'task:verify-1': true };
     const f = fake(record({ userEdits: edits, adopted: true, adoption: { version: 5, byUserId: 'alice', at: NOW, edits } }));
     const out = await act(f.gateway, 5, 'START');
-    expect(out.status === 'BLOCKED' && out.blockers.join(' ')).toContain('規制・安全');
+    expect(out.status).toBe('OK');
+    expect(f.get()?.regulatory).toBeUndefined();
   });
 
   it('条件と規制の判断が揃えば、開始者・日時・対象の版を残して開始する', async () => {

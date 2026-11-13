@@ -184,30 +184,33 @@ describe('STAGE4 の実行開始 → STAGE5 の表示（保存・認証・状態
     expect(stage5.views[0].kpis.find((k) => k.label === '保守契約の継続率')?.target).toContain('95');
   });
 
-  it('法令・安全の確認が必要な案件は、記録が無い間は開始されず、STAGE5にも出ない。記録の後に開始できる', async () => {
+  it('法令・安全の項目がある案件も、語では開始を妨げず、開始した計画はSTAGE5に表示される（規制の記録は作られない）', async () => {
     const w = world(withRegulatoryItems);
-    const store = w.store();
-    const saved = await store.update(ACTOR, KEY, 1, { userEdits: { responsible: '佐藤（仮）' }, adopted: false });
+    const saved = await w.store().update(ACTOR, KEY, 1, { userEdits: { responsible: '佐藤（仮）' }, adopted: false });
     if (saved.status !== 'SAVED') throw new Error('save');
     const adopted = await w.ops.transition(KEY, saved.record.version, 'ADOPT');
     if (adopted.status !== 'OK') throw new Error('adopt');
+    const started = await w.ops.transition(KEY, adopted.record.version, 'START');
+    expect(started.status).toBe('OK');
+    expect(w.record().regulatory).toBeUndefined();
+    const stage5 = await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) });
+    expect(stage5.views).toHaveLength(1);
+    expect(stage5.views[0].responsible).toContain('佐藤');
+  });
 
-    const blocked = await w.ops.transition(KEY, adopted.record.version, 'START');
+  it('明示的に「未確認」と記録された案件は開始が保留され、STAGE5にも出ない', async () => {
+    const w = world(withRegulatoryItems);
+    const saved = await w.store().update(ACTOR, KEY, 1, { userEdits: { responsible: '佐藤（仮）' }, adopted: false });
+    if (saved.status !== 'SAVED') throw new Error('save');
+    const adopted = await w.ops.transition(KEY, saved.record.version, 'ADOPT');
+    if (adopted.status !== 'OK') throw new Error('adopt');
+    const held = await w.ops.transition(KEY, adopted.record.version, 'RECORD_REGULATORY', { decision: 'UNCONFIRMED' });
+    if (held.status !== 'OK') throw new Error('record');
+    const blocked = await w.ops.transition(KEY, held.record.version, 'START');
     expect(blocked.status).toBe('BLOCKED');
     if (blocked.status !== 'BLOCKED') throw new Error('blocked');
-    expect(blocked.blockers.join('\n')).toContain('判断内容・判断根拠・確認者・確認日');
+    expect(blocked.blockers.join('\n')).toContain('開始を保留');
     expect((await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) })).views).toHaveLength(0);
-
-    const recorded = await w.ops.transition(KEY, adopted.record.version, 'RECORD_REGULATORY', {
-      decision: 'NOT_APPLICABLE',
-      judgement: '医療機器の製造販売には当たらない',
-      basis: '社内の該当性チェック表',
-      confirmer: '法務 山田',
-      confirmedOn: '2026-11-08',
-    });
-    if (recorded.status !== 'OK') throw new Error('record');
-    expect((await w.ops.transition(KEY, recorded.record.version, 'START')).status).toBe('OK');
-    expect((await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) })).views).toHaveLength(1);
   });
 
   it('正式なKPIが変わった計画は開始できず、STAGE5にも開始済みとして出ない（理由は422で返る）', async () => {

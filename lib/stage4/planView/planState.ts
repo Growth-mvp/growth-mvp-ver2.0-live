@@ -107,7 +107,6 @@ export function computePlanView(bundle: unknown, s: ProjectPlanState) {
   const gate = startGate({
     adopted: s.adopted,
     responsibleConfirmed,
-    hasRegulatoryItems: regulatoryTasks.length > 0,
     regulatory: s.regulatory,
   });
   return { d, responsibleConfirmed, regulatoryTasks, keyTasks, gate };

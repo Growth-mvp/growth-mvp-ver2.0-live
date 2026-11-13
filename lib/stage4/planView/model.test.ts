@@ -3,7 +3,7 @@ import {
   financeAmountText,
   isRegulatoryTask,
   regulatoryComplete,
-  regulatoryStatusOf,
+  regulatoryHeld,
   startGate,
   type RegulatoryRecord,
 } from './model';
@@ -42,7 +42,6 @@ describe('実行開始の条件', () => {
   const base = {
     adopted: true,
     responsibleConfirmed: true,
-    hasRegulatoryItems: true,
     regulatory: complete,
   };
 
@@ -60,48 +59,20 @@ describe('実行開始の条件', () => {
     expect(startGate({ ...base, responsibleConfirmed: false }).blockers).toContain('実行責任者を確定してください');
   });
 
-  it('規制が未確認なら、開始を保留する', () => {
+  it('規制・安全の記録が「未確認」と明示されていれば、開始を保留する', () => {
     const r = startGate({ ...base, regulatory: { ...complete, decision: 'UNCONFIRMED' } });
     expect(r.startable).toBe(false);
     expect(r.blockers.join(' ')).toContain('開始を保留');
   });
 
-  it('規制の項目が無い計画は、該当性の記録が無くても開始できる（確認事項が無いため）', () => {
-    expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: EMPTY_REGULATORY }).startable).toBe(true);
+  it('規制・安全の記録が無くても、語（規制・安全など）では開始を妨げない（準備活動として開始できる）', () => {
+    expect(startGate({ ...base, regulatory: EMPTY_REGULATORY }).startable).toBe(true);
   });
 
-  it('規制の項目が無い計画で、該当しないと記録すれば開始できる', () => {
-    expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: complete }).startable).toBe(true);
-  });
-
-  it('主要な実行条件が残っていても、開始は妨げない（開始後も計画書で確認する）', () => {
-    expect(startGate(base).startable).toBe(true);
-  });
-
-  it('規制・安全の項目が無い案件は、「対象外」を選べば足りる（判断内容・確認者は要らない）', () => {
-    const notApplicable = { ...EMPTY_REGULATORY, decision: 'NOT_APPLICABLE' as const };
-    expect(regulatoryComplete(notApplicable, false)).toBe(true);
-    expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: notApplicable }).startable).toBe(true);
-  });
-
-  it('規制・安全の項目が無くても、「未確認」と明示された計画は保留する（勝手に決めない）', () => {
-    expect(regulatoryComplete({ ...EMPTY_REGULATORY, decision: 'UNCONFIRMED' }, false)).toBe(false);
-    const r = startGate({ ...base, hasRegulatoryItems: false, regulatory: { ...EMPTY_REGULATORY, decision: 'UNCONFIRMED' } });
-    expect(r.startable).toBe(false);
-    expect(r.blockers.join(' ')).toContain('開始を保留');
-  });
-
-  it('規制・安全の判定は、確認事項の有無と記録から3つの状態に分けて示す', () => {
-    expect(regulatoryStatusOf(false, EMPTY_REGULATORY)).toBe('NO_ITEMS');
-    expect(regulatoryStatusOf(false, { ...EMPTY_REGULATORY, decision: 'UNCONFIRMED' })).toBe('UNDECIDED');
-    expect(regulatoryStatusOf(true, EMPTY_REGULATORY)).toBe('UNDECIDED');
-    expect(regulatoryStatusOf(true, { ...complete, decision: 'NOT_APPLICABLE' })).toBe('NOT_APPLICABLE');
-    expect(regulatoryStatusOf(true, { ...complete, decision: 'APPLICABLE_PROCEDURE_CONFIRMED' })).toBe('APPLICABLE_CONFIRMED');
-  });
-
-  it('規制・安全の項目がある案件は、「対象外」だけでは開始できない（従来どおりの記録が要る）', () => {
-    const notApplicable = { ...EMPTY_REGULATORY, decision: 'NOT_APPLICABLE' as const };
-    expect(regulatoryComplete(notApplicable, true)).toBe(false);
+  it('「未確認」の判定だけを保留と扱い、記録が無いことは虚偽の完了として扱わない', () => {
+    expect(regulatoryHeld(EMPTY_REGULATORY)).toBe(false);
+    expect(regulatoryHeld({ ...EMPTY_REGULATORY, decision: 'UNCONFIRMED' })).toBe(true);
+    expect(regulatoryHeld({ ...EMPTY_REGULATORY, decision: 'NOT_APPLICABLE' })).toBe(false);
   });
 });
 

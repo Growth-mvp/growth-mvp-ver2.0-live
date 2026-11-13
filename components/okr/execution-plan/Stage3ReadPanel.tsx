@@ -397,7 +397,7 @@ function Stage3ProjectBrowser({
     return { ok: false };
   };
 
-  /* 「実行を開始する」：実行責任者を保存 → （採用していなければ）採用 → 規制・安全の記録（画面で判断した時だけ）→ 開始。
+  /* 「実行を開始する」：実行責任者を保存 → （採用していなければ）採用 → 開始。
    * 途中で止まったら、そこまでの状態が残り、理由を表示する。押し直すと、残りだけを行う。
    * 本文に未保存の修正がある時は、開始せず、計画書で保存してもらう（本文を黙って上書きしない）。 */
   const startPlanRemote = async (sel: Stage3Selection, input: StartInput) => {
@@ -425,11 +425,6 @@ function Stage3ProjectBrowser({
       const done = await runTransition(sel, version, 'ADOPT', undefined, false);
       if (!done.ok) return;
       version = done.version;
-    }
-    if (input.regulatory) {
-      const recorded = await runTransition(sel, version, 'RECORD_REGULATORY', input.regulatory, false);
-      if (!recorded.ok) return;
-      version = recorded.version;
     }
     await runTransition(sel, version, 'START', undefined, false);
   };
@@ -803,8 +798,7 @@ function ReadOnlyProject({
               ? onStartPlan(input)
               : onPlan((p) => {
                   const withResponsible = setCommittedValue(p, 'responsible', input.responsible || undefined);
-                  const withRegulatory = input.regulatory ? setRegulatory(withResponsible, input.regulatory) : withResponsible;
-                  return startWithAdoption(withRegulatory, entry.aiDraft);
+                  return startWithAdoption(withResponsible, entry.aiDraft);
                 })
           }
           onBack={() => onView('document')}

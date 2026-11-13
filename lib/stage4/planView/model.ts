@@ -39,35 +39,27 @@ export function regulatoryComplete(r: RegulatoryRecord, required = true): boolea
 export type StartInput = {
   adopted: boolean;
   responsibleConfirmed: boolean;
-  hasRegulatoryItems: boolean;
   regulatory: RegulatoryRecord;
 };
 
 export const ADOPT_FIRST_BLOCKER = '先に計画案を採用してください';
+export const REGULATORY_HOLD_BLOCKER = '規制・安全は「未確認」として記録されているため、開始を保留しています';
 
-/* 実行開始の条件。開始を妨げるのは、責任者と規制・安全の記録だけ。主要な実行条件は開始後も計画書で確認する */
+/* 規制・安全の記録が「未確認」と明示されている時だけ、開始を保留する。
+ * 計画書の語（「安全」「規制」など）や、確認事項の有無では止めない。 */
+export function regulatoryHeld(r: RegulatoryRecord): boolean {
+  return r.decision === 'UNCONFIRMED';
+}
+
+/* 実行開始の条件：採用、実行責任者、規制・安全の明示的な保留がないこと */
 export function startGate(input: StartInput): { startable: boolean; blockers: string[] } {
   const blockers: string[] = [];
   if (!input.adopted) blockers.push(ADOPT_FIRST_BLOCKER);
   if (!input.responsibleConfirmed) blockers.push('実行責任者を確定してください');
-  if (!regulatoryComplete(input.regulatory, input.hasRegulatoryItems)) {
-    blockers.push(
-      input.regulatory.decision === 'UNCONFIRMED'
-        ? '規制・安全は「未確認」のため、開始を保留しています'
-        : '規制・安全の確認（判断内容・判断根拠・確認者・確認日）を記録してください'
-    );
-  }
+  if (regulatoryHeld(input.regulatory)) blockers.push(REGULATORY_HOLD_BLOCKER);
   return { startable: blockers.length === 0, blockers };
 }
 
-/* 規制・安全の判定の状態。確認事項が無い／適用なしが明示されている／まだ判定できていない、を区別する */
-export type RegulatoryStatus = 'NO_ITEMS' | 'NOT_APPLICABLE' | 'APPLICABLE_CONFIRMED' | 'UNDECIDED';
-
-export function regulatoryStatusOf(required: boolean, r: RegulatoryRecord): RegulatoryStatus {
-  if (!required) return r.decision === 'UNCONFIRMED' ? 'UNDECIDED' : 'NO_ITEMS';
-  if (!regulatoryComplete(r, true)) return 'UNDECIDED';
-  return r.decision === 'NOT_APPLICABLE' ? 'NOT_APPLICABLE' : 'APPLICABLE_CONFIRMED';
-}
 
 export type FinanceStatus = 'CONFIRMED' | 'AI_ESTIMATE' | 'NOT_CALCULATED';
 
