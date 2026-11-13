@@ -437,7 +437,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
         )}
         <div className="plan-next-actions">
           <button type="button" className="plan-btn-primary" onClick={props.onOpenStart}>
-            この計画で実行を開始する
+            実行開始の確認へ進む
           </button>
         </div>
       </section>

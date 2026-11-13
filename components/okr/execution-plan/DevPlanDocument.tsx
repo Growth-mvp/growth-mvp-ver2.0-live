@@ -118,11 +118,16 @@ export default function DevPlanDocument() {
           key={`start-${sample.id}`}
           plan={plan}
           view={pv}
-          dirty={false}
+          bodyDirty={false}
+          responsible={typeof plan.committed.responsible === 'string' ? plan.committed.responsible : ''}
           actionNotice={null}
-          onEdit={(key, value) => update((p) => setCommittedValue(p, key, value))}
-          onStart={(regulatory) => update((p) => startWithAdoption(regulatory ? setRegulatory(p, regulatory) : p, sample.bundle))}
-          onUnstart={() => update(unstart)}
+          onStart={(input) =>
+            update((p) => {
+              const withResponsible = setCommittedValue(p, 'responsible', input.responsible || undefined);
+              const withRegulatory = input.regulatory ? setRegulatory(withResponsible, input.regulatory) : withResponsible;
+              return startWithAdoption(withRegulatory, sample.bundle);
+            })
+          }
           onBack={() => setView('document')}
         />
       ) : (

@@ -158,6 +158,22 @@ export function isDirty(entry: PlanDocEntry): boolean {
   return canonicalJson(entry.plan.committed) !== canonicalJson(entry.stored.base) || entry.plan.adopted !== entry.stored.adopted;
 }
 
+/* 計画書の本文に未保存の修正があるか。実行責任者は、開始の操作の中で保存するため、ここには含めない */
+export function isBodyDirty(entry: PlanDocEntry): boolean {
+  if (!entry.stored) return true;
+  const body = (e: Record<string, unknown>) => Object.fromEntries(Object.entries(e).filter(([k]) => k !== 'responsible'));
+  return (
+    canonicalJson(body(entry.plan.committed as Record<string, unknown>)) !== canonicalJson(body(entry.stored.base as Record<string, unknown>)) ||
+    entry.plan.adopted !== entry.stored.adopted
+  );
+}
+
+/* 画面に出す実行責任者（保存された内容）。未設定は空文字 */
+export function responsibleOf(entry: PlanDocEntry): string {
+  const v = (entry.plan.committed as Record<string, unknown>).responsible;
+  return typeof v === 'string' ? v : '';
+}
+
 export type ConflictRow = { key: string; label: string; yours: string; theirs: string };
 
 /* 競合の項目を、画面に出せる文言にする（元の草案の値は、修正が無い側の表示に使う） */

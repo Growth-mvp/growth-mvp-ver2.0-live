@@ -37,7 +37,8 @@ import {
 } from '@/lib/stage4/planView/planState';
 import { PLAN_DOC_CSS } from './planDocStyles';
 import PlanDocument from './PlanDocument';
-import StartConfirmation from './StartConfirmation';
+import StartConfirmation, { type StartInput } from './StartConfirmation';
+import { useSetStartMode } from './startMode';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { REGULATORY_DECISION_LABEL, type RegulatoryRecord } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
@@ -59,7 +60,9 @@ import {
   entryAfterTransition,
   entryFromDraft,
   entryFromRecord,
+  isBodyDirty,
   isDirty,
+  responsibleOf,
   toEdits,
   type PlanDocEntry,
   type ServerState,
@@ -339,14 +342,15 @@ function Stage3ProjectBrowser({
     sel: Stage3Selection,
     version: number,
     action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART',
-    regulatory?: unknown
+    regulatory?: unknown,
+    checkDirty = true
   ): Promise<{ ok: true; version: number } | { ok: false }> => {
     const id = selectionKey(sel);
     const entry = entries[id];
     const key = keyOf(sel);
     if (!ops || !entry || !key || !entry.stored) return { ok: false };
     const note = (message: string) => updateEntry(id, (e) => ({ ...e, notice: message }));
-    if (isDirty(entry) && (action === 'ADOPT' || action === 'START' || action === 'RECORD_REGULATORY')) {
+    if (checkDirty && isDirty(entry) && (action === 'ADOPT' || action === 'START' || action === 'RECORD_REGULATORY')) {
       note('修正を草案として保存してから、操作してください。');
       return { ok: false };
     }
@@ -371,23 +375,63 @@ function Stage3ProjectBrowser({
     return runTransition(sel, entry.stored.version, action, regulatory).then(() => undefined);
   };
 
-  /* 「この計画で実行を開始する」：採用 → 規制・安全の記録 → 開始、の順に行う。途中で止まったら、そこまでの状態が残り、
-   * 理由を表示する。同じ操作を押し直せば、残りだけを行う（採用済みなら採用は行わない）。 */
-  const startPlanRemote = async (sel: Stage3Selection, regulatory?: RegulatoryRecord) => {
-    const entry = entries[selectionKey(sel)];
-    if (!entry?.stored) return;
-    let version = entry.stored.version;
-    if (!entry.stored.adopted) {
-      const adopted = await runTransition(sel, version, 'ADOPT');
-      if (!adopted.ok) return;
-      version = adopted.version;
+  /* 実行責任者を保存する（計画書の本文は変えない）。保存の窓口は、一覧の「草案として保存」と同じ */
+  const saveResponsible = async (sel: Stage3Selection, version: number, responsible: string): Promise<{ ok: true; version: number } | { ok: false }> => {
+    const id = selectionKey(sel);
+    const entry = entries[id];
+    const key = keyOf(sel);
+    if (!entry || !key) return { ok: false };
+    const edits: Record<string, unknown> = { ...entry.plan.committed };
+    if (responsible) edits.responsible = responsible;
+    else delete edits.responsible;
+    const out = await store.update(actor, key, version, { userEdits: edits, adopted: entry.plan.adopted });
+    if (out.status === 'SAVED') {
+      setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record) } : p));
+      return { ok: true, version: out.record.version };
     }
-    if (regulatory) {
-      const recorded = await runTransition(sel, version, 'RECORD_REGULATORY', regulatory);
+    if (out.status === 'CONFLICT') {
+      setEntries((p) => (p[id] ? { ...p, [id]: { ...entryFromRecord(out.current), notice: '他の人が先に変更しました。最新の内容を表示しています。' } } : p));
+      return { ok: false };
+    }
+    updateEntry(id, (e) => ({ ...e, notice: '実行責任者を保存できませんでした。もう一度お試しください。' }));
+    return { ok: false };
+  };
+
+  /* 「実行を開始する」：実行責任者を保存 → （採用していなければ）採用 → 規制・安全の記録（画面で判断した時だけ）→ 開始。
+   * 途中で止まったら、そこまでの状態が残り、理由を表示する。押し直すと、残りだけを行う。
+   * 本文に未保存の修正がある時は、開始せず、計画書で保存してもらう（本文を黙って上書きしない）。 */
+  const startPlanRemote = async (sel: Stage3Selection, input: StartInput) => {
+    const id = selectionKey(sel);
+    const entry = entries[id];
+    if (!entry?.stored) return;
+    if (isBodyDirty(entry)) {
+      updateEntry(id, (e) => ({ ...e, notice: '計画書の本文に未保存の修正があります。計画書に戻り、「草案として保存」してから開始してください。' }));
+      return;
+    }
+    let version = entry.stored.version;
+    let adopted = entry.stored.adopted;
+    if (input.responsible !== responsibleOf(entry)) {
+      if (adopted) {
+        const unadopted = await runTransition(sel, version, 'UNADOPT');
+        if (!unadopted.ok) return;
+        version = unadopted.version;
+        adopted = false;
+      }
+      const saved = await saveResponsible(sel, version, input.responsible);
+      if (!saved.ok) return;
+      version = saved.version;
+    }
+    if (!adopted) {
+      const done = await runTransition(sel, version, 'ADOPT', undefined, false);
+      if (!done.ok) return;
+      version = done.version;
+    }
+    if (input.regulatory) {
+      const recorded = await runTransition(sel, version, 'RECORD_REGULATORY', input.regulatory, false);
       if (!recorded.ok) return;
       version = recorded.version;
     }
-    await runTransition(sel, version, 'START');
+    await runTransition(sel, version, 'START', undefined, false);
   };
 
   const createPlan = (sel: Stage3Selection) => {
@@ -557,6 +601,11 @@ function Stage3ProjectBrowser({
   const load = id ? loads[id] : undefined;
   const genState = id ? gen[id] : undefined;
   const planView = entry ? computePlanView(entry.aiDraft, entry.plan) : null;
+  const setStartMode = useSetStartMode();
+  const startSelected = entry?.view === 'start' && planView !== null;
+  useEffect(() => {
+    setStartMode?.(startSelected);
+  }, [setStartMode, startSelected]);
   const financeSection: ReactNode = selected ? (
     <Stage4FinanceConfirm
       drafts={financeDrafts}
@@ -572,6 +621,7 @@ function Stage3ProjectBrowser({
   return (
     <div className="space-y-4">
       <style>{PLAN_DOC_CSS}</style>
+      {!startSelected && (
       <section aria-label="表示するプロジェクトの選択" className="rounded-xl border border-zinc-200 bg-white p-3">
         <p className="text-[12px] font-semibold text-zinc-500">企業：{companyLabel}</p>
         {tree.length === 0 && <p className="mt-2 text-[13px] text-zinc-600">表示できるプロジェクトがありません。</p>}
@@ -606,9 +656,10 @@ function Stage3ProjectBrowser({
           )}
         </nav>
       </section>
+      )}
 
       <section className="min-w-0">
-        {handoffProjectKey && selected?.projectKey === handoffProjectKey && (
+        {!startSelected && handoffProjectKey && selected?.projectKey === handoffProjectKey && (
           <p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-[13px] text-emerald-900">
             STAGE3で確定したプロジェクトです。事業・部門：{handoff?.departmentName ?? '（未指定）'}／プロジェクト：{titleOf(handoffProjectKey) ?? '（名称なし）'}
           </p>
@@ -645,7 +696,7 @@ function Stage3ProjectBrowser({
             onRegenCancel={() => id && regenCancel(id)}
             remote={ops !== null}
             onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
-            onStartPlan={(regulatory) => sel && startPlanRemote(sel, regulatory)}
+            onStartPlan={(input) => sel && startPlanRemote(sel, input)}
             version={entry?.stored && entry.save.status !== 'CONFLICT' ? entry.stored.version : null}
           />
         )}
@@ -708,7 +759,7 @@ function ReadOnlyProject({
   version: number | null;
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
-  onStartPlan: (regulatory?: RegulatoryRecord) => void;
+  onStartPlan: (input: StartInput) => void;
   impactEstimate: ImpactEstimate | null;
   financeSection: ReactNode;
   regen: RegenState | undefined;
@@ -737,6 +788,30 @@ function ReadOnlyProject({
     started: entry?.plan.started === true,
   });
   const allPicked = saveView?.status === 'CONFLICT' && saveView.conflicts.every((k) => !!saveView.picks[k]);
+
+  if (entry && planView && entry.view === 'start') {
+    return (
+      <section className="plan-main" aria-label="実行開始">
+        <StartConfirmation
+          plan={entry.plan}
+          view={planView}
+          bodyDirty={isBodyDirty(entry)}
+          responsible={responsibleOf(entry)}
+          actionNotice={entry.notice}
+          onStart={(input) =>
+            remote
+              ? onStartPlan(input)
+              : onPlan((p) => {
+                  const withResponsible = setCommittedValue(p, 'responsible', input.responsible || undefined);
+                  const withRegulatory = input.regulatory ? setRegulatory(withResponsible, input.regulatory) : withResponsible;
+                  return startWithAdoption(withRegulatory, entry.aiDraft);
+                })
+          }
+          onBack={() => onView('document')}
+        />
+      </section>
+    );
+  }
 
   return (
     <div className="plan-page">
@@ -860,22 +935,7 @@ function ReadOnlyProject({
               この修正を保存すると、採用・規制の判断・実行開始は解除されます。解除後に、採用し直してください。
             </p>
           )}
-          {entry.view === 'start' ? (
-            <StartConfirmation
-              plan={entry.plan}
-              view={planView}
-              dirty={isDirty(entry)}
-              actionNotice={entry.notice}
-              onEdit={(key, value) => onPlan((p) => setCommittedValue(p, key, value))}
-              onStart={(regulatory) =>
-                remote
-                  ? onStartPlan(regulatory)
-                  : onPlan((p) => startWithAdoption(regulatory ? setRegulatory(p, regulatory) : p, entry.aiDraft))
-              }
-              onUnstart={() => (remote ? onTransition('UNSTART') : onPlan(unstart))}
-              onBack={() => onView('document')}
-            />
-          ) : (
+          {(
             <>
               {remote && entry.plan.mode === 'read' && !entry.plan.adopted && !entry.plan.started && (
                 <div className="plan-regen">

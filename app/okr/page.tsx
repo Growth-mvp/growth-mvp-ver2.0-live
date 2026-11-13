@@ -5536,10 +5536,15 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     return (
       <main className="min-h-screen bg-zinc-50">
         <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
-          <ReflectionCandidatesSection onDelete={handleDeleteOKRCandidate} />
-          <OKRHeader isHydrating={isHydrating} exportToPdf={stage4ExportToPdf} />
           <Suspense fallback={<div className="text-[13px] text-zinc-500">読み込み中…</div>}>
-            <Stage4DocumentScreen />
+            <Stage4DocumentScreen
+              top={
+                <>
+                  <ReflectionCandidatesSection onDelete={handleDeleteOKRCandidate} />
+                  <OKRHeader isHydrating={isHydrating} exportToPdf={stage4ExportToPdf} />
+                </>
+              }
+            />
           </Suspense>
         </div>
       </main>
