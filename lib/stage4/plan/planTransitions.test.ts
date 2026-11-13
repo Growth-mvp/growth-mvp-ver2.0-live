@@ -1,3 +1,5 @@
+import { EMPTY_REGULATORY } from '../planView/model';
+import { applyStoredPatch } from './dbGuard';
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { generateMockExecutionPlan } from './mockGenerate';
 import type { PlanDocRecord } from './planDocumentStore';
@@ -61,17 +63,9 @@ function fake(initial: PlanDocRecord | null, opts: { role?: string | null; strat
     updatePlan: async (_k: unknown, expected: number, patch: PlanPatch, userId: string) => {
       patches.push(patch);
       if (!current || current.version !== expected) return ok(null);
-      const next: PlanDocRecord = {
-        ...current,
-        version: current.version + 1,
-        updatedBy: userId,
-        aiDraft: patch.aiDraft !== undefined ? patch.aiDraft : current.aiDraft,
-        adoption: patch.adoption !== undefined ? patch.adoption : current.adoption,
-        adopted: patch.adoption !== undefined ? patch.adoption !== null : current.adopted,
-        startInfo: patch.startInfo !== undefined ? patch.startInfo : current.startInfo,
-        regulatory: patch.regulatory !== undefined ? patch.regulatory : current.regulatory,
-        userEdits: patch.userEdits ?? current.userEdits,
-      };
+      const stored = applyStoredPatch(current, patch, userId);
+      if (!stored.ok) return { ok: false, code: 'FORBIDDEN' } as never;
+      const next = stored.record;
       current = next;
       return ok(next);
     },
@@ -185,17 +179,21 @@ describe('規制・安全の記録と実行開始', () => {
     const before = JSON.stringify((draft as { plan: { section1: unknown } }).plan.section1);
     const out = await act(f.gateway, 5, 'START');
     expect(out.status).toBe('OK');
-    const plan = (f.get()?.aiDraft as { plan: { section1: unknown; section3: { protectedKpis: Array<{ stage3KpiId: string; target: unknown }> } } }).plan;
+    if (out.status !== 'OK') throw new Error('ok');
+    const plan = (out.record.aiDraft as { plan: { section1: unknown; section3: { protectedKpis: Array<{ stage3KpiId: string; target: unknown }> } } }).plan;
     expect(plan.section3.protectedKpis.map((k) => k.stage3KpiId)).toContain('kr-renew-9');
     expect(JSON.stringify(plan.section1)).toBe(before);
+    expect(f.get()?.aiDraft).toEqual(draft);
   });
 
   it('KPIの目標値が変わっても止めず、保護一覧に最新の目標値を出す。目標が未入力なら0にしない', async () => {
     const edits = { responsible: '鈴木一郎（仮）' };
     const changed = strategyWith((kpis) => kpis.map((k) => (k.id === 'kr-renew-1' ? { ...k, target: 120 } : k.id === 'kr-renew-2' ? { ...k, target: null } : k)));
     const f = fake(record({ userEdits: edits }), { strategy: changed });
-    expect((await act(f.gateway, 5, 'START')).status).toBe('OK');
-    const list = (f.get()?.aiDraft as { plan: { section3: { protectedKpis: Array<{ stage3KpiId: string; target: unknown }> } } }).plan.section3.protectedKpis;
+    const out = await act(f.gateway, 5, 'START');
+    expect(out.status).toBe('OK');
+    if (out.status !== 'OK') throw new Error('ok');
+    const list = (out.record.aiDraft as { plan: { section3: { protectedKpis: Array<{ stage3KpiId: string; target: unknown }> } } }).plan.section3.protectedKpis;
     expect(list.find((k) => k.stage3KpiId === 'kr-renew-1')?.target).toBe(120);
     expect(list.find((k) => k.stage3KpiId === 'kr-renew-2')?.target).toBeNull();
   });
@@ -211,18 +209,22 @@ describe('規制・安全の記録と実行開始', () => {
     expect(f.get()?.adoption).toBeNull();
   });
 
-  it('草案の差し替え：採用前なら新しい案に替わり、利用者の編集は残る。採用後は差し替えられない', async () => {
+  it('草案の差し替え：保存の規則で草案は変えられないため、差し替えは拒否され、計画書は変わらない', async () => {
     const edits = { responsible: '鈴木一郎（仮）' };
     const f = fake(record({ userEdits: edits }));
     const newDraft = JSON.parse(JSON.stringify(draft)) as Record<string, unknown> & { plan: { section1: { goalState: { text: string } } } };
     newDraft.plan.section1.goalState.text = '新しい案の目指す状態';
     const replaced = await transitionPlan(ctxOf(f.gateway, 'alice'), KEY, 5, 'USE_DRAFT', { now: NOW, aiDraft: newDraft });
-    expect(replaced.status).toBe('OK');
-    expect(f.get()?.aiDraft).toEqual(newDraft);
+    expect(replaced.status).toBe('NOT_REPLACEABLE');
+    expect(f.get()?.aiDraft).toEqual(draft);
     expect(f.get()?.userEdits).toEqual(edits);
-    const adopted = await act(f.gateway, 6, 'ADOPT');
-    expect(adopted.status).toBe('OK');
-    const after = await transitionPlan(ctxOf(f.gateway, 'alice'), KEY, 7, 'USE_DRAFT', { now: NOW, aiDraft: newDraft });
+  });
+
+  it('採用・開始済みの計画は、草案の差し替えも受け付けない（NOT_READY）', async () => {
+    const edits = { responsible: '鈴木一郎（仮）' };
+    const f = fake(record({ userEdits: edits }));
+    expect((await act(f.gateway, 5, 'ADOPT')).status).toBe('OK');
+    const after = await transitionPlan(ctxOf(f.gateway, 'alice'), KEY, 6, 'USE_DRAFT', { now: NOW, aiDraft: draft });
     expect(after.status).toBe('NOT_READY');
   });
 
@@ -231,7 +233,7 @@ describe('規制・安全の記録と実行開始', () => {
     const f = fake(record({ userEdits: edits, adopted: true, adoption: { version: 5, byUserId: 'alice', at: NOW, edits } }));
     const out = await act(f.gateway, 5, 'START');
     expect(out.status).toBe('OK');
-    expect(f.get()?.regulatory).toBeUndefined();
+    expect(f.get()?.regulatory).toEqual(EMPTY_REGULATORY);
   });
 
   it('条件と規制の判断が揃えば、開始者・日時・対象の版を残して開始する', async () => {

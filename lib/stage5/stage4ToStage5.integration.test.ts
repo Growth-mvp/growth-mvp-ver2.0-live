@@ -1,5 +1,7 @@
 /* STAGE4の実行開始からSTAGE5の表示までを、実際の保存先クライアントと、実際のAPIの処理でつなぐ結合テスト。
  * 保存先は分離したメモリ上の記録（本番のDBには触れない）。通信だけを、APIの処理への直接の呼び出しに置き換える。 */
+import { EMPTY_REGULATORY } from '@/lib/stage4/planView/model';
+import { applyStoredPatch } from '@/lib/stage4/plan/dbGuard';
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { generateMockExecutionPlan } from '@/lib/stage4/plan/mockGenerate';
 import { createPlanApi, type PlanApiDeps } from '@/lib/stage4/plan/planApi';
@@ -68,17 +70,9 @@ function world(bundle: Bundle) {
     readStrategyRow: async () => ok(strategy),
     updatePlan: async (_key: PlanDocKey, expectedVersion: number, patch: Record<string, unknown>) => {
       if (record.version !== expectedVersion) return ok(null);
-      record = {
-        ...record,
-        version: record.version + 1,
-        updatedBy: USER,
-        aiDraft: patch.aiDraft !== undefined ? (patch.aiDraft as Record<string, unknown>) : record.aiDraft,
-        userEdits: (patch.userEdits as PlanDocRecord['userEdits'] | undefined) ?? record.userEdits,
-        adoption: patch.adoption !== undefined ? (patch.adoption as PlanDocRecord['adoption']) : record.adoption,
-        startInfo: patch.startInfo !== undefined ? (patch.startInfo as PlanDocRecord['startInfo']) : record.startInfo,
-        regulatory: patch.regulatory !== undefined ? (patch.regulatory as PlanDocRecord['regulatory']) : record.regulatory,
-      };
-      record.adopted = record.adoption != null;
+      const stored = applyStoredPatch(record, patch as never, USER);
+      if (!stored.ok) return { ok: false, code: 'FORBIDDEN' } as never;
+      record = stored.record;
       return ok(record);
     },
   } as unknown as PlanGateway;
@@ -193,7 +187,7 @@ describe('STAGE4 の実行開始 → STAGE5 の表示（保存・認証・状態
     if (adopted.status !== 'OK') throw new Error('adopt');
     const started = await w.ops.transition(KEY, adopted.record.version, 'START');
     expect(started.status).toBe('OK');
-    expect(w.record().regulatory).toBeUndefined();
+    expect(w.record().regulatory).toEqual(EMPTY_REGULATORY);
     const stage5 = await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) });
     expect(stage5.views).toHaveLength(1);
     expect(stage5.views[0].responsible).toContain('佐藤');

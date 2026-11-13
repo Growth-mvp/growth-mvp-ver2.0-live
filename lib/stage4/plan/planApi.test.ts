@@ -1,3 +1,5 @@
+import { EMPTY_REGULATORY } from '../planView/model';
+import { applyStoredPatch } from './dbGuard';
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { generateMockExecutionPlan } from './mockGenerate';
 import { createPlanApi, type PlanApiDeps } from './planApi';
@@ -361,28 +363,35 @@ describe('採用・開始は、計画書の参照KPIを最新の正式KPIに合�
   }
   const patchKpi = (id: string, patch: Record<string, unknown>) => (list: Array<Record<string, unknown>>) =>
     list.map((x) => (x.id === id ? { ...x, ...patch } : x));
-  type Written = { aiDraft?: { plan: { section3: { protectedKpis: Array<Record<string, unknown>> } } } };
-  const keptList = (w: Written) => w.aiDraft?.plan.section3.protectedKpis ?? [];
+
+  /* 保存の窓口（本番の規則と同じく、草案は書き換えない）。何を書こうとしたかだけを記録する */
+  const sinkOf = () => {
+    const sink: { patch?: Record<string, unknown> } = {};
+    const update = async (_key: unknown, _v: number, patch: Record<string, unknown>) => {
+      sink.patch = patch;
+      return ok(recP(2));
+    };
+    return { sink, update };
+  };
+  const shownKpis = async (res: Response) =>
+    ((await res.json()).record.aiDraft as { plan: { section3: { protectedKpis: Array<Record<string, unknown>> } } }).plan.section3.protectedKpis;
 
   it('KPIが変わっていなければ、採用できる（従来どおり 200）', async () => {
     const res = await api(gateway({ findPlan: async () => ok(recP(1)) })).transition(adopt(1));
     expect(res.status).toBe(200);
   });
 
-  it('目標値が変わった計画も採用でき、参照は最新の目標値に合い、計画本文は変わらない', async () => {
-    let written: Written | null = null;
+  it('目標値が変わった計画も採用でき、表示は最新の目標値になり、保存する草案は書き換えない', async () => {
+    const { sink, update } = sinkOf();
     const g = gateway({
       findPlan: async () => ok(recP(1)),
       readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { target: 120 }))),
-      updatePlan: async (_key, _v, patch) => {
-        written = patch as Written;
-        return ok(recP(2));
-      },
+      updatePlan: update,
     });
     const res = await api(g).transition(adopt(1));
     expect(res.status).toBe(200);
-    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-1')?.target).toBe(120);
-    expect(written!.aiDraft!.plan).toEqual(expect.objectContaining({ section1: expect.anything() }));
+    expect(sink.patch?.aiDraft).toBeUndefined();
+    expect((await shownKpis(await api(g).transition(adopt(1)))).find((x) => x.stage3KpiId === 'kr-renew-1')?.target).toBe(120);
   });
 
   it.each([
@@ -390,80 +399,66 @@ describe('採用・開始は、計画書の参照KPIを最新の正式KPIに合�
     ['期限', { due: '2027-12' }, 'due', '2027-12'],
     ['担当', { owner: '別の担当（仮）' }, 'owner', '別の担当（仮）'],
     ['名称', { label: '保守契約の更新件数' }, 'label', '保守契約の更新件数'],
-  ])('%sが変わった計画も採用でき、参照に最新の値が入る（200）', async (_name, patch, field, value) => {
-    let written: Written | null = null;
+  ])('%sが変わった計画も採用でき、表示に最新の値が入る（200）', async (_name, patch, field, value) => {
+    const { update } = sinkOf();
     const g = gateway({
       findPlan: async () => ok(recP(1)),
       readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', patch))),
-      updatePlan: async (_key, _v, p) => {
-        written = p as Written;
-        return ok(recP(2));
-      },
+      updatePlan: update,
     });
-    expect((await api(g).transition(adopt(1))).status).toBe(200);
-    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-1')?.[field]).toBe(value);
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(200);
+    expect((await shownKpis(res)).find((x) => x.stage3KpiId === 'kr-renew-1')?.[field]).toBe(value);
   });
 
   it('KPIが正式データから消えても止めず、旧い目標値は出さず、名称に注記する（200）', async () => {
-    let written: Written | null = null;
+    const { update } = sinkOf();
     const g = gateway({
       findPlan: async () => ok(recP(1)),
       readStrategyRow: async () => ok(strategyWhere((list) => list.filter((x) => x.id !== 'kr-renew-1'))),
-      updatePlan: async (_key, _v, p) => {
-        written = p as Written;
-        return ok(recP(2));
-      },
+      updatePlan: update,
     });
-    expect((await api(g).transition(adopt(1))).status).toBe(200);
-    const gone = keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-1');
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(200);
+    const gone = (await shownKpis(res)).find((x) => x.stage3KpiId === 'kr-renew-1');
     expect(gone).toMatchObject({ target: null, confirmation: 'UNCONFIRMED' });
     expect(String(gone?.label)).toContain('正式データにありません');
   });
 
-  it('KPIが計画書の作成後に追加されても止めず、最新の確定KPIを保護一覧に加える（200）', async () => {
-    let written: Written | null = null;
+  it('KPIが計画書の作成後に追加されても止めず、表示の保護一覧に最新の確定KPIが加わる（200）', async () => {
+    const { update } = sinkOf();
     const added = strategyWhere((list) => [
       ...list,
       { id: 'kr-renew-4', label: '新しく確定した指標', target: 10, unit: '%', due: '2027-08', owner: null, targetBasis: 'USER_CONFIRMED' },
     ]);
-    const g = gateway({
-      findPlan: async () => ok(recP(1)),
-      readStrategyRow: async () => ok(added),
-      updatePlan: async (_key, _v, p) => {
-        written = p as Written;
-        return ok(recP(2));
-      },
-    });
-    expect((await api(g).transition(adopt(1))).status).toBe(200);
-    expect(keptList(written!).map((x) => x.stage3KpiId)).toContain('kr-renew-4');
+    const g = gateway({ findPlan: async () => ok(recP(1)), readStrategyRow: async () => ok(added), updatePlan: update });
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(200);
+    expect((await shownKpis(res)).map((x) => x.stage3KpiId)).toContain('kr-renew-4');
   });
 
   it('目標値が未入力のKPIは、0にせず未設定のまま（200）', async () => {
-    let written: Written | null = null;
+    const { update } = sinkOf();
     const g = gateway({
       findPlan: async () => ok(recP(1)),
       readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-2', { target: null }))),
-      updatePlan: async (_key, _v, p) => {
-        written = p as Written;
-        return ok(recP(2));
-      },
+      updatePlan: update,
     });
-    expect((await api(g).transition(adopt(1))).status).toBe(200);
-    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-2')?.target).toBeNull();
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(200);
+    expect((await shownKpis(res)).find((x) => x.stage3KpiId === 'kr-renew-2')?.target).toBeNull();
   });
 
-  it('AIが仮に置いたKPI（確定ではない）が変わっても、確定の保護一覧は変えない（200）', async () => {
-    let written: Written | null = null;
+  it('AIが仮に置いたKPI（確定ではない）が変わっても、確定の保護一覧には入れない（200）', async () => {
+    const { update } = sinkOf();
     const g = gateway({
       findPlan: async () => ok(recP(1)),
       readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-3', { target: 4 }))),
-      updatePlan: async (_key, _v, p) => {
-        written = p as Written;
-        return ok(recP(2));
-      },
+      updatePlan: update,
     });
-    expect((await api(g).transition(adopt(1))).status).toBe(200);
-    expect(keptList(written!).find((x) => x.stage3KpiId === 'kr-renew-3')).toBeUndefined();
+    const res = await api(g).transition(adopt(1));
+    expect(res.status).toBe(200);
+    expect((await shownKpis(res)).find((x) => x.stage3KpiId === 'kr-renew-3')).toBeUndefined();
   });
 
   it('対象プロジェクトが正式データに無ければ、採用せず、計画書も書き換えない（422）', async () => {
@@ -488,19 +483,18 @@ describe('採用・開始は、計画書の参照KPIを最新の正式KPIに合�
     expect(written).toBe(false);
   });
 
-  it('採用後にKPIが変わった計画も、開始できる（200）', async () => {
-    let written: Written | null = null;
+  it('採用後にKPIが変わった計画も、開始できる（200）。開始の記録だけを書き、草案は書き換えない', async () => {
+    const { sink, update } = sinkOf();
     const adoptedRec = recP(2, { adoption: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z', edits: { responsible: '佐藤（仮）' } }, userEdits: { responsible: '佐藤（仮）' } });
     const g = gateway({
       findPlan: async () => ok(adoptedRec),
       readStrategyRow: async () => ok(strategyWhere(patchKpi('kr-renew-1', { target: 120 }))),
-      updatePlan: async (_key, _v, p) => {
-        written = p as Written;
-        return ok(recP(3));
-      },
+      updatePlan: update,
     });
-    expect((await api(g).transition(start(2))).status).toBe(200);
-    expect(written).not.toBeNull();
+    const res = await api(g).transition(start(2));
+    expect(res.status).toBe(200);
+    expect(sink.patch?.startInfo).toBeDefined();
+    expect(sink.patch?.aiDraft).toBeUndefined();
   });
 
   it('正式データを読めなければ、採用せず、計画書も書き換えない（500）', async () => {
@@ -536,15 +530,9 @@ describe('実行開始の一連の操作（保存された草案から、API経�
       findPlan: async () => ok(current),
       updatePlan: async (_key, expected, patch) => {
         if (current.version !== expected) return ok(null);
-        current = {
-          ...current,
-          version: current.version + 1,
-          aiDraft: patch.aiDraft !== undefined ? patch.aiDraft : current.aiDraft,
-          adoption: patch.adoption !== undefined ? patch.adoption : current.adoption,
-          startInfo: patch.startInfo !== undefined ? patch.startInfo : current.startInfo,
-          regulatory: patch.regulatory !== undefined ? patch.regulatory : current.regulatory,
-          userEdits: patch.userEdits ?? current.userEdits,
-        };
+        const stored = applyStoredPatch(current, patch, USER);
+        if (!stored.ok) return { ok: false, code: 'FORBIDDEN' } as never;
+        current = stored.record;
         return ok(current);
       },
     });
@@ -577,7 +565,7 @@ describe('実行開始の一連の操作（保存された草案から、API経�
     expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
     expect((await a.transition(call('START', 2))).status).toBe(200);
     expect(store.state().startInfo).not.toBeNull();
-    expect(store.state().regulatory).toBeUndefined();
+    expect(store.state().regulatory).toEqual(EMPTY_REGULATORY);
   });
 
   it('規制の記録の入力の検査は従来どおり（対象外だけでは、項目がある案件は記録できない）', async () => {
@@ -604,7 +592,7 @@ describe('実行開始の一連の操作（保存された草案から、API経�
     expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
     expect((await a.transition(call('START', 2))).status).toBe(200);
     expect(store.state().startInfo).not.toBeNull();
-    expect(store.state().regulatory).toBeUndefined();
+    expect(store.state().regulatory).toEqual(EMPTY_REGULATORY);
   });
 
   it('採用せずに開始しても、開始の処理の中で採用されてから開始する', async () => {
@@ -643,14 +631,9 @@ describe('再生成の案：プレビューの署名と「この案を使う」�
       findPlan: async () => ok(current),
       updatePlan: async (_key, expected, patch) => {
         if (current.version !== expected) return ok(null);
-        current = {
-          ...current,
-          version: current.version + 1,
-          aiDraft: patch.aiDraft !== undefined ? patch.aiDraft : current.aiDraft,
-          adoption: patch.adoption !== undefined ? patch.adoption : current.adoption,
-          startInfo: patch.startInfo !== undefined ? patch.startInfo : current.startInfo,
-          userEdits: patch.userEdits ?? current.userEdits,
-        };
+        const stored = applyStoredPatch(current, patch, USER);
+        if (!stored.ok) return { ok: false, code: 'FORBIDDEN' } as never;
+        current = stored.record;
         return ok(current);
       },
     });
@@ -658,7 +641,7 @@ describe('再生成の案：プレビューの署名と「この案を使う」�
   }
   const base = (): PlanDocRecord => ({ ...rec(1), key: k, aiDraft: bundle, userEdits: { responsible: '佐藤（仮）', 'action:1:title': '利用者の修正' } });
 
-  it('プレビューの案を「この案を使う」で現在の計画書にする。利用者の編集は残り、採用・開始の記録は外れる', async () => {
+  it('「この案を使う」は、保存の規則により差し替えられず、計画書は変わらない（409 NOT_REPLACEABLE）', async () => {
     const h = holder(base());
     const previewed = await api(h.g, { generation }).preview(previewReq());
     expect(previewed.status).toBe(200);
@@ -666,11 +649,10 @@ describe('再生成の案：プレビューの署名と「この案を使う」�
     const used = await api(h.g, { generation }).useDraft(
       req('POST', 'plan-documents/use-draft', { ...k, expectedVersion: 1, draft: body.draft, previewToken: body.previewToken })
     );
-    expect(used.status).toBe(200);
-    expect(h.state().aiDraft).toEqual(body.draft);
+    expect(used.status).toBe(409);
+    expect((await used.json()).status).toBe('NOT_REPLACEABLE');
+    expect(h.state().aiDraft).toBe(bundle);
     expect(h.state().userEdits).toEqual({ responsible: '佐藤（仮）', 'action:1:title': '利用者の修正' });
-    expect(h.state().adoption).toBeNull();
-    expect(h.state().startInfo).toBeNull();
   });
 
   it('案の内容を書き換えた場合や、別の署名の場合は使えない（409 PREVIEW_EXPIRED・計画書は変わらない）', async () => {

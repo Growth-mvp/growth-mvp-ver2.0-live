@@ -4,7 +4,7 @@
 import { regulatoryComplete, EMPTY_REGULATORY, type RegulatoryRecord } from '../planView/model';
 import { computePlanView, INITIAL_PLAN_STATE } from '../planView/planState';
 import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
-import { allowed, type ServiceContext } from './planService';
+import { allowed, displayedRecord, type ServiceContext } from './planService';
 import { refreshKpiReference } from './kpiReference';
 
 export const TRANSITION_ACTIONS = ['ADOPT', 'UNADOPT', 'RECORD_REGULATORY', 'START', 'UNSTART'] as const;
@@ -54,18 +54,20 @@ export function validateRegulatory(
   return { ok: true, value };
 }
 
-type Reference = { failed: true } | { failed: false; blockers: string[]; aiDraft: Record<string, unknown> };
-
-/* 採用・開始の時に、計画書の参照KPIを最新の正式KPIに合わせる。整合できない時（対象が無い等）だけ止める */
-async function referenceOf(ctx: ServiceContext, key: PlanDocKey, record: PlanDocRecord): Promise<Reference> {
+/* 採用・開始の時に、対象の戦略とプロジェクトが正式データで確かめられるかを見る。
+ * KPIの差では止めない（参照は表示のときに正式KPIへ合わせる。保存された草案は、作った後に変えられない） */
+async function structureBlockers(
+  ctx: ServiceContext,
+  key: PlanDocKey,
+  record: PlanDocRecord
+): Promise<{ failed: true } | { failed: false; blockers: string[] }> {
   const row = await ctx.gateway.readStrategyRow(key.companyId, key.strategyId);
   if (!row.ok) return { failed: true };
   if (!row.value || String(row.value.id) !== key.strategyId || String(row.value.company_id) !== key.companyId) {
-    return { failed: false, blockers: ['正式な戦略データを確認できません'], aiDraft: record.aiDraft };
+    return { failed: false, blockers: ['正式な戦略データを確認できません'] };
   }
   const refreshed = refreshKpiReference(record.aiDraft, row.value.departments, key.projectId);
-  if (!refreshed.ok) return { failed: false, blockers: [refreshed.message], aiDraft: record.aiDraft };
-  return { failed: false, blockers: [], aiDraft: refreshed.aiDraft };
+  return { failed: false, blockers: refreshed.ok ? [] : [refreshed.message] };
 }
 
 export type TransitionOutcome =
@@ -76,11 +78,12 @@ export type TransitionOutcome =
   | { status: 'NOT_FOUND' }
   | { status: 'NOT_READY' }
   | { status: 'DENIED' }
+  | { status: 'NOT_REPLACEABLE' }
   | { status: 'FAILED'; message: string };
 
 const FAILED = '操作を記録できませんでした。画面を読み直してから、もう一度お試しください。';
 
-export async function transitionPlan(
+async function transitionStored(
   ctx: ServiceContext,
   key: PlanDocKey,
   expectedVersion: number,
@@ -113,13 +116,12 @@ export async function transitionPlan(
   switch (action) {
     case 'ADOPT': {
       if (record.adoption) return { status: 'OK', record };
-      const reference = await referenceOf(ctx, key, record);
-      if (reference.failed) return { status: 'FAILED', message: FAILED };
-      if (reference.blockers.length > 0) return { status: 'BLOCKED', blockers: reference.blockers };
-      const view = computePlanView(reference.aiDraft, state);
+      const structure = await structureBlockers(ctx, key, record);
+      if (structure.failed) return { status: 'FAILED', message: FAILED };
+      if (structure.blockers.length > 0) return { status: 'BLOCKED', blockers: structure.blockers };
+      const view = computePlanView(record.aiDraft, state);
       if (!view.d.adoption.adoptable) return { status: 'BLOCKED', blockers: view.d.adoption.blockers };
       patch = {
-        ...(reference.aiDraft !== record.aiDraft ? { aiDraft: reference.aiDraft } : {}),
         adoption: { version: expectedVersion, byUserId: ctx.userId, at: args.now, edits: record.userEdits },
       };
       break;
@@ -137,14 +139,13 @@ export async function transitionPlan(
     }
     case 'START': {
       if (record.startInfo) return { status: 'OK', record };
-      const reference = await referenceOf(ctx, key, record);
-      if (reference.failed) return { status: 'FAILED', message: FAILED };
-      if (reference.blockers.length > 0) return { status: 'BLOCKED', blockers: reference.blockers };
-      const view = computePlanView(reference.aiDraft, { ...state, adopted: true });
+      const structure = await structureBlockers(ctx, key, record);
+      if (structure.failed) return { status: 'FAILED', message: FAILED };
+      if (structure.blockers.length > 0) return { status: 'BLOCKED', blockers: structure.blockers };
+      const view = computePlanView(record.aiDraft, { ...state, adopted: true });
       if (!view.d.adoption.adoptable) return { status: 'BLOCKED', blockers: view.d.adoption.blockers };
       if (!view.gate.startable) return { status: 'BLOCKED', blockers: view.gate.blockers };
       patch = {
-        ...(reference.aiDraft !== record.aiDraft ? { aiDraft: reference.aiDraft } : {}),
         ...(record.adoption ? {} : { adoption: { version: expectedVersion, byUserId: ctx.userId, at: args.now, edits: record.userEdits } }),
         startInfo: { version: expectedVersion, byUserId: ctx.userId, at: args.now },
       };
@@ -153,8 +154,7 @@ export async function transitionPlan(
     case 'USE_DRAFT': {
       if (!args.aiDraft) return { status: 'INVALID', message: '新しい案がありません' };
       if (record.adoption || record.startInfo) return { status: 'NOT_READY' };
-      patch = { aiDraft: args.aiDraft, adoption: null, startInfo: null };
-      break;
+      return { status: 'NOT_REPLACEABLE' };
     }
     case 'UNSTART': {
       if (!record.startInfo) return { status: 'OK', record };
@@ -169,4 +169,17 @@ export async function transitionPlan(
   const current = await ctx.gateway.findPlan(key);
   if (!current.ok || !current.value) return { status: 'FAILED', message: FAILED };
   return { status: 'CONFLICT', current: current.value };
+}
+
+/* 遷移の結果は、表示と同じく、いまの正式KPIに合わせた写しで返す（保存された草案は変えない） */
+export async function transitionPlan(
+  ctx: ServiceContext,
+  key: PlanDocKey,
+  expectedVersion: number,
+  action: TransitionAction,
+  args: { regulatory?: unknown; now: string; aiDraft?: Record<string, unknown> }
+): Promise<TransitionOutcome> {
+  const out = await transitionStored(ctx, key, expectedVersion, action, args);
+  if (out.status !== 'OK') return out;
+  return { status: 'OK', record: await displayedRecord(ctx, out.record) };
 }

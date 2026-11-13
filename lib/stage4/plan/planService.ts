@@ -4,6 +4,7 @@
 import type { RegulatoryRecord } from '../planView/model';
 import type { UserEdits } from './mergeUserEdits';
 import type { AdoptionInfo, PlanDocEvent, PlanDocKey, PlanDocRecord, StartInfo } from './planDocumentStore';
+import { refreshKpiReference } from './kpiReference';
 import { ALLOWED_ROLES, stableIdOf } from './projectResolver';
 
 export const SAVE_FAILED = '保存できませんでした。編集内容はこの画面に残っています。もう一度保存してください。';
@@ -102,7 +103,18 @@ export async function loadPlan(ctx: ServiceContext, key: PlanDocKey): Promise<Lo
   if (!r.ok) return { status: 'FAILED', message: FAILED_READ };
   if (!r.value || (r.value.status ?? 'DRAFT') !== 'DRAFT') return { status: 'NONE' };
   const events = await ctx.gateway.listEvents(key);
-  return { status: 'FOUND', record: { ...r.value, events: events.ok ? events.value : [] } };
+  const record = await displayedRecord(ctx, r.value);
+  return { status: 'FOUND', record: { ...record, events: events.ok ? events.value : [] } };
+}
+
+/* 保存された草案の参照KPIを、いまの正式KPIに合わせた表示用の写しにする。保存された草案は変えない（草案は作った後に変えられない） */
+export async function displayedRecord(ctx: ServiceContext, record: PlanDocRecord): Promise<PlanDocRecord> {
+  const row = await ctx.gateway.readStrategyRow(record.key.companyId, record.key.strategyId);
+  if (!row.ok || !row.value) return record;
+  if (String(row.value.id) !== record.key.strategyId || String(row.value.company_id) !== record.key.companyId) return record;
+  const refreshed = refreshKpiReference(record.aiDraft, row.value.departments, record.key.projectId);
+  if (!refreshed.ok || !refreshed.changed) return record;
+  return { ...record, aiDraft: refreshed.aiDraft };
 }
 
 export type WriteOutcome =
@@ -125,7 +137,7 @@ export async function saveEdits(
   if (access === 'FAILED') return { status: 'FAILED', message: SAVE_FAILED };
   const r = await ctx.gateway.updatePlan(key, expectedVersion, { userEdits }, ctx.userId);
   if (!r.ok) return r.code === 'FORBIDDEN' ? { status: 'DENIED' } : { status: 'FAILED', message: SAVE_FAILED };
-  if (r.value) return { status: 'SAVED', record: r.value };
+  if (r.value) return { status: 'SAVED', record: await displayedRecord(ctx, r.value) };
   const current = await ctx.gateway.findPlan(key);
   if (!current.ok) return { status: 'FAILED', message: SAVE_FAILED };
   if (!current.value) return { status: 'NOT_FOUND' };

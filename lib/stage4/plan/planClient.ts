@@ -218,7 +218,7 @@ export type TransitionResult =
 
 export type TransitionAction = 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART';
 
-export type UseDraftResult = TransitionResult | { status: 'EXPIRED' };
+export type UseDraftResult = TransitionResult | { status: 'EXPIRED' | 'NOT_REPLACEABLE' };
 
 /* 生成と採用・開始の操作の窓口。結果は、サーバーが決めたものをそのまま画面の型にする */
 export function createRemotePlanOps(o: ApiOptions) {
@@ -280,6 +280,7 @@ export function createRemotePlanOps(o: ApiOptions) {
       const body = r.json as Record<string, unknown>;
       if (r.status === 200 && body.status === 'OK') return { status: 'OK', record: body.record as PlanDocRecord };
       if (r.status === 409 && body.status === 'PREVIEW_EXPIRED') return { status: 'EXPIRED' };
+      if (r.status === 409 && body.status === 'NOT_REPLACEABLE') return { status: 'NOT_REPLACEABLE' };
       if (r.status === 409 && body.status === 'CONFLICT') return { status: 'CONFLICT', current: body.current as PlanDocRecord };
       if (r.status === 409) return { status: 'NOT_READY' };
       if (r.status === 400) return { status: 'INVALID', message: String(body.message ?? '入力を確認してください') };

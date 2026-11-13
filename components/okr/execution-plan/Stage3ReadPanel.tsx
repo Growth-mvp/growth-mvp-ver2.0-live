@@ -511,7 +511,9 @@ function Stage3ProjectBrowser({
     note(
       out.status === 'EXPIRED'
         ? '新しい案の有効期限が切れました。「AIでもう一度作る」からやり直してください。'
-        : '新しい案を使えませんでした。現在の計画書はそのままです。'
+        : out.status === 'NOT_REPLACEABLE'
+          ? 'この計画書の草案は作成後に差し替えられません（保存の規則）。「元の計画に戻る」を押してください。'
+          : '新しい案を使えませんでした。現在の計画書はそのままです。'
     );
   };
   const regenCancel = (id: string) =>
