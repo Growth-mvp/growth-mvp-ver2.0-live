@@ -300,3 +300,28 @@ describe('人事部（間接部門）の初回生成のモック検証', () => {
     }
   });
 });
+
+describe("[再現] 修復しても同じ不正値が返る場合の診断", () => {
+  it("試行ごとに、AIが返した値・指摘を記録し、修復は該当スロットだけで行う", async () => {
+    const diagnostics: any[] = [];
+    const calls: Record<number, number> = {};
+    const requestSlot = async (template: { slot: number }) => {
+      calls[template.slot] = (calls[template.slot] ?? 0) + 1;
+      return template.slot === 2
+        ? { project: validProject(2, { mainLever: "6コードのうち施策が効かせる1つ" }) }
+        : { project: validProject(template.slot) };
+    };
+    await expect(
+      generateSlotProjects({
+        templates: [{ slot: 1 }, { slot: 2 }], requestSlot, plan: reviewWith([]),
+        allowedPartners: PARTNERS, finalStrategy: EVIDENCE, department: "人事部", indirect: true, diagnostics,
+      }),
+    ).rejects.toThrow("slot_2_lever");
+    expect(calls).toEqual({ 1: 1, 2: 2 });
+    const slot2 = diagnostics.filter((d) => d.slot === 2);
+    expect(slot2.map((d) => d.attempt)).toEqual([1, 2]);
+    expect(slot2.map((d) => d.rawMainLever)).toEqual(["6コードのうち施策が効かせる1つ", "6コードのうち施策が効かせる1つ"]);
+    expect(slot2[0].errors).toEqual(["slot_2_lever"]);
+    expect(diagnostics.filter((d) => d.slot === 1)).toHaveLength(1);
+  });
+});

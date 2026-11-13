@@ -13,3 +13,19 @@ export function departmentScopeFields(indirect: boolean): { departmentScope: 'in
     ? { departmentScope: 'indirect', departmentGuidance: INDIRECT_DEPARTMENT_GUIDANCE }
     : { departmentScope: 'business' };
 }
+
+/**
+ * 応答テンプレートの mainLever。間接部門は説明文を入れず（null）、モデルに6コードから選ばせる。
+ * 事業部門は従来どおりの既定値を示す。
+ */
+export function leverForTemplate(indirect: boolean, slot: number): string | null {
+  if (indirect) return null;
+  return slot === 3 ? 'FUTURE' : 'ARPU';
+}
+
+/** 顧客成果の指標の指定。間接部門は支援先部門の成果（internal_process）で示す。 */
+export function customerOutcomeTemplate(indirect: boolean): { measurementScope: 'client_business' | 'internal_process'; population: string } {
+  return indirect
+    ? { measurementScope: 'internal_process', population: '支援を受ける事業部門の対象業務の範囲' }
+    : { measurementScope: 'client_business', population: '対象施設・利用者の範囲' };
+}

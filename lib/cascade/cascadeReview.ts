@@ -183,6 +183,12 @@ export const MAIN_LEVER_CORRECTION =
 
 const isLeverError = (error: string): boolean => /^slot_\d+_lever$/.test(error);
 
+/** AIが返した mainLever の値（正規化前）。診断用に短く切って記録する。 */
+function rawMainLeverOf(raw: any): unknown {
+  const value = raw?.project?.mainLever ?? raw?.projects?.[0]?.mainLever;
+  return typeof value === 'string' ? value.slice(0, 120) : value ?? null;
+}
+
 /** 修復の指示。前回の値を示し、そのスロットの施策が効かせる指標を1つだけ選び直させる。 */
 export function mainLeverCorrectionFor(rejected: unknown): string {
   const shown = rejected === undefined || rejected === null || rejected === '' ? '（未入力）' : typeof rejected === 'string' ? rejected : JSON.stringify(rejected);
@@ -224,6 +230,7 @@ export async function generateSlotProjects(opts: {
   department: string;
   maxAttempts?: number;
   indirect?: boolean;
+  diagnostics?: any[];
 }): Promise<any[]> {
   const projects: any[] = [];
   for (const template of opts.templates) {
@@ -241,6 +248,10 @@ export async function generateSlotProjects(opts: {
       const reviewed = reviewSlotCandidate(raw, template.slot, opts);
       candidate = reviewed.candidate;
       errors = reviewed.errors;
+      opts.diagnostics?.push({
+        phase: 'slot', slot: template.slot, attempt: attempt + 1,
+        rawMainLever: rawMainLeverOf(raw), mainLever: candidate?.mainLever ?? null, errors: [...errors],
+      });
       if (!errors.length) break;
     }
     if (errors.length) throw new Error(errors.join(','));

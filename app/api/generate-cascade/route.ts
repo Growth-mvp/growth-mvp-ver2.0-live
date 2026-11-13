@@ -16,7 +16,7 @@ import {
   normalizeConfirmedSegmentIds,
 } from '@/utils/finance/financeInputUnits';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { departmentScopeFields, isIndirectDepartment } from '@/lib/cascade/departmentScope';
+import { customerOutcomeTemplate, departmentScopeFields, isIndirectDepartment, leverForTemplate } from '@/lib/cascade/departmentScope';
 import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignals, ReconsiderationSeverity, ReconsiderationPointInternal } from '@/types/strategy';
@@ -3168,7 +3168,7 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
   if (planIssues.length) throw new Error(`theme_design: ${planIssues.join(',')}`);
   const indirect = input.departmentScope === 'indirect';
   const projects: any[] = await generateSlotProjects({
-    templates, plan, allowedPartners: input.allowedPartners, finalStrategy: input.finalStrategy, department: input.department, indirect,
+    templates, plan, allowedPartners: input.allowedPartners, finalStrategy: input.finalStrategy, department: input.department, indirect, diagnostics: diagnosticAttempts,
     requestSlot: async (template, feedback) => {
       const theme = plan.themes.find((t: any) => t.slot === template.slot);
       return await call(`slot_${template.slot}`, { ...context,
@@ -3263,7 +3263,7 @@ slot4とslot5のcollaborationは空欄禁止。必ず連携する担当・事業
                   decisionRule: '事業化・修正・中止の判断条件。未合意の数値を作らない' } } : {}),
                 reason: 'このテーマを選ぶ理由', hypothesis: '施策→成果の検証可能な仮説',
                 strategyBasisIds: ['根拠となるstrategyReferencesのIDを選択'], objective: 'PJが実現する成果',
-                mainLever: indirect ? '6コードのうち施策が効かせる1つ' : slot === 3 ? 'FUTURE' : 'ARPU', horizon: 'mid', kind: slot === 3 ? 'future' : 'growth',
+                mainLever: leverForTemplate(indirect, slot), horizon: 'mid', kind: slot === 3 ? 'future' : 'growth',
                 partnerDepartment: slot === 5 ? 'allowedPartnersから実在の連携先を選択' : '',
                 collaboration: slot >= 4 ? '連携する担当・事業の名前、役割分担、実現する成果を具体的に記入' : '',
                 skillRequirements: { roleSkills: ['役割に必要なスキル'], executionSkills: ['遂行スキル'] },
@@ -3273,7 +3273,7 @@ slot4とslot5のcollaborationは空欄禁止。必ず連携する担当・事業
                 ],
                 keyResults: [
                   { label: '仮説の直接成果を測る指標名（単位）', unit: '単位', kind: slot === 3 ? 'validation' : 'business_outcome', measurementScope: 'own_business', population: '対象契約・案件の範囲', calculation: '算式または集計方法', dataSource: '案件原価・契約等の具体的データ', comparison: '比較期間と条件', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '仮説のどの成否を測るか' },
-                  { label: '1本目とは異なる顧客成果・検証指標名（単位）', unit: '単位', kind: slot === 3 ? 'validation' : 'customer_outcome', measurementScope: 'client_business', population: '対象施設・利用者の範囲', calculation: '算式または集計方法', dataSource: '顧客から合意して取得する具体的データ', comparison: '改修前後・比較施設等の条件', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '仮説との関係' },
+                  { label: '1本目とは異なる顧客成果・検証指標名（単位）', unit: '単位', kind: slot === 3 ? 'validation' : 'customer_outcome', ...customerOutcomeTemplate(indirect), calculation: '算式または集計方法', dataSource: '顧客から合意して取得する具体的データ', comparison: '改修前後・比較施設等の条件', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '仮説との関係' },
                   { label: '成果につながる先行指標名（単位）', unit: '単位', kind: 'leading', measurementScope: 'internal_process', population: '対象施策・案件の範囲', calculation: '算式または集計方法', dataSource: '実行状況の記録', comparison: '比較条件。不要なら理由', measurementMethod: '算式・データ源・比較条件', hypothesisLink: '成果を先行して確認できる理由' },
                 ],
               })),
@@ -3284,7 +3284,7 @@ slot4とslot5のcollaborationは空欄禁止。必ず連携する担当・事業
       const rawReview = extractJsonObject(completion.choices?.[0]?.message?.content ?? '');
       const review = normalizeCascadeReview(rawReview, evidence);
       previousCandidate = review;
-      issues = validateCascadeReview(review, partners, evidence, dept.name);
+      issues = validateCascadeReview(review, partners, evidence, dept.name, { indirect });
       context.diagnosticAttempts?.push({ deptName: dept.name, attempt: attempt + 1,
         model: CASCADE_MODEL, finishReason: completion.choices?.[0]?.finish_reason,
         strategyActuallyUsed: evidence, bridgeActuallyUsed: reviewBridge,
@@ -3312,6 +3312,31 @@ slot4とslot5のcollaborationは空欄禁止。必ず連携する担当・事業
 /* =========================
  * ハンドラ
  * ======================= */
+/** 開発環境で、品質検証で生成が止まったときの診断（スロットごとのAIの値・正規化後の値・指摘）を保存する。戦略書の本文とキーは含めない。 */
+async function writeCascadeFailureDiagnostic(deptName: string, issues: string[], attempts: any[]): Promise<void> {
+  if (process.env.NODE_ENV !== 'development') return;
+  const clip = (v: unknown) => (typeof v === 'string' ? v.slice(0, 120) : v ?? null);
+  try {
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    const directory = path.join(process.cwd(), 'cascade-debug');
+    await fs.mkdir(directory, { recursive: true });
+    const safeAttempts = attempts
+      .filter((a) => a && typeof a === 'object')
+      .map((a) => ({
+        phase: clip(a.phase), slot: a.slot ?? null, attempt: a.attempt ?? a.completionAttempt ?? null,
+        finishReason: clip(a.finishReason), rawMainLever: clip(a.rawMainLever), mainLever: clip(a.mainLever),
+        errors: Array.isArray(a.errors) ? a.errors.slice(0, 20).map(clip) : undefined,
+        issues: Array.isArray(a.issues) ? a.issues.slice(0, 20).map(clip) : undefined,
+      }));
+    const filename = path.join(directory, 'latest-failure.json');
+    await fs.writeFile(filename, JSON.stringify({ timestamp: new Date().toISOString(), deptName, issues, attempts: safeAttempts }, null, 2), 'utf8');
+    console.warn('[cascade][failure-diagnostic-saved]', filename);
+  } catch (error) {
+    console.warn('[cascade][failure-diagnostic-save-failed]', error instanceof Error ? error.message : String(error));
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Bearer token authentication and membership validation
@@ -6609,6 +6634,7 @@ ${sanitizeText(finalStoryText || '（未設定）', Math.max(1800, finalStoryTex
     // One atomic review per department. No fixed KPI fallback or second alias traversal.
     if (Array.isArray(result.departments)) {
       const reviewedDepartments: any[] = [];
+      const attemptLog: any[] = generationDiagnostic?.reviews ?? [];
       for (const dept of result.departments) {
         if (dept == null) continue;
         const partners = partnerNamesFor(dept.name);
@@ -6617,9 +6643,10 @@ ${sanitizeText(finalStoryText || '（未設定）', Math.max(1800, finalStoryTex
           industry: industryLabel, bridge: stage3BridgeText,
           answers: pickDeptAnswers6(deptInputByName.get(dept.name)),
           facts: factPackByDept.get(dept.name),
-          diagnosticAttempts: generationDiagnostic?.reviews,
+          diagnosticAttempts: attemptLog,
         });
         if (!reviewed.department) {
+          await writeCascadeFailureDiagnostic(dept.name, reviewed.issues, attemptLog);
           return NextResponse.json({
             error: '全社戦略との整合性、プロジェクト構成、KPIの検証に通らなかったため、生成結果を返しませんでした。再生成してください。',
             code: 'cascade_quality_review_failed', deptName: dept.name, issues: reviewed.issues,
