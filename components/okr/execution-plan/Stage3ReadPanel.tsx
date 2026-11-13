@@ -482,7 +482,11 @@ function Stage3ProjectBrowser({
     if (isBodyDirty(entry)) return note('計画書の本文に未保存の修正があります。先に「計画を保存」してください。');
     const out = await ops.useDraft(key, entry.stored.version, current.draft, current.previewToken);
     if (out.status === 'OK') {
-      setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record, '新しい案を現在の計画書にしました。採用と開始は解除されています。') } : p));
+      const dropped = Object.keys(entry.plan.committed).filter((k) => !Object.prototype.hasOwnProperty.call(out.record.userEdits, k));
+      const notice = dropped.length
+        ? `新しい案にした。採用と開始は解除されています。新しい案にない項目への修正 ${dropped.length} 件は外しました（操作の履歴に残ります）。`
+        : '新しい案を現在の計画書にしました。採用と開始は解除されています。';
+      setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record, notice) } : p));
       return clear();
     }
     if (out.status === 'CONFLICT') {
@@ -492,9 +496,13 @@ function Stage3ProjectBrowser({
     note(
       out.status === 'EXPIRED'
         ? '新しい案の有効期限が切れました。「AIでもう一度作る」からやり直してください。'
-        : out.status === 'NOT_REPLACEABLE'
-          ? 'この計画書の草案は作成後に差し替えられません（保存の規則）。「元の計画に戻る」を押してください。'
-          : '新しい案を使えませんでした。現在の計画書はそのままです。'
+        : out.status === 'BLOCKED'
+          ? `新しい案を使えませんでした：${out.blockers.join('、')}`
+          : out.status === 'NOT_READY'
+            ? '開始済みの計画は差し替えられません。現在の計画書はそのままです。'
+            : out.status === 'INVALID'
+              ? out.message
+              : '新しい案を使えませんでした。現在の計画書はそのままです。'
     );
   };
   const regenCancel = (id: string) =>
@@ -916,7 +924,7 @@ function ReadOnlyProject({
           )}
           {(
             <>
-              {remote && entry.plan.mode === 'read' && !entry.plan.adopted && !entry.plan.started && !regen && (
+              {remote && entry.plan.mode === 'read' && !entry.plan.started && !regen && (
                 <div className="plan-regen">
                   <button type="button" className="plan-btn-quiet" onClick={onRegenStart}>
                     AIでもう一度作る

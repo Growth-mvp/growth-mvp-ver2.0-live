@@ -9,6 +9,8 @@
 --       execution_plans は STAGE5 の実行計画の既存の名前なので使わない。
 -- 状態: GENERATING（生成中）→ DRAFT（草案あり）。生成に失敗したら GENERATION_FAILED（再試行できる）。
 --       草案（DRAFT）は、作った後に ai_draft を変えられない。草案からは GENERATING 以外へ戻らない。
+--       例外：「この案を使う」の専用関数 stage4_use_draft だけが、トランザクション内の印を立てて ai_draft を差し替える。
+--       差し替え前の原案と修正は、操作履歴（DRAFT_REPLACED）に残る。
 -- 競合制御: version（版番号）。更新は「読んだ版番号と同じ時だけ」行い、違えば 0 件になる（競合）。
 -- 採用・開始: 利用者の修正内容が変わったら、採用・開始・規制の判断は自動で解除される（トリガー）。修正版は改めて確認する。
 -- 操作履歴: stage4_plan_document_events に、トリガーが追記する（利用者からは書き換え・削除できない）。
@@ -89,7 +91,8 @@ begin
       raise exception 'stage4_plan_documents: a draft cannot return to generation'
         using errcode = '42501';
     end if;
-    if new.ai_draft <> old.ai_draft then
+    if new.ai_draft <> old.ai_draft
+       and coalesce(current_setting('stage4.draft_replace', true), '') <> 'on' then
       raise exception 'stage4_plan_documents: AI draft is immutable'
         using errcode = '42501';
     end if;
@@ -116,7 +119,7 @@ begin
   end if;
 
   -- 利用者の修正が変わったら、採用・実行開始・規制の判断を解除する（修正版は改めて確認する）。解除前の記録は履歴に残る
-  if new.status <> 'DRAFT' or new.user_edits is distinct from old.user_edits then
+  if new.status <> 'DRAFT' or new.user_edits is distinct from old.user_edits or (old.status = 'DRAFT' and new.ai_draft is distinct from old.ai_draft) then
     new.adopted := false;
     new.adoption := null;
     new.started := false;
@@ -144,7 +147,7 @@ create table if not exists public.stage4_plan_document_events (
   action text not null check (action in (
     'GENERATION_STARTED', 'GENERATED', 'GENERATION_FAILED', 'GENERATION_RETRIED',
     'SAVED', 'ADOPTED', 'ADOPTION_CANCELLED', 'ADOPTION_RESET',
-    'REGULATORY_RECORDED', 'REGULATORY_RESET', 'STARTED', 'START_CANCELLED', 'START_RESET')),
+    'REGULATORY_RECORDED', 'REGULATORY_RESET', 'STARTED', 'START_CANCELLED', 'START_RESET', 'DRAFT_REPLACED')),
   version integer not null,
   actor_user_id uuid,
   payload jsonb not null default '{}'::jsonb,
@@ -194,19 +197,19 @@ begin
       insert into public.stage4_plan_document_events
         (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
       values (new.id, new.company_id, new.strategy_id, new.project_id, 'ADOPTION_RESET', new.version, v_actor,
-              jsonb_build_object('reason', 'EDITED', 'adoption', old.adoption));
+              jsonb_build_object('reason', case when old.status = 'DRAFT' and new.ai_draft is distinct from old.ai_draft then 'DRAFT_REPLACED' else 'EDITED' end,'adoption', old.adoption));
     end if;
     if old.started then
       insert into public.stage4_plan_document_events
         (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
       values (new.id, new.company_id, new.strategy_id, new.project_id, 'START_RESET', new.version, v_actor,
-              jsonb_build_object('reason', 'EDITED', 'start', old.start_info));
+              jsonb_build_object('reason', case when old.status = 'DRAFT' and new.ai_draft is distinct from old.ai_draft then 'DRAFT_REPLACED' else 'EDITED' end,'start', old.start_info));
     end if;
     if old.regulatory <> '{}'::jsonb then
       insert into public.stage4_plan_document_events
         (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
       values (new.id, new.company_id, new.strategy_id, new.project_id, 'REGULATORY_RESET', new.version, v_actor,
-              jsonb_build_object('reason', 'EDITED', 'regulatory', old.regulatory));
+              jsonb_build_object('reason', case when old.status = 'DRAFT' and new.ai_draft is distinct from old.ai_draft then 'DRAFT_REPLACED' else 'EDITED' end,'regulatory', old.regulatory));
     end if;
   else
     if old.adopted and not new.adopted then
@@ -227,6 +230,24 @@ begin
       values (new.id, new.company_id, new.strategy_id, new.project_id, 'REGULATORY_RECORDED', new.version, v_actor,
               jsonb_build_object('regulatory', new.regulatory));
     end if;
+  end if;
+
+  -- 草案の差し替え（stage4_use_draft だけが行う）。差し替え前の原案・修正・落とした修正・採用と開始の記録を残す
+  if old.status = 'DRAFT' and new.ai_draft is distinct from old.ai_draft then
+    insert into public.stage4_plan_document_events
+      (document_id, company_id, strategy_id, project_id, action, version, actor_user_id, payload)
+    values (new.id, new.company_id, new.strategy_id, new.project_id, 'DRAFT_REPLACED', new.version, v_actor,
+            jsonb_build_object(
+              'previousVersion', old.version,
+              'previousDraft', old.ai_draft,
+              'previousUserEdits', old.user_edits,
+              'keptUserEdits', new.user_edits,
+              'droppedUserEdits', (select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb)
+                                   from jsonb_each(old.user_edits) e
+                                   where not (new.user_edits ? e.key)),
+              'previousAdoption', old.adoption,
+              'previousStart', old.start_info,
+              'previousRegulatory', old.regulatory));
   end if;
 
   if not old.adopted and new.adopted then
@@ -425,7 +446,108 @@ $$;
 revoke all on function public.stage4_assign_project_identity(uuid, uuid, integer, integer, text, integer, text) from public;
 grant execute on function public.stage4_assign_project_identity(uuid, uuid, integer, integer, text, integer, text) to authenticated;
 
+-- ============================================================
+-- 「この案を使う」：再生成の案（サーバーで作られ、署名された案）で、草案のAI原案を差し替える専用の操作。
+-- 通常の更新では AI原案を変えられない（ガードトリガー）。この関数だけが、トランザクション内の印を立てて差し替える。
+-- 権限（同じ会社の admin / manager / member）、戦略・プロジェクトの整合、版番号、状態を、保存先の中で確かめる。
+-- 開始済みの計画は止める（STAGE5の進捗に関わるため）。採用は解除する。
+-- 利用者の修正は、新しい案にある項目（p_user_edits）だけを残す。元の修正に無い値は入れない。
+-- 落とした修正・前の原案・採用と開始の記録は、操作履歴（DRAFT_REPLACED）に残る。
+-- ============================================================
+create or replace function public.stage4_use_draft(
+  p_company_id uuid,
+  p_strategy_id uuid,
+  p_project_id text,
+  p_expected_version integer,
+  p_ai_draft jsonb,
+  p_user_edits jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_row public.stage4_plan_documents%rowtype;
+  v_updated public.stage4_plan_documents%rowtype;
+begin
+  if v_uid is null then
+    return jsonb_build_object('status', 'DENIED');
+  end if;
+  if not exists (
+    select 1 from public.company_members cm
+    where cm.company_id = p_company_id
+      and cm.user_id = v_uid
+      and cm.role in ('admin', 'manager', 'member')
+  ) then
+    return jsonb_build_object('status', 'DENIED');
+  end if;
+
+  if p_ai_draft is null or jsonb_typeof(p_ai_draft) <> 'object' or p_ai_draft = '{}'::jsonb
+     or p_user_edits is null or jsonb_typeof(p_user_edits) <> 'object' then
+    return jsonb_build_object('status', 'INVALID');
+  end if;
+
+  if not exists (
+    select 1
+    from public.strategy_data s,
+         jsonb_array_elements(coalesce(s.departments, '[]'::jsonb)) d,
+         jsonb_array_elements(coalesce(d -> 'projects', '[]'::jsonb)) p
+    where s.id = p_strategy_id
+      and s.company_id = p_company_id
+      and p ->> 'id' = p_project_id
+  ) then
+    return jsonb_build_object('status', 'NOT_FOUND');
+  end if;
+
+  select * into v_row
+  from public.stage4_plan_documents d
+  where d.company_id = p_company_id
+    and d.strategy_id = p_strategy_id
+    and d.project_id = p_project_id
+  for update;
+  if not found then
+    return jsonb_build_object('status', 'NOT_FOUND');
+  end if;
+  if v_row.status <> 'DRAFT' or v_row.started then
+    return jsonb_build_object('status', 'NOT_READY');
+  end if;
+  if v_row.version <> p_expected_version then
+    return jsonb_build_object('status', 'CONFLICT', 'version', v_row.version);
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_each(p_user_edits) n
+    where not (v_row.user_edits ? n.key)
+       or v_row.user_edits -> n.key <> n.value
+  ) then
+    return jsonb_build_object('status', 'INVALID');
+  end if;
+
+  perform set_config('stage4.draft_replace', 'on', true);
+  update public.stage4_plan_documents d
+  set ai_draft = p_ai_draft,
+      user_edits = p_user_edits,
+      version = d.version + 1,
+      updated_by = v_uid
+  where d.id = v_row.id
+    and d.version = p_expected_version
+  returning * into v_updated;
+  if not found then
+    perform set_config('stage4.draft_replace', 'off', true);
+    return jsonb_build_object('status', 'CONFLICT');
+  end if;
+  perform set_config('stage4.draft_replace', 'off', true);
+  return jsonb_build_object('status', 'REPLACED', 'row', to_jsonb(v_updated));
+end;
+$$;
+
+revoke all on function public.stage4_use_draft(uuid, uuid, text, integer, jsonb, jsonb) from public;
+grant execute on function public.stage4_use_draft(uuid, uuid, text, integer, jsonb, jsonb) to authenticated;
+
 -- ロールバック（適用後に戻す場合）
+-- drop function if exists public.stage4_use_draft(uuid, uuid, text, integer, jsonb, jsonb);
 -- drop function if exists public.stage4_assign_project_identity(uuid, uuid, integer, integer, text, integer, text);
 -- drop table if exists public.stage4_plan_document_events;
 -- drop table if exists public.stage4_plan_documents;

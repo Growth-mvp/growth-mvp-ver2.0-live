@@ -2,7 +2,10 @@
  * 判定は画面と同じ関数（computePlanView）を使い、保存された内容だけで決める。画面の表示は信用しない。
  * 採用は AI提案KPI の確定を意味しない。ここでは okrsV2 や経路Bには触れない。 */
 import { regulatoryComplete, EMPTY_REGULATORY, type RegulatoryRecord } from '../planView/model';
+import { IMPACT_EDIT_PREFIX } from '../planView/impactEstimate';
 import { computePlanView, INITIAL_PLAN_STATE } from '../planView/planState';
+import { listEditableItems } from '../planView/regen';
+import type { UserEdits } from './mergeUserEdits';
 import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
 import { allowed, displayedRecord, type ServiceContext } from './planService';
 import { refreshKpiReference } from './kpiReference';
@@ -78,7 +81,6 @@ export type TransitionOutcome =
   | { status: 'NOT_FOUND' }
   | { status: 'NOT_READY' }
   | { status: 'DENIED' }
-  | { status: 'NOT_REPLACEABLE' }
   | { status: 'FAILED'; message: string };
 
 const FAILED = '操作を記録できませんでした。画面を読み直してから、もう一度お試しください。';
@@ -87,8 +89,8 @@ async function transitionStored(
   ctx: ServiceContext,
   key: PlanDocKey,
   expectedVersion: number,
-  action: TransitionAction,
-  args: { regulatory?: unknown; now: string; aiDraft?: Record<string, unknown> }
+  action: Exclude<TransitionAction, 'USE_DRAFT'>,
+  args: { regulatory?: unknown; now: string }
 ): Promise<TransitionOutcome> {
   const access = await allowed(ctx, key.companyId);
   if (access === 'DENIED') return { status: 'DENIED' };
@@ -151,11 +153,6 @@ async function transitionStored(
       };
       break;
     }
-    case 'USE_DRAFT': {
-      if (!args.aiDraft) return { status: 'INVALID', message: '新しい案がありません' };
-      if (record.adoption || record.startInfo) return { status: 'NOT_READY' };
-      return { status: 'NOT_REPLACEABLE' };
-    }
     case 'UNSTART': {
       if (!record.startInfo) return { status: 'OK', record };
       patch = { startInfo: null };
@@ -171,6 +168,60 @@ async function transitionStored(
   return { status: 'CONFLICT', current: current.value };
 }
 
+/* 修正の残し方：実行責任者と参考試算の前提は AI原案に依らないので残す。原案の項目に無い修正は外す（外した修正は履歴に残る） */
+function keepEdits(edits: UserEdits, aiDraft: Record<string, unknown>): UserEdits {
+  const bundle = aiDraft as { rawOutput?: unknown; plan?: unknown };
+  const draft = typeof bundle.rawOutput === 'string' ? JSON.parse(bundle.rawOutput) : bundle.plan;
+  const itemIds = new Set(draft ? listEditableItems(draft).map((i) => i.itemId) : []);
+  return Object.fromEntries(
+    Object.entries(edits).filter(([k]) => k === 'responsible' || k.startsWith(IMPACT_EDIT_PREFIX) || itemIds.has(k))
+  );
+}
+
+/* 「この案を使う」：版番号・状態・開始の有無と整合（戦略・プロジェクト・正式KPI）を確かめてから、AI原案と修正を差し替える */
+async function useDraftStored(
+  ctx: ServiceContext,
+  key: PlanDocKey,
+  expectedVersion: number,
+  aiDraft: Record<string, unknown>
+): Promise<TransitionOutcome> {
+  const access = await allowed(ctx, key.companyId);
+  if (access === 'DENIED') return { status: 'DENIED' };
+  if (access === 'FAILED') return { status: 'FAILED', message: FAILED };
+
+  const found = await ctx.gateway.findPlan(key);
+  if (!found.ok) return { status: 'FAILED', message: FAILED };
+  const record = found.value;
+  if (!record) return { status: 'NOT_FOUND' };
+  if (record.status && record.status !== 'DRAFT') return { status: 'NOT_READY' };
+  if (record.startInfo) return { status: 'NOT_READY' };
+  if (record.version !== expectedVersion) return { status: 'CONFLICT', current: record };
+
+  const structure = await structureBlockers(ctx, key, { ...record, aiDraft });
+  if (structure.failed) return { status: 'FAILED', message: FAILED };
+  if (structure.blockers.length > 0) return { status: 'BLOCKED', blockers: structure.blockers };
+
+  const out = await ctx.gateway.replaceDraft(key, expectedVersion, { aiDraft, userEdits: keepEdits(record.userEdits, aiDraft) }, ctx.userId);
+  if (!out.ok) return { status: 'FAILED', message: FAILED };
+  const result = out.value;
+  switch (result.status) {
+    case 'REPLACED':
+      return { status: 'OK', record: await displayedRecord(ctx, result.record) };
+    case 'CONFLICT': {
+      const current = await ctx.gateway.findPlan(key);
+      return current.ok && current.value ? { status: 'CONFLICT', current: current.value } : { status: 'FAILED', message: FAILED };
+    }
+    case 'NOT_READY':
+      return { status: 'NOT_READY' };
+    case 'NOT_FOUND':
+      return { status: 'NOT_FOUND' };
+    case 'DENIED':
+      return { status: 'DENIED' };
+    case 'INVALID':
+      return { status: 'INVALID', message: '新しい案を確認できませんでした。もう一度作ってください。' };
+  }
+}
+
 /* 遷移の結果は、表示と同じく、いまの正式KPIに合わせた写しで返す（保存された草案は変えない） */
 export async function transitionPlan(
   ctx: ServiceContext,
@@ -179,7 +230,11 @@ export async function transitionPlan(
   action: TransitionAction,
   args: { regulatory?: unknown; now: string; aiDraft?: Record<string, unknown> }
 ): Promise<TransitionOutcome> {
-  const out = await transitionStored(ctx, key, expectedVersion, action, args);
+  if (action === 'USE_DRAFT') {
+    if (!args.aiDraft) return { status: 'INVALID', message: '新しい案がありません' };
+    return useDraftStored(ctx, key, expectedVersion, args.aiDraft);
+  }
+  const out = await transitionStored(ctx, key, expectedVersion, action, { regulatory: args.regulatory, now: args.now });
   if (out.status !== 'OK') return out;
   return { status: 'OK', record: await displayedRecord(ctx, out.record) };
 }

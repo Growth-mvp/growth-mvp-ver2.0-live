@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { PlanDocEvent, PlanDocKey, PlanDocRecord } from './planDocumentStore';
 import { patchColumns, rowToEvent, rowToRecord } from './planRecordMapping';
-import type { ClaimResult, GatewayFailure, GatewayResult, IdentityRpcResult, PlanGateway, PlanPatch } from './planService';
+import type { ClaimResult, DraftReplaceResult, GatewayFailure, GatewayResult, IdentityRpcResult, PlanGateway, PlanPatch } from './planService';
 
 type DbError = { code?: string };
 
@@ -125,6 +125,26 @@ export function createSupabasePlanGateway(client: SupabaseClient): PlanGateway {
         .maybeSingle();
       if (error) return { ok: false, code: failure(error) };
       return { ok: true, value: data ? rowToRecord(data as Record<string, unknown>) : null };
+    },
+
+    async replaceDraft(key, expectedVersion, args, _userId): Promise<GatewayResult<DraftReplaceResult>> {
+      const { data, error } = await client.rpc('stage4_use_draft', {
+        p_company_id: key.companyId,
+        p_strategy_id: key.strategyId,
+        p_project_id: key.projectId,
+        p_expected_version: expectedVersion,
+        p_ai_draft: args.aiDraft,
+        p_user_edits: args.userEdits,
+      });
+      if (error || !data) return { ok: false, code: error ? failure(error) : 'ERROR' };
+      const out = data as { status?: string; row?: Record<string, unknown> };
+      if (out.status === 'REPLACED' && out.row) {
+        return { ok: true, value: { status: 'REPLACED', record: rowToRecord(out.row) } };
+      }
+      if (out.status === 'CONFLICT' || out.status === 'NOT_READY' || out.status === 'NOT_FOUND' || out.status === 'DENIED' || out.status === 'INVALID') {
+        return { ok: true, value: { status: out.status } };
+      }
+      return { ok: false, code: 'ERROR' };
     },
 
     async readStrategyRow(companyId, strategyId) {

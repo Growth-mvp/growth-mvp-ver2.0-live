@@ -1,7 +1,8 @@
 /* PlanGateway の検証用実装（PGlite＝ローカルのPostgreSQL）。
  * 1回の操作を1つのトランザクションとし、利用者のJWTクレーム（auth.uid()の元）を設定して、authenticated の役割で実行する。
  * 行単位の権限（RLS）とトリガーは、データベース側の規則がそのまま効く。 */
-import type { ClaimResult, GatewayFailure, GatewayResult, IdentityRpcResult, PlanGateway, PlanPatch } from '@/lib/stage4/plan/planService';
+import type { UserEdits } from '@/lib/stage4/plan/mergeUserEdits';
+import type { ClaimResult, DraftReplaceResult, GatewayFailure, GatewayResult, IdentityRpcResult, PlanGateway, PlanPatch } from '@/lib/stage4/plan/planService';
 import type { PlanDocEvent, PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
 import { JSONB_COLUMNS, patchColumns, rowToEvent, rowToRecord } from '@/lib/stage4/plan/planRecordMapping';
 
@@ -138,6 +139,23 @@ export class PgliteGateway implements PlanGateway {
         [key.companyId, key.strategyId, key.projectId, expectedVersion, ...values]
       );
       return rows[0] ? rowToRecord(rows[0]) : null;
+    });
+  }
+
+  async replaceDraft(
+    key: PlanDocKey,
+    expectedVersion: number,
+    args: { aiDraft: Record<string, unknown>; userEdits: UserEdits },
+    _userId: string
+  ): Promise<GatewayResult<DraftReplaceResult>> {
+    return this.asUser(async (tx) => {
+      const { rows } = await tx.query<{ result: { status: string; row?: Row } }>(
+        'select public.stage4_use_draft($1, $2, $3, $4, $5::jsonb, $6::jsonb) as result',
+        [key.companyId, key.strategyId, key.projectId, expectedVersion, JSON.stringify(args.aiDraft), JSON.stringify(args.userEdits)]
+      );
+      const out = rows[0].result;
+      if (out.status === 'REPLACED' && out.row) return { status: 'REPLACED', record: rowToRecord(out.row) };
+      return { status: out.status } as DraftReplaceResult;
     });
   }
 

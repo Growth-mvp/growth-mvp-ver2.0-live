@@ -270,6 +270,50 @@ async function main() {
   );
   check('操作履歴：開始の解除が記録される（START_RESET）', startResetEvents.length === 1);
 
+  /* ---- 5a. 「この案を使う」：AI原案の差し替え（専用の操作だけ。前の内容を履歴に残す） ---- */
+  const inspBefore = await loadPlan(ctxOf(db, ALICE), KEY(INSPECTION));
+  if (inspBefore.status !== 'FOUND') throw new Error('INSPECTION の計画が読めません');
+  const inspSaved = await saveEdits(ctxOf(db, ALICE), KEY(INSPECTION), inspBefore.record.version, {
+    responsible: '差し替え前の担当',
+    'legacy:old-item': '原案に無い修正',
+  });
+  check('差し替えの準備：原案に無い項目を含む修正を保存する', inspSaved.status === 'SAVED', inspSaved.status);
+  const inspRec = inspSaved.status === 'SAVED' ? inspSaved.record : inspBefore.record;
+  const newDraft = { ...inspRec.aiDraft, revisionMarker: 'replaced' };
+  const inspCarol = await transitionPlan(ctxOf(db, CAROL), KEY(INSPECTION), inspRec.version, 'USE_DRAFT', { now: NOW, aiDraft: newDraft });
+  check('差し替え：他社の社員は、差し替えできない（DENIED）', inspCarol.status === 'DENIED', inspCarol.status);
+  const inspStale = await transitionPlan(ctxOf(db, ALICE), KEY(INSPECTION), inspRec.version - 1, 'USE_DRAFT', { now: NOW, aiDraft: newDraft });
+  check('差し替え：古い版からは CONFLICT で、原案は変わらない', inspStale.status === 'CONFLICT', inspStale.status);
+  const inspOk = await transitionPlan(ctxOf(db, ALICE), KEY(INSPECTION), inspRec.version, 'USE_DRAFT', { now: NOW, aiDraft: newDraft });
+  check(
+    '差し替え：「この案を使う」で AI原案が替わり、版が1つ進む（OK）',
+    inspOk.status === 'OK' && (inspOk.record.aiDraft as Record<string, unknown>).revisionMarker === 'replaced' && inspOk.record.version === inspRec.version + 1,
+    inspOk.status
+  );
+  check(
+    '差し替え：原案の項目に無い修正は外れ、同じ項目の修正は残る',
+    inspOk.status === 'OK' && inspOk.record.userEdits.responsible === '差し替え前の担当' && !('legacy:old-item' in inspOk.record.userEdits)
+  );
+  check(
+    '差し替え：採用・開始・規制の判断は解除されている',
+    inspOk.status === 'OK' && inspOk.record.adoption === null && inspOk.record.startInfo === null && inspOk.record.adopted === false
+  );
+  const inspReplaced = await env.sql(
+    "select e.payload, e.actor_user_id from stage4_plan_document_events e join stage4_plan_documents d on d.id = e.document_id where d.project_id = $1 and e.action = 'DRAFT_REPLACED' order by e.created_at, e.id",
+    [INSPECTION]
+  );
+  const replacedPayload = (inspReplaced[0]?.payload ?? {}) as Record<string, any>;
+  check(
+    '差し替え：履歴に、前の原案・前の修正・外した修正・操作者・版が残る',
+    inspReplaced.length === 1 &&
+      replacedPayload.previousDraft?.revisionMarker === undefined &&
+      replacedPayload.previousUserEdits?.['legacy:old-item'] === '原案に無い修正' &&
+      replacedPayload.droppedUserEdits?.['legacy:old-item'] === '原案に無い修正' &&
+      inspReplaced[0].actor_user_id === ALICE &&
+      replacedPayload.previousVersion === inspRec.version,
+    inspReplaced.length ? JSON.stringify(replacedPayload.droppedUserEdits) : 'none'
+  );
+
   /* ---- 5b. 履歴：解除・取り消しの前の記録が残る（消えない） ---- */
   const adoptedLog = await payloadsOf('ADOPTED');
   check(

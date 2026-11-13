@@ -39,6 +39,14 @@ export type PlanPatch = {
 
 export type ClaimResult = { claimed: true; record: PlanDocRecord } | { claimed: false; existing: PlanDocRecord };
 
+export type DraftReplaceResult =
+  | { status: 'REPLACED'; record: PlanDocRecord }
+  | { status: 'CONFLICT' }
+  | { status: 'NOT_READY' }
+  | { status: 'NOT_FOUND' }
+  | { status: 'DENIED' }
+  | { status: 'INVALID' };
+
 /** 利用者の権限のもとで行う読み書き。実装は、Supabase（本番）や検証用のデータベースなど */
 export interface PlanGateway {
   membershipRole(userId: string, companyId: string): Promise<GatewayResult<string | null>>;
@@ -53,6 +61,13 @@ export interface PlanGateway {
   failGeneration(key: PlanDocKey, userId: string): Promise<GatewayResult<PlanDocRecord | null>>;
   /** 版番号と状態（草案）が一致した時だけ更新する。一致しなければ value が null */
   updatePlan(key: PlanDocKey, expectedVersion: number, patch: PlanPatch, userId: string): Promise<GatewayResult<PlanDocRecord | null>>;
+  /* 「この案を使う」専用：AI原案と修正を、版番号・状態・開始の有無を保存先の中で確かめてから差し替える（通常の更新では原案を変えられない） */
+  replaceDraft(
+    key: PlanDocKey,
+    expectedVersion: number,
+    args: { aiDraft: Record<string, unknown>; userEdits: UserEdits },
+    userId: string
+  ): Promise<GatewayResult<DraftReplaceResult>>;
   readStrategyRow(companyId: string, strategyId: string): Promise<GatewayResult<Record<string, unknown> | null>>;
   assignIdentity(args: {
     companyId: string;

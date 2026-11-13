@@ -2,7 +2,7 @@
  * 保存先はメモリ上で、本番の保存の規則（applyStoredPatch）と同じに働く。本番のDB・実AIには触れない。 */
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { loadStartedPlans } from '@/lib/stage5/startedPlans';
-import { applyStoredPatch } from './dbGuard';
+import { applyDraftReplacement, applyStoredPatch } from './dbGuard';
 import { createMockModel } from './mockGenerate';
 import { createPlanApi, type PlanApiDeps } from './planApi';
 import { createRemotePlanOps, createRemotePlanStore } from './planClient';
@@ -64,6 +64,13 @@ function world() {
       if (!stored.ok) return { ok: false, code: 'FORBIDDEN' as const };
       record = stored.record;
       return ok(record);
+    },
+    replaceDraft: async (_key: PlanDocKey, expectedVersion: number, args: { aiDraft: Record<string, unknown>; userEdits: Record<string, unknown> }) => {
+      if (!record) return ok({ status: 'NOT_FOUND' as const });
+      const out = applyDraftReplacement(record, { expectedVersion, aiDraft: args.aiDraft, userEdits: args.userEdits }, USER);
+      if (out.status !== 'REPLACED') return ok({ status: out.status });
+      record = out.record;
+      return ok({ status: 'REPLACED' as const, record });
     },
   } as unknown as PlanGateway;
 
@@ -143,17 +150,19 @@ describe('STAGE4 の一連の操作（生成 → 保存 → 再読み込み → 
     expect(stale.status).toBe('CONFLICT');
     expect(w.record()?.userEdits).toEqual({ 'action:1:title': '利用者が直した実施事項' });
 
-    /* 4. 再生成の案を見る。保存はされず、「この案を使う」は保存の規則で拒否され、計画書は変わらない */
+    /* 4. 再生成の案を見て、「この案を使う」で原案を差し替える。版は1つ進み、同じ項目の修正は残る */
     const preview = await w.ops.preview(KEY);
     expect(preview.status).toBe('PREVIEW');
     if (preview.status !== 'PREVIEW') throw new Error('preview');
     const useResult = await w.ops.useDraft(KEY, 2, preview.draft, preview.previewToken);
-    expect(useResult.status).toBe('NOT_REPLACEABLE');
-    expect(JSON.stringify(w.record()?.aiDraft)).toBe(originalDraft);
+    expect(useResult.status).toBe('OK');
+    expect(JSON.stringify(w.record()?.aiDraft)).toBe(JSON.stringify(preview.draft));
+    expect(JSON.stringify(w.record()?.aiDraft)).not.toBe(originalDraft);
+    expect(w.record()?.version).toBe(3);
     expect(w.record()?.userEdits).toEqual({ 'action:1:title': '利用者が直した実施事項' });
 
     /* 5. 実行責任者を設定して保存し、採用する */
-    const named = await w.store.update(ACTOR, KEY, 2, {
+    const named = await w.store.update(ACTOR, KEY, 3, {
       userEdits: { 'action:1:title': '利用者が直した実施事項', responsible: '佐藤（仮）' },
       adopted: false,
     });
@@ -171,7 +180,7 @@ describe('STAGE4 の一連の操作（生成 → 保存 → 再読み込み → 
     expect(started.record.startInfo).not.toBeNull();
     const shown = (started.record.aiDraft as { plan: { section3: { protectedKpis: Array<{ stage3KpiId: string; target: unknown }> } } }).plan.section3.protectedKpis;
     expect(shown.find((k) => k.stage3KpiId === 'kr-renew-1')?.target).toBe(120);
-    expect(JSON.stringify(w.record()?.aiDraft)).toBe(originalDraft);
+    expect(JSON.stringify(w.record()?.aiDraft)).toBe(JSON.stringify(preview.draft));
 
     /* 7. STAGE5で、開始した計画を、同じプロジェクトと最新のKPIで確認できる */
     const stage5 = await loadStartedPlans({ items: [startItem()], load: (key) => w.store.load(ACTOR, key) });

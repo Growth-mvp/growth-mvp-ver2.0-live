@@ -32,7 +32,7 @@ export function RegenPanel({ state, onUse, onCancel }: { state: RegenState; onUs
     <section aria-label="新しい案" className="plan-regen-panel">
       <h2 className="plan-h2">新しいAI案</h2>
       <p className="plan-note">
-        「この案を使う」を押すと、現在の計画書がこの案に替わります。利用者が書いた修正は残ります。採用と開始は解除されるため、改めて採用・開始してください。
+        「この案を使う」を押すと、現在の計画書がこの案に替わります。新しい案にも同じ項目がある修正は残り、無い修正は外れますが、操作の履歴に残ります。採用と開始は解除されるため、改めて採用・開始してください。
       </p>
       {state.notice && (
         <p role="status" className="plan-note">

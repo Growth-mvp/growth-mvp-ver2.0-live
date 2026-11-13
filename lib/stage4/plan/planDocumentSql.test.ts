@@ -62,4 +62,39 @@ describe('実行計画書の保存テーブル（未適用のSQL）', () => {
     expect(active).not.toContain('execution_plans');
     expect(active).not.toContain('generated_plans');
   });
+
+  it('AI原案の差し替えは、専用の関数だけが、トランザクション内の印を立てて行う', () => {
+    expect(active).toContain("current_setting('stage4.draft_replace', true)");
+    expect(active).toContain("perform set_config('stage4.draft_replace', 'on', true)");
+    expect(active).toContain("perform set_config('stage4.draft_replace', 'off', true)");
+    const fn = active.slice(active.indexOf('create or replace function public.stage4_use_draft'));
+    expect(fn).toContain('security definer');
+    expect(fn).toContain('set search_path = public');
+    expect(fn).toContain("cm.role in ('admin', 'manager', 'member')");
+    expect(fn).toContain('p ->> \'id\' = p_project_id');
+    expect(fn).toContain('v_row.started');
+    expect(fn).toContain('v_row.version <> p_expected_version');
+  });
+
+  it('差し替えの関数は、利用者にだけ実行を許し、既存の修正に無い値・項目を入れさせない', () => {
+    expect(active).toContain('revoke all on function public.stage4_use_draft(uuid, uuid, text, integer, jsonb, jsonb) from public;');
+    expect(active).toContain('grant execute on function public.stage4_use_draft(uuid, uuid, text, integer, jsonb, jsonb) to authenticated;');
+    const fn = active.slice(active.indexOf('create or replace function public.stage4_use_draft'));
+    expect(fn).toContain("'invalid'");
+    expect(fn).toContain('not (v_row.user_edits ? n.key)');
+  });
+
+  it('差し替えでは採用・開始・規制の判断を解除し、前の原案と修正を履歴に残す', () => {
+    expect(active).toContain("'draft_replaced'");
+    expect(active).toContain("'previousdraft', old.ai_draft");
+    expect(active).toContain("'droppeduseredits'");
+    expect(active).toContain("(old.status = 'draft' and new.ai_draft is distinct from old.ai_draft)");
+  });
+
+  it('差し替えの関数は、STAGE3の正式データ・STAGE6の財務効果を書き換えない', () => {
+    const fn = active.slice(active.indexOf('create or replace function public.stage4_use_draft'), active.indexOf('revoke all on function public.stage4_use_draft'));
+    expect(fn).not.toMatch(/update\s+public\.strategy_data/);
+    expect(fn).not.toContain('financeEffect');
+    expect(fn).not.toContain('okrsV2');
+  });
 });

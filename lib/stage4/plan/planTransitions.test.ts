@@ -1,5 +1,5 @@
 import { EMPTY_REGULATORY } from '../planView/model';
-import { applyStoredPatch } from './dbGuard';
+import { applyDraftReplacement, applyStoredPatch } from './dbGuard';
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { generateMockExecutionPlan } from './mockGenerate';
 import type { PlanDocRecord } from './planDocumentStore';
@@ -55,6 +55,7 @@ function record(over: Partial<PlanDocRecord> = {}): PlanDocRecord {
 function fake(initial: PlanDocRecord | null, opts: { role?: string | null; strategy?: Record<string, unknown> } = {}) {
   let current = initial;
   const patches: PlanPatch[] = [];
+  const replaces: Array<{ aiDraft: unknown; userEdits: unknown }> = [];
   const ok = <T,>(value: T): GatewayResult<T> => ({ ok: true, value });
   const gateway = {
     membershipRole: async () => ok(opts.role === undefined ? 'member' : opts.role),
@@ -69,8 +70,16 @@ function fake(initial: PlanDocRecord | null, opts: { role?: string | null; strat
       current = next;
       return ok(next);
     },
+    replaceDraft: async (_k: unknown, expected: number, args: { aiDraft: Record<string, unknown>; userEdits: Record<string, unknown> }, userId: string) => {
+      replaces.push({ aiDraft: args.aiDraft, userEdits: args.userEdits });
+      if (!current) return ok({ status: 'NOT_FOUND' as const });
+      const out = applyDraftReplacement(current, { expectedVersion: expected, aiDraft: args.aiDraft, userEdits: args.userEdits }, userId);
+      if (out.status !== 'REPLACED') return ok({ status: out.status });
+      current = out.record;
+      return ok({ status: 'REPLACED' as const, record: out.record });
+    },
   } as unknown as PlanGateway;
-  return { gateway, patches, get: () => current };
+  return { gateway, patches, replaces, get: () => current };
 }
 
 const ctxOf = (g: PlanGateway, userId = 'alice'): ServiceContext => ({ userId, gateway: g });
@@ -209,23 +218,43 @@ describe('規制・安全の記録と実行開始', () => {
     expect(f.get()?.adoption).toBeNull();
   });
 
-  it('草案の差し替え：保存の規則で草案は変えられないため、差し替えは拒否され、計画書は変わらない', async () => {
-    const edits = { responsible: '鈴木一郎（仮）' };
-    const f = fake(record({ userEdits: edits }));
+  it('草案の差し替え：「この案を使う」で原案が替わり、新しい案にない項目の修正は外れる（履歴には残る）', async () => {
+    const f = fake(record({ userEdits: { responsible: '鈴木一郎（仮）', 'action:999:title': '原案に無い修正' } }));
     const newDraft = JSON.parse(JSON.stringify(draft)) as Record<string, unknown> & { plan: { section1: { goalState: { text: string } } } };
     newDraft.plan.section1.goalState.text = '新しい案の目指す状態';
     const replaced = await transitionPlan(ctxOf(f.gateway, 'alice'), KEY, 5, 'USE_DRAFT', { now: NOW, aiDraft: newDraft });
-    expect(replaced.status).toBe('NOT_REPLACEABLE');
-    expect(f.get()?.aiDraft).toEqual(draft);
+    expect(replaced.status).toBe('OK');
+    expect(f.get()?.aiDraft).toEqual(newDraft);
+    expect(f.get()?.userEdits).toEqual({ responsible: '鈴木一郎（仮）' });
+    expect(f.get()?.version).toBe(6);
+    expect(f.replaces).toEqual([{ aiDraft: newDraft, userEdits: { responsible: '鈴木一郎（仮）' } }]);
+  });
+
+  it('草案の差し替えは、版番号が違えば CONFLICT で、原案も修正も変わらない', async () => {
+    const edits = { responsible: '鈴木一郎（仮）' };
+    const f = fake(record({ userEdits: edits }));
+    const out = await transitionPlan(ctxOf(f.gateway, 'alice'), KEY, 4, 'USE_DRAFT', { now: NOW, aiDraft: draft });
+    expect(out.status).toBe('CONFLICT');
+    expect(f.get()?.aiDraft).toEqual(record().aiDraft);
     expect(f.get()?.userEdits).toEqual(edits);
   });
 
-  it('採用・開始済みの計画は、草案の差し替えも受け付けない（NOT_READY）', async () => {
+  it('採用済み（開始前）の計画は、差し替えで採用を解除する', async () => {
     const edits = { responsible: '鈴木一郎（仮）' };
     const f = fake(record({ userEdits: edits }));
     expect((await act(f.gateway, 5, 'ADOPT')).status).toBe('OK');
     const after = await transitionPlan(ctxOf(f.gateway, 'alice'), KEY, 6, 'USE_DRAFT', { now: NOW, aiDraft: draft });
+    expect(after.status).toBe('OK');
+    expect(f.get()?.adoption).toBeNull();
+    expect(f.get()?.adopted).toBe(false);
+  });
+
+  it('開始済みの計画は、草案の差し替えを受け付けない（NOT_READY）', async () => {
+    const edits = { responsible: '鈴木一郎（仮）' };
+    const f = fake(record({ userEdits: edits, adopted: true, adoption: { version: 5, byUserId: 'alice', at: NOW, edits }, startInfo: { version: 5, byUserId: 'alice', at: NOW } }));
+    const after = await transitionPlan(ctxOf(f.gateway, 'alice'), KEY, 5, 'USE_DRAFT', { now: NOW, aiDraft: draft });
     expect(after.status).toBe('NOT_READY');
+    expect(f.get()?.aiDraft).toEqual(record().aiDraft);
   });
 
   it('規制・安全の判断が無くても、条件が揃えば開始でき、規制の記録は作られない', async () => {

@@ -33,9 +33,6 @@ export type PlanApiDeps = {
   now?: () => string;
 };
 
-const NOT_REPLACEABLE_MESSAGE =
-  'この計画書の草案は、作成後に差し替えられません（保存の規則）。元の計画を使ってください。';
-
 function transitionResponse(out: TransitionOutcome): Response {
   switch (out.status) {
     case 'OK':
@@ -50,8 +47,6 @@ function transitionResponse(out: TransitionOutcome): Response {
       return json(404, { status: 'NOT_FOUND' });
     case 'NOT_READY':
       return json(409, { status: 'NOT_READY' });
-    case 'NOT_REPLACEABLE':
-      return json(409, { status: 'NOT_REPLACEABLE', message: NOT_REPLACEABLE_MESSAGE });
     case 'DENIED':
       return json(403, { status: 'DENIED' });
     default:

@@ -1,5 +1,5 @@
 import { EMPTY_REGULATORY } from '../planView/model';
-import { applyStoredPatch } from './dbGuard';
+import { applyDraftReplacement, applyStoredPatch } from './dbGuard';
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { generateMockExecutionPlan } from './mockGenerate';
 import { createPlanApi, type PlanApiDeps } from './planApi';
@@ -636,12 +636,18 @@ describe('再生成の案：プレビューの署名と「この案を使う」�
         current = stored.record;
         return ok(current);
       },
+      replaceDraft: async (_key, expected, args) => {
+        const out = applyDraftReplacement(current, { expectedVersion: expected, aiDraft: args.aiDraft, userEdits: args.userEdits }, USER);
+        if (out.status !== 'REPLACED') return ok({ status: out.status });
+        current = out.record;
+        return ok({ status: 'REPLACED' as const, record: out.record });
+      },
     });
     return { g, state: () => current };
   }
   const base = (): PlanDocRecord => ({ ...rec(1), key: k, aiDraft: bundle, userEdits: { responsible: '佐藤（仮）', 'action:1:title': '利用者の修正' } });
 
-  it('「この案を使う」は、保存の規則により差し替えられず、計画書は変わらない（409 NOT_REPLACEABLE）', async () => {
+  it('「この案を使う」は、署名された新しい案で原案を差し替え、版を1つ進める（200 OK）', async () => {
     const h = holder(base());
     const previewed = await api(h.g, { generation }).preview(previewReq());
     expect(previewed.status).toBe(200);
@@ -649,10 +655,11 @@ describe('再生成の案：プレビューの署名と「この案を使う」�
     const used = await api(h.g, { generation }).useDraft(
       req('POST', 'plan-documents/use-draft', { ...k, expectedVersion: 1, draft: body.draft, previewToken: body.previewToken })
     );
-    expect(used.status).toBe(409);
-    expect((await used.json()).status).toBe('NOT_REPLACEABLE');
-    expect(h.state().aiDraft).toBe(bundle);
-    expect(h.state().userEdits).toEqual({ responsible: '佐藤（仮）', 'action:1:title': '利用者の修正' });
+    expect(used.status).toBe(200);
+    expect((await used.json()).status).toBe('OK');
+    expect(h.state().aiDraft).toEqual(body.draft);
+    expect(h.state().version).toBe(2);
+    expect(h.state().userEdits.responsible).toBe('佐藤（仮）');
   });
 
   it('案の内容を書き換えた場合や、別の署名の場合は使えない（409 PREVIEW_EXPIRED・計画書は変わらない）', async () => {
@@ -667,8 +674,13 @@ describe('再生成の案：プレビューの署名と「この案を使う」�
     expect(h.state().aiDraft).toBe(bundle);
   });
 
-  it('採用・開始の済んだ計画は差し替えられない（409 NOT_READY）', async () => {
-    const h = holder({ ...base(), adoption: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z', edits: {} }, adopted: true });
+  it('開始済みの計画は差し替えられない（409 NOT_READY）', async () => {
+    const h = holder({
+      ...base(),
+      adoption: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z', edits: {} },
+      adopted: true,
+      startInfo: { version: 1, byUserId: USER, at: '2026-11-09T00:00:00.000Z' },
+    });
     const body = await (await api(h.g, { generation }).preview(previewReq())).json();
     const res = await api(h.g, { generation }).useDraft(
       req('POST', 'plan-documents/use-draft', { ...k, expectedVersion: 1, draft: body.draft, previewToken: body.previewToken })

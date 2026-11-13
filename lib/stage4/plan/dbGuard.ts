@@ -2,6 +2,7 @@
  * 本番の規則は supabase/pending/20261110_stage4_plan_documents.sql（トリガー stage4_plan_documents_guard と表の制約）。
  * 草案（DRAFT）の ai_draft は作った後に変えられない。利用者の修正が変われば、採用・開始・規制の判断は解除される。 */
 import { EMPTY_REGULATORY } from '../planView/model';
+import type { UserEdits } from './mergeUserEdits';
 import type { PlanDocRecord } from './planDocumentStore';
 import type { PlanPatch } from './planService';
 
@@ -19,6 +20,35 @@ function canonical(value: unknown): string {
     );
   };
   return JSON.stringify(sorted(value));
+}
+
+export type DraftReplaceInput = { expectedVersion: number; aiDraft: Record<string, unknown>; userEdits: UserEdits };
+export type DraftReplaceOutcome = { status: 'REPLACED'; record: PlanDocRecord } | { status: 'CONFLICT' } | { status: 'NOT_READY' } | { status: 'INVALID' };
+
+/* stage4_use_draft と同じ規則：草案のみ・開始前・版番号一致・修正は元の修正の一部だけ。採用と開始と規制の判断は解除する */
+export function applyDraftReplacement(current: PlanDocRecord, input: DraftReplaceInput, userId: string): DraftReplaceOutcome {
+  if (current.status && current.status !== 'DRAFT') return { status: 'NOT_READY' };
+  if (current.startInfo != null) return { status: 'NOT_READY' };
+  if (current.version !== input.expectedVersion) return { status: 'CONFLICT' };
+  if (Object.keys(input.aiDraft).length === 0) return { status: 'INVALID' };
+  const subset = Object.entries(input.userEdits).every(
+    ([k, v]) => Object.prototype.hasOwnProperty.call(current.userEdits, k) && canonical(current.userEdits[k]) === canonical(v)
+  );
+  if (!subset) return { status: 'INVALID' };
+  return {
+    status: 'REPLACED',
+    record: {
+      ...current,
+      version: current.version + 1,
+      updatedBy: userId,
+      aiDraft: input.aiDraft,
+      userEdits: input.userEdits,
+      adoption: null,
+      adopted: false,
+      startInfo: null,
+      regulatory: EMPTY_REGULATORY,
+    },
+  };
 }
 
 export function applyStoredPatch(current: PlanDocRecord, patch: PlanPatch, userId: string): StoredResult {
