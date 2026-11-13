@@ -375,3 +375,26 @@ describe('応答テンプレートの指定（間接部門）', () => {
     });
   });
 });
+
+describe('スロット4の診断（本文を含めない）', () => {
+  it('各試行に、KPIの分類・単位、連携構造の有無、各検証条件の合否を記録し、ラベルや本文は含めない', async () => {
+    const diagnostics: any[] = [];
+    const requestSlot = async (template: { slot: number }) =>
+      template.slot === 4
+        ? { project: validProject(4, { keyResults: [keyResult('leading', '秘密の施策名（件）'), keyResult('leading', '別の施策名（件）'), keyResult('leading', '3つ目（件）')] }) }
+        : { project: validProject(template.slot) };
+    await expect(
+      generateSlotProjects({
+        templates: [{ slot: 4 }], requestSlot, plan: reviewWith([]),
+        allowedPartners: PARTNERS, finalStrategy: EVIDENCE, department: '人事部', indirect: true, diagnostics,
+      }),
+    ).rejects.toThrow('slot_4_customer_and_business_outcomes');
+    const first = diagnostics.find((d) => d.slot === 4);
+    expect(first.slot4.indirect).toBe(true);
+    expect(first.slot4.kpis.map((k: any) => k.kind)).toEqual(['leading', 'leading', 'leading']);
+    expect(first.slot4.conditions.customer_and_business_outcomes).toBe(false);
+    expect(first.slot4.conditions.kpi_count).toBe(true);
+    expect(first.slot4.structure.phaseCount).toBe(2);
+    expect(JSON.stringify(diagnostics)).not.toContain('秘密の施策名');
+  });
+});

@@ -3179,7 +3179,7 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
         assignedTheme: theme, previousCandidate: feedback.previousCandidate, previousValidationErrors: feedback.previousValidationErrors, ...(feedback.mainLeverCorrection ? { mainLeverCorrection: feedback.mainLeverCorrection } : {}),
         task: '担当スロット1件だけ生成する。responseTemplate.projectの全項目を具体化しprojectとして返す。他テーマと重複しない。顧客成果と当社採算を区別する。KPIは単一単位・単一測定量。各指標の分類だけでなくラベル・算式・データ源も意味を一致させる。連携売上は同一企業内の部門帰属として扱い、顧客売上を分配する既存契約を創作しない。目標値・能力・実績は創作しない。slot3は有償需要・提供採算・継続可能性の3検証指標。連携構造は本文にも反映する。',
         responseTemplate: { project: { ...template, strategyBasisIds: theme.strategyBasisIds,
-          ...(template.slot === 4 ? { collaborationStructure: { phases: [{ phase: '', owner: '', deliverable: '', handoverTo: '' }], jointDecision: '' } } : {}),
+          ...(template.slot === 4 ? { collaborationStructure: { phases: [{ phase: '', owner: '', deliverable: '', handoverTo: '' }, { phase: '', owner: '', deliverable: '', handoverTo: '' }], jointDecision: '' } } : {}),
           ...(template.slot === 5 ? { partnerDepartment: theme.partnerDepartment, crossBusinessStructure: {
             partnerBusiness: theme.partnerDepartment, ownResponsibility: '', partnerResponsibility: '',
             revenueAttribution: '', responsibilityBoundary: '', unclarifiedItems: [] } } : {}) } },
@@ -3230,7 +3230,7 @@ KPIは各PJ3本。各々に測定方法（母集団・算式やデータ源）�
 未合意の目標数値を作らない。率は分母、改善幅は比較基準を測定方法に書く。外部要因の影響を受ける成果には比較条件も書く。
 strategyBasisIdsにはstrategyReferencesから、このPJの根拠となる文のIDを1〜3個選ぶ。原文を書き写す必要はない。reasonは根拠から当PJを選ぶ理由、hypothesisは施策と成果をつなぐ検証可能な仮説。
 responseTemplateと同じ階層・配列件数で返す。projectsは指定された全スロット、各keyResultsは必ず3要素、humanInvestmentsは2カテゴリ以上。
-slot3は支払意思・有償検証・契約への転換等を含む検証指標を置く。他スロットは当社収益のbusiness_outcomeを1本、発注企業または施設利用者のcustomer_outcomeを1本、先行指標を1本。
+slot3は支払意思・有償検証・契約への転換等を含む検証指標を置く。他スロットは当社収益のbusiness_outcomeを1本、${indirect ? '支援先の事業部門の成果を測るcustomer_outcomeを1本（measurementScopeはinternal_process）' : '発注企業または施設利用者のcustomer_outcomeを1本'}、先行指標を1本。
 KPIのmeasurementScopeを明記し、population（対象母集団）、calculation（算式・集計方法）、dataSource（取得するデータ）、comparison（基準期間・比較条件。不要なら理由）をすべて具体化する。
 「顧客データ分析による」「市場調査データによる」だけでは測定方法にならない。measurementMethodに上記の内容をまとめ、利用者アンケート満足度を当社収益のbusiness_outcomeとして分類しない。
 探索KPIは満足度や来場者数にvalidationと付けるだけでは不可。新たな提供価値と対価の仮説をどう検証するか明確にする。
@@ -3332,6 +3332,7 @@ async function writeCascadeFailureDiagnostic(deptName: string, issues: string[],
         finishReason: clip(a.finishReason), rawMainLever: clip(a.rawMainLever), mainLever: clip(a.mainLever),
         errors: Array.isArray(a.errors) ? a.errors.slice(0, 20).map(clip) : undefined,
         issues: Array.isArray(a.issues) ? a.issues.slice(0, 20).map(clip) : undefined,
+        ...(a.slot4 ? { slot4: a.slot4 } : {}),
       }));
     const filename = path.join(directory, 'latest-failure.json');
     await fs.writeFile(filename, JSON.stringify({ timestamp: new Date().toISOString(), deptName, issues, attempts: safeAttempts }, null, 2), 'utf8');

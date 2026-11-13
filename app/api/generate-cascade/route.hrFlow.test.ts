@@ -38,6 +38,9 @@ const completion = (content: string) => ({ choices: [{ message: { content }, fin
 
 /** 人事部の施策（モデルが返す想定の形）。KPIは間接部門の成果分類（支援先部門の成果）で作る */
 const badSlot2Once: string[] = [];
+const badSlot4PhasesOnce: boolean[] = [];
+let initialDeptName = '人事部';
+let businessSegmentNames = ['営業部'];
 
 function hrSlotProject(slot: number, payload: any) {
   const basis = payload.strategyReferences?.[0]?.id ?? 'S1';
@@ -67,12 +70,12 @@ function hrSlotProject(slot: number, payload: any) {
     },
     keyResults: [
       { label: '全社の業績への寄与（件数）', unit: '件', kind: slot === 3 ? 'validation' : 'business_outcome', measurementScope: 'own_business', population: '全社の対象案件', calculation: '件数の合計', dataSource: '案件記録', comparison: '前年同期', measurementMethod: '件数を月次で集計する', hypothesisLink: '全社の業績への寄与を測る' },
-      { label: '営業部の提案準備時間（時間）', unit: '時間', kind: slot === 3 ? 'validation' : 'customer_outcome', measurementScope: 'internal_process', population: '支援を受ける営業部の対象業務', calculation: '準備時間の平均', dataSource: '業務記録', comparison: '支援前後', measurementMethod: '準備時間を月次で平均する', hypothesisLink: '支援の効果を測る' },
+      { label: '営業部の提案準備時間（時間）', unit: '時間', kind: slot === 3 ? 'validation' : 'customer_outcome', measurementScope: payload.responseTemplate.project.keyResults[1].measurementScope, population: '支援を受ける営業部の対象業務', calculation: '準備時間の平均', dataSource: '業務記録', comparison: '支援前後', measurementMethod: '準備時間を月次で平均する', hypothesisLink: '支援の効果を測る' },
       { label: '研修後の実施件数（件）', unit: '件', kind: 'leading', measurementScope: 'internal_process', population: '対象研修の参加者', calculation: '件数の合計', dataSource: '研修記録', comparison: '研修前', measurementMethod: '件数を月次で集計する', hypothesisLink: '実施の先行指標' },
     ],
     exploration: slot === 3 ? { payer: '事業部門', offering: '研修の仕組み', paymentTest: '試行', decisionRule: '継続率' } : undefined,
     crossBusinessStructure: slot === 5 ? { partnerBusiness: payload.allowedPartners?.[0] ?? '', ownResponsibility: '人材の支援', partnerResponsibility: '事業の実行', revenueAttribution: '自部門の寄与', responsibilityBoundary: '実行は事業部門', unclarifiedItems: [] } : undefined,
-    collaborationStructure: slot === 4 ? { phases: [{ phase: '準備', owner: '人事', deliverable: '研修の設計', handoverTo: '営業' }, { phase: '実行', owner: '営業', deliverable: '実施', handoverTo: '人事' }], jointDecision: '月次で判断する' } : undefined,
+    collaborationStructure: slot === 4 && badSlot4PhasesOnce.length > 0 && badSlot4PhasesOnce.shift() ? { phases: [{ phase: '準備', owner: '人事', deliverable: '研修の設計', handoverTo: '営業' }], jointDecision: '月次で判断する' } : slot === 4 ? { phases: [{ phase: '準備', owner: '人事', deliverable: '研修の設計', handoverTo: '営業' }, { phase: '実行', owner: '営業', deliverable: '実施', handoverTo: '人事' }], jointDecision: '月次で判断する' } : undefined,
   };
 }
 
@@ -102,11 +105,13 @@ function respond(params: any): any {
   // 最初の全社生成：部門の名前と既存の計画だけを返す（部門ごとの詳細は後段の審査で作る）
   return completion(JSON.stringify({
     strategy: { summary: '全社戦略の要約' },
-    departments: [{ name: '人事部', missionDraft: '人材を育てる', currentPosition: '全社の支援機能', strategicRole: '事業部門の実行力を高める', keyIssues: ['提案準備の時間'], alignmentRiskPoints: ['研修件数が目的化するおそれ'], lanes: { existing: { projects: [] }, new: { projects: [] } }, projects: [] }],
+    departments: [{ name: initialDeptName, missionDraft: '人材を育てる', currentPosition: '全社の支援機能', strategicRole: '事業部門の実行力を高める', keyIssues: ['提案準備の時間'], alignmentRiskPoints: ['研修件数が目的化するおそれ'], lanes: { existing: { projects: [] }, new: { projects: [] } }, projects: [] }],
   }));
 }
 
 beforeEach(() => {
+  initialDeptName = '人事部';
+  businessSegmentNames = ['営業部'];
   mockCreate.mockReset();
   mockCreate.mockImplementation(async (params: any) => respond(params));
 });
@@ -115,6 +120,20 @@ function slotCalls(): any[] {
   return mockCreate.mock.calls
     .map((c: any[]) => { try { return JSON.parse(c[0].messages[1].content); } catch { return null; } })
     .filter((p: any) => p && String(p.task ?? '').includes('担当スロット1件だけ生成する'));
+}
+
+function requestFor(): NextRequest {
+  return new NextRequest('http://localhost/api/generate-cascade', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer test' },
+    body: JSON.stringify({
+      industry: '製造業',
+      strategySummary: '人事部の間接部門としての生成の検証',
+      departments: [{ name: initialDeptName, answers: [] }],
+      businessSegments: [{ id: 'seg-a', name: '営業部', pl: [] }],
+      csvFinanceData: {},
+    }),
+  });
 }
 
 function requestFor(): NextRequest {
@@ -193,5 +212,50 @@ describe('人事部（間接部門）の生成を、ルートの経路で通す�
       cwd.mockRestore();
       (process.env as any).NODE_ENV = env;
     }
+  });
+  it('スロット4の連携構造は2件以上のフェーズを示し、検証条件と一致する', async () => {
+    const res = await POST(requestFor());
+    expect(res.status).toBe(200);
+    const slot4 = slotCalls().find((p: any) => p.responseTemplate.project.slot === 4);
+    expect(slot4.responseTemplate.project.collaborationStructure.phases).toHaveLength(2);
+  });
+
+  it('間接部門の指示では、顧客成果を支援先部門の成果として求め、発注企業の顧客成果は求めない', async () => {
+    await POST(requestFor());
+    const systems = mockCreate.mock.calls.map((c: any[]) => String(c[0].messages?.[0]?.content ?? ''));
+    const slotSystems = systems.filter((t) => t.includes('支援先の事業部門の成果を測るcustomer_outcome'));
+    expect(slotSystems.length).toBeGreaterThan(0);
+    expect(systems.some((t) => t.includes('発注企業または施設利用者のcustomer_outcome'))).toBe(false);
+  });
+
+  it('事業部門では従来どおり、発注企業または施設利用者の顧客成果を求め、検証を通る', async () => {
+    initialDeptName = '営業部';
+    businessSegmentNames = ['営業部', '開発部'];
+    const res = await POST(new NextRequest('http://localhost/api/generate-cascade', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer test' },
+      body: JSON.stringify({
+        industry: '製造業',
+        strategySummary: '事業部門の検証',
+        departments: [{ name: '営業部', answers: [] }],
+        businessSegments: [{ id: 'seg-a', name: '営業部', pl: [] }, { id: 'seg-b', name: '開発部', pl: [] }],
+        csvFinanceData: {},
+      }),
+    }));
+    expect(res.status).toBe(200);
+    const systems = mockCreate.mock.calls.map((c: any[]) => String(c[0].messages?.[0]?.content ?? ''));
+    expect(systems.some((t) => t.includes('発注企業または施設利用者のcustomer_outcome'))).toBe(true);
+    expect(systems.some((t) => t.includes('支援先の事業部門の成果を測るcustomer_outcome'))).toBe(false);
+  });
+
+  it('連携フェーズが1件だけのスロット4は、そのスロットだけを1回修復して通る', async () => {
+    badSlot4PhasesOnce.push(true);
+    const res = await POST(requestFor());
+    expect(res.status).toBe(200);
+    const calls = slotCalls();
+    const bySlot = (n: number) => calls.filter((p: any) => p.responseTemplate.project.slot === n);
+    expect(bySlot(4)).toHaveLength(2);
+    for (const n of [1, 2, 3, 5]) expect(bySlot(n)).toHaveLength(1);
+    expect(bySlot(4)[1].previousValidationErrors).toContain('slot_4_collaboration_structure');
   });
 });

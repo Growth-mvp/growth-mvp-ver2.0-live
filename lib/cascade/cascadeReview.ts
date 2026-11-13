@@ -183,6 +183,27 @@ export const MAIN_LEVER_CORRECTION =
 
 const isLeverError = (error: string): boolean => /^slot_\d+_lever$/.test(error);
 
+const SLOT4_CONDITIONS = ['collaboration', 'collaboration_structure', 'kpi_count', 'kpi_kind', 'kpi_definition', 'kpi_operational_definition', 'ambiguous_unit', 'customer_and_business_outcomes', 'no_outcome'] as const;
+
+/** 診断用（スロット4）：KPIの分類と単位、連携構造の有無、各検証条件の合否。本文・ラベルは含めない。 */
+function slot4DiagnosticsOf(candidate: any, errors: string[], indirect: boolean): unknown {
+  const text = (v: unknown): boolean => typeof v === 'string' && v.trim().length > 0;
+  const short = (v: unknown): unknown => (typeof v === 'string' ? v.slice(0, 40) : v ?? null);
+  const krs = Array.isArray(candidate?.keyResults) ? candidate.keyResults : [];
+  const phases = Array.isArray(candidate?.collaborationStructure?.phases) ? candidate.collaborationStructure.phases : [];
+  const failing = new Set(errors);
+  return {
+    indirect,
+    kpis: krs.map((kr: any) => ({ kind: short(kr?.kind), measurementScope: short(kr?.measurementScope), unit: short(kr?.unit) })),
+    structure: {
+      phaseCount: phases.length,
+      phasesComplete: phases.length > 0 && phases.every((ph: any) => ['phase', 'owner', 'deliverable', 'handoverTo'].every((k) => text(ph?.[k]))),
+      jointDecisionPresent: text(candidate?.collaborationStructure?.jointDecision),
+    },
+    conditions: Object.fromEntries(SLOT4_CONDITIONS.map((c) => [c, !failing.has(`slot_4_${c}`)])),
+  };
+}
+
 /** AIが返した mainLever の値（正規化前）。診断用に短く切って記録する。 */
 function rawMainLeverOf(raw: any): unknown {
   const value = raw?.project?.mainLever ?? raw?.projects?.[0]?.mainLever;
@@ -251,6 +272,7 @@ export async function generateSlotProjects(opts: {
       opts.diagnostics?.push({
         phase: 'slot', slot: template.slot, attempt: attempt + 1,
         rawMainLever: rawMainLeverOf(raw), mainLever: candidate?.mainLever ?? null, errors: [...errors],
+        ...(template.slot === 4 ? { slot4: slot4DiagnosticsOf(candidate, errors, opts.indirect === true) } : {}),
       });
       if (!errors.length) break;
     }
