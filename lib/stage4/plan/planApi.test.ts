@@ -465,3 +465,94 @@ describe('採用・開始は、計画書が参照した確定KPIが正式デー�
     expect(written).toBe(false);
   });
 });
+
+describe('実行開始の一連の操作（保存された草案から、API経路で採用・規制の記録・開始）', () => {
+  const PROJ = 'fict-proj-renewal';
+  const k = { companyId: CO, strategyId: ST, projectId: PROJ };
+  const call = (action: string, version: number, extra: Record<string, unknown> = {}) =>
+    req('POST', 'plan-documents/transition', { ...k, action, expectedVersion: version, ...extra });
+
+  /* 規制・安全に関わる言葉を外した計画書（規制の項目が無い案件を再現する） */
+  const bundleWithoutRegulatoryItems = (): Record<string, unknown> =>
+    JSON.parse(JSON.stringify(bundle).replace(/規制|法令|薬機|医療機器|安全|認証|許認可|コンプライアンス/g, '運用'));
+
+  /* 状態を保持する保存先（採用・規制・開始の結果が次の操作に引き継がれる） */
+  function statefulGateway(initial: PlanDocRecord) {
+    let current = initial;
+    const g = gateway({
+      findPlan: async () => ok(current),
+      updatePlan: async (_key, expected, patch) => {
+        if (current.version !== expected) return ok(null);
+        current = {
+          ...current,
+          version: current.version + 1,
+          adoption: patch.adoption !== undefined ? patch.adoption : current.adoption,
+          startInfo: patch.startInfo !== undefined ? patch.startInfo : current.startInfo,
+          regulatory: patch.regulatory !== undefined ? patch.regulatory : current.regulatory,
+          userEdits: patch.userEdits ?? current.userEdits,
+        };
+        return ok(current);
+      },
+    });
+    return { g, state: () => current };
+  }
+  const saved = (aiDraft: Record<string, unknown>, version = 1): PlanDocRecord => ({
+    ...rec(version),
+    key: k,
+    aiDraft,
+    userEdits: { responsible: '佐藤（仮）' },
+  });
+
+  it('規制・安全の項目が無い案件は、対象外を選んで、採用・開始まで進める（判断内容は不要）', async () => {
+    const store = statefulGateway(saved(bundleWithoutRegulatoryItems()));
+    const a = api(store.g);
+    const adopt = await a.transition(call('ADOPT', 1));
+    expect(adopt.status).toBe(200);
+    const record = await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'NOT_APPLICABLE' } }));
+    expect(record.status).toBe(200);
+    expect(store.state().regulatory).toMatchObject({ decision: 'NOT_APPLICABLE', confirmedOn: '2026-11-10' });
+    const start = await a.transition(call('START', 3));
+    expect(start.status).toBe(200);
+    expect(store.state().startInfo).not.toBeNull();
+    expect(store.state().adoption).not.toBeNull();
+  });
+
+  it('規制・安全の項目が無い案件でも、未確認や適用ありを勝手に対象外にはしない', async () => {
+    const store = statefulGateway(saved(bundleWithoutRegulatoryItems()));
+    const a = api(store.g);
+    await a.transition(call('ADOPT', 1));
+    const undecided = await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'UNCONFIRMED' } }));
+    expect(undecided.status).toBe(200);
+    const blocked = await a.transition(call('START', 3));
+    expect(blocked.status).toBe(422);
+    expect((await blocked.json()).blockers.join('\n')).toContain('開始を保留');
+    expect(store.state().startInfo).toBeNull();
+  });
+
+  it('規制・安全の項目がある案件は、対象外だけでは記録できず、開始も止まる（従来どおり）', async () => {
+    const store = statefulGateway(saved(bundle));
+    const a = api(store.g);
+    await a.transition(call('ADOPT', 1));
+    const onlyNa = await a.transition(call('RECORD_REGULATORY', 2, { regulatory: { decision: 'NOT_APPLICABLE' } }));
+    expect(onlyNa.status).toBe(400);
+    const start = await a.transition(call('START', 2));
+    expect(start.status).toBe(422);
+    expect((await start.json()).blockers.join('\n')).toContain('判断内容・判断根拠・確認者・確認日');
+    expect(store.state().startInfo).toBeNull();
+  });
+
+  it('途中で止まっても、採用の状態は残り、規制の記録を済ませれば同じ操作で開始できる', async () => {
+    const store = statefulGateway(saved(bundle));
+    const a = api(store.g);
+    await a.transition(call('ADOPT', 1));
+    expect((await a.transition(call('START', 2))).status).toBe(422);
+    expect(store.state().adoption).not.toBeNull();
+    const recorded = await a.transition(
+      call('RECORD_REGULATORY', 2, {
+        regulatory: { decision: 'NOT_APPLICABLE', judgement: '医療機器に当たらない', basis: '該当性チェック表', confirmer: '法務 山田', confirmedOn: '2026-11-08' },
+      })
+    );
+    expect(recorded.status).toBe(200);
+    expect((await a.transition(call('START', 3))).status).toBe(200);
+  });
+});

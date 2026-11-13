@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import EditableField from './EditableField';
 import type { EditValue } from '@/lib/stage4/planView/documentModel';
@@ -17,6 +18,8 @@ export type StartConfirmationProps = {
   bundle: unknown;
   plan: ProjectPlanState;
   view: PlanView;
+  dirty: boolean;
+  actionNotice: string | null;
   onEdit: (key: string, value: EditValue | undefined) => void;
   onRegulatory: (r: RegulatoryRecord) => void;
   onStart: () => void;
@@ -24,34 +27,54 @@ export type StartConfirmationProps = {
   onBack: () => void;
 };
 
-/* 実行開始の確認。採用とは別の画面で、責任者・規制と安全・主要な実行条件を確かめる。画面内の状態のみ。 */
-export default function StartConfirmation({ plan, view, onEdit, onRegulatory, onStart, onUnstart, onBack }: StartConfirmationProps) {
+/* 実行開始。利用者の操作は「この計画で実行を開始する」の1つ。採用と規制の記録は、その操作の中で行う。 */
+export default function StartConfirmation({
+  plan,
+  view,
+  dirty,
+  actionNotice,
+  onEdit,
+  onRegulatory,
+  onStart,
+  onUnstart,
+  onBack,
+}: StartConfirmationProps) {
   const [editingOwner, setEditingOwner] = useState(false);
-  const { d, gate, responsibleConfirmed, regulatoryTasks, keyTasks } = view;
+  const { d, responsibleConfirmed, regulatoryTasks, keyTasks } = view;
   const resp = (d.sections as unknown as SectionViews)[4].blocks[0].responsible;
   const reg = plan.regulatory;
   const setReg = (patch: Partial<RegulatoryRecord>) => onRegulatory({ ...reg, ...patch });
   const started = plan.started;
+  const required = regulatoryTasks.length > 0;
+  const openItems = keyTasks.filter((t) => !t.done).length;
+
+  const blockers: string[] = [];
+  if (!responsibleConfirmed) blockers.push('①で実行責任者を確定してください');
+  if (!regulatoryComplete(reg, required)) {
+    blockers.push(
+      reg.decision === 'UNCONFIRMED'
+        ? '②で「未確認」以外を選んでください（未確認のままでは開始を保留します）'
+        : required
+          ? '②で判断内容・判断根拠・確認者・確認日を入力してください'
+          : '②で「対象外」にチェックを入れてください',
+    );
+  }
+  if (dirty) blockers.push('修正が未保存です。「草案として保存」を押してから開始してください');
+  if (!d.adoption.adoptable) blockers.push(...d.adoption.blockers);
+  const ready = blockers.length === 0;
 
   return (
     <div className="space-y-4">
       <section className={SECTION_CARD}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-[15px] font-bold text-zinc-900">実行開始前の確認事項</h3>
+          <h3 className="text-[15px] font-bold text-zinc-900">この計画で実行を開始する</h3>
           <button type="button" className="text-[13px] text-zinc-600 underline" onClick={onBack}>
             計画書に戻る
           </button>
         </div>
         <p className="text-[12px] text-zinc-600">
-          採用とは別に、次の条件を確認します。規制・安全は、確認済みのチェックだけでは完了しません。判断内容・確認者・確認日を記録します。
+          開始の操作で、計画案の採用と規制・安全の記録も行います。主要な実行条件は、開始を妨げません。
         </p>
-        <ol className="list-decimal space-y-1 pl-5 text-[13px] text-zinc-700">
-          <li>実行責任者と主要な実行条件を確定し、上の「草案として保存」で保存する</li>
-          <li>計画書を採用する（「計画書に戻る」から行います）</li>
-          <li>規制・安全の判断を記録する（保存済みの内容について行います）</li>
-          <li>実行を開始する</li>
-        </ol>
-        {!plan.adopted && <div className="rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">まだ採用されていません。確定と保存を済ませてから、採用してください。</div>}
         {plan.notice && <div className="rounded-lg bg-amber-50 p-3 text-[12px] text-amber-900">{plan.notice}</div>}
       </section>
 
@@ -91,18 +114,16 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
       </section>
 
       <section className={SECTION_CARD}>
-        <h4 className="text-[14px] font-bold text-zinc-900">② 法令・規制・安全の確認（必要か、適用なしか）</h4>
-        <div className="space-y-3">
-          {regulatoryTasks.length === 0 ? (
-            <p className="text-[13px] text-zinc-700">計画書に規制・安全に関わる項目は見当たりません。該当するかを判断し、記録してください。</p>
-          ) : (
+        <h4 className="text-[14px] font-bold text-zinc-900">② 法令・規制・安全の確認</h4>
+        {required ? (
+          <div className="space-y-3">
+            <p className="text-[13px] text-zinc-700">計画書に規制・安全に関わる確認事項があります。判断と根拠を記録してください。</p>
             <ul className="list-disc pl-5 text-[13px] text-zinc-800">
               {regulatoryTasks.map((t) => (
                 <li key={t.id}>{t.title}</li>
               ))}
             </ul>
-          )}
-          <fieldset className="space-y-2">
+            <fieldset className="space-y-2">
               <legend className="text-[13px] font-semibold text-zinc-800">適用の判断</legend>
               {DECISIONS.map((dec) => (
                 <label key={dec} className="flex items-center gap-2 text-[13px]">
@@ -135,72 +156,60 @@ export default function StartConfirmation({ plan, view, onEdit, onRegulatory, on
               <span className="font-semibold text-zinc-800">判断根拠（何を根拠に判断したか）</span>
               <textarea value={reg.basis} onChange={(e) => setReg({ basis: e.target.value })} rows={2} className={INPUT} />
             </label>
-            <div className={`text-[12px] ${regulatoryComplete(reg) ? 'text-emerald-700' : 'text-amber-800'}`}>
-              {regulatoryComplete(reg)
-                ? '規制・安全の記録が揃っています。'
-                : '判断内容・判断根拠・確認者・確認日を記録すると、この項目は完了します。「未確認」の場合は開始を保留します。'}
-            </div>
-        </div>
-      </section>
-
-      <section className={SECTION_CARD}>
-        <h4 className="text-[14px] font-bold text-zinc-900">③ 主要な実行条件</h4>
-        {keyTasks.length === 0 ? (
-          <div className="text-[13px] text-zinc-700">確認すべき主要な実行条件はありません。</div>
+          </div>
         ) : (
-          <ul className="space-y-2">
-            {keyTasks.map((t) => (
-              <li key={t.id}>
-                <label className="flex items-start gap-2 text-[13px] text-zinc-800">
-                  <input type="checkbox" className="mt-1 h-4 w-4 shrink-0" checked={t.done} onChange={(e) => onEdit(`task:${t.id}`, e.target.checked)} />
-                  <span>{t.title}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
+          <label className="flex items-start gap-2 text-[13px] text-zinc-800">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 shrink-0"
+              checked={reg.decision === 'NOT_APPLICABLE'}
+              onChange={(e) => setReg({ decision: e.target.checked ? 'NOT_APPLICABLE' : null })}
+            />
+            <span>規制・安全に関わる確認事項はありません（対象外として記録する）</span>
+          </label>
         )}
       </section>
 
-      <section className={SECTION_CARD}>
-        <h4 className="text-[14px] font-bold text-zinc-900">確認の状況</h4>
-        <ul className="space-y-1 text-[13px]">
-          {d.start.handover.map((h) => (
-            <li key={h.label} className={h.ok ? 'text-emerald-700' : 'text-zinc-600'}>
-              {h.ok ? '✔' : '□'} {h.label}
-            </li>
-          ))}
-        </ul>
-        <div className="rounded-lg bg-zinc-50 p-3 text-[12px] text-zinc-600">
-          実行開始は採用とは別に記録されます。この画面からSTAGE5へは引き継ぎません。
-        </div>
-      </section>
+      {openItems > 0 && !started && (
+        <section className={SECTION_CARD}>
+          <p className="text-[13px] text-zinc-700">
+            計画書に確認事項が {openItems} 件残っています。開始は妨げません。開始後に計画書で確認してください。
+          </p>
+        </section>
+      )}
 
       <section className={SECTION_CARD}>
-        <div className="flex flex-wrap items-center gap-3">
-          {started && gate.startable ? (
-            <span className="text-[13px] font-semibold text-emerald-700">
-              実行開始済み
-              <button type="button" className="ml-3 text-[12px] font-normal text-zinc-600 underline" onClick={onUnstart}>
+        {started ? (
+          <div className="space-y-2">
+            <div className="text-[14px] font-semibold text-emerald-700">実行中（開始済み）</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link href="/execution" className={BUTTON_PRIMARY}>
+                STAGE5で進捗を確認する
+              </Link>
+              <button type="button" className="text-[12px] text-zinc-600 underline" onClick={onUnstart}>
                 開始を取り消す
               </button>
-            </span>
-          ) : (
-            <button type="button" className={BUTTON_PRIMARY} disabled={!gate.startable} onClick={onStart}>
-              実行を開始する
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <button type="button" className={BUTTON_PRIMARY} disabled={!ready} onClick={onStart}>
+              この計画で実行を開始する
             </button>
-          )}
-        </div>
+            {!ready && (
+              <ul className="list-disc pl-5 text-[12px] text-amber-800">
+                {blockers.map((b) => (
+                  <li key={b}>{b}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {actionNotice && !started && <div className="rounded-lg bg-amber-50 p-3 text-[12px] text-amber-900">{actionNotice}</div>}
         {plan.holdNotice && !started && (
           <div className="rounded-lg bg-amber-50 p-3 text-[12px] text-amber-900">
             実行開始を保留しました。条件が欠けたため、開始の状態を解除しています。条件がそろったら、改めて開始してください。
           </div>
-        )}
-        {!gate.startable && gate.blockers.length > 0 && (
-          <ul className="list-disc pl-5 text-[12px] text-amber-800">
-            {gate.blockers.map((b) => (
-              <li key={b}>{b}</li>
-            ))}
-          </ul>
         )}
       </section>
     </div>

@@ -13,7 +13,7 @@ import {
   setCommittedValue,
   setDraftValue,
   setRegulatory,
-  start,
+  startWithAdoption,
   unadopt,
   unstart,
   type ProjectPlanState,
@@ -119,9 +119,11 @@ export default function DevPlanDocument() {
           bundle={sample.bundle}
           plan={plan}
           view={pv}
+          dirty={false}
+          actionNotice={null}
           onEdit={(key, value) => update((p) => setCommittedValue(p, key, value))}
           onRegulatory={(r) => update((p) => setRegulatory(p, r))}
-          onStart={() => update((p) => start(p, pv.gate.startable))}
+          onStart={() => update((p) => startWithAdoption(p, sample.bundle))}
           onUnstart={() => update(unstart)}
           onBack={() => setView('document')}
         />

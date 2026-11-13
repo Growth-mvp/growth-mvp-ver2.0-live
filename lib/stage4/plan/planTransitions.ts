@@ -17,7 +17,14 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_TEXT = 500;
 
 /* 規制・安全の判断の入力を検査する。「確認済み」だけでは通さない：判断・根拠・確認者・確認日が要る */
-export function validateRegulatory(input: unknown): { ok: true; value: RegulatoryRecord } | { ok: false; message: string } {
+export type RegulatoryRule = { required: boolean; today: string };
+
+/* required=false（規制・安全の項目が無い案件）で「適用なし」の時だけ、判断内容・根拠・確認者は要らない。確認日は今日の日付で記録する。
+ * 「未確認」や「適用あり」は、項目が無くても従来どおり理由と確認者を要する（勝手に適用なしにしない） */
+export function validateRegulatory(
+  input: unknown,
+  rule: RegulatoryRule = { required: true, today: '' }
+): { ok: true; value: RegulatoryRecord } | { ok: false; message: string } {
   if (typeof input !== 'object' || input === null) return { ok: false, message: '規制・安全の判断を入力してください' };
   const r = input as Record<string, unknown>;
   const text = (k: string) => (typeof r[k] === 'string' ? (r[k] as string).trim() : '');
@@ -34,6 +41,11 @@ export function validateRegulatory(input: unknown): { ok: true; value: Regulator
   };
   if (value.judgement.length > MAX_TEXT || value.basis.length > MAX_TEXT || value.confirmer.length > 100) {
     return { ok: false, message: '入力が長すぎます' };
+  }
+  const relaxed = !rule.required && decision === 'NOT_APPLICABLE';
+  if (relaxed) {
+    if (!DATE.test(value.confirmedOn)) value.confirmedOn = rule.today;
+    return { ok: true, value };
   }
   if (decision !== 'UNCONFIRMED') {
     if (!value.judgement) return { ok: false, message: '判断の内容を書いてください' };
@@ -149,6 +161,8 @@ export async function transitionPlan(
     started: record.startInfo != null,
     regulatory: record.regulatory ?? EMPTY_REGULATORY,
   };
+  const required = computePlanView(record.aiDraft, state).regulatoryTasks.length > 0;
+  const today = args.now.slice(0, 10);
 
   type Patch = Parameters<ServiceContext['gateway']['updatePlan']>[2];
   let patch: Patch;
@@ -171,7 +185,7 @@ export async function transitionPlan(
       break;
     }
     case 'RECORD_REGULATORY': {
-      const v = validateRegulatory(args.regulatory);
+      const v = validateRegulatory(args.regulatory, { required, today });
       if (!v.ok) return { status: 'INVALID', message: v.message };
       patch = { regulatory: v.value, startInfo: null };
       break;
@@ -184,8 +198,15 @@ export async function transitionPlan(
       if (kpi.blockers.length > 0) return { status: 'BLOCKED', blockers: kpi.blockers };
       const gate = computePlanView(record.aiDraft, state).gate;
       if (!gate.startable) return { status: 'BLOCKED', blockers: gate.blockers };
-      if (!regulatoryComplete(record.regulatory ?? EMPTY_REGULATORY)) {
-        return { status: 'BLOCKED', blockers: ['規制・安全の判断（該当性・根拠・確認者・確認日）を記録してください'] };
+      if (!regulatoryComplete(record.regulatory ?? EMPTY_REGULATORY, required)) {
+        return {
+          status: 'BLOCKED',
+          blockers: [
+            required
+              ? '規制・安全の判断（該当性・根拠・確認者・確認日）を記録してください'
+              : '規制・安全の確認（対象外かどうか）を選んでください',
+          ],
+        };
       }
       patch = { startInfo: { version: expectedVersion, byUserId: ctx.userId, at: args.now } };
       break;

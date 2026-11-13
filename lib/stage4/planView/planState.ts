@@ -76,6 +76,12 @@ export function start(s: ProjectPlanState, startable: boolean): ProjectPlanState
   return { ...s, started: true, holdNotice: false };
 }
 
+/* 開始（ローカル）：採用できれば採用し、条件がそろえば開始する（サーバーと同じ順序） */
+export function startWithAdoption(s: ProjectPlanState, bundle: unknown): ProjectPlanState {
+  const adoptedState = s.adopted ? s : adopt(s, computePlanView(bundle, s).d.adoption.adoptable);
+  return start(adoptedState, computePlanView(bundle, adoptedState).gate.startable);
+}
+
 export function unstart(s: ProjectPlanState): ProjectPlanState {
   return { ...s, started: false };
 }
@@ -103,7 +109,6 @@ export function computePlanView(bundle: unknown, s: ProjectPlanState) {
     responsibleConfirmed,
     hasRegulatoryItems: regulatoryTasks.length > 0,
     regulatory: s.regulatory,
-    keyConditionsOpen: keyTasks.filter((t) => !t.done).length,
   });
   return { d, responsibleConfirmed, regulatoryTasks, keyTasks, gate };
 }

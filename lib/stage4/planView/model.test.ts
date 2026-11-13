@@ -43,7 +43,6 @@ describe('実行開始の条件', () => {
     responsibleConfirmed: true,
     hasRegulatoryItems: true,
     regulatory: complete,
-    keyConditionsOpen: 0,
   };
 
   it('すべて揃えば開始できる', () => {
@@ -74,10 +73,24 @@ describe('実行開始の条件', () => {
     expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: complete }).startable).toBe(true);
   });
 
-  it('主要な実行条件が残っていれば、件数を示して開始できない', () => {
-    const r = startGate({ ...base, keyConditionsOpen: 2 });
-    expect(r.startable).toBe(false);
-    expect(r.blockers).toContain('主要な実行条件の確認が 2 件残っています');
+  it('主要な実行条件が残っていても、開始は妨げない（開始後も計画書で確認する）', () => {
+    expect(startGate(base).startable).toBe(true);
+  });
+
+  it('規制・安全の項目が無い案件は、「対象外」を選べば足りる（判断内容・確認者は要らない）', () => {
+    const notApplicable = { ...EMPTY_REGULATORY, decision: 'NOT_APPLICABLE' as const };
+    expect(regulatoryComplete(notApplicable, false)).toBe(true);
+    expect(startGate({ ...base, hasRegulatoryItems: false, regulatory: notApplicable }).startable).toBe(true);
+  });
+
+  it('規制・安全の項目が無くても、「適用あり」や「未確認」では開始できない', () => {
+    expect(regulatoryComplete({ ...EMPTY_REGULATORY, decision: 'APPLICABLE_PROCEDURE_CONFIRMED' }, false)).toBe(false);
+    expect(regulatoryComplete({ ...EMPTY_REGULATORY, decision: 'UNCONFIRMED' }, false)).toBe(false);
+  });
+
+  it('規制・安全の項目がある案件は、「対象外」だけでは開始できない（従来どおりの記録が要る）', () => {
+    const notApplicable = { ...EMPTY_REGULATORY, decision: 'NOT_APPLICABLE' as const };
+    expect(regulatoryComplete(notApplicable, true)).toBe(false);
   });
 });
 

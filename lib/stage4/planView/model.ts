@@ -22,8 +22,10 @@ export const REGULATORY_DECISION_LABEL: Record<RegulatoryDecision, string> = {
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-/** 規制の記録が、開始の判断に使える程度に揃っているか。「未確認」は揃っていても開始を保留する */
-export function regulatoryComplete(r: RegulatoryRecord): boolean {
+/** 規制の記録が、開始の判断に使える程度に揃っているか。「未確認」は揃っていても開始を保留する。
+ * 規制・安全の項目が無い案件（required=false）は、利用者が「対象外（適用なし）」を選べば足りる。AIの推測では満たさない */
+export function regulatoryComplete(r: RegulatoryRecord, required = true): boolean {
+  if (!required) return r.decision === 'NOT_APPLICABLE';
   return (
     r.decision !== null &&
     r.decision !== 'UNCONFIRMED' &&
@@ -39,22 +41,24 @@ export type StartInput = {
   responsibleConfirmed: boolean;
   hasRegulatoryItems: boolean;
   regulatory: RegulatoryRecord;
-  keyConditionsOpen: number;
 };
 
-/** 実行開始の条件。ひとつでも欠けていれば、理由を並べて開始を保留する */
+export const ADOPT_FIRST_BLOCKER = '先に計画案を採用してください';
+
+/* 実行開始の条件。開始を妨げるのは、責任者と規制・安全の記録だけ。主要な実行条件は開始後も計画書で確認する */
 export function startGate(input: StartInput): { startable: boolean; blockers: string[] } {
   const blockers: string[] = [];
-  if (!input.adopted) blockers.push('先に計画案を採用してください');
+  if (!input.adopted) blockers.push(ADOPT_FIRST_BLOCKER);
   if (!input.responsibleConfirmed) blockers.push('実行責任者を確定してください');
-  if (!regulatoryComplete(input.regulatory)) {
+  if (!regulatoryComplete(input.regulatory, input.hasRegulatoryItems)) {
     blockers.push(
       input.regulatory.decision === 'UNCONFIRMED'
         ? '規制・安全は「未確認」のため、開始を保留しています'
-        : '規制・安全の確認（判断内容・判断根拠・確認者・確認日）を記録してください'
+        : input.hasRegulatoryItems
+          ? '規制・安全の確認（判断内容・判断根拠・確認者・確認日）を記録してください'
+          : '規制・安全の確認（対象外かどうか）を選んでください'
     );
   }
-  if (input.keyConditionsOpen > 0) blockers.push(`主要な実行条件の確認が ${input.keyConditionsOpen} 件残っています`);
   return { startable: blockers.length === 0, blockers };
 }
 

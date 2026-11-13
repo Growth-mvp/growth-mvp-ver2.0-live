@@ -30,7 +30,7 @@ import {
   setCommittedValue,
   setDraftValue,
   setRegulatory,
-  start,
+  startWithAdoption,
   unadopt,
   unstart,
   type ProjectPlanState,
@@ -334,24 +334,57 @@ function Stage3ProjectBrowser({
     return failWith(targetId, '草案を作れませんでした。もう一度お試しください。');
   };
 
-  /* 採用・規制の記録・開始・取り消し（API）：保存されていない修正があれば、先に保存してもらう */
-  const transitionRemote = async (sel: Stage3Selection, action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => {
+  /* 採用・規制の記録・開始・取り消し（API）：保存されていない修正があれば、先に保存してもらう。成功したら、新しい版番号を返す */
+  const runTransition = async (
+    sel: Stage3Selection,
+    version: number,
+    action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART',
+    regulatory?: unknown
+  ): Promise<{ ok: true; version: number } | { ok: false }> => {
     const id = selectionKey(sel);
     const entry = entries[id];
     const key = keyOf(sel);
-    if (!ops || !entry || !key || !entry.stored) return;
+    if (!ops || !entry || !key || !entry.stored) return { ok: false };
     const note = (message: string) => updateEntry(id, (e) => ({ ...e, notice: message }));
     if (isDirty(entry) && (action === 'ADOPT' || action === 'START' || action === 'RECORD_REGULATORY')) {
-      return note('修正を草案として保存してから、操作してください。');
+      note('修正を草案として保存してから、操作してください。');
+      return { ok: false };
     }
-    const out = await ops.transition(key, entry.stored.version, action, regulatory);
-    if (out.status === 'OK') return setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record) } : p));
+    const out = await ops.transition(key, version, action, regulatory);
+    if (out.status === 'OK') {
+      setEntries((p) => (p[id] ? { ...p, [id]: entryAfterTransition(p[id], out.record) } : p));
+      return { ok: true, version: out.record.version };
+    }
     if (out.status === 'CONFLICT') {
-      return setEntries((p) => (p[id] ? { ...p, [id]: { ...entryFromRecord(out.current), notice: '他の人が先に変更しました。最新の内容を表示しています。' } } : p));
+      setEntries((p) => (p[id] ? { ...p, [id]: { ...entryFromRecord(out.current), notice: '他の人が先に変更しました。最新の内容を表示しています。' } } : p));
+      return { ok: false };
     }
-    if (out.status === 'BLOCKED') return note(`まだ実行できません：${out.blockers.join('、')}`);
-    if (out.status === 'INVALID') return note(out.message);
-    return note('操作を記録できませんでした。画面を読み直してから、もう一度お試しください。');
+    if (out.status === 'BLOCKED') note(`まだ実行できません：${out.blockers.join('、')}`);
+    else if (out.status === 'INVALID') note(out.message);
+    else note('操作を記録できませんでした。画面を読み直してから、もう一度お試しください。');
+    return { ok: false };
+  };
+
+  const transitionRemote = (sel: Stage3Selection, action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => {
+    const entry = entries[selectionKey(sel)];
+    if (!entry?.stored) return;
+    return runTransition(sel, entry.stored.version, action, regulatory).then(() => undefined);
+  };
+
+  /* 「この計画で実行を開始する」：採用 → 規制・安全の記録 → 開始、の順に行う。途中で止まったら、そこまでの状態が残り、
+   * 理由を表示する。同じ操作を押し直せば、残りだけを行う（採用済みなら採用は行わない）。 */
+  const startPlanRemote = async (sel: Stage3Selection) => {
+    const entry = entries[selectionKey(sel)];
+    if (!entry?.stored) return;
+    let version = entry.stored.version;
+    if (!entry.stored.adopted) {
+      const adopted = await runTransition(sel, version, 'ADOPT');
+      if (!adopted.ok) return;
+      version = adopted.version;
+    }
+    const recorded = await runTransition(sel, version, 'RECORD_REGULATORY', entry.plan.regulatory);
+    if (!recorded.ok) return;
+    await runTransition(sel, recorded.version, 'START');
   };
 
   const createPlan = (sel: Stage3Selection) => {
@@ -609,6 +642,7 @@ function Stage3ProjectBrowser({
             onRegenCancel={() => id && regenCancel(id)}
             remote={ops !== null}
             onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
+            onStartPlan={() => sel && startPlanRemote(sel)}
             version={entry?.stored && entry.save.status !== 'CONFLICT' ? entry.stored.version : null}
           />
         )}
@@ -645,6 +679,7 @@ function ReadOnlyProject({
   version,
   remote,
   onTransition,
+  onStartPlan,
   impactEstimate,
   financeSection,
   regen,
@@ -670,6 +705,7 @@ function ReadOnlyProject({
   version: number | null;
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
+  onStartPlan: () => void;
   impactEstimate: ImpactEstimate | null;
   financeSection: ReactNode;
   regen: RegenState | undefined;
@@ -826,9 +862,11 @@ function ReadOnlyProject({
               bundle={entry.aiDraft}
               plan={entry.plan}
               view={planView}
+              dirty={isDirty(entry)}
+              actionNotice={entry.notice}
               onEdit={(key, value) => onPlan((p) => setCommittedValue(p, key, value))}
               onRegulatory={(r) => onPlan((p) => setRegulatory(p, r))}
-              onStart={() => (remote ? onTransition('START') : onPlan((p) => start(p, planView.gate.startable)))}
+              onStart={() => (remote ? onStartPlan() : onPlan((p) => startWithAdoption(p, entry.aiDraft)))}
               onUnstart={() => (remote ? onTransition('UNSTART') : onPlan(unstart))}
               onBack={() => onView('document')}
             />
@@ -872,11 +910,6 @@ function ReadOnlyProject({
               />
               {entry.plan.started && !planView.gate.startable && <Reconcile onPlan={onPlan} />}
             </>
-          )}
-          {remote && entry.view === 'start' && (
-            <button type="button" className="plan-btn-primary" onClick={() => onTransition('RECORD_REGULATORY', entry.plan.regulatory)}>
-              規制・安全の判断を記録する
-            </button>
           )}
           {entry.notice && <p role="status" className="plan-note">{entry.notice}</p>}
           {remote && entry.server && <ServerRecords server={entry.server} />}
