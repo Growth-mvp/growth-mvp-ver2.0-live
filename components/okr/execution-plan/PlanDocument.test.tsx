@@ -50,6 +50,18 @@ function props(over: Partial<PlanDocumentProps> = {}): PlanDocumentProps {
 }
 
 describe('PlanDocument（直接編集の文書）', () => {
+  it('実施事項の主な内容・担当・成果物・実行責任者も、文書上で直接編集できる', () => {
+    const p = props();
+    render(<PlanDocument {...p} />);
+    fireEvent.click(screen.getByRole('button', { name: '実施事項1の主な内容を修正する' }));
+    fireEvent.change(screen.getByLabelText('実施事項1の主な内容'), { target: { value: '新しい主な内容' } });
+    expect(p.onDirectChange).toHaveBeenLastCalledWith('action:1:content', '新しい主な内容');
+    fireEvent.click(screen.getByRole('button', { name: '実施事項1の担当を修正する' }));
+    fireEvent.change(screen.getByLabelText('実施事項1の担当'), { target: { value: '営業部長（仮）' } });
+    expect(p.onDirectChange).toHaveBeenLastCalledWith('action:1:owner', '営業部長（仮）');
+    expect(screen.getByRole('button', { name: '実行責任者を修正する' })).toBeTruthy();
+  });
+
   it('文章をクリックすると、そのまま修正として書かれ、修正の反映の操作は出ない', () => {
     const p = props();
     render(<PlanDocument {...p} />);

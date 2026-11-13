@@ -23,6 +23,7 @@ export type DocKpi = {
   /** 編集可能なキー（確定KPIは空。STAGE3で変更する） */
   targetKey: string | null;
   dueKey: string | null;
+  ownerKey: string | null;
 };
 
 export type DocAction = {
@@ -30,15 +31,20 @@ export type DocAction = {
   title: string;
   titleKey: string;
   content: string;
+  contentKey: string;
   due: string;
   dueKey: string;
   owner: string;
+  ownerKey: string;
   /** 成果物。旧い草案には無いので null（その場合は「記載なし」と表示する） */
   deliverable: string | null;
+  deliverableKey: string;
   /** 次の工程へ進む判断条件。無ければ null */
   exitCondition: string | null;
+  exitKey: string;
   /** 収益化の段階の表示名。無ければ null */
   stage: string | null;
+  stageKey: string;
 };
 
 
@@ -60,14 +66,14 @@ export type DocModel = {
   };
   actions: DocAction[];
   organization: {
-    roles: Array<{ unit: string; role: string }>;
+    roles: Array<{ unit: string; unitKey: string; role: string; roleKey: string }>;
     beforeStart: string[];
     schedule: Array<{ when: string; what: string }>;
   };
   impact: {
     companyResult: { text: string; key: string };
     financeLines: Array<{ label: string; status: 'CONFIRMED' | 'AI_ESTIMATE' | 'NOT_CALCULATED'; text: string }>;
-    risks: Array<{ risk: string; countermeasure: string; countermeasureKey: string; by: string }>;
+    risks: Array<{ risk: string; riskKey: string; countermeasure: string; countermeasureKey: string; by: string; byKey: string }>;
     regulatory: string[];
   };
   supplement: {
@@ -131,6 +137,7 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       statusLabel: k.confirmed ? KPI_STATE_LABEL.confirmed : KPI_STATE_LABEL.unconfirmed,
       targetKey: null,
       dueKey: null,
+      ownerKey: null,
     })),
     ...kpiBlock.proposed.map((k: ProposedKpiView) => ({
       label: k.label,
@@ -141,6 +148,7 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       statusLabel: KPI_STATE_LABEL.proposed,
       targetKey: k.target.key,
       dueKey: k.due.key,
+      ownerKey: k.owner.key,
     })),
   ];
 
@@ -148,13 +156,18 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
     no: a.order,
     title: a.title.value ?? '（記載なし）',
     titleKey: a.title.key,
-    content: a.stateChange,
+    content: a.stateChange ?? '',
+    contentKey: `action:${a.order}:content`,
     due: ymJa(a.due.value),
     dueKey: a.due.key,
-    owner: a.ownerRole,
+    owner: a.ownerRole ?? '',
+    ownerKey: `action:${a.order}:owner`,
     deliverable: a.deliverable ?? null,
+    deliverableKey: `action:${a.order}:deliverable`,
     exitCondition: a.exitCondition ?? null,
+    exitKey: `action:${a.order}:exit`,
     stage: a.stage ?? null,
+    stageKey: `action:${a.order}:stage`,
   }));
 
   const regulatoryTitles = tasks.filter((t) => isRegulatoryTask(t)).map((t) => t.title);
@@ -162,11 +175,13 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
     .filter((t) => t.gate === 'START' && t.id !== 'owner' && !isRegulatoryTask(t))
     .map((t) => t.title);
 
-  const risks: DocModel['impact']['risks'] = people.risks.map((r: RiskView) => ({
+  const risks: DocModel['impact']['risks'] = (people.risks as any[]).map((r: any) => ({
     risk: r.risk,
+    riskKey: r.riskKey,
     countermeasure: r.countermeasure.value ?? '',
     countermeasureKey: r.countermeasure.key,
     by: ymJa(r.confirmBy),
+    byKey: r.confirmByKey,
   }));
 
   const evidence = [
@@ -206,7 +221,7 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
     },
     actions: actionRows,
     organization: {
-      roles: people.roles.map((r) => ({ unit: r.unit, role: r.role })),
+      roles: (people.roles as any[]).map((r: any) => ({ unit: r.unit, unitKey: r.unitKey, role: r.role, roleKey: r.roleKey })),
       beforeStart,
       schedule: actionRows.map((a) => ({ when: a.due, what: a.title })),
     },

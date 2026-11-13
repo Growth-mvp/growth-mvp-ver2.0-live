@@ -168,7 +168,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
               <tr>
                 <th>実行責任者</th>
                 <td colSpan={3}>
-                  {mode === 'edit' && !directEdit ? (
+                  {mode === 'edit' ? (
                     <EditableBlock
                       {...editable('responsible', '実行責任者', doc.responsible.raw)}
                       multiline={false}
@@ -236,7 +236,13 @@ export default function PlanDocument(props: PlanDocumentProps) {
                       k.due
                     )}
                   </td>
-                  <td>{k.owner}</td>
+                  <td>
+                    {k.ownerKey && mode === 'edit' ? (
+                      <EditableBlock {...editable(k.ownerKey, `${k.label}の担当`, k.owner === '未定' ? '' : k.owner)} multiline={false} className="plan-inline" />
+                    ) : (
+                      k.owner
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -267,17 +273,45 @@ export default function PlanDocument(props: PlanDocumentProps) {
                     ) : (
                       <strong>{a.title}</strong>
                     )}
-                    <div className="plan-owner">{a.owner}</div>
+                    {mode === 'edit' ? (
+                      <EditableBlock {...editable(a.ownerKey, `実施事項${a.no}の担当`, a.owner)} multiline={false} className="plan-owner" />
+                    ) : (
+                      <div className="plan-owner">{a.owner}</div>
+                    )}
                     <dl className="plan-action-fields">
                       <dt>成果物</dt>
-                      <dd>{a.deliverable ?? '記載なし（この草案には成果物の記載がありません）'}</dd>
+                      {mode === 'edit' ? (
+                        <dd>
+                          <EditableBlock {...editable(a.deliverableKey, `実施事項${a.no}の成果物`, a.deliverable ?? '')} />
+                        </dd>
+                      ) : (
+                        <dd>{a.deliverable ?? '記載なし（この草案には成果物の記載がありません）'}</dd>
+                      )}
                       <dt>次に進める条件</dt>
-                      <dd>{a.exitCondition ?? '記載なし（この草案には判断条件の記載がありません）'}</dd>
+                      {mode === 'edit' ? (
+                        <dd>
+                          <EditableBlock {...editable(a.exitKey, `実施事項${a.no}の次に進める条件`, a.exitCondition ?? '')} />
+                        </dd>
+                      ) : (
+                        <dd>{a.exitCondition ?? '記載なし（この草案には判断条件の記載がありません）'}</dd>
+                      )}
                       <dt>収益化の段階</dt>
-                      <dd>{a.stage ?? '記載なし'}</dd>
+                      {mode === 'edit' ? (
+                        <dd>
+                          <EditableBlock {...editable(a.stageKey, `実施事項${a.no}の収益化の段階`, a.stage ?? '')} multiline={false} />
+                        </dd>
+                      ) : (
+                        <dd>{a.stage ?? '記載なし'}</dd>
+                      )}
                     </dl>
                   </td>
-                  <td>{a.content}</td>
+                  {mode === 'edit' ? (
+                    <td>
+                      <EditableBlock {...editable(a.contentKey, `実施事項${a.no}の主な内容`, a.content)} />
+                    </td>
+                  ) : (
+                    <td>{a.content}</td>
+                  )}
                   <td className="plan-col-due">
                     <EditableMonth label={`実施事項${a.no}の期限`} value={a.due} mode={mode} onChange={(v) => setEdit(a.dueKey, v)} />
                   </td>
@@ -295,7 +329,17 @@ export default function PlanDocument(props: PlanDocumentProps) {
           <ul className="plan-list">
             {doc.organization.roles.map((r, i) => (
               <li key={`${r.unit}-${i}`}>
-                <strong>{r.unit}</strong>：{r.role}
+                {mode === 'edit' ? (
+                  <>
+                    <EditableBlock {...editable(r.unitKey, `協力部門${i + 1}`, r.unit)} multiline={false} className="plan-inline plan-strong" />
+                    ：
+                    <EditableBlock {...editable(r.roleKey, `${r.unit}の役割`, r.role)} multiline={false} className="plan-inline" />
+                  </>
+                ) : (
+                  <>
+                    <strong>{r.unit}</strong>：{r.role}
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -361,7 +405,13 @@ export default function PlanDocument(props: PlanDocumentProps) {
             <tbody>
               {doc.impact.risks.map((r, i) => (
                 <tr key={`risk-${i}`}>
-                  <td>{r.risk}</td>
+                  {mode === 'edit' ? (
+                    <td>
+                      <EditableBlock {...editable(r.riskKey, `リスク${i + 1}の内容`, r.risk)} />
+                    </td>
+                  ) : (
+                    <td>{r.risk}</td>
+                  )}
                   <td>
                     {mode === 'edit' ? (
                       <EditableBlock {...editable(r.countermeasureKey, `リスク${i + 1}の対策`, r.countermeasure)} className="plan-inline" />
@@ -369,7 +419,13 @@ export default function PlanDocument(props: PlanDocumentProps) {
                       r.countermeasure
                     )}
                   </td>
-                  <td>{r.by}</td>
+                  <td>
+                    {mode === 'edit' ? (
+                      <EditableMonth label={`リスク${i + 1}の確認時期`} value={r.by} mode={mode} onChange={(v) => setEdit(r.byKey, v)} />
+                    ) : (
+                      r.by
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

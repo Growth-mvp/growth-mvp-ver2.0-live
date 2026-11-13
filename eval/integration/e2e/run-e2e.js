@@ -11,6 +11,10 @@ const outDir = path.join(__dirname, '.results');
 const RENEWAL = '既存顧客の保守契約更新';
 const REASON = 'E2Eで直した取り組む理由（実ブラウザ）';
 const RESPONSIBLE = '佐藤（仮）';
+const ACTION_CONTENT = 'E2Eで直した主な内容（実施事項1）';
+const ACTION_TITLE = 'E2Eで直した実施事項の名称';
+const ACTION_OWNER = 'E2Eの担当（営業部長・仮）';
+const ACTION_DUE = '2027-06';
 
 const results = [];
 const errors = [];
@@ -122,8 +126,35 @@ async function waitServer() {
     return '本文・発生頻度が残る';
   });
 
+  await check('3 実施事項の名称・主な内容・担当・期限を直接編集し、保存して再読み込みしても残る', async () => {
+    await page.getByRole('button', { name: '実施事項1の主な内容を修正する' }).click();
+    await page.getByLabel('実施事項1の主な内容', { exact: true }).fill(ACTION_CONTENT);
+    await page.getByRole('button', { name: '実施事項1を修正する' }).click();
+    await page.getByLabel('実施事項1', { exact: true }).fill(ACTION_TITLE);
+    await page.getByRole('button', { name: '実施事項1の担当を修正する' }).click();
+    await page.getByLabel('実施事項1の担当', { exact: true }).fill(ACTION_OWNER);
+    await page.getByRole('button', { name: '実施事項1の期限を修正する' }).click();
+    await page.getByLabel('実施事項1の期限', { exact: true }).fill(ACTION_DUE);
+    await shot('3-action-edited');
+    await page.getByRole('button', { name: '計画を保存' }).click();
+    await page.getByRole('status').filter({ hasText: '保存済み' }).first().waitFor({ timeout: 30000 });
+    const edits = (await state()).plans[0].user_edits;
+    expect(Object.values(edits).includes(ACTION_CONTENT), '主な内容が保存先に無い');
+    expect(Object.values(edits).includes(ACTION_TITLE), '名称が保存先に無い');
+    expect(Object.values(edits).includes(ACTION_OWNER), '担当が保存先に無い');
+    expect(edits['action:1:due'] === ACTION_DUE, `期限が保存先に無い（${edits['action:1:due']}）`);
+    await page.reload();
+    await page.getByRole('button', { name: new RegExp(RENEWAL) }).first().click();
+    await page.getByText(ACTION_CONTENT).first().waitFor({ timeout: 30000 });
+    await page.getByText(ACTION_TITLE).first().waitFor({ timeout: 10000 });
+    await page.getByText(ACTION_OWNER).first().waitFor({ timeout: 10000 });
+    await shot('3-action-reloaded');
+    return '名称・主な内容・担当・期限が保存され、再読み込み後も残る';
+  });
+
   await check('3 財務効果だけ保存に失敗したら、「すべて保存済み」と表示しない', async () => {
     await page.evaluate(() => window.localStorage.setItem('e2e-fail-finance', '1'));
+    await openFinance();
     await page.getByLabel(/の終了年月$/).first().fill('2028-03');
     await page.getByRole('button', { name: '計画を保存' }).click();
     await page.getByText('財務効果は保存できませんでした').first().waitFor({ timeout: 30000 });
@@ -164,6 +195,7 @@ async function waitServer() {
     expect(Number(s.plans[0].version) === versionBefore + 1, `版が進んでいない（${s.plans[0].version}）`);
     expect(s.events.some((e) => e.action === 'DRAFT_REPLACED'), '差し替えの履歴が無い');
     await page.getByText(REASON).first().waitFor({ timeout: 10000 });
+    await page.getByText(ACTION_CONTENT).first().waitFor({ timeout: 10000 });
     await shot('4-regen-used');
     return `版 ${s.plans[0].version}`;
   });

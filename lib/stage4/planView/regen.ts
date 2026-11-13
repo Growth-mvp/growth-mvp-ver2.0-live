@@ -14,7 +14,7 @@ export type EditRecord = {
 
 export type EditableItem = {
   itemId: string;
-  kind: 'claim' | 'action' | 'kpi' | 'risk' | 'responsible';
+  kind: 'claim' | 'action' | 'kpi' | 'risk' | 'responsible' | 'role';
   field: string;
   label: string;
   value: string | number | null;
@@ -74,6 +74,15 @@ export function listEditableItems(draft: any): EditableItem[] {
   draft.section2.actions.forEach((a: any) => {
     items.push({ itemId: `action:${a.order}:title`, kind: 'action', field: 'title', label: `行動${a.order}`, value: a.title, text: a.title, order: a.order });
     items.push({ itemId: `action:${a.order}:due`, kind: 'action', field: 'dueYm', label: `行動${a.order}の期限`, value: a.dueYm, text: a.title, order: a.order });
+    items.push({ itemId: `action:${a.order}:content`, kind: 'action', field: 'content', label: `行動${a.order}の主な内容`, value: a.mechanism?.stateChange ?? null, text: a.title, order: a.order });
+    items.push({ itemId: `action:${a.order}:owner`, kind: 'action', field: 'owner', label: `行動${a.order}の担当`, value: a.ownerRole ?? null, text: a.title, order: a.order });
+    items.push({ itemId: `action:${a.order}:deliverable`, kind: 'action', field: 'deliverable', label: `行動${a.order}の成果物`, value: a.deliverable ?? null, text: a.title, order: a.order });
+    items.push({ itemId: `action:${a.order}:exit`, kind: 'action', field: 'exitCondition', label: `行動${a.order}の次に進める条件`, value: a.exitCondition ?? null, text: a.title, order: a.order });
+    items.push({ itemId: `action:${a.order}:stage`, kind: 'action', field: 'valueStage', label: `行動${a.order}の収益化の段階`, value: a.valueStage ?? null, text: a.title, order: a.order });
+  });
+  ((draft.section5.roles ?? []) as any[]).forEach((r: any, i: number) => {
+    items.push({ itemId: `role:${i + 1}:unit`, kind: 'role', field: 'unit', label: '担当部門', value: r.unit, text: r.unit });
+    items.push({ itemId: `role:${i + 1}:role`, kind: 'role', field: 'role', label: r.unit, value: r.role, text: r.role });
   });
   draft.section3.kpis.forEach((k: any) => {
     items.push({ itemId: `kpi:${k.key}:target`, kind: 'kpi', field: 'target', label: k.label, value: k.target, text: k.label });
@@ -82,6 +91,8 @@ export function listEditableItems(draft: any): EditableItem[] {
   });
   draft.section5.risks.forEach((r: any, i: number) => {
     items.push({ itemId: `risk:${i + 1}:countermeasure`, kind: 'risk', field: 'countermeasure', label: r.risk, value: r.countermeasure, text: r.risk });
+    items.push({ itemId: `risk:${i + 1}:risk`, kind: 'risk', field: 'risk', label: `リスク${i + 1}の内容`, value: r.risk, text: r.risk });
+    items.push({ itemId: `risk:${i + 1}:confirmBy`, kind: 'risk', field: 'confirmBy', label: `リスク${i + 1}の確認時期`, value: r.confirmBy ?? null, text: r.risk });
   });
   items.push({ itemId: 'responsible', kind: 'responsible', field: 'name', label: '責任者', value: draft.section5.responsible.name, text: '責任者' });
   return items;
