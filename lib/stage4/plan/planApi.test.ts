@@ -541,6 +541,15 @@ describe('実行開始の一連の操作（保存された草案から、API経�
     expect(store.state().startInfo).toBeNull();
   });
 
+  it('確認事項の無い案件は、規制の記録が無くても、採用から開始まで進める', async () => {
+    const store = statefulGateway(saved(bundleWithoutRegulatoryItems()));
+    const a = api(store.g);
+    expect((await a.transition(call('ADOPT', 1))).status).toBe(200);
+    expect((await a.transition(call('START', 2))).status).toBe(200);
+    expect(store.state().startInfo).not.toBeNull();
+    expect(store.state().regulatory).toBeUndefined();
+  });
+
   it('途中で止まっても、採用の状態は残り、規制の記録を済ませれば同じ操作で開始できる', async () => {
     const store = statefulGateway(saved(bundle));
     const a = api(store.g);

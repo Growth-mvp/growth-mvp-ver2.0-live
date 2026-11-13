@@ -39,7 +39,7 @@ import { PLAN_DOC_CSS } from './planDocStyles';
 import PlanDocument from './PlanDocument';
 import StartConfirmation from './StartConfirmation';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
-import { REGULATORY_DECISION_LABEL } from '@/lib/stage4/planView/model';
+import { REGULATORY_DECISION_LABEL, type RegulatoryRecord } from '@/lib/stage4/planView/model';
 import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
 import { buildFinanceEffectDrafts, periodOfLabel } from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
@@ -373,7 +373,7 @@ function Stage3ProjectBrowser({
 
   /* 「この計画で実行を開始する」：採用 → 規制・安全の記録 → 開始、の順に行う。途中で止まったら、そこまでの状態が残り、
    * 理由を表示する。同じ操作を押し直せば、残りだけを行う（採用済みなら採用は行わない）。 */
-  const startPlanRemote = async (sel: Stage3Selection) => {
+  const startPlanRemote = async (sel: Stage3Selection, regulatory?: RegulatoryRecord) => {
     const entry = entries[selectionKey(sel)];
     if (!entry?.stored) return;
     let version = entry.stored.version;
@@ -382,9 +382,12 @@ function Stage3ProjectBrowser({
       if (!adopted.ok) return;
       version = adopted.version;
     }
-    const recorded = await runTransition(sel, version, 'RECORD_REGULATORY', entry.plan.regulatory);
-    if (!recorded.ok) return;
-    await runTransition(sel, recorded.version, 'START');
+    if (regulatory) {
+      const recorded = await runTransition(sel, version, 'RECORD_REGULATORY', regulatory);
+      if (!recorded.ok) return;
+      version = recorded.version;
+    }
+    await runTransition(sel, version, 'START');
   };
 
   const createPlan = (sel: Stage3Selection) => {
@@ -642,7 +645,7 @@ function Stage3ProjectBrowser({
             onRegenCancel={() => id && regenCancel(id)}
             remote={ops !== null}
             onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
-            onStartPlan={() => sel && startPlanRemote(sel)}
+            onStartPlan={(regulatory) => sel && startPlanRemote(sel, regulatory)}
             version={entry?.stored && entry.save.status !== 'CONFLICT' ? entry.stored.version : null}
           />
         )}
@@ -705,7 +708,7 @@ function ReadOnlyProject({
   version: number | null;
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
-  onStartPlan: () => void;
+  onStartPlan: (regulatory?: RegulatoryRecord) => void;
   impactEstimate: ImpactEstimate | null;
   financeSection: ReactNode;
   regen: RegenState | undefined;
@@ -859,14 +862,16 @@ function ReadOnlyProject({
           )}
           {entry.view === 'start' ? (
             <StartConfirmation
-              bundle={entry.aiDraft}
               plan={entry.plan}
               view={planView}
               dirty={isDirty(entry)}
               actionNotice={entry.notice}
               onEdit={(key, value) => onPlan((p) => setCommittedValue(p, key, value))}
-              onRegulatory={(r) => onPlan((p) => setRegulatory(p, r))}
-              onStart={() => (remote ? onStartPlan() : onPlan((p) => startWithAdoption(p, entry.aiDraft)))}
+              onStart={(regulatory) =>
+                remote
+                  ? onStartPlan(regulatory)
+                  : onPlan((p) => startWithAdoption(regulatory ? setRegulatory(p, regulatory) : p, entry.aiDraft))
+              }
               onUnstart={() => (remote ? onTransition('UNSTART') : onPlan(unstart))}
               onBack={() => onView('document')}
             />

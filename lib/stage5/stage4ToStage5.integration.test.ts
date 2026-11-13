@@ -171,6 +171,19 @@ describe('STAGE4 の実行開始 → STAGE5 の表示（保存・認証・状態
     expect(reloaded.views[0].kpis).toEqual(view.kpis);
   });
 
+  it('確認事項の無い案件は、責任者と保存済みの計画があれば、規制の記録なしに開始でき、STAGE5に表示される', async () => {
+    const w = world(withoutRegulatoryItems);
+    const saved = await w.store().update(ACTOR, KEY, 1, { userEdits: { responsible: '佐藤（仮）' }, adopted: false });
+    if (saved.status !== 'SAVED') throw new Error('save');
+    const adopted = await w.ops.transition(KEY, saved.record.version, 'ADOPT');
+    if (adopted.status !== 'OK') throw new Error('adopt');
+    const started = await w.ops.transition(KEY, adopted.record.version, 'START');
+    expect(started.status).toBe('OK');
+    const stage5 = await loadStartedPlans({ items: [startItem()], load: (key) => w.store().load(ACTOR, key) });
+    expect(stage5.views).toHaveLength(1);
+    expect(stage5.views[0].kpis.find((k) => k.label === '保守契約の継続率')?.target).toContain('95');
+  });
+
   it('法令・安全の確認が必要な案件は、記録が無い間は開始されず、STAGE5にも出ない。記録の後に開始できる', async () => {
     const w = world(withRegulatoryItems);
     const store = w.store();

@@ -23,9 +23,9 @@ export const REGULATORY_DECISION_LABEL: Record<RegulatoryDecision, string> = {
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 規制の記録が、開始の判断に使える程度に揃っているか。「未確認」は揃っていても開始を保留する。
- * 規制・安全の項目が無い案件（required=false）は、利用者が「対象外（適用なし）」を選べば足りる。AIの推測では満たさない */
+ * 確認事項が無い案件（required=false）は、利用者が「未確認」と明示した時だけ保留する。確認事項が無いことを理由に、判断を勝手に決めない */
 export function regulatoryComplete(r: RegulatoryRecord, required = true): boolean {
-  if (!required) return r.decision === 'NOT_APPLICABLE';
+  if (!required) return r.decision !== 'UNCONFIRMED';
   return (
     r.decision !== null &&
     r.decision !== 'UNCONFIRMED' &&
@@ -54,12 +54,19 @@ export function startGate(input: StartInput): { startable: boolean; blockers: st
     blockers.push(
       input.regulatory.decision === 'UNCONFIRMED'
         ? '規制・安全は「未確認」のため、開始を保留しています'
-        : input.hasRegulatoryItems
-          ? '規制・安全の確認（判断内容・判断根拠・確認者・確認日）を記録してください'
-          : '規制・安全の確認（対象外かどうか）を選んでください'
+        : '規制・安全の確認（判断内容・判断根拠・確認者・確認日）を記録してください'
     );
   }
   return { startable: blockers.length === 0, blockers };
+}
+
+/* 規制・安全の判定の状態。確認事項が無い／適用なしが明示されている／まだ判定できていない、を区別する */
+export type RegulatoryStatus = 'NO_ITEMS' | 'NOT_APPLICABLE' | 'APPLICABLE_CONFIRMED' | 'UNDECIDED';
+
+export function regulatoryStatusOf(required: boolean, r: RegulatoryRecord): RegulatoryStatus {
+  if (!required) return r.decision === 'UNCONFIRMED' ? 'UNDECIDED' : 'NO_ITEMS';
+  if (!regulatoryComplete(r, true)) return 'UNDECIDED';
+  return r.decision === 'NOT_APPLICABLE' ? 'NOT_APPLICABLE' : 'APPLICABLE_CONFIRMED';
 }
 
 export type FinanceStatus = 'CONFIRMED' | 'AI_ESTIMATE' | 'NOT_CALCULATED';

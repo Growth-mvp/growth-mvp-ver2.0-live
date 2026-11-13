@@ -116,14 +116,12 @@ export default function DevPlanDocument() {
       {view === 'start' ? (
         <StartConfirmation
           key={`start-${sample.id}`}
-          bundle={sample.bundle}
           plan={plan}
           view={pv}
           dirty={false}
           actionNotice={null}
           onEdit={(key, value) => update((p) => setCommittedValue(p, key, value))}
-          onRegulatory={(r) => update((p) => setRegulatory(p, r))}
-          onStart={() => update((p) => startWithAdoption(p, sample.bundle))}
+          onStart={(regulatory) => update((p) => startWithAdoption(regulatory ? setRegulatory(p, regulatory) : p, sample.bundle))}
           onUnstart={() => update(unstart)}
           onBack={() => setView('document')}
         />
