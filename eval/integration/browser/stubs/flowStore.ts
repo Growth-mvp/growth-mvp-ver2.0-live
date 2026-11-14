@@ -154,6 +154,13 @@ state.setFinancePlanAssumptions = (...args: any[]) => {
   w.__storeLog.push({ action: 'setFinancePlanAssumptions', args: args.length });
 };
 
+/* 部分更新の結果を反映する（実ストアと同じ契約：未保存の変更がある間は反映しない） */
+state.syncPartialSave = ({ departments, revision }: { departments: any[]; revision: number }) => {
+  if (state.dirty) return false;
+  setState({ departments: clone(departments), revision, version: (state.version ?? 0) + 1 });
+  return true;
+};
+
 /* 保存：呼び出し時点の departments を写しとり、遅延の後で会社が変わっていなければ呼び出し時の会社のキーへ書く。
  * 実ストアも、保存のペイロードは API 呼び出しの前に作る。 */
 state.saveStrategyData = async (opts?: { reason?: string; force?: boolean }) => {

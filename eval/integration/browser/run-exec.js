@@ -78,9 +78,9 @@ const krOfStore = (page, title, label) =>
     const s = await krOfStore(page, '既存顧客の保守契約更新', '保守契約の継続率');
     if (!s.actual || s.actual.value !== 92 || s.actual.asOf !== '2026-10') throw new Error('店舗に実績が入っていない: ' + JSON.stringify(s.actual));
     if (s.target !== 95) throw new Error('STAGE4の目標が変わった: ' + s.target);
-    if (s.dirty !== true) throw new Error('保存対象（dirty）になっていない');
+    if (s.dirty !== false) throw new Error('未保存の変更が残っている（部分更新で保存済みのはず）');
     await page.locator('[aria-label="KR実績"]').screenshot({ path: path.join(outDir, 'shots', 'exec-kr-actual.png') });
-    return '店舗に 92 / 2026-10 を保存（dirty=true）。目標 95 は不変';
+    return '部分更新で 92 / 2026-10 を保存（未保存の変更なし）。目標 95 は不変';
   });
 
   await check('STAGE5 実行画面：別の施策（新規顧客開拓）のKRは変わらない', async () => {

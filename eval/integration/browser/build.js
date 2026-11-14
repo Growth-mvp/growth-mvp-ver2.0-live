@@ -26,7 +26,7 @@ const STUB_MAP = {
 };
 
 /* STAGE5 実行画面だけ、保存関数の参照を差し替える（OKR画面は実際の投影関数を使うため差し替えない） */
-const EXEC_STUB_MAP = { ...STUB_MAP, '@/utils/supabase/strategy': S('supabaseStrategy.ts') };
+const EXEC_STUB_MAP = { ...STUB_MAP, '@/utils/supabase/strategy': S('supabaseStrategy.ts'), '@/utils/supabase/strategyPartial': S('strategyPartialMem.ts') };
 
 /* 流れの検証用（KR編集→AI案→実績→保存失敗→会社切替）。store は localStorage に保存する flowStore、
  * 周辺は misc-flow（安全な session トークン・会社に追随するユーザー）に差し替える。既存の STUB_MAP は変えない。 */
@@ -34,7 +34,19 @@ const FLOW_STUB_MAP = Object.fromEntries(
   Object.entries(STUB_MAP).map(([k, v]) => [k, v === S('misc.ts') ? S('misc-flow.ts') : v]),
 );
 FLOW_STUB_MAP['@/store/strategyStore'] = S('flowStore.ts');
-const FLOW_EXEC_STUB_MAP = { ...FLOW_STUB_MAP, '@/utils/supabase/strategy': S('supabaseStrategy.ts') };
+const FLOW_EXEC_STUB_MAP = { ...FLOW_STUB_MAP, '@/utils/supabase/strategy': S('supabaseStrategy.ts'), '@/utils/supabase/strategyPartial': S('strategyPartialMem.ts') };
+
+/* 実行計画（STAGE4）と、STAGE5 のモーダル内の計画・実施事項・PDF の流れの検証用（評価専用。通信・認証はすべて stubs/ で遮断） */
+const PLAN_FLOW_STUB_MAP = {
+  ...FLOW_EXEC_STUB_MAP,
+  '@/utils/supabase/strategy': S('supabaseStrategyFlow.ts'),
+  '@/utils/supabase/strategyPartial': S('strategyPartialFlow.ts'),
+  '@/services/okrService': S('okrServiceFlow.ts'),
+  '@/components/okr/execution-plan/planStores': S('planStoresFlow.ts'),
+  '@/lib/stage4/plan/documentScreenFlag': S('documentScreenFlagFlow.ts'),
+  '@/utils/supabase/client': S('misc-plan.ts'),
+  '@/lib/plans/export/downloadPlanPdf': S('downloadPlanPdfFlow.ts'),
+};
 
 /* 実アプリのレイアウトで描画する各STAGEのページ（route は app/ 配下のフォルダ名） */
 const SHELL_PAGES = [
@@ -174,6 +186,13 @@ function html(title, bundleName) {
     plugins: [stubPlugin(FLOW_EXEC_STUB_MAP)],
   });
   fs.writeFileSync(path.join(outDir, 'flow-exec.html'), html('STAGE5 実行画面 流れの検証', 'flow-exec-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'plan-flow-entry.tsx')],
+    outfile: path.join(outDir, 'plan-flow-bundle.js'),
+    plugins: [stubPlugin(PLAN_FLOW_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'plan-flow.html'), html('STAGE5 実行計画の流れの検証', 'plan-flow-bundle.js'));
   await esbuild.build({
     ...COMMON,
     entryPoints: [path.join(__dirname, 'finance-flow-entry.tsx')],

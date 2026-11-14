@@ -105,6 +105,13 @@ state.setFinancePlanAssumptions = (...args: any[]) => {
   w.__storeLog.push({ action: 'setFinancePlanAssumptions', args: args.length });
 };
 
+/* 部分更新の結果を反映する（実ストアと同じ契約：未保存の変更がある間は反映しない） */
+(state as any).syncPartialSave = ({ departments, revision }: { departments: any[]; revision: number }) => {
+  if (state.dirty) return false;
+  setState({ departments: JSON.parse(JSON.stringify(departments)), revision, version: (state.version ?? 0) + 1 });
+  return true;
+};
+
 function getState(): any {
   return viewOf(state);
 }
