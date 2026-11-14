@@ -114,15 +114,11 @@ function FundingCard({ funding, requiredItem, onNavigate }: Pick<Props, 'funding
   return (
     <div className="min-w-0 space-y-3">
       <div className="text-sm font-bold text-slate-900">借入・返済の見通し</div>
-      {funding.kind === 'TARGET_PATH_IN_USE' ? (
-        <p className="text-sm text-slate-700">補間の前提を入力中のため非表示（タブ5で確認）</p>
-      ) : (
-        <div>
-          <div className="text-base font-bold text-slate-900">{funding.label}</div>
-          {funding.detail && <p className="mt-0.5 text-sm text-slate-700">{funding.detail}</p>}
-          <p className="mt-1 text-xs text-slate-600">参考（施策効果を含まない簡易判定）</p>
-        </div>
-      )}
+      <div>
+        <div className="text-base font-bold text-slate-900">{funding.label}</div>
+        {funding.detail && <p className="mt-0.5 text-sm text-slate-700">{funding.detail}</p>}
+        <p className="mt-1 text-xs text-slate-600">参考（確認済みの施策効果を含む簡易判定）</p>
+      </div>
       {requiredItem && (
         <div className="flex flex-col items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
           <span>判定に影響する未確認 {requiredItem.count}件</span>

@@ -706,6 +706,7 @@ export async function POST(req: Request) {
             departments: (strategy as any)?.departments,
             fiscalYearEnd: (strategy as any)?.fiscalYearEnd,
             currentYear: new Date().getFullYear(),
+            companyTargets: (strategy as any)?.companyTargets,
             simulationResults: (strategy as any)?.simulationResults,
           });
           stage6Facts = { scope: 'plan', financeEmpty: financeAbsent, ...classifyStage6Text(planText) };

@@ -1,5 +1,6 @@
 import { readStoredFinancePlan } from '@/utils/stage6/financePlanSnapshot';
 import { computeStage6FinancePlan } from '@/utils/stage6/financePlanPipeline';
+import { forecastHorizonOf } from '@/utils/stage6/financeOutlook';
 import { formatAmount } from '@/lib/ceoChat/stage1Blocks';
 
 export const STAGE6_CHAR_BUDGET = 2000;
@@ -93,6 +94,7 @@ export function buildStage6PlanBlock(args: {
   departments: unknown;
   fiscalYearEnd?: string;
   currentYear: number;
+  companyTargets?: unknown;
   simulationResults?: unknown;
 }): string {
   const lines: string[] = [HEADER, CATEGORY_NOTE];
@@ -121,13 +123,15 @@ export function buildStage6PlanBlock(args: {
 
   if (stored.kind === 'OK') {
     try {
+      const financePL = Array.isArray(args.financePL) ? (args.financePL as any) : [];
       const computed = computeStage6FinancePlan({
-        financePL: Array.isArray(args.financePL) ? (args.financePL as any) : [],
+        financePL,
         financeBS: Array.isArray(args.financeBS) ? (args.financeBS as any) : [],
         departments: Array.isArray(args.departments) ? (args.departments as any) : [],
         fiscalYearEnd: args.fiscalYearEnd,
         domain: stored.domain,
         currentYear: args.currentYear,
+        horizonYears: forecastHorizonOf(financePL, args.currentYear, args.companyTargets as any),
       });
       if (!computed.fiscalYearEndSet) lines.push('- 決算月が未登録のため、年度の対応は確定していません。');
       if (computed.plan.yearMismatch) lines.push('- PLとBSの基準年度が一致しません。');

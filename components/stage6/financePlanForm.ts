@@ -118,6 +118,14 @@ export type DebtDomain = {
   dividendsYen: Record<number, number | null | undefined>;
 };
 
+/** 予測年度と、入力済みの年度をすべて残す（期間を縮めても、保存済みの借入・配当の入力は消さない） */
+function debtYearsOf(f: DebtForm, forecastYears: number[]): number[] {
+  const years = new Set<number>(forecastYears);
+  for (const r of f.existing) for (const k of Object.keys(r.schedule)) years.add(Number(k));
+  for (const k of Object.keys(f.dividends)) years.add(Number(k));
+  return [...years].sort((a, b) => a - b);
+}
+
 export function toDebtDomain(f: DebtForm, forecastYears: number[]): DebtDomain {
   const mil = (s: string | undefined) => {
     const v = parseNumber(s ?? '');
@@ -128,9 +136,10 @@ export function toDebtDomain(f: DebtForm, forecastYears: number[]): DebtDomain {
     return v === null ? null : v / 100;
   };
   const num = (s: string) => parseNumber(s);
+  const years = debtYearsOf(f, forecastYears);
   const existingLoans: ExistingLoanInput[] = f.existing.map((r) => {
     const scheduled: Record<number, number | null> = {};
-    for (const y of forecastYears) scheduled[y] = mil(r.schedule[y]);
+    for (const y of years) scheduled[y] = mil(r.schedule[y]);
     return {
       id: r.id,
       name: r.name,
@@ -152,7 +161,7 @@ export function toDebtDomain(f: DebtForm, forecastYears: number[]): DebtDomain {
     method: r.method as RepaymentMethod,
   }));
   const dividendsYen: Record<number, number | null> = {};
-  for (const y of forecastYears) dividendsYen[y] = mil(f.dividends[y]);
+  for (const y of years) dividendsYen[y] = mil(f.dividends[y]);
   return { existingLoans, newLoans, dividendsYen };
 }
 

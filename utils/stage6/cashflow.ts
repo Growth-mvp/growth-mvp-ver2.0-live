@@ -141,7 +141,7 @@ export type CashFlowPlan = {
   years: CfYear[];
 };
 
-const DEFAULT_HORIZON = 3;
+export const DEFAULT_HORIZON = 3;
 const LARGE_REVENUE_YEN = 1_000_000;
 const UNIT_SUSPECT_BELOW_YEN = 1_000;
 

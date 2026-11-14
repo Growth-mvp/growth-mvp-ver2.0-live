@@ -32,7 +32,7 @@ export const FINANCE_TABS: readonly { key: FinanceTab; label: string; descriptio
     key: 'verdict',
     label: '5. 参考判定',
     description:
-      '施策効果を含まない既存の計画（目標補間の経路、または目標未入力時は横ばい）に基づく参考判定です。条件付きPL・CFによる達成可能性は判定していません。未算定は達成・未達のいずれにも扱いません。',
+      '既存事業の計画と確認済みの施策効果に基づく参考判定です。目標への補間は使いません。条件付きPL・CFによる達成可能性は判定していません。未算定は達成・未達のいずれにも扱いません。',
   },
 ];
 

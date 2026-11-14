@@ -1,5 +1,5 @@
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
-import { buildCashFlowPlan, type CashFlowPlan } from './cashflow';
+import { buildCashFlowPlan, DEFAULT_HORIZON, type CashFlowPlan } from './cashflow';
 import { buildDebtSchedule, type DebtInput, type DebtSchedule } from './debt';
 import {
   buildInvestmentDemandSummary,
@@ -20,6 +20,7 @@ export type Stage6ComputeInput = {
   fiscalYearEnd: string | undefined;
   domain: FinancePlanDomain;
   currentYear: number;
+  horizonYears?: number;
 };
 
 export type Stage6Computed = {
@@ -74,7 +75,8 @@ function buildDebtInput(args: {
 }
 
 export function computeStage6FinancePlan(input: Stage6ComputeInput): Stage6Computed {
-  const { financePL, financeBS, domain, currentYear } = input;
+  const { financePL, financeBS, domain, currentYear, horizonYears } = input;
+  const horizon = horizonYears ?? DEFAULT_HORIZON;
 
   const investment = buildInvestmentDemandSummary(input.departments, input.fiscalYearEnd);
   const fiscalYearEndSet = parseFiscalYearEndMonth(input.fiscalYearEnd) !== null;
@@ -87,7 +89,7 @@ export function computeStage6FinancePlan(input: Stage6ComputeInput): Stage6Compu
   };
 
   const basePlan = buildCashFlowPlan(
-    { financePL, financeBS, investment: investmentInput, assumptions: domain.assumptions, fiscalYearEndSet },
+    { financePL, financeBS, investment: investmentInput, assumptions: domain.assumptions, fiscalYearEndSet, horizonYears: horizon },
     currentYear,
   );
   const forecastYears = basePlan.years.filter((y) => y.kind === 'FORECAST').map((y) => y.year);
@@ -112,6 +114,7 @@ export function computeStage6FinancePlan(input: Stage6ComputeInput): Stage6Compu
       assumptions: domain.assumptions,
       fiscalYearEndSet,
       debt: debtEntered ? schedule : undefined,
+      horizonYears: horizon,
     },
     currentYear,
   );

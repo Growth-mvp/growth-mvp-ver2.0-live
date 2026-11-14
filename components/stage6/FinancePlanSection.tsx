@@ -6,7 +6,8 @@ import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } fro
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
-import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
+import { buildFinanceOutlook, forecastHorizonOf } from '@/utils/stage6/financeOutlook';
+import { withoutTargetPath } from '@/utils/stage6/financeEffectPlan';
 import { UnifiedPlPanel } from './UnifiedPlPanel';
 import { ConditionalCfPanel } from './ConditionalCfPanel';
 import {
@@ -144,7 +145,10 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
     () => ({ ...toCashFlowAssumptions(cfForm), baseScenario: toBaseScenario(scenarioForm) }),
     [cfForm, scenarioForm],
   );
-  const targetPathInUse = assumptions.targetRevenueYen !== null || assumptions.targetOperatingIncomeYen !== null;
+  const horizonYears = useMemo(
+    () => forecastHorizonOf(financePL, NOW_YEAR, companyTargets),
+    [financePL, companyTargets],
+  );
 
   const investmentInput = useMemo(
     () => ({
@@ -161,10 +165,10 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   const basePlan = useMemo(
     () =>
       buildCashFlowPlan(
-        { financePL, financeBS, investment: investmentInput, assumptions, fiscalYearEndSet },
+        { financePL, financeBS, investment: investmentInput, assumptions, fiscalYearEndSet, horizonYears },
         NOW_YEAR,
       ),
-    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet],
+    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, horizonYears],
   );
   const forecastYears = useMemo(
     () => basePlan.years.filter((y) => y.kind === 'FORECAST').map((y) => y.year),
@@ -184,8 +188,8 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
     [debtForm, forecastYears, stage1Debt, fiscalYearEndSet],
   );
 
-  // 2段目：借入計画を反映した計算（借入の入力がない場合はCF表示のみ）
-  const plan = useMemo(
+  // 参考：目標への補間の経路（業績予測ではない。資金判定には使わない）
+  const referencePlan = useMemo(
     () =>
       buildCashFlowPlan(
         {
@@ -195,10 +199,11 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           assumptions,
           fiscalYearEndSet,
           debt: debtEntered ? schedule : undefined,
+          horizonYears,
         },
         NOW_YEAR,
       ),
-    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule],
+    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule, horizonYears],
   );
 
   const currentDomain: FinancePlanDomain = useMemo(() => {
@@ -221,12 +226,33 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   );
   const { target: unifiedTarget, effectTrial, unifiedPl, conditionalCf, baselinePlan } = financeOutlook;
 
+  // 資金判定：既存事業の増減＋確認済み施策効果（統一PL）を前提にし、目標補間は使わない
+  const fundingPlan = useMemo(
+    () =>
+      buildCashFlowPlan(
+        {
+          financePL,
+          financeBS,
+          investment: investmentInput,
+          assumptions: withoutTargetPath(assumptions),
+          fiscalYearEndSet,
+          debt: debtEntered ? schedule : undefined,
+          yearlyOverride: Object.fromEntries(
+            unifiedPl.years.map((r) => [r.fiscalYear, { revenueYen: r.plan.revenueYen, operatingIncomeYen: r.plan.operatingIncomeYen }]),
+          ),
+          horizonYears,
+        },
+        NOW_YEAR,
+      ),
+    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule, unifiedPl, horizonYears],
+  );
+
   const currentMeta: CalcSnapshotMeta = useMemo(
     () => ({
       calcVersion: FINANCE_PLAN_CALC_VERSION,
       companyId,
-      baseYear: plan.baseYear,
-      bsBaseYear: plan.bsBaseYear,
+      baseYear: basePlan.baseYear,
+      bsBaseYear: basePlan.bsBaseYear,
       assumptionsHash: hashOf(toSavedFinancePlan(currentDomain)),
       sourceHash: sourceHashOf({
         financePL,
@@ -251,7 +277,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
       },
       computedAt,
     }),
-    [companyId, plan.baseYear, plan.bsBaseYear, currentDomain, financePL, financeBS, investment, fiscalYearEnd, computedAt],
+    [companyId, basePlan.baseYear, basePlan.bsBaseYear, currentDomain, financePL, financeBS, investment, fiscalYearEnd, computedAt],
   );
 
   useEffect(() => {
@@ -276,17 +302,17 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   });
   const saveStatus = deriveSaveStatus({ saving, failed: saveFailed, unsaved, freshness });
 
-  const fundingNeed = fundingNeedOf(plan.years.filter((y) => y.kind === 'FORECAST')).need;
+  const fundingNeed = fundingNeedOf(fundingPlan.years.filter((y) => y.kind === 'FORECAST')).need;
   const outlook = repaymentOutlook({
     debtEntered,
-    years: plan.years.filter((y) => y.kind === 'FORECAST'),
+    years: fundingPlan.years.filter((y) => y.kind === 'FORECAST'),
   });
   const unconfirmed = buildUnconfirmedItems({
     investment,
     existingLoanCount: debtForm.existing.length,
     debtEntered,
     minCashEntered: cfForm.minCash.trim() !== '',
-    plan,
+    plan: fundingPlan,
     schedule,
   });
   const requiredCount = unconfirmed.filter((i) => i.required).length;
@@ -345,7 +371,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   const targetSummary = buildTargetSummary({ unifiedPl, target: unifiedTarget });
   const outlookCharts = buildOutlookCharts(financeOutlook, targetSummary);
   const cashSummary = buildCashSummary(conditionalCf);
-  const fundingStatus = buildFundingStatus({ targetPathInUse, outlook });
+  const fundingStatus = buildFundingStatus({ outlook });
   const firstRequired = unconfirmed.find((i) => i.required);
   const requiredItem = requiredCount > 0 && firstRequired ? { count: requiredCount, tab: firstRequired.tab } : null;
   const hasStatusNote =
@@ -489,7 +515,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
                   この表は経営目標へ到達する仮想的な経路で、業績予測ではありません。条件付きCFが未算定でも、この表の値で代用しません。税率・減価償却費・比率・目標の前提入力もここにあります。
                 </p>
               </div>
-              <CashFlowPanel plan={plan} form={cfForm} setForm={setCfFormByUser} />
+              <CashFlowPanel plan={referencePlan} form={cfForm} setForm={setCfFormByUser} />
             </section>
           </div>
         )}
@@ -497,7 +523,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
         {tab === 'debt' && (
           <div className="space-y-4">
             <TabHeader tab="debt" />
-            <DebtPanel form={debtForm} setForm={setDebtFormByUser} forecastYears={forecastYears} schedule={schedule} plan={plan} />
+            <DebtPanel form={debtForm} setForm={setDebtFormByUser} forecastYears={forecastYears} schedule={schedule} plan={fundingPlan} />
           </div>
         )}
 
@@ -505,16 +531,13 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           <div className="space-y-4">
             <TabHeader tab="verdict" />
             <p className="text-xs leading-relaxed text-slate-600 break-keep">
-              計算の前提：STAGE1の財務実績とSTAGE4の投資計画から推計した年度別キャッシュフローです。借入を入力すると、借入・返済を反映した資金繰りを表示します。確定予測ではありません。
+              計算の前提：STAGE1の財務実績、既存事業の年度別増減、STAGE4の確認済み施策効果から推計した年度別キャッシュフローです。借入を入力すると、借入・返済を反映した資金繰りを表示します。確定予測ではありません。経営目標では補完しません。
             </p>
             <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 break-keep">
-              {targetPathInUse
-                ? 'この判定は、経営目標へ到達する仮想的な経路（目標補間）に基づく参考判定です。施策効果は含まず、施策による業績達成可能性を判定したものではありません。'
-                : 'この判定は、直近実績を横ばいにした既存の計画（施策効果を含まない）に基づく参考判定です。施策による業績達成可能性を判定したものではありません。'}
-              条件付きPL・CFの結果は「1. 目標に届くか」と「3. お金は足りるか」の上段を参照してください。
+              この判定は、既存事業の計画と確認済みの施策効果に基づく参考判定です。未確認の施策効果は含まず、目標への補間は使いません。
             </p>
             <FinanceVerdictPanel
-              plan={plan}
+              plan={fundingPlan}
               schedule={schedule}
               debtEntered={debtEntered}
               fundingNeed={fundingNeed}

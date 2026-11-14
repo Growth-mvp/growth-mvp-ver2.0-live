@@ -10,6 +10,7 @@ export function formatMil(yen: number): string {
 }
 
 export function gapText(gapYen: number): string {
+  if (gapYen === 0) return '目標どおり（差額なし）';
   return gapYen > 0 ? `不足 ${formatMil(gapYen)} 百万円` : `目標を達成（${formatMil(Math.abs(gapYen))} 百万円超過）`;
 }
 
@@ -92,13 +93,10 @@ export function buildCashSummary(cf: ConditionalCf): CashSummary {
   return { points, unknownReason: reasons[0] ?? null };
 }
 
-export type FundingStatus =
-  | { kind: 'TARGET_PATH_IN_USE' }
-  | { kind: 'JUDGED'; label: string; detail: string; tone: RepaymentOutlook['tone'] };
+export type FundingStatus = { kind: 'JUDGED'; label: string; detail: string; tone: RepaymentOutlook['tone'] };
 
-export function buildFundingStatus(args: { targetPathInUse: boolean; outlook: RepaymentOutlook }): FundingStatus {
-  const { targetPathInUse, outlook } = args;
-  if (targetPathInUse) return { kind: 'TARGET_PATH_IN_USE' };
+export function buildFundingStatus(args: { outlook: RepaymentOutlook }): FundingStatus {
+  const { outlook } = args;
   if (outlook.label === '評価保留' && outlook.detail === '借入・配当が未入力です') {
     return { kind: 'JUDGED', label: '未入力のため保留', detail: '', tone: outlook.tone };
   }

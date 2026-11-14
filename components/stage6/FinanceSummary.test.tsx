@@ -7,7 +7,6 @@ const M = 1_000_000;
 
 const emptyCash: CashSummary = { points: [], unknownReason: null };
 const judged: FundingStatus = buildFundingStatus({
-  targetPathInUse: false,
   outlook: { label: '評価保留', detail: '借入・配当が未入力です', tone: 'hold' },
 });
 
@@ -23,12 +22,12 @@ function render(args: { cash?: CashSummary; funding?: FundingStatus; requiredIte
 }
 
 describe('STAGE6 資金サマリー', () => {
-  it('資金：補間を前提に入力中なら判定を出さず、判定の場所を案内する', () => {
+  it('資金：判定は目標補間に依らず表示し、施策効果を含む簡易判定だと示す', () => {
     const html = render({
-      funding: buildFundingStatus({ targetPathInUse: true, outlook: { label: '資金不足あり', detail: '2028年', tone: 'warn' } }),
+      funding: buildFundingStatus({ outlook: { label: '資金不足あり', detail: '2028年', tone: 'warn' } }),
     });
-    expect(html).not.toContain('資金不足あり');
-    expect(html).toContain('補間の前提を入力中のため非表示（タブ5で確認）');
+    expect(html).toContain('資金不足あり');
+    expect(html).toContain('確認済みの施策効果を含む簡易判定');
   });
 
   it('資金：借入が未入力なら、短く「未入力のため保留」と示す', () => {

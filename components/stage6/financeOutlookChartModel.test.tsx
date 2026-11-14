@@ -116,9 +116,9 @@ describe('STAGE6 経年グラフ：共通の財務試算と同じ値を示す', 
     expect(c.operatingIncome.points.find((p) => p.fiscalYear === 2026)!.baselineMil).toBe(72);
   });
 
-  it('目標年度が試算期間の外なら、目標の印を描かず、期間外と示す', () => {
-    const c = chartsOf(outlookOf({ targets: [{ id: 't', label: '売上', unit: '百万円', base: 1_500, dueYear: 2035 } as unknown as CompanyTarget] }));
-    expect(c.revenue.targetInRange).toBe(false);
+  it('目標年度が基準年度以前なら、試算に含まれないため達成率を出さず、期間外と示す', () => {
+    const c = chartsOf(outlookOf({ targets: [{ id: 't', label: '売上', unit: '百万円', base: 1_500, dueYear: 2024 } as unknown as CompanyTarget] }));
+    expect(c.revenue.achievementPct).toBeNull();
     expect(c.revenue.headline).toContain('試算期間の外');
   });
 

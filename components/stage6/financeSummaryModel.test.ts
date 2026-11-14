@@ -31,7 +31,7 @@ describe('formatMil / gapText', () => {
 
   it('差額は正を不足、0以下を達成として表す', () => {
     expect(gapText(10 * M)).toBe('不足 10.0 百万円');
-    expect(gapText(0)).toBe('目標を達成（0.0 百万円超過）');
+    expect(gapText(0)).toBe('目標どおり（差額なし）');
     expect(gapText(-5 * M)).toBe('目標を達成（5.0 百万円超過）');
   });
 });
@@ -153,22 +153,22 @@ describe('buildCashSummary', () => {
 });
 
 describe('buildFundingStatus', () => {
-  it('目標補間の前提を使っているときは判定を表示せず、補間の判定だと分かる状態を返す', () => {
-    expect(
-      buildFundingStatus({ targetPathInUse: true, outlook: { label: '資金不足あり', detail: '2028年', tone: 'warn' } }),
-    ).toEqual({ kind: 'TARGET_PATH_IN_USE' });
-  });
-
-  it('補間を使っていないとき、既存の返済見通しをそのまま返す。警告の年度は該当年度として明示する', () => {
-    expect(
-      buildFundingStatus({ targetPathInUse: false, outlook: { label: '資金不足あり', detail: '2028年', tone: 'warn' } }),
-    ).toEqual({ kind: 'JUDGED', label: '資金不足あり', detail: '該当年度：2028年', tone: 'warn' });
+  it('判定は目標補間に依らず、既存の返済見通しをそのまま返す。警告の年度は該当年度として明示する', () => {
+    expect(buildFundingStatus({ outlook: { label: '資金不足あり', detail: '2028年', tone: 'warn' } })).toEqual({
+      kind: 'JUDGED',
+      label: '資金不足あり',
+      detail: '該当年度：2028年',
+      tone: 'warn',
+    });
   });
 
   it('借入が未入力なら、短く「未入力のため保留」と返す', () => {
-    expect(
-      buildFundingStatus({ targetPathInUse: false, outlook: { label: '評価保留', detail: '借入・配当が未入力です', tone: 'hold' } }),
-    ).toEqual({ kind: 'JUDGED', label: '未入力のため保留', detail: '', tone: 'hold' });
+    expect(buildFundingStatus({ outlook: { label: '評価保留', detail: '借入・配当が未入力です', tone: 'hold' } })).toEqual({
+      kind: 'JUDGED',
+      label: '未入力のため保留',
+      detail: '',
+      tone: 'hold',
+    });
   });
 });
 

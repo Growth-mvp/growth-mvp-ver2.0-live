@@ -1,7 +1,7 @@
 import { financeTotals, projectFinanceSummary } from '@/lib/plans/financeEffectSummary';
 import type { CompanyTarget, Department } from '@/types/strategy';
 import { buildCashFlowPlan, type CashFlowPlan, type CfBasis, type CfValue, type WorkingCapitalBreakdown } from './cashflow';
-import { buildFinanceOutlook, type FinanceOutlook } from './financeOutlook';
+import { buildFinanceOutlook, forecastHorizonOf, type FinanceOutlook } from './financeOutlook';
 import { withoutTargetPath } from './financeEffectPlan';
 import type { UnifiedPlYear } from './unifiedPl';
 import type { DebtSchedule } from './debt';
@@ -410,6 +410,7 @@ export function buildBankFinancialPlanBlock(args: {
     );
   }
 
+  const horizonYears = forecastHorizonOf(inputs.financePL, currentYear, inputs.companyTargets as CompanyTarget[]);
   const computed = computeStage6FinancePlan({
     financePL: inputs.financePL,
     financeBS: inputs.financeBS,
@@ -417,6 +418,7 @@ export function buildBankFinancialPlanBlock(args: {
     fiscalYearEnd: inputs.fiscalYearEnd,
     domain: stored.domain,
     currentYear,
+    horizonYears,
   });
   const currentRepro = { ...repro, currentSourceHash: computed.sourceHash };
   const outlook = buildFinanceOutlook({
@@ -452,6 +454,7 @@ export function buildBankFinancialPlanBlock(args: {
       yearlyOverride: Object.fromEntries(
         outlook.unifiedPl.years.map((r) => [r.fiscalYear, { revenueYen: r.plan.revenueYen, operatingIncomeYen: r.plan.operatingIncomeYen }]),
       ),
+      horizonYears,
     },
     currentYear,
   );

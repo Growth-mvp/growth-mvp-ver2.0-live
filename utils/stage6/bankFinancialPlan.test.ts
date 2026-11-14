@@ -348,13 +348,13 @@ describe('8. STAGE2目標との整合確認', () => {
     expect(b.sections!.financialTargets.gaps.revenue.reason).toContain('金額');
   });
 
-  it('目標年度が推計期間の外なら差額を計算せず理由を残す', () => {
+  it('目標年度は推計期間に含めて延ばすため、2031年度の目標でも差額を計算する', () => {
     const alt = inputsWith({
       companyTargets: [{ id: 'x', label: '売上高', unit: '百万円', dueYear: 2031, base: 1500 }],
     });
     const b = blockFor({ ...alt, storedFinancePlan: savedFor(domain, alt) });
-    expect(b.sections!.financialTargets.gaps.revenue.differenceYen).toBeNull();
-    expect(b.sections!.financialTargets.gaps.revenue.reason).toContain('2031年');
+    expect(b.sections!.financialTargets.gaps.revenue.differenceYen).not.toBeNull();
+    expect(b.sections!.financialTargets.gaps.revenue.reason).toBeNull();
   });
 
   it('STAGE2目標がない場合は登録なしとして扱う', () => {
