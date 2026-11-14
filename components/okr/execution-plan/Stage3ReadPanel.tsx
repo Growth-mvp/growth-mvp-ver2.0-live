@@ -56,7 +56,8 @@ import { RegenPanel, type RegenState } from './RegenPanel';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdits';
-import { buildDocModel } from '@/lib/stage4/planView/documentModel';
+import { buildDocModel, type Edits } from '@/lib/stage4/planView/documentModel';
+import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
 import {
   conflictRows,
   entryAfterPersist,
@@ -939,6 +940,24 @@ function ReadOnlyProject({
             >
               計画を保存
             </button>
+            {remote && (
+              <button
+                type="button"
+                className="plan-btn-quiet"
+                disabled={!entry.stored || isDirty(entry)}
+                onClick={() =>
+                  void downloadProjectPlanPdf({
+                    aiDraft: entry.aiDraft,
+                    userEdits: entry.plan.committed as Edits,
+                    startInfo: entry.server?.startInfo ? { at: entry.server.startInfo.at, version: entry.server.startInfo.version } : null,
+                    companyName: companyLabel,
+                    generatedAt: new Date().toISOString(),
+                  }).catch(() => window.alert('PDFを作成できませんでした。もう一度お試しください。'))
+                }
+              >
+                実行計画書をPDFで開く
+              </button>
+            )}
           </div>
           {remote && saveWillReset(entry) && (
             <p role="status" className="plan-note">
