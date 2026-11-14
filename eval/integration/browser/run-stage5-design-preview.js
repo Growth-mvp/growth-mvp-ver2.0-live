@@ -27,23 +27,25 @@ const outDir = path.join(__dirname, '..', 'results-browser');
     await page.screenshot({ path: path.join(outDir, 'shots', s.file), fullPage: true });
   }
 
-  /* 3 の操作：同意なしでは共有できないこと、同意後に共有の結果（トップの表示）が出ること */
+  /* 3 の操作：共有は1回の操作で行え、社内共有であることが投稿の前に明示されていること。共有後にトップの表示が出ること */
   const shareBtn = page.getByRole('button', { name: '社内に共有する', exact: true });
-  const disabledBefore = await shareBtn.isDisabled();
-  await page.getByRole('checkbox', { name: /同意します/ }).check();
-  const enabledAfter = !(await shareBtn.isDisabled());
+  const enabledWithoutExtraStep = !(await shareBtn.isDisabled());
+  const noticeVisible = await page.getByText('この投稿は社内に共有されます', { exact: false }).first().isVisible();
+  await page.screenshot({ path: path.join(outDir, 'shots', 'stage5-design-3-share.png'), fullPage: true });
   await shareBtn.click();
   const topPreview = await page.getByText('トップ画面での表示（プレビュー）').isVisible();
+  const ownerShown = await page.getByText('担当 ' + '鈴木一郎（仮）').first().isVisible();
   await page.screenshot({ path: path.join(outDir, 'shots', 'stage5-design-3-shared.png'), fullPage: true });
 
   await browser.close();
   const checks = {
-    shareBlockedBeforeConsent: disabledBefore,
-    shareEnabledAfterConsent: enabledAfter,
+    shareEnabledWithoutExtraStep: enabledWithoutExtraStep,
+    socialSharingNoticeVisible: noticeVisible,
     topPreviewShownAfterShare: topPreview,
+    ownerShownInTopPreview: ownerShown,
     errors: errors.length,
   };
   fs.writeFileSync(path.join(outDir, 'stage5-design-preview-checks.json'), JSON.stringify(checks, null, 2));
   console.log(JSON.stringify(checks));
-  process.exit(checks.shareBlockedBeforeConsent && checks.shareEnabledAfterConsent && checks.topPreviewShownAfterShare && errors.length === 0 ? 0 : 1);
+  process.exit(checks.shareEnabledWithoutExtraStep && checks.socialSharingNoticeVisible && checks.topPreviewShownAfterShare && checks.ownerShownInTopPreview && errors.length === 0 ? 0 : 1);
 })();

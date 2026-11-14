@@ -64,7 +64,6 @@ function Pyramid({ selectedIndex }: { selectedIndex: number }) {
 
 function Center({ screen, onScreen }: { screen: Screen; onScreen: (s: Screen) => void }) {
   const [checked, setChecked] = useState<Record<number, boolean>>({});
-  const [agree, setAgree] = useState(false);
   const [shareState, setShareState] = useState<'idle' | 'shared' | 'draft'>('idle');
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [added, setAdded] = useState(false);
@@ -141,6 +140,9 @@ function Center({ screen, onScreen }: { screen: Screen; onScreen: (s: Screen) =>
               <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
                 11/12　担当交代の顧客を洗い出し始めた
                 <br />
+                <span className="text-slate-500">参考（2026/10の記録）：案件全体の作業進捗率 20%（入力は終了。数値は実績・財務効果に換算しない）</span>
+                <br />
+                <br />
                 11/10　上司と更新案内の方針を確認した
               </div>
             )}
@@ -205,22 +207,14 @@ function Center({ screen, onScreen }: { screen: Screen; onScreen: (s: Screen) =>
             />
           </section>
 
-          <section className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
-            <div className="font-semibold">この投稿は社内に共有されます</div>
-            <div className="mt-1 text-xs">
-              トップ画面の「最近動きのあったプロジェクト」に、部門名・プロジェクト名と本文の冒頭が表示されます。投稿者の名前は表示されません。
-            </div>
-            <label className="mt-3 flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 border-0 p-0" checked={agree} onChange={() => setAgree(!agree)} />
-              <span>内容を確認し、社内に共有することに同意します</span>
-            </label>
-          </section>
-
+          <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-950">
+            この投稿は社内に共有されます。トップ画面の「最近動きのあったプロジェクト」に、部門・プロジェクト名・担当と本文の冒頭が表示されます。
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className={btnPrimary}
-              disabled={!agree || shareState !== 'idle'}
+              disabled={shareState !== 'idle'}
               onClick={() => setShareState('shared')}
             >
               {shareState === 'shared' ? '社内に共有しました' : '社内に共有する'}
@@ -238,7 +232,7 @@ function Center({ screen, onScreen }: { screen: Screen; onScreen: (s: Screen) =>
               <div className={kicker}>トップ画面での表示（プレビュー）</div>
               <div className="mt-2 rounded-lg bg-white p-3 shadow-sm">
                 <div className="text-[11px] text-slate-500">
-                  {DEPT} ・ {PROJECT} ・ 今日
+                  {DEPT} ・ {PROJECT} ・ 担当 {OWNER} ・ 今日
                 </div>
                 <div className="mt-1 text-sm text-slate-800">{TOP_TEXT}</div>
               </div>
@@ -314,6 +308,7 @@ function AiPanel({ screen }: { screen: Screen }) {
       </div>
 
       <div className="border-t border-slate-100 p-3">
+        <div className="mb-2 text-[11px] text-slate-500">相談の内容は保存されません。画面を閉じると消えます。</div>
         <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-400">続けて相談する（この設計案では送信しません）</div>
       </div>
     </aside>
