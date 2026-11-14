@@ -10,6 +10,7 @@ function makeRequestId() {
 import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
 import { resolveScreenContext } from '@/lib/screens/screenContext';
+import { loadExecutionScope, parseExecutionInput } from '@/lib/ceoChat/executionScope';
 import { buildOperationGuidance } from '@/lib/operationKnowledge/guidance';
 import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
@@ -119,6 +120,7 @@ type RequestBody = {
   strategyId: string;
   companyId: string;
   screen?: unknown;
+  execution?: unknown;
   meta?: {
     stage?: 'strategy' | 'manual' | 'generic' | 'hybrid'; // 既存
     mode?: 'text' | 'facilitator' | 'help';               // Sprint 1-4: text/facilitator/help
@@ -387,6 +389,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ content: 'この企業へのアクセス権がありません。', error: 'no membership' }, { status: 403 });
     }
     const companyId = membership.companyId;
+
+    // 実行支援の対象（選択中のプロジェクト）。会社・戦略・部門・プロジェクトの整合と、対象の範囲だけを参照する
+    let executionPrompt = '';
+    if (body?.execution !== undefined) {
+      const parsed = parseExecutionInput(body.execution, { companyId, strategyId });
+      if (!parsed.ok) {
+        return NextResponse.json({ content: '相談の対象を確認できませんでした。画面を再読み込みしてください。', error: parsed.error }, { status: parsed.status });
+      }
+      const scope = await loadExecutionScope(admin, parsed.value);
+      if (!scope.ok) {
+        return NextResponse.json({ content: '相談の対象を確認できませんでした。画面を再読み込みしてください。', error: scope.error }, { status: scope.status });
+      }
+      executionPrompt = scope.promptBlock;
+    }
 
     // ★ TASK 3: strategyId が undefined の場合ログ出力
     if (!strategyId) {
@@ -802,6 +818,9 @@ export async function POST(req: Request) {
     }
     if (screen) {
       systemBase += `\n\n【現在の画面】${screen.label}（${screen.pathname}）\n操作案内はこの画面の範囲で行う。`;
+    }
+    if (executionPrompt) {
+      systemBase += `\n\n${executionPrompt}`;
     }
 
     const guidance = buildOperationGuidance({

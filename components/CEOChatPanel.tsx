@@ -22,6 +22,7 @@ import { parseReviewTargets } from '@/lib/ceoChat/reviewTargets';
 import { supabase } from '@/utils/supabase/client';
 import { usePathname } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
+import { consultKeyOf, useSelectedProjectStore } from '@/lib/stage5/selectedProjectStore';
 import {
   AskFailureError,
   classifyAskError,
@@ -111,6 +112,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const sending = useCeoChatStore((s) => s.pending && s.ownerKey === ownerKey);
 
   const [input, setInput] = useState('');
+  const selection = useSelectedProjectStore((st) => st.selection);
+  const consult = useSelectedProjectStore((st) => st.consult);
+  useEffect(() => {
+    if (consult) setInput(consult.text);
+  }, [consult]);
   const [notice, setNotice] = useState<string | null>(null);
   const [ctxUpdated, setCtxUpdated] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -248,7 +254,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     // 送信開始時の会話の所有者（userId + companyId）と世代。応答時点で変わっていれば結果を捨てる
     const ticket = openCeoChatRequest(ownerKey);
     const current = getCeoChatMessages(ticket);
-    const userMsg: Msg = { role: 'user', content: trimmed };
+    const selNow = useSelectedProjectStore.getState().selection;
+    const execKey = selNow && selNow.companyId === activeCompanyIdRef.current ? consultKeyOf(selNow) : '';
+    const userMsg: Msg = { role: 'user', content: trimmed, ...(execKey ? { execKey } : {}) };
     const requestCompanyId = activeCompanyIdRef.current;
     const isStale = () =>
       activeCompanyIdRef.current !== requestCompanyId ||
@@ -307,7 +315,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           strategyId: latestStrategyId,
           companyId: requestCompanyId,
           ...(screenId ? { screen: { screenId } } : {}),
-          messages: [...buildAskHistory(current), userMsg],
+          ...(execKey && selNow && selNow.strategyId === latestStrategyId
+            ? { execution: { companyId: selNow.companyId, strategyId: selNow.strategyId, departmentId: selNow.departmentId, projectId: selNow.projectId } }
+            : {}),
+          messages: [...buildAskHistory(current.filter((m) => (m.execKey ?? '') === execKey)), userMsg],
         };
         if (overrideMeta) {
           payload.meta = overrideMeta;  // AI診断時のみ meta を付与
@@ -511,6 +522,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
       <div className="shrink-0 border-t px-5 py-3">
         <div className="space-y-2">
+          {selection && (
+            <p className="text-[12px] text-slate-600">
+              相談中：<span className="font-semibold text-slate-800">{selection.projectTitle}</span>（{selection.departmentName}）
+            </p>
+          )}
           {notice && (
             <p role="status" className="text-[12px] text-amber-700">
               {notice}

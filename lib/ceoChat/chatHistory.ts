@@ -1,6 +1,6 @@
 import type { ReviewTarget } from './reviewTargets';
 
-export type CeoChatMessage = { role: 'user' | 'assistant'; content: string; reviewTargets?: ReviewTarget[] };
+export type CeoChatMessage = { role: 'user' | 'assistant'; content: string; reviewTargets?: ReviewTarget[]; execKey?: string };
 
 export const CEO_CHAT_GREETING: CeoChatMessage[] = [
   { role: 'assistant', content: '操作の質問から、仕事や経営の相談まで、何でも聞いてください。' },
