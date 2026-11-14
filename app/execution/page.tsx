@@ -828,7 +828,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 3000);
     }
-  }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
+  }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind, anchorProjectOkr]);
 
   const onShareDraft = useCallback((memo: string) => saveLockRef.current(() => runCheckinSave({ memo, help: '' })), [runCheckinSave]);
 
@@ -1176,7 +1176,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 3000);
     }
-  }, [canFeedback, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
+  }, [canFeedback, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind, anchorProjectOkr]);
 
 
   const onSaveFeedback = useCallback(() => saveLockRef.current(runFeedbackSave), [runFeedbackSave]);
@@ -1258,12 +1258,28 @@ function ExecPanel(props: {
     };
   }, [open, companyId, resolvedProgressOkrId, saving]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
   if (!open) return null;
   return (
-    <section
-      aria-label="実行支援"
-      className="min-w-0 space-y-4 rounded-3xl border border-black/10 bg-white p-5 shadow-sm md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto"
-    >
+    <div className="fixed inset-y-0 left-0 right-0 z-30 xl:left-[var(--left-w,0px)] xl:right-[var(--right-w,0px)]">
+      <button
+        type="button"
+        aria-label="実行支援を閉じてピラミッドに戻る"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/25"
+      />
+      <div className="pointer-events-none absolute inset-0 flex justify-center overflow-y-auto p-3 md:p-6">
+        <section
+          aria-label="実行支援"
+          className="pointer-events-auto relative my-auto w-full max-w-[980px] space-y-5 rounded-3xl border border-black/10 bg-white p-6 shadow-2xl"
+        >
       {/* 見出し：プロジェクト・部門 */}
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1477,7 +1493,9 @@ function ExecPanel(props: {
           </details>
         )}
       </section>
-    </section>
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -2599,7 +2617,6 @@ function ExecutionPageContent() {
       <ExecutionHeader isHydrating={isHydrating} selected={selected} />
 
 
-      <div className={`md:grid md:items-start md:gap-4 ${selected ? 'md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]' : ''}`}>
       {/* モバイル */}
       <div className="md:hidden -mx-3 px-3 sm:-mx-4 sm:px-4 pt-6">
         <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
@@ -2677,7 +2694,7 @@ function ExecutionPageContent() {
 
           {/* Content */}
           <div className="relative z-10 min-w-0 max-w-6xl mx-auto px-4 md:px-6 lg:px-6 py-6">
-            <div className="flex items-start gap-6">
+            <div className="flex min-w-[880px] items-start gap-6">
               {/* Story node */}
               <button
                 ref={storyRef}
@@ -2859,8 +2876,6 @@ function ExecutionPageContent() {
           });
         }}
       />
-      </div>
-
       {/* ストーリー：モーダル（本文） */}
       <ModalShell
         open={storyOpen}

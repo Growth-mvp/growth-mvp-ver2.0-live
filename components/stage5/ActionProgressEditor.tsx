@@ -73,7 +73,7 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
     <li className="rounded-lg border border-slate-100 px-3 py-2">
       <details>
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-          <span className="text-sm font-medium text-slate-800">
+          <span className="text-base font-medium text-slate-800">
             {a.no}. {a.title}
           </span>
           <span className="flex shrink-0 items-center gap-2 text-xs text-slate-500">

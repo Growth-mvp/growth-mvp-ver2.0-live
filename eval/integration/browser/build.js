@@ -99,6 +99,14 @@ const SHELL_STUB_MAP = {
   '@/context/CompanyContext': S('shell-passthrough.ts'),
 };
 
+/* 実レイアウトの STAGE5 だけ、計画の取得と文書の保存を検証用のスタブに置き換える（通信はしない） */
+const SHELL_STAGE5_STUB_MAP = {
+  ...SHELL_STUB_MAP,
+  '@/components/okr/execution-plan/planStores': S('planStoresFlow.ts'),
+  '@/lib/stage4/plan/documentScreenFlag': S('documentScreenFlagFlow.ts'),
+  '@/lib/plans/export/downloadPlanPdf': S('downloadPlanPdfFlow.ts'),
+};
+
 function stubPlugin(map = STUB_MAP) {
   const keys = Object.keys(map).map((k) => k.replace(/[/.*+?^${}()|[\]\\]/g, '\\$&'));
   const filter = new RegExp('^(' + keys.join('|') + ')$');
@@ -302,7 +310,7 @@ function html(title, bundleName) {
       ...COMMON,
       entryPoints: [entry],
       outfile: path.join(outDir, `shell-${p.key}-bundle.js`),
-      plugins: [stubPlugin(SHELL_STUB_MAP)],
+      plugins: [stubPlugin(p.key === 'stage5' ? SHELL_STAGE5_STUB_MAP : SHELL_STUB_MAP)],
     });
     fs.writeFileSync(path.join(outDir, `shell-${p.key}.html`), html(`実レイアウト ${p.route}`, `shell-${p.key}-bundle.js`));
   }
