@@ -28,6 +28,11 @@ describe('RecordMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('「…」にマウスを重ねると「編集・削除」と表示される', () => {
+    render(createElement(RecordMenu, { items: [{ label: '削除', onSelect: jest.fn() }] }));
+    expect(screen.getByRole('button', { name: '記録の操作' }).getAttribute('title')).toBe('編集・削除');
+  });
+
   it('メニューの外を押すと閉じる', () => {
     render(createElement(RecordMenu, { items: [{ label: '削除', onSelect: jest.fn() }] }));
     fireEvent.click(screen.getByRole('button', { name: '記録の操作' }));

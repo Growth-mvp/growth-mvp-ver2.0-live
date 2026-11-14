@@ -29,10 +29,11 @@ export function RecordMenu({ items }: { items: RecordMenuItem[] }) {
       <button
         type="button"
         aria-label="記録の操作"
+        title="編集・削除"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-semibold leading-none text-gray-700 hover:bg-gray-50"
+        className="h-8 min-w-[2rem] rounded-lg border border-gray-300 bg-gray-50 px-2.5 text-base font-semibold leading-none text-gray-700 shadow-sm hover:border-gray-400 hover:bg-gray-100"
       >
         …
       </button>
