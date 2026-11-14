@@ -71,3 +71,24 @@ order by policyname;
 -- 9. 修正案の適用先に、既に同名の非公開スキーマや関数があるか
 select n.nspname, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'rls_private';
+
+-- 10. 関連する関数の定義（SECURITY DEFINER の判定関数と、company_members・progress_logs を参照する関数）
+--     定義文はコードであり、業務データは含まない。
+select n.nspname as schema, p.proname as name, pg_get_function_identity_arguments(p.oid) as args,
+       p.prosecdef as security_definer, p.provolatile as volatility, pg_get_userbyid(p.proowner) as owner,
+       p.proacl as acl, pg_get_functiondef(p.oid) as definition
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public', 'rls_private')
+  and (p.prosecdef
+       or p.prosrc ilike '%progress_logs%'
+       or p.prosrc ilike '%company_members%')
+order by 1, 2;
+
+-- 11. 現在の progress_logs ポリシーの指紋（修正案が前提とする状態と一致するかの確認用）
+--     名前・種別・対象ロール・式だけを連結して md5 を取る。本文は含まない。
+select count(*) as policy_count,
+       md5(string_agg(concat_ws('|', policyname, permissive, cmd, array_to_string(roles, ','),
+                                coalesce(qual, ''), coalesce(with_check, '')),
+                      E'\n' order by policyname)) as policy_fingerprint
+from pg_policies
+where schemaname = 'public' and tablename = 'progress_logs';

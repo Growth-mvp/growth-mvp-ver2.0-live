@@ -31,6 +31,8 @@ const MIGRATION = path.join(repo, 'supabase', 'pending', '20261114_progress_logs
 const ROLLBACK = path.join(repo, 'supabase', 'pending', '20261114_progress_logs_rls_authorization_rollback.sql');
 const JWT_SECRET = 'postgrest-rls-test-secret-0123456789abcdef';
 const AUTHENTICATOR_PW = 'authenticator-test-only';
+// 本番の読み取り確認（2026-11-14）で得た progress_logs の既存ポリシーの指紋。テスト環境がこれと一致することを前提にする。
+const PRODUCTION_POLICY_FP = '14da1ff746e1ada87be5564254dd8f39';
 
 const CO_X = '11111111-1111-4111-8111-111111111111';
 const CO_Y = '22222222-2222-4222-8222-222222222222';
@@ -95,13 +97,22 @@ async function applyFiles(dbName, files) {
   } finally { await c.end(); }
 }
 
+async function applyOnly(dbName, files) {
+  const c = new Client({ connectionString: urlFor(dbName) });
+  await c.connect();
+  try {
+    for (const f of files) await c.query(fs.readFileSync(f, 'utf8'));
+  } finally { await c.end(); }
+}
+
 async function snapshotPolicies(dbName) {
   const c = new Client({ connectionString: urlFor(dbName) });
   await c.connect();
   try {
     const p = await c.query(`select policyname, cmd, roles, permissive, qual, with_check from pg_policies where tablename='progress_logs' order by policyname`);
     const s = await c.query(`select count(*)::int as n from pg_namespace where nspname='rls_private'`);
-    return { policies: JSON.stringify(p.rows), privateSchema: s.rows[0].n };
+    const fp = await c.query(`select md5(string_agg(concat_ws('|', policyname, permissive, cmd, array_to_string(roles, ','), coalesce(qual, ''), coalesce(with_check, '')), E'\\n' order by policyname)) as fp from pg_policies where tablename='progress_logs'`);
+    return { policies: JSON.stringify(p.rows), privateSchema: s.rows[0].n, fingerprint: fp.rows[0].fp };
   } finally { await c.end(); }
 }
 
@@ -346,7 +357,6 @@ function printTable(title, rs) {
 const phases = [
   { id: 'p1', title: 'フェーズ1: 現行ポリシー（修正前。本番と同じ経路で脆弱性を再現）', files: [], strict: false, port: 3311 },
   { id: 'p2', title: 'フェーズ2: 修正案（API 経由）', files: [MIGRATION], strict: true, port: 3312 },
-  { id: 'p2b', title: 'フェーズ2b: 修正案＋残存していた全件許可の旧ポリシー（API 経由）', files: [LEGACY, MIGRATION], strict: true, port: 3313 },
 ];
 
 let failed = 0;
@@ -380,27 +390,42 @@ for (const ph of phases) {
   await applyFiles(dbName, [MIGRATION, ROLLBACK]);
   const after = await snapshotPolicies(dbName);
   await adminExec(`drop database if exists ${dbName} with (force)`);
-  const same = after.policies === snapshots.p1.policies;
+  const same = after.policies === snapshots.p1.policies && after.fingerprint === PRODUCTION_POLICY_FP;
   const schemaGone = after.privateSchema === 0;
   console.log('\n== 切り戻し（修正案 → 切り戻し）');
   console.log(`${same && schemaGone ? 'OK  ' : 'NG  '} RB-1 ポリシーが適用前と一致する: ${same}／rls_private が消えている: ${schemaGone}`);
   if (!(same && schemaGone)) failed += 1;
 }
 
-// 参考: 旧ポリシーが残っていた環境で切り戻すと、修正案が削除した旧ポリシーは戻らない（切り戻しの範囲の限界）
+// 前提：テスト環境の既存ポリシーが、本番の確認済みの指紋と一致する
 {
-  const pre = `rls_rb2pre_${stamp}`;
-  const post = `rls_rb2_${stamp}`;
-  await adminExec(`create database ${pre}`);
-  await adminExec(`create database ${post}`);
-  await applyFiles(pre, [LEGACY]);
-  await applyFiles(post, [LEGACY, MIGRATION, ROLLBACK]);
-  const beforeLegacy = await snapshotPolicies(pre);
-  const afterLegacy = await snapshotPolicies(post);
-  await adminExec(`drop database if exists ${pre} with (force)`);
-  await adminExec(`drop database if exists ${post} with (force)`);
-  console.log('\n== 参考（判定には含めない）');
-  console.log(`情報 RB-2 旧ポリシーがあった環境では、切り戻しで旧ポリシーは戻らない（事前に定義を保存する必要がある）: ${beforeLegacy.policies !== afterLegacy.policies}`);
+  const fpOk = snapshots.p1.fingerprint === PRODUCTION_POLICY_FP;
+  console.log('\n== 前提の確認');
+  console.log(`${fpOk ? 'OK  ' : 'NG  '} FP-1 テスト環境の既存ポリシーの指紋が本番（2026-11-14 確認）と一致: ${fpOk}`);
+  if (!fpOk) failed += 1;
+}
+
+// 未知の旧ポリシーがある環境では、修正案は何も変えずに中止する（未知のポリシーを無条件に削除しない）
+{
+  const dbName = `rls_abort_${stamp}`;
+  await adminExec(`create database ${dbName}`);
+  await applyFiles(dbName, [LEGACY]);
+  const before = await snapshotPolicies(dbName);
+  let aborted = false;
+  let message = '';
+  try {
+    await applyOnly(dbName, [MIGRATION]);
+  } catch (e) {
+    aborted = true;
+    message = e.message;
+  }
+  const after = await snapshotPolicies(dbName);
+  await adminExec(`drop database if exists ${dbName} with (force)`);
+  const unchanged = after.policies === before.policies && after.privateSchema === 0;
+  const pass = aborted && unchanged;
+  console.log('\n== 未知のポリシーがある環境（中止の確認）');
+  console.log(`${pass ? 'OK  ' : 'NG  '} ABORT-1 修正案は中止し、既存ポリシーを変えない: 中止=${aborted}／変化なし=${unchanged}｜${message.slice(0, 120)}`);
+  if (!pass) failed += 1;
 }
 
 console.log(failed === 0 ? '\n修正案のフェーズ・切り戻しはすべて期待どおりです。' : `\n修正案のフェーズ・切り戻しで不一致 ${failed}件。`);

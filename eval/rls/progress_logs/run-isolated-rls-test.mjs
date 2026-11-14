@@ -298,7 +298,6 @@ async function auditChecks(db) {
 const phases = [
   { title: 'フェーズ1: 現行ポリシー（修正前。脆弱性の再現）', files: [], strict: false },
   { title: 'フェーズ2: 修正案（supabase/pending/20261114_progress_logs_rls_authorization.sql）', files: [MIGRATION], strict: true },
-  { title: 'フェーズ2b: 修正案＋残存していた全件許可の旧ポリシー（OR で制限が無効にならないこと）', files: [LEGACY, MIGRATION], strict: true },
   { title: 'フェーズ3: 修正案＋監査トリガー案（20261114_progress_logs_audit_trigger.sql）', files: [MIGRATION, AUDIT], strict: true, audit: true },
 ];
 
@@ -316,5 +315,37 @@ for (const ph of phases) {
   if (ph.strict) failed += ng;
 }
 
-console.log(failed === 0 ? '\n修正案のフェーズ（2・3）はすべて期待どおりです。' : `\n修正案のフェーズで不一致 ${failed}件。`);
+// 前提：テスト環境の既存ポリシーの指紋が、本番の確認済みの値と一致する
+{
+  const db = await freshDb([]);
+  const r = await db.query(`select md5(string_agg(concat_ws('|', policyname, permissive, cmd, array_to_string(roles, ','), coalesce(qual, ''), coalesce(with_check, '')), E'\\n' order by policyname)) as fp from pg_policies where tablename = 'progress_logs'`);
+  await db.close();
+  const fpOk = r.rows[0].fp === '14da1ff746e1ada87be5564254dd8f39';
+  console.log('\n== 前提の確認');
+  console.log(`${fpOk ? 'OK  ' : 'NG  '} FP-1 テスト環境の既存ポリシーの指紋が本番（2026-11-14 確認）と一致: ${fpOk}`);
+  if (!fpOk) failed += 1;
+}
+
+// 未知の旧ポリシーがある環境では、修正案は何も変えずに中止する
+{
+  const db = await freshDb([LEGACY]);
+  const before = await db.query(`select policyname, qual from pg_policies where tablename = 'progress_logs' order by policyname`);
+  let aborted = false;
+  try {
+    await db.exec(fs.readFileSync(MIGRATION, 'utf8'));
+  } catch {
+    aborted = true;
+    await db.exec('rollback;').catch(() => {});
+  }
+  const after = await db.query(`select policyname, qual from pg_policies where tablename = 'progress_logs' order by policyname`);
+  const ns = await db.query(`select count(*)::int as n from pg_namespace where nspname = 'rls_private'`);
+  await db.close();
+  const unchanged = JSON.stringify(before.rows) === JSON.stringify(after.rows) && ns.rows[0].n === 0;
+  const pass = aborted && unchanged;
+  console.log('\n== 未知のポリシーがある環境（中止の確認）');
+  console.log(`${pass ? 'OK  ' : 'NG  '} ABORT-1 修正案は中止し、既存ポリシーを変えない: 中止=${aborted}／変化なし=${unchanged}`);
+  if (!pass) failed += 1;
+}
+
+console.log(failed === 0 ? '\n修正案のフェーズ（2・3）と前提・中止の確認はすべて期待どおりです。' : `\n修正案のフェーズで不一致 ${failed}件。`);
 process.exit(failed === 0 ? 0 : 1);
