@@ -33,6 +33,7 @@ export type ProjectPlanSectionProps = {
   projectTitle: string;
   userId: string;
   onLoaded?: (view: StartedPlanView | null) => void;
+  compact?: boolean;
 };
 
 function progressFor(departments: unknown, projectId: string): { progress: Record<string, ActionProgressRecord>; krs: LinkableKr[] } {
@@ -57,7 +58,7 @@ function progressFor(departments: unknown, projectId: string): { progress: Recor
 }
 
 export function ProjectPlanSection(props: ProjectPlanSectionProps) {
-  const { companyId, strategyId, projectId, departmentName, projectTitle, userId } = props;
+  const { companyId, strategyId, projectId, departmentName, projectTitle, userId, compact = false } = props;
   const departments = useStrategyStore((st) => (st as unknown as { departments?: unknown }).departments);
   const companyName = useStrategyStore((st) => (st as unknown as { companyName?: string }).companyName ?? '');
   const role = useUserStore((st) => st.role ?? '');
@@ -164,7 +165,7 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
         <div>
           <div className="mb-1 text-xs font-medium tracking-wide text-gray-500">実行計画（STAGE4・実行開始済み）</div>
           <p className="text-xs text-gray-600">
-            計画の内容は読み取り専用です。実施事項の進捗・成果・課題・次の行動と、紐づくKRの実績を、ここで記録します。
+            {compact ? '計画は読み取り専用です。' : '計画の内容は読み取り専用です。実施事項の進捗・成果・課題・次の行動と、紐づくKRの実績を、ここで記録します。'}
           </p>
         </div>
         <div className="flex flex-col items-start gap-1 md:items-end">
@@ -184,6 +185,10 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
         </div>
       </header>
 
+      {compact && view && <p className="text-xs text-gray-600">責任者：{view.responsible || '未定'}</p>}
+      <details open={!compact} className="rounded-2xl border border-black/5 bg-gray-50 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-gray-700">計画の詳細（目的・KPI）</summary>
+        <div className="mt-3 space-y-4">
       <div className="rounded-2xl bg-gray-50 p-4">
         <div className="text-xs text-gray-600">
           担当：{view.responsible || '未定'}　開始日：{new Date(view.startedAt).toLocaleDateString('ja-JP')}（版 {view.startedVersion}）
@@ -223,6 +228,9 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
           </tbody>
         </table>
       </div>
+
+        </div>
+      </details>
 
       <div>
         <h3 className="mb-2 text-sm font-semibold text-gray-800">実施事項と進捗</h3>

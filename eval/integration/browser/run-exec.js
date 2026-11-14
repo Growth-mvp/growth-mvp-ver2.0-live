@@ -55,6 +55,7 @@ const krOfStore = (page, title, label) =>
   await page.waitForTimeout(1800);
   await page.getByText('既存顧客の保守契約更新', { exact: true }).filter({ visible: true }).first().click();
   await page.waitForTimeout(500);
+  await page.evaluate(() => document.querySelectorAll('details').forEach((d) => (d.open = true)));
 
   const row = () => page.locator('[data-testid="kr-actual-row"]').first();
 
@@ -91,11 +92,12 @@ const krOfStore = (page, title, label) =>
 
   await check('STAGE5 既存の進捗・チェックインの機能が残っている', async () => {
     const t = await page.locator('#root').innerText();
-    if (!t.includes('進み具合を保存')) throw new Error('進み具合の保存が見当たらない');
+    if (!t.includes('今、困っていること')) throw new Error('困っていることの入力が見当たらない');
+    if (!t.includes('組織に協力を求める')) throw new Error('協力を求める入口が見当たらない');
     if (!t.includes('チェックイン') && !t.includes('フィードバック')) throw new Error('タブが見当たらない');
     if (!t.includes('KR実績（目標指標の達成状況）')) throw new Error('KR実績が見当たらない');
     if (!t.includes('作業の進み具合やチェックインとは別に')) throw new Error('区別の説明がない');
-    return '進捗入力・タブ・KR実績を同じ画面で表示';
+    return '困っていること・AIへの相談・協力依頼の入口・KR実績を同じ画面で表示';
   });
 
   await check('STAGE5 実行画面：上書き時は直前の実績を履歴に残す', async () => {
@@ -142,6 +144,7 @@ const krOfStore = (page, title, label) =>
   await noId.waitForTimeout(1800);
   await noId.getByText('既存顧客の保守契約更新', { exact: true }).filter({ visible: true }).first().click();
   await noId.waitForTimeout(500);
+  await noId.evaluate(() => document.querySelectorAll('details').forEach((d) => (d.open = true)));
 
   await check('STAGE5 実行画面（ID欠落）：記録ボタンを出さず、理由を表示する（黙って保存しない）', async () => {
     const r = noId.locator('[data-testid="kr-actual-row"]').first();

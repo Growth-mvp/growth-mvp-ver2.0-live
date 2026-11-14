@@ -70,13 +70,18 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
   };
 
   return (
-    <li className="rounded-lg border border-slate-100 p-3">
-      <div className="font-medium">
-        {a.no}. {a.title}
-      </div>
-      <div className="text-xs text-slate-500">
-        期限：{a.due}　担当：{a.owner}
-      </div>
+    <li className="rounded-lg border border-slate-100 px-3 py-2">
+      <details>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <span className="text-sm font-medium text-slate-800">
+            {a.no}. {a.title}
+          </span>
+          <span className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
+            <span>{ACTION_STATUS_LABEL[status]}</span>
+            <span>期限：{a.due}</span>
+          </span>
+        </summary>
+        <div className="mt-2 text-xs text-slate-500">担当：{a.owner}</div>
       {record && (
         <div className="mt-1 text-xs text-slate-500">
           最終更新：{dateText(record.updatedAt)}　記録者：{shortUser(record.updatedBy)}
@@ -166,6 +171,7 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
         </button>
         {message && <span role="status" className="text-xs text-slate-600">{message}</span>}
       </div>
+      </details>
     </li>
   );
 }

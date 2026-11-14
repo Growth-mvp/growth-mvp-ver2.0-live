@@ -11,6 +11,7 @@ import { ExecutionHeader } from '@/components/stage5/ExecutionHeader';
 import { EmptyExecutionMessage } from '@/components/stage5/EmptyExecutionMessage';
 import { EmptyPyramidMessage } from '@/components/stage5/EmptyPyramidMessage';
 import { ProjectPlanSection } from '@/components/stage5/ProjectPlanSection';
+import { useSelectedProjectStore } from '@/lib/stage5/selectedProjectStore';
 import { okrService } from '@/services/okrService';
 import type { StartedPlanView } from '@/lib/stage5/startedPlans';
 import { saveProgressLog } from '@/utils/supabase/strategy';
@@ -607,7 +608,7 @@ function ExecPanel(props: {
     return id;
   }, [startedPlan, companyId, strategyId, projectId, departmentId, projectTitle]);
 
-  const runCheckinSave = useCallback(async () => {
+  const runCheckinSave = useCallback(async (override?: { memo: string; help: string }) => {
     // ===== TASK A: Save 実行直前 - 認証状態ログ =====
     // IMPORTANT: auth.uid と page userId を並べて出力
     const { data: authData } = await supabase.auth.getUser();
@@ -624,8 +625,8 @@ function ExecPanel(props: {
       selected: { okrId, progressOkrId, resolvedProgressOkrId, departmentId, projectId },
       user: { userId, authUserId, canCheckin, mismatch: userId !== authUserId },
       open,
-      progressText: progressText.trim().substring(0, 50),
-      helpRequest: helpRequest.trim().substring(0, 50),
+      progressText: (override ? override.memo : progressText).trim().substring(0, 50),
+      helpRequest: (override ? override.help : helpRequest).trim().substring(0, 50),
       rating,
       timestamp: new Date().toISOString(),
     });
@@ -654,7 +655,7 @@ function ExecPanel(props: {
       console.warn('[STAGE5-save-checkin-blocked] No permission:', { canCheckin });
       return;
     }
-    if (!progressText.trim() && !helpRequest.trim() && !rating) {
+    if (!(override ? override.memo : progressText).trim() && !(override ? override.help : helpRequest).trim() && !rating) {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
@@ -667,9 +668,9 @@ function ExecPanel(props: {
     setSaving(true);
     setNotice('');
     try {
-      const composed = helpRequest.trim()
-        ? `${progressText.trim()}\n\n--- Help ---\n${helpRequest.trim()}`
-        : progressText.trim();
+      const composed = (override ? override.help : helpRequest).trim()
+        ? `${(override ? override.memo : progressText).trim()}\n\n--- Help ---\n${(override ? override.help : helpRequest).trim()}`
+        : (override ? override.memo : progressText).trim();
 
       // ===== 修正 1: dbOkrId のみを使う（fallback なし） =====
       const okrIdForSave = okrIdResolved;
@@ -829,7 +830,7 @@ function ExecPanel(props: {
     }
   }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
 
-  const onSaveCheckin = useCallback(() => saveLockRef.current(runCheckinSave), [runCheckinSave]);
+  const onShareDraft = useCallback((memo: string) => saveLockRef.current(() => runCheckinSave({ memo, help: '' })), [runCheckinSave]);
 
   // AI相談（実行メモを整理）
   const handleAssistExecution = useCallback(async () => {
@@ -1211,47 +1212,6 @@ function ExecPanel(props: {
     : null;
 
   // 作業進捗率（財務効果・金額とは独立した記録。金額は変えない）
-  const workProgressFlushRef = useRef<{ projectId: string; pct: number | undefined } | null>(null);
-  const flushWorkProgress = useCallback(async () => {
-    const pending = workProgressFlushRef.current;
-    if (!pending) return;
-    workProgressFlushRef.current = null;
-    const store = useStrategyStore.getState() as any;
-    const saved = await patchStrategyDepartments(strategyPartialIo, {
-      companyId: String(store.companyId ?? ''),
-      actorId: userId ?? '',
-      apply: (departments) => applyWorkProgressToDepartments(departments, pending),
-    });
-    if (saved.ok) {
-      useStrategyStore.getState().syncPartialSave({ departments: saved.departments, revision: saved.revision });
-      return;
-    }
-    setNotice('⚠️ 作業進捗率を保存できませんでした。画面を再読み込みしてから、もう一度入力してください。');
-  }, [userId]);
-
-  useEffect(() => () => void flushWorkProgress(), [flushWorkProgress]);
-
-  const handleWorkProgressChange = useCallback(
-    (value: string) => {
-      if (typeof di !== 'number' || typeof pi !== 'number' || !projectId) return;
-
-      const parsed = parseInt(value, 10);
-      const numValue = value === '' || isNaN(parsed) ? undefined : Math.max(0, Math.min(100, parsed));
-
-      useStrategyStore.setState((prev: any) => {
-        const departments = [...(prev.departments ?? [])];
-        const dept = departments[di];
-        if (!dept) return {};
-        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-        if (!projs[pi]) return {};
-        projs[pi] = { ...projs[pi], workProgressPct: numValue };
-        departments[di] = { ...dept, projects: projs };
-        return { departments, version: (prev.version ?? 0) + 1 };
-      });
-      workProgressFlushRef.current = { projectId, pct: numValue };
-    },
-    [di, pi, projectId],
-  );
 
   const projectHypothesis = String(
     (stage4Proj as any)?.projectHypothesis
@@ -1267,410 +1227,197 @@ function ExecPanel(props: {
         .filter(Boolean)
     : [];
 
+  const requestConsult = useSelectedProjectStore((st) => st.requestConsult);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareDraft, setShareDraft] = useState('');
+  const [sharedLogs, setSharedLogs] = useState<LogRow[]>([]);
+  useEffect(() => {
+    if (notice === '✅ 記録しました') {
+      setShareDraft('');
+      setShareOpen(false);
+    }
+  }, [notice]);
+  useEffect(() => {
+    if (!open || !companyId || !resolvedProgressOkrId) {
+      setSharedLogs([]);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from('progress_logs')
+      .select('id, created_at, content, score, status, user_id')
+      .eq('company_id', companyId)
+      .eq('okr_id', resolvedProgressOkrId)
+      .order('created_at', { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        if (!cancelled) setSharedLogs(Array.isArray(data) ? (data as LogRow[]) : []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, companyId, resolvedProgressOkrId, saving]);
+
+  if (!open) return null;
   return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="実行支援"
-      subtitle={`${deptName} / ${projectTitle}`}
-      icon={<CheckCircle2 className="h-5 w-5 text-gray-800" />}
-      width="clamp(560px, 60vw, 980px)"
+    <section
+      aria-label="実行支援"
+      className="min-w-0 space-y-4 rounded-3xl border border-black/10 bg-white p-5 shadow-sm md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto"
     >
-      <div className="space-y-6 p-6">
-        {/* プロジェクト概要 */}
-        <section className="rounded-3xl border border-black/10 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-xs font-medium text-gray-500 tracking-wide mb-1">プロジェクト概要</div>
-              <h3 className="text-base font-semibold text-gray-900">{projectTitle || '（プロジェクト未設定）'}</h3>
-              <p className="mt-2 text-xs leading-5 text-gray-600">
-                今日の進み具合や困っていることを残します。進捗率は財務試算（STAGE6）には反映されません。財務試算に入るのは、STAGE4で確認済みにした財務効果だけです。
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
-                部門：{deptName || '未設定'}
-              </span>
-              <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
-                目標：{objective ? '設定済み' : '未設定'}
-              </span>
-            </div>
-          </div>
+      {/* 見出し：プロジェクト・部門 */}
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs text-gray-500">{deptName || '部門未設定'}</div>
+          <h2 className="truncate text-lg font-semibold text-gray-900">{projectTitle || '（プロジェクト未設定）'}</h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="実行支援パネルを閉じる"
+          className="shrink-0 rounded-xl border border-black/10 bg-white px-2.5 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+        >
+          ✕
+        </button>
+      </header>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-gray-50 p-4">
-              <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">目標</div>
-              <div className="whitespace-pre-wrap text-[15px] leading-6 text-gray-900">{objective || '（未設定）'}</div>
-            </div>
-            <div className="rounded-2xl bg-gray-50 p-4">
-              <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">この取り組みの狙い</div>
-              <div className="whitespace-pre-wrap text-[13px] leading-6 text-gray-800">
-                {projectHypothesis || 'この取り組みを進めることで、設定したKPIと成果への貢献を目指します。'}
-              </div>
-            </div>
-          </div>
+      {/* 計画：責任者・PDF・次にやること */}
+      <ProjectPlanSection
+        compact
+        companyId={companyId ?? ''}
+        strategyId={strategyId ?? ''}
+        projectId={projectId ?? ''}
+        departmentName={deptName}
+        projectTitle={projectTitle}
+        userId={userId ?? ''}
+        onLoaded={setStartedPlan}
+      />
 
-          {!startedPlan && (
-          <div className="mt-3 rounded-2xl bg-gray-50 p-4">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <div className="text-xs font-medium text-gray-600 tracking-wide">主なKPI</div>
-              {stage4KpiLabels.length > 0 && (
-                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 border border-gray-200">
-                  {stage4KpiLabels.length}件
-                </span>
-              )}
-            </div>
-            {stage4KpiLabels.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {stage4KpiLabels.slice(0, 6).map((label: string, idx: number) => (
-                  <span key={`${label}-${idx}`} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
-                    {label}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs leading-5 text-gray-500">KPIは未設定です。必要に応じてSTAGE4で設定してください。</div>
-            )}
-          </div>
-          )}
-        </section>
-
-        <ProjectPlanSection
-          companyId={companyId ?? ''}
-          strategyId={strategyId ?? ''}
-          projectId={projectId ?? ''}
-          departmentName={deptName}
-          projectTitle={projectTitle}
-          userId={userId ?? ''}
-          onLoaded={setStartedPlan}
+      {/* 今、困っていること：右側のAI経営コンサルタントへ、同じ対象で相談する */}
+      <section className="rounded-2xl bg-gray-50 p-4">
+        <label className="text-sm font-semibold text-gray-800" htmlFor="stage5-problem">
+          今、困っていること
+        </label>
+        <AutoResizeTextarea
+          id="stage5-problem"
+          minRows={2}
+          maxRows={6}
+          className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
+          placeholder="例：継続率が伸びない理由がつかめない"
+          value={progressText}
+          onChange={(e) => setProgressText(e.target.value)}
         />
-
-        {props.onRecordKrActual ? <KrActualSection krs={props.krs} onRecord={props.onRecordKrActual} /> : null}
-
-        {/* Tabs */}
-        <div className="inline-flex rounded-2xl border border-black/10 bg-white p-1 shadow-sm">
+        <div className="mt-3 flex flex-wrap gap-2">
           <button
-            className={`px-3 py-1.5 text-sm rounded-xl transition ${
-              tab === 'checkin' ? 'bg-indigo-600 text-white xl:dark:bg-gray-900' : 'text-gray-800 hover:bg-gray-100'
-            }`}
-            onClick={() => setTab('checkin')}
             type="button"
+            onClick={() => requestConsult(progressText.trim())}
+            disabled={!progressText.trim()}
+            className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
           >
-            進み具合を書く
+            AI経営コンサルタントに相談する
           </button>
           <button
-            className={`px-3 py-1.5 text-sm rounded-xl transition ${
-              tab === 'feedback' ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'
-            }`}
-            onClick={() => setTab('feedback')}
             type="button"
+            onClick={() => setShareOpen((v) => !v)}
+            aria-expanded={shareOpen}
+            className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
           >
-            フィードバック
+            組織に協力を求める
           </button>
         </div>
+      </section>
 
-        {/* チェックイン */}
-        {tab === 'checkin' && (
-          <>
-            <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
-              <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold tracking-tight">今日の進み具合を書く</h3>
-                  <p className="text-xs leading-5 text-gray-600">
-                    進んだこと、止まっていること、相談したいことを自由に書いてください。
-                  </p>
-                  <p className="text-xs leading-5 text-gray-600">
-                    メモを整理して、次にやることや支援依頼のたたき台を作れます。
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {progressHintTemplates.map((hint) => (
-                    <button
-                      key={hint.key}
-                      type="button"
-                      onClick={() => insertProgressTemplate(hint.template)}
-                      className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
-                    >
-                      {hint.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <AutoResizeTextarea
-                minRows={4}
-                maxRows={14}
-                className="w-full rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
-                placeholder={
-                  '・進んだこと\n'
-                  + '・止まっていること\n'
-                  + '・相談したいこと\n'
-                  + '・次にやること'
-                }
-                value={progressText}
-                onChange={(e) => setProgressText(e.target.value)}
-              />
-              {editingLogId && editingKind === 'checkin' && (
-                <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
-                  <span className="text-xs font-medium text-amber-800">このメモを編集中です</span>
-                  <button
-                    type="button"
-                    onClick={cancelEditing}
-                    className="text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
-                  >
-                    編集をやめる
-                  </button>
-                </div>
-              )}
-              <div className="mt-4">
-                <label className="mb-1 block text-xs text-gray-600">支援依頼（任意）</label>
-                <AutoResizeTextarea
-                  minRows={2}
-                  maxRows={6}
-                  className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
-                  placeholder="例：決裁者向け1枚資料のレビューを依頼。"
-                  value={helpRequest}
-                  onChange={(e) => setHelpRequest(e.target.value)}
-                />
-              </div>
-
-              {/* AIボタン */}
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={handleAssistExecution}
-                  disabled={executionAiLoading || !progressText.trim()}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
-                  type="button"
-                >
-                  {executionAiLoading ? (
-                    <>
-                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
-                      整理中…
-                    </>
-                  ) : (
-                    <>
-                      ✨ メモを整理する
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* AIエラーメッセージ */}
-              {executionAiError && (
-                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-3 py-2">
-                  <p className="text-sm text-red-700">{executionAiError}</p>
-                </div>
-              )}
-
-              {/* AI結果表示 */}
-              {executionAiResult && (
-                <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                  <div className="space-y-3 text-sm text-blue-800">
-                    {/* AIの回答（質問への直接回答） */}
-                    {executionAiResult.directAnswer && (
-                      <div className="rounded-lg border-l-4 border-blue-400 bg-white px-3 py-2">
-                        <p className="font-medium text-blue-900">AIの回答</p>
-                        <p className="mt-1 whitespace-pre-wrap text-xs leading-5">{executionAiResult.directAnswer}</p>
-                      </div>
-                    )}
-
-                    {/* AIの整理 */}
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">AIの整理</p>
-                    </div>
-
-                    {/* 状況の要約 */}
-                    <div>
-                      <p className="font-medium text-blue-900">状況の要約</p>
-                      <p className="mt-1 text-xs leading-5">{executionAiResult.summary}</p>
-                    </div>
-
-                    {/* 想定される課題 */}
-                    {executionAiResult.issues && executionAiResult.issues.length > 0 && (
-                      <div>
-                        <p className="font-medium text-blue-900">想定される課題</p>
-                        <ul className="mt-1 space-y-1">
-                          {executionAiResult.issues.map((issue, i) => (
-                            <li key={i} className="text-xs leading-5">・{issue}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* 次の一手 */}
-                    {executionAiResult.nextActions && executionAiResult.nextActions.length > 0 && (
-                      <div>
-                        <p className="font-medium text-blue-900">次の一手</p>
-                        <ul className="mt-1 space-y-1">
-                          {executionAiResult.nextActions.map((action, i) => (
-                            <li key={i} className="text-xs leading-5">・{action}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* 支援依頼のたたき台 */}
-                    {executionAiResult.supportDraft && (
-                      <div>
-                        <p className="font-medium text-blue-900">支援依頼のたたき台</p>
-                        <p className="mt-1 text-xs leading-5">{executionAiResult.supportDraft}</p>
-                      </div>
-                    )}
-
-                    {/* 見直しシグナル */}
-                    {executionAiResult.reviewSignal && (
-                      <div>
-                        <p className="font-medium text-blue-900">見直しが必要な可能性</p>
-                        <p className="mt-1 text-xs leading-5">{executionAiResult.reviewSignal}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* AI結果をメモに反映するボタン */}
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={appendAiResultToMemo}
-                      className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                      type="button"
-                    >
-                      AI整理をメモに反映
-                    </button>
-                    <button
-                      onClick={() => {
-                        setExecutionAiResult(null);
-                        setExecutionAiError(null);
-                      }}
-                      className="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
-                      type="button"
-                    >
-                      ✕ 閉じる
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="flex items-center gap-3">
-              <button
-                onClick={onSaveCheckin}
-                disabled={saving || !userId}
-                className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300 shadow-sm xl:dark:bg-gray-900 xl:dark:hover:bg-black/90"
-                type="button"
-              >
-                <Send className="h-4 w-4" />
-                {saving ? '保存中…' : editingLogId && editingKind === 'checkin' ? '進み具合を更新' : '進み具合を保存'}
-              </button>
-              {notice && <span className="text-sm text-gray-700">{notice}</span>}
-            </section>
-          </>
-        )}
-
-        {/* フィードバック */}
-        {tab === 'feedback' && (
-          <>
-            <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
-              <div className="mb-3">
-                <div className="text-sm font-semibold tracking-tight">フィードバック</div>
-              </div>
-              {editingLogId && editingKind === 'feedback' && (
-                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
-                  <span className="text-xs font-medium text-amber-800">このフィードバックを編集中です</span>
-                  <button
-                    type="button"
-                    onClick={cancelEditing}
-                    className="text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
-                  >
-                    編集をやめる
-                  </button>
-                </div>
-              )}
-              <AutoResizeTextarea
-                minRows={3}
-                maxRows={8}
-                className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
-                placeholder="例：見直した方がよい点、確認したいこと、次に活かしたい気づきを書いてください。"
-                value={reviewText}
-                onChange={(e) => setReviewText(e.target.value)}
-              />
-            </section>
-            <section className="flex items-center gap-3">
-              <button
-                onClick={onSaveFeedback}
-                disabled={saving || !userId}
-                className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300 shadow-sm xl:dark:bg-gray-900 xl:dark:hover:bg-black/90"
-                type="button"
-              >
-                <Send className="h-4 w-4" />
-                {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
-              </button>
-              {notice && <span className="text-sm text-gray-700">{notice}</span>}
-            </section>
-          </>
-        )}
-
-
-        {/* 作業の進捗（金額・財務効果とは別の記録） */}
-        {stage4Proj && (
-          <section className="rounded-3xl border border-blue-100 bg-blue-50/40 p-5 shadow-sm">
-            <div className="mb-4">
-              <div className="text-xs font-medium text-blue-700 tracking-wide mb-1">作業の進捗</div>
-              <h3 className="text-sm font-semibold text-blue-950">この施策の作業がどこまで進んだか</h3>
-              <p className="mt-1 text-xs leading-5 text-blue-800/80">
-                ここで入力するのは作業の進捗率です。金額や財務効果は変わりません。財務試算（STAGE6）には、STAGE4で確認した財務効果だけが反映されます。
-              </p>
-            </div>
-            <label className="block max-w-xs text-xs text-gray-600">
-              作業進捗率（%）
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                value={(stage4Proj as any).workProgressPct ?? ''}
-                onChange={(e) => handleWorkProgressChange(e.target.value)}
-                onBlur={() => void flushWorkProgress()}
-                className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                placeholder="例：20"
-              />
-            </label>
-            {typeof (stage4Proj as any).impactRevenueProgress === 'number' && (
-              <p className="mt-3 text-xs leading-5 text-gray-600">
-                以前の入力（旧方式の売上達成率 {(stage4Proj as any).impactRevenueProgress}%）は保存されたままです。作業進捗率には自動で移していません。必要なら上の欄に改めて入力してください。
-              </p>
-            )}
-          </section>
-        )}
-
-        {/* 履歴 */}
-        <section className="rounded-3xl border border-black/10 bg-white/70 shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-black/10 px-5 py-4 bg-white/70">
-            <Clock className="h-4 w-4 text-gray-600" />
-            <h3 className="text-sm font-semibold tracking-tight">履歴</h3>
+      {/* 組織に協力を求める：社内に共有する投稿（本人が投稿したものだけ共有される） */}
+      {shareOpen && (
+        <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
+          <div className="text-sm font-semibold text-gray-800">社内に共有する投稿</div>
+          <AutoResizeTextarea
+            minRows={3}
+            maxRows={8}
+            className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
+            placeholder="協力してほしいことを書いてください"
+            value={shareDraft}
+            onChange={(e) => setShareDraft(e.target.value)}
+          />
+          <p className="mt-2 text-xs text-sky-950">この投稿は社内に共有されます。トップ画面の「最近動きのあったプロジェクト」に表示されます。</p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => onShareDraft(shareDraft.trim())}
+              disabled={saving || !userId || !shareDraft.trim()}
+              className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:bg-gray-300"
+            >
+              {saving ? '共有中…' : '社内に共有する'}
+            </button>
+            <a href="/org-transformation" className="text-xs text-gray-600 underline-offset-2 hover:underline">
+              組織変革ルームで管理者に相談する
+            </a>
+            {notice && <span className="text-xs text-gray-700">{notice}</span>}
           </div>
-          {loadingLogs ? (
-            <div className="px-5 py-5 text-sm text-gray-600">読み込み中…</div>
-          ) : logs.length === 0 ? (
-            <div className="px-5 py-5 text-sm text-gray-600">まだ履歴がありません。</div>
+        </section>
+      )}
+
+      {/* 補助情報：必要な時だけ開く */}
+      <section className="space-y-2">
+        <div className="text-xs font-semibold tracking-wide text-gray-500">補助情報（必要な時だけ開く）</div>
+
+        {props.onRecordKrActual ? (
+          <details className="rounded-2xl border border-black/10 bg-white p-3">
+            <summary className="cursor-pointer text-sm font-medium text-gray-800">KPI・KR実績</summary>
+            <div className="mt-3">
+              <KrActualSection krs={props.krs} onRecord={props.onRecordKrActual} />
+            </div>
+          </details>
+        ) : null}
+
+        <details className="rounded-2xl border border-black/10 bg-white p-3">
+          <summary className="cursor-pointer text-sm font-medium text-gray-800">社内の共有記録（全文）</summary>
+          {sharedLogs.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-600">まだ共有された記録はありません。</p>
           ) : (
-            <ul className="divide-y divide-black/5">
+            <ul className="mt-3 divide-y divide-black/5">
+              {sharedLogs.map((row, i) => {
+                const cleanContent = stripMetadata(row.content ?? '');
+                const fb = cleanContent.startsWith('[FB]');
+                const { memo, help } = splitContent(cleanContent);
+                return (
+                  <li key={row.id ?? i} className="py-3">
+                    <div className="mb-1 flex items-center gap-2 text-xs text-gray-500">
+                      <span>{row.created_at ? new Date(row.created_at).toLocaleString() : ''}</span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5">{fb ? 'フィードバック' : (row as LogRow & { user_id?: string }).user_id === userId ? '本人の投稿' : '社員の投稿'}</span>
+                    </div>
+                    {fb ? (
+                      <div className="whitespace-pre-wrap text-sm text-gray-900">{feedbackBody({ ...row, content: cleanContent })}</div>
+                    ) : (
+                      <>
+                        {memo && <div className="whitespace-pre-wrap text-sm text-gray-900">{memo}</div>}
+                        {help && <div className="mt-2 whitespace-pre-wrap rounded-xl bg-gray-50 p-2 text-sm text-gray-800">支援依頼：{help}</div>}
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </details>
+
+        <details className="rounded-2xl border border-black/10 bg-white p-3">
+          <summary className="cursor-pointer text-sm font-medium text-gray-800">自分の履歴（編集・削除）</summary>
+          {loadingLogs ? (
+            <p className="mt-3 text-sm text-gray-600">読み込み中…</p>
+          ) : logs.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-600">まだ履歴がありません。</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-black/5">
               {logs.map((row, i) => {
                 const when = row.created_at ? new Date(row.created_at).toLocaleString() : '';
                 const cleanContent = stripMetadata(row.content ?? '');
                 const fb = cleanContent.startsWith('[FB]');
                 const body = fb ? feedbackBody({ ...row, content: cleanContent }) : cleanContent;
-                const { memo, help } = splitContent(cleanContent);
-                const score = typeof row.score === 'number' ? row.score : null;
-
                 return (
-                  <li key={row.id ?? i} className="px-5 py-4">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <div className="text-xs text-gray-500">{when}</div>
-                      <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-gray-700">
-                        {score !== null && score > 0 && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5">
-                            インパクト {score}/5
-                          </span>
-                        )}
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5">{fb ? 'FB' : 'メモ'}</span>
+                  <li key={row.id ?? i} className="py-3">
+                    <div className="mb-1 flex items-center justify-between gap-3 text-xs text-gray-500">
+                      <span>{when}</span>
+                      <span className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => (fb ? startEditingFeedback(row) : startEditingCheckin(row))}
@@ -1687,30 +1434,50 @@ function ExecPanel(props: {
                         >
                           {deletingLogId === String(row.id ?? '') ? '削除中…' : '削除'}
                         </button>
-                      </div>
+                      </span>
                     </div>
-                    {fb ? (
-                      <div className="rounded-2xl bg-gray-50 p-3 text-sm text-gray-900 whitespace-pre-wrap">{body}</div>
-                    ) : (
-                      <>
-                        {memo && <div className="text-[15px] text-gray-900 whitespace-pre-wrap">{memo}</div>}
-                        {help && (
-                          <div className="mt-2 rounded-2xl bg-gray-50 p-3 text-sm text-gray-800 whitespace-pre-wrap">
-                            {help}
-                          </div>
-                        )}
-                      </>
-                    )}
+                    <div className="whitespace-pre-wrap text-sm text-gray-900">{body}</div>
                   </li>
                 );
               })}
             </ul>
           )}
-        </section>
+        </details>
 
-        <div className="pb-8" />
-      </div>
-    </ModalShell>
+        {canFeedback && (
+          <details className="rounded-2xl border border-black/10 bg-white p-3">
+            <summary className="cursor-pointer text-sm font-medium text-gray-800">フィードバック（管理者）</summary>
+            <div className="mt-3 space-y-2">
+              <AutoResizeTextarea
+                minRows={3}
+                maxRows={8}
+                className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+                placeholder="見直した方がよい点、確認したいこと、次に活かしたい気づきを書いてください。"
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value)}
+              />
+              <button
+                onClick={onSaveFeedback}
+                disabled={saving || !userId}
+                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
+                type="button"
+              >
+                {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
+              </button>
+            </div>
+          </details>
+        )}
+
+        {stage4Proj && typeof (stage4Proj as any).workProgressPct === 'number' && (
+          <details className="rounded-2xl border border-black/10 bg-white p-3">
+            <summary className="cursor-pointer text-sm font-medium text-gray-800">過去の作業進捗率（参考）</summary>
+            <p className="mt-3 text-sm text-gray-700">
+              {(stage4Proj as any).workProgressPct}%。参考として保存されたもので、入力は終了しています。財務効果や実績には換算しません。
+            </p>
+          </details>
+        )}
+      </section>
+    </section>
   );
 }
 
@@ -2383,6 +2150,22 @@ function ExecutionPageContent() {
 
   // ===== 選択（実行支援：OKR）=====
   const [selected, setSelected] = useState<SelectedExecutionItem | null>(null);
+  const setSelectedProject = useSelectedProjectStore((st) => st.setSelection);
+  useEffect(() => {
+    if (!selected || !selected.projectId || !selected.departmentId || !selected.companyId || !selected.strategyId) {
+      setSelectedProject(null);
+      return;
+    }
+    setSelectedProject({
+      companyId: selected.companyId,
+      strategyId: selected.strategyId,
+      departmentId: selected.departmentId,
+      projectId: selected.projectId,
+      projectTitle: selected.projectTitle ?? '',
+      departmentName: selected.deptName ?? '',
+    });
+  }, [selected, setSelectedProject]);
+  useEffect(() => () => setSelectedProject(null), [setSelectedProject]);
   // 会社を切り替えたら、前の会社で選んだ施策を残さない
   const scopeCompanyKey = useStrategyStore((st: any) => st.companyId ?? null);
   const prevScopeCompanyKeyRef = useRef(scopeCompanyKey);
@@ -2816,6 +2599,7 @@ function ExecutionPageContent() {
       <ExecutionHeader isHydrating={isHydrating} selected={selected} />
 
 
+      <div className={`md:grid md:items-start md:gap-4 ${selected ? 'md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]' : ''}`}>
       {/* モバイル */}
       <div className="md:hidden -mx-3 px-3 sm:-mx-4 sm:px-4 pt-6">
         <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
@@ -3027,6 +2811,56 @@ function ExecutionPageContent() {
         </div>
       </div>
 
+      {/* 実行支援：モーダル */}
+      <ExecPanel
+        key={
+          selected
+            ? selected.resolvedDbOkrId ??
+              selected.progressOkrId ??
+              selected.okrId ??
+              (selected.projectId ? `${selected.departmentId ?? ''}:${selected.projectId}:${selected.di ?? ''}:${selected.pi ?? ''}` : null) ??
+              'no-selection'
+            : 'no-selection'
+        }
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        userId={user?.id}
+        deptName={selected?.deptName ?? ''}
+        projectTitle={selected?.projectTitle ?? ''}
+        objective={selected?.objective ?? ''}
+        keyResults={selected?.keyResults ?? []}
+        // ===== TASK 3: dbOkrId と displayOkrId を pass =====
+        dbOkrId={selected?.dbOkrId}
+        resolvedDbOkrId={selected?.resolvedDbOkrId}
+        displayOkrId={selected?.displayOkrId}
+        // ===== TASK 4: mapHit を pass =====
+        mapHit={selected?.mapHit}
+        okrId={selected?.okrId ?? ''}
+        progressOkrId={selected?.progressOkrId}
+        strategyId={selected?.strategyId}
+        departmentId={selected?.departmentId}
+        projectId={selected?.projectId}
+        companyId={selected?.companyId ?? ''}
+        krIds={selected?.krIds ?? []}
+        di={selected?.di}
+        pi={selected?.pi}
+        krs={selectedKrs}
+        onRecordKrActual={recordKrActualFor}
+        onActivitySaved={({ okrId, at }) => {
+          setProjectActivityMap((prev) => {
+            const before = prev[okrId];
+            return {
+              ...prev,
+              [okrId]: {
+                latestAt: before?.latestAt && before.latestAt > at ? before.latestAt : at,
+                count: (before?.count ?? 0) + 1,
+              },
+            };
+          });
+        }}
+      />
+      </div>
+
       {/* ストーリー：モーダル（本文） */}
       <ModalShell
         open={storyOpen}
@@ -3113,54 +2947,6 @@ function ExecutionPageContent() {
         </div>
       </ModalShell>
 
-      {/* 実行支援：モーダル */}
-      <ExecPanel
-        key={
-          selected
-            ? selected.resolvedDbOkrId ??
-              selected.progressOkrId ??
-              selected.okrId ??
-              (selected.projectId ? `${selected.departmentId ?? ''}:${selected.projectId}:${selected.di ?? ''}:${selected.pi ?? ''}` : null) ??
-              'no-selection'
-            : 'no-selection'
-        }
-        open={!!selected}
-        onClose={() => setSelected(null)}
-        userId={user?.id}
-        deptName={selected?.deptName ?? ''}
-        projectTitle={selected?.projectTitle ?? ''}
-        objective={selected?.objective ?? ''}
-        keyResults={selected?.keyResults ?? []}
-        // ===== TASK 3: dbOkrId と displayOkrId を pass =====
-        dbOkrId={selected?.dbOkrId}
-        resolvedDbOkrId={selected?.resolvedDbOkrId}
-        displayOkrId={selected?.displayOkrId}
-        // ===== TASK 4: mapHit を pass =====
-        mapHit={selected?.mapHit}
-        okrId={selected?.okrId ?? ''}
-        progressOkrId={selected?.progressOkrId}
-        strategyId={selected?.strategyId}
-        departmentId={selected?.departmentId}
-        projectId={selected?.projectId}
-        companyId={selected?.companyId ?? ''}
-        krIds={selected?.krIds ?? []}
-        di={selected?.di}
-        pi={selected?.pi}
-        krs={selectedKrs}
-        onRecordKrActual={recordKrActualFor}
-        onActivitySaved={({ okrId, at }) => {
-          setProjectActivityMap((prev) => {
-            const before = prev[okrId];
-            return {
-              ...prev,
-              [okrId]: {
-                latestAt: before?.latestAt && before.latestAt > at ? before.latestAt : at,
-                count: (before?.count ?? 0) + 1,
-              },
-            };
-          });
-        }}
-      />
     </main>
   );
 }

@@ -72,6 +72,7 @@ const projectOfStorage = (page, title) =>
 
   await page.getByText(PROJECT, { exact: true }).filter({ visible: true }).first().click();
   await page.waitForTimeout(700);
+  await page.evaluate(() => document.querySelectorAll('details').forEach((d) => (d.open = true)));
 
   await check('モーダル：STAGE4で開始した計画を表示し、STAGE4で修正したKPIの目標を出す', async () => {
     const section = page.locator('section[aria-label="実行計画"]').first();
@@ -118,6 +119,7 @@ const projectOfStorage = (page, title) =>
   await page.waitForTimeout(1800);
   await page.getByText(PROJECT, { exact: true }).filter({ visible: true }).first().click();
   await page.waitForTimeout(700);
+  await page.evaluate(() => document.querySelectorAll('details').forEach((d) => (d.open = true)));
 
   await check('再読込：保存した進捗・課題・次の行動が残っている', async () => {
     const s = page.locator('section[aria-label="実行計画"]').first();
@@ -133,11 +135,9 @@ const projectOfStorage = (page, title) =>
 
   await check('OKRが無い案件：活動ログは保存時にだけ、OKRを作ってから保存する', async () => {
     const before = await counters(page);
-    const memo = page.getByPlaceholder(/進んだこと|進み具合|書いてください/).first();
-    const hasMemo = (await memo.count()) > 0;
-    if (!hasMemo) throw new Error('進み具合の入力欄が見つからない');
-    await memo.fill('ハーネスの活動ログ');
-    await page.getByRole('button', { name: '進み具合を保存' }).first().click();
+    await page.getByRole('button', { name: '組織に協力を求める' }).first().click();
+    await page.getByPlaceholder('協力してほしいことを書いてください').fill('ハーネスの共有投稿');
+    await page.getByRole('button', { name: '社内に共有する' }).first().click();
     await page.waitForTimeout(600);
     const after = await counters(page);
     if (after.okrCalls !== before.okrCalls + 1) throw new Error(`OKR作成が1回でない: ${before.okrCalls} -> ${after.okrCalls}`);
