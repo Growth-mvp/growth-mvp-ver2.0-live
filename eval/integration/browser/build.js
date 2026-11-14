@@ -48,6 +48,14 @@ const PLAN_FLOW_STUB_MAP = {
   '@/lib/plans/export/downloadPlanPdf': S('downloadPlanPdfFlow.ts'),
 };
 
+/* 記録の追加・編集・削除・再読込の検証用：通信は stubs/recordStore.ts（localStorage の表）で遮断する */
+const RECORD_FLOW_STUB_MAP = {
+  ...PLAN_FLOW_STUB_MAP,
+  '@/utils/supabase/client': S('recordStore.ts'),
+  '@/utils/supabase/strategy': S('recordStore.ts'),
+  '@/services/okrService': S('recordOkrService.ts'),
+};
+
 /* 実アプリのレイアウトで描画する各STAGEのページ（route は app/ 配下のフォルダ名） */
 const SHELL_PAGES = [
   { key: 'stage1', route: 'stage1' },
@@ -201,6 +209,13 @@ function html(title, bundleName) {
     plugins: [stubPlugin(PLAN_FLOW_STUB_MAP)],
   });
   fs.writeFileSync(path.join(outDir, 'plan-flow.html'), html('STAGE5 実行計画の流れの検証', 'plan-flow-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'record-flow-entry.tsx')],
+    outfile: path.join(outDir, 'record-flow-bundle.js'),
+    plugins: [stubPlugin(RECORD_FLOW_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'record-flow.html'), html('STAGE5 記録の編集・削除の流れの検証', 'record-flow-bundle.js'));
   await esbuild.build({
     ...COMMON,
     entryPoints: [path.join(__dirname, 'stage5-design-preview-entry.tsx')],

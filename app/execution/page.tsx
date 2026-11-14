@@ -12,6 +12,8 @@ import { EmptyExecutionMessage } from '@/components/stage5/EmptyExecutionMessage
 import { EmptyPyramidMessage } from '@/components/stage5/EmptyPyramidMessage';
 import { ProjectPlanSection } from '@/components/stage5/ProjectPlanSection';
 import { useSelectedProjectStore } from '@/lib/stage5/selectedProjectStore';
+import { RecordMenu, type RecordMenuItem } from '@/components/stage5/RecordMenu';
+import { canEditRecord, recordKindOf } from '@/lib/stage5/recordActions';
 import { okrService } from '@/services/okrService';
 import type { StartedPlanView } from '@/lib/stage5/startedPlans';
 import { saveProgressLog } from '@/utils/supabase/strategy';
@@ -216,6 +218,7 @@ type LogRow = {
   content?: string | null;
   score?: number | null;
   status?: string | null;
+  user_id?: string | null;
 };
 
 type SelectedExecutionItem = {
@@ -380,7 +383,6 @@ function ExecPanel(props: {
   const canCheckin = !!userId;
   const canFeedback = access.canEditCompany();
 
-  const [tab, setTab] = useState<'checkin' | 'feedback'>('checkin');
   const [progressText, setProgressText] = useState('');
   const [rating, setRating] = useState<number>(0);
   const [helpRequest, setHelpRequest] = useState('');
@@ -395,6 +397,13 @@ function ExecPanel(props: {
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [editingKind, setEditingKind] = useState<'checkin' | 'feedback' | null>(null);
   const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareDraft, setShareDraft] = useState('');
+  const [shareEditHelp, setShareEditHelp] = useState('');
+  const [sharedLogs, setSharedLogs] = useState<LogRow[]>([]);
+  const shareSectionRef = useRef<HTMLElement | null>(null);
+  const feedbackSectionRef = useRef<HTMLElement | null>(null);
+  const shareEditing = editingKind === 'checkin' && !!editingLogId;
   const saveLockRef = useRef(createSingleFlight());
   const pendingInsertRef = useRef(createPendingInsert());
   const [startedPlan, setStartedPlan] = useState<StartedPlanView | null>(null);
@@ -443,7 +452,7 @@ function ExecPanel(props: {
       try {
         const { data, error } = await supabase
           .from('progress_logs')
-          .select('id, created_at, content, score, status')
+          .select('id, created_at, content, score, status, user_id')
           .eq('user_id', userId)
           .eq('okr_id', resolvedProgressOkrId)
           .order('created_at', { ascending: false })
@@ -506,57 +515,61 @@ function ExecPanel(props: {
     setExecutionAiLoading(false);
   }, [
     open,
-    resolvedProgressOkrId,
     okrId,
     projectId,
     departmentId,
   ]);
 
-  const cancelEditing = useCallback(() => {
+  const cancelFeedbackEdit = useCallback(() => {
     setEditingLogId(null);
     setEditingKind(null);
-    setProgressText('');
-    setHelpRequest('');
     setReviewText('');
-    setNotice('');
+  }, []);
+
+  const cancelShareEdit = useCallback(() => {
+    setEditingLogId(null);
+    setEditingKind(null);
+    setShareDraft('');
+    setShareEditHelp('');
+    setShareOpen(false);
   }, []);
 
   const startEditingCheckin = useCallback((row: LogRow) => {
-    const cleanContent = stripMetadata(row.content ?? '');
-    const { memo, help } = splitContent(cleanContent);
-    setTab('checkin');
+    const { memo, help } = splitContent(stripMetadata(row.content ?? ''));
+    if (editingKind === 'feedback') cancelFeedbackEdit();
     setEditingLogId(String(row.id ?? ''));
     setEditingKind('checkin');
-    setProgressText(memo);
-    setHelpRequest(help);
+    setShareDraft(memo);
+    setShareEditHelp(help);
+    setShareOpen(true);
     setNotice('編集中です。保存すると上書きされます。');
-  }, []);
+    window.setTimeout(() => shareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+  }, [editingKind, cancelFeedbackEdit]);
 
   const startEditingFeedback = useCallback((row: LogRow) => {
-    const cleanContent = stripMetadata(row.content ?? '');
-    setTab('feedback');
+    if (editingKind === 'checkin') cancelShareEdit();
     setEditingLogId(String(row.id ?? ''));
     setEditingKind('feedback');
-    setReviewText(feedbackBody({ ...row, content: cleanContent }));
+    setReviewText(feedbackBody({ ...row, content: stripMetadata(row.content ?? '') }));
     setNotice('編集中です。保存すると上書きされます。');
-  }, []);
+    window.setTimeout(() => feedbackSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+  }, [editingKind, cancelShareEdit]);
 
   const onDeleteLog = useCallback(async (row: LogRow) => {
     const rowId = String(row.id ?? '').trim();
     if (!rowId || deletingLogId || saving) return;
 
-    const cleanContent = stripMetadata(row.content ?? '');
-    const fb = cleanContent.startsWith('[FB]');
-    if (fb && !canFeedback) {
-      setNotice('⚠️ フィードバックの削除権限がありません。');
-      return;
-    }
-    if (!fb && !canCheckin) {
-      setNotice('⚠️ メモの削除権限がありません。');
+    const kind = recordKindOf(stripMetadata(row.content ?? ''));
+    if (!canEditRecord({ kind, rowUserId: row.user_id, viewerUserId: userId, canFeedback })) {
+      setNotice('⚠️ この記録を削除する権限がありません。');
       return;
     }
 
-    const ok = window.confirm('この履歴を削除しますか？');
+    const ok = window.confirm(
+      kind === 'feedback'
+        ? 'このフィードバックを削除します。元に戻せません。よろしいですか？'
+        : 'この投稿を削除します。社内の共有記録とトップ画面の表示からも消えます。元に戻せません。よろしいですか？',
+    );
     if (!ok) return;
 
     setDeletingLogId(rowId);
@@ -569,10 +582,12 @@ function ExecPanel(props: {
       if (error) throw error;
 
       setLogs((prev) => prev.filter((log) => String(log.id ?? '') !== rowId));
+      setSharedLogs((prev) => prev.filter((log) => String(log.id ?? '') !== rowId));
       if (editingLogId === rowId) {
-        cancelEditing();
+        if (kind === 'feedback') cancelFeedbackEdit();
+        else cancelShareEdit();
       }
-      setNotice('🗑️ 履歴を削除しました');
+      setNotice('🗑️ 記録を削除しました');
     } catch (e: any) {
       console.error('[STAGE5-delete-log-error]', e);
       setNotice(`❌ ${e?.message ?? '削除に失敗しました'}`);
@@ -580,7 +595,7 @@ function ExecPanel(props: {
       setDeletingLogId(null);
       setTimeout(() => setNotice(''), 3000);
     }
-  }, [canCheckin, canFeedback, userId, resolvedProgressOkrId, deletingLogId, saving, editingLogId, cancelEditing]);
+  }, [userId, resolvedProgressOkrId, deletingLogId, saving, editingLogId, canFeedback, cancelFeedbackEdit, cancelShareEdit]);
 
   // 保存（チェックイン）
   /* 実行開始済みの計画の案件に、活動を記録する先のOKR行が無い場合だけ、保存の操作の中で作る（モーダルを開くだけでは作らない） */
@@ -739,8 +754,6 @@ function ExecPanel(props: {
           .from('progress_logs')
           .update({
             content: payloadContent,
-            department_id: departmentId ?? null,
-            project_id: projectId ?? null,
           })
           .eq('id', editingLogId)
           .eq('user_id', userId)
@@ -795,14 +808,17 @@ function ExecPanel(props: {
             content: composed,
             score: savedRow.score == null ? null : Number(savedRow.score),
             status: savedRow.status ?? null,
+            user_id: userId,
           },
           ...prev.filter((l) => !isLocalLogId(l.id)),
         ]);
         setNotice('✅ 記録しました');
       }
 
-      setProgressText('');
-      setHelpRequest('');
+      if (!override) {
+        setProgressText('');
+        setHelpRequest('');
+      }
       setEditingLogId(null);
       setEditingKind(null);
     } catch (e: any) {
@@ -817,7 +833,7 @@ function ExecPanel(props: {
       if (e?.code === 'OKR_NOT_FOUND') {
         displayMsg = '❌ OKRが見つかりません（STAGE4で確認してください）';
       } else if (e?.code === '42501' || e?.status === 403) {
-        displayMsg = '❌ company所属が確認できません（管理者に連絡）';
+        displayMsg = '❌ この操作の権限がありません（管理者に連絡）';
       } else if (e?.message?.includes('companyId')) {
         displayMsg = '❌ company IDの解決に失敗しました';
       } else if (e?.message) {
@@ -830,7 +846,7 @@ function ExecPanel(props: {
     }
   }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind, anchorProjectOkr]);
 
-  const onShareDraft = useCallback((memo: string) => saveLockRef.current(() => runCheckinSave({ memo, help: '' })), [runCheckinSave]);
+  const onShareDraft = useCallback((memo: string) => saveLockRef.current(() => runCheckinSave({ memo, help: shareEditHelp })), [runCheckinSave, shareEditHelp]);
 
   // AI相談（実行メモを整理）
   const handleAssistExecution = useCallback(async () => {
@@ -1088,8 +1104,6 @@ function ExecPanel(props: {
           .from('progress_logs')
           .update({
             content: payloadContent,
-            department_id: departmentId ?? null,
-            project_id: projectId ?? null,
           })
           .eq('id', editingLogId)
           .eq('user_id', userId)
@@ -1144,6 +1158,7 @@ function ExecPanel(props: {
             content: fbContent,
             score: savedRow.score == null ? null : Number(savedRow.score),
             status: savedRow.status ?? null,
+            user_id: userId,
           },
           ...prev.filter((l) => !isLocalLogId(l.id)),
         ]);
@@ -1165,7 +1180,7 @@ function ExecPanel(props: {
       if (e?.code === 'OKR_NOT_FOUND') {
         displayMsg = '❌ OKRが見つかりません（STAGE4で確認してください）';
       } else if (e?.code === '42501' || e?.status === 403) {
-        displayMsg = '❌ company所属が確認できません（管理者に連絡）';
+        displayMsg = '❌ この操作の権限がありません（管理者に連絡）';
       } else if (e?.message?.includes('companyId')) {
         displayMsg = '❌ company IDの解決に失敗しました';
       } else if (e?.message) {
@@ -1228,12 +1243,10 @@ function ExecPanel(props: {
     : [];
 
   const requestConsult = useSelectedProjectStore((st) => st.requestConsult);
-  const [shareOpen, setShareOpen] = useState(false);
-  const [shareDraft, setShareDraft] = useState('');
-  const [sharedLogs, setSharedLogs] = useState<LogRow[]>([]);
   useEffect(() => {
-    if (notice === '✅ 記録しました') {
+    if (notice === '✅ 記録しました' || notice === '✅ メモを更新しました') {
       setShareDraft('');
+      setShareEditHelp('');
       setShareOpen(false);
     }
   }, [notice]);
@@ -1266,6 +1279,43 @@ function ExecPanel(props: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+  const toggleShare = () => {
+    if (!shareOpen) {
+      setShareOpen(true);
+    } else if (shareEditing) {
+      cancelShareEdit();
+    } else {
+      setShareOpen(false);
+    }
+  };
+
+  const renderRecordMenu = (row: LogRow) => {
+    const kind = recordKindOf(stripMetadata(row.content ?? ''));
+    if (!canEditRecord({ kind, rowUserId: row.user_id, viewerUserId: userId, canFeedback })) return null;
+    const rowId = String(row.id ?? '');
+    const busy = saving || deletingLogId === rowId;
+    const items: RecordMenuItem[] = [
+      { label: '編集', disabled: busy, onSelect: () => (kind === 'feedback' ? startEditingFeedback(row) : startEditingCheckin(row)) },
+      { label: '削除', danger: true, disabled: busy, onSelect: () => void onDeleteLog(row) },
+    ];
+    return <RecordMenu items={items} />;
+  };
+
+  const renderRecordHeader = (row: LogRow) => {
+    const fb = recordKindOf(stripMetadata(row.content ?? '')) === 'feedback';
+    const own = !!userId && row.user_id === userId;
+    const label = fb ? 'フィードバック' : own ? '本人の投稿' : '社員の投稿';
+    return (
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-gray-500">
+        <span className="flex flex-wrap items-center gap-2">
+          <span>{row.created_at ? new Date(row.created_at).toLocaleString() : ''}</span>
+          <span className="rounded-full bg-gray-100 px-2 py-0.5">{label}</span>
+        </span>
+        {renderRecordMenu(row)}
+      </div>
+    );
+  };
+
   if (!open) return null;
   return (
     <div className="fixed inset-y-0 left-0 right-0 z-30 xl:left-[var(--left-w,0px)] xl:right-[var(--right-w,0px)]">
@@ -1332,7 +1382,7 @@ function ExecPanel(props: {
           </button>
           <button
             type="button"
-            onClick={() => setShareOpen((v) => !v)}
+            onClick={toggleShare}
             aria-expanded={shareOpen}
             className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
           >
@@ -1347,17 +1397,18 @@ function ExecPanel(props: {
         </div>
       </section>
 
-      {/* フィードバック（管理者）：このプロジェクトへの支援。直近の1件を表示し、古い履歴は展開する */}
-      <section className="rounded-2xl border border-black/10 bg-white p-4">
+      {/* フィードバック（管理者）：このプロジェクトへの支援。直近の1件を表示し、古い履歴は展開する。保存済みの記録であり、入力中の相談への返信ではない */}
+      <section ref={feedbackSectionRef} className="rounded-2xl border border-black/10 bg-white p-4">
         <div className="text-sm font-semibold text-gray-800">フィードバック（管理者）</div>
+        <p className="mt-1 text-xs text-gray-500">保存済みの記録です。入力中の「今、困っていること」への返信ではありません。</p>
         {(() => {
-          const fbRows = sharedLogs.filter((r) => stripMetadata(r.content ?? '').startsWith('[FB]'));
+          const fbRows = sharedLogs.filter((r) => recordKindOf(stripMetadata(r.content ?? '')) === 'feedback');
           const [latest, ...older] = fbRows;
           return (
             <>
               {latest ? (
                 <div className="mt-2 rounded-xl bg-gray-50 p-3 text-sm text-gray-900">
-                  <div className="mb-1 text-xs text-gray-500">{latest.created_at ? new Date(latest.created_at).toLocaleString() : ''}</div>
+                  {renderRecordHeader(latest)}
                   <div className="whitespace-pre-wrap">{feedbackBody({ ...latest, content: stripMetadata(latest.content ?? '') })}</div>
                 </div>
               ) : (
@@ -1369,7 +1420,7 @@ function ExecPanel(props: {
                   <ul className="mt-2 space-y-2">
                     {older.map((r, i) => (
                       <li key={r.id ?? i} className="rounded-xl bg-gray-50 p-3 text-sm text-gray-900">
-                        <div className="mb-1 text-xs text-gray-500">{r.created_at ? new Date(r.created_at).toLocaleString() : ''}</div>
+                        {renderRecordHeader(r)}
                         <div className="whitespace-pre-wrap">{feedbackBody({ ...r, content: stripMetadata(r.content ?? '') })}</div>
                       </li>
                     ))}
@@ -1379,6 +1430,7 @@ function ExecPanel(props: {
             </>
           );
         })()}
+        {notice && !shareOpen && <p className="mt-2 text-xs text-gray-700">{notice}</p>}
         {canFeedback && (
           <div className="mt-3 space-y-2">
             <AutoResizeTextarea
@@ -1389,22 +1441,34 @@ function ExecPanel(props: {
               value={reviewText}
               onChange={(e) => setReviewText(e.target.value)}
             />
-            <button
-              onClick={onSaveFeedback}
-              disabled={saving || !userId}
-              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
-              type="button"
-            >
-              {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={onSaveFeedback}
+                disabled={saving || !userId}
+                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
+                type="button"
+              >
+                {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
+              </button>
+              {editingLogId && editingKind === 'feedback' && (
+                <button
+                  type="button"
+                  onClick={cancelFeedbackEdit}
+                  disabled={saving}
+                  className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  編集をやめる
+                </button>
+              )}
+            </div>
           </div>
         )}
       </section>
 
-      {/* 社内に協力を求める：社内に共有する投稿（本人が投稿したものだけ共有される） */}
+      {/* 社内に協力を求める：本人が共有操作をしたときだけ保存する。自分の投稿はこの欄で編集する */}
       {shareOpen && (
-        <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
-          <div className="text-sm font-semibold text-gray-800">社内に共有する投稿</div>
+        <section ref={shareSectionRef} className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
+          <div className="text-sm font-semibold text-gray-800">{shareEditing ? '社内に共有した投稿を編集' : '社内に共有する投稿'}</div>
           <AutoResizeTextarea
             minRows={3}
             maxRows={8}
@@ -1421,8 +1485,18 @@ function ExecPanel(props: {
               disabled={saving || !userId || !shareDraft.trim()}
               className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:bg-gray-300"
             >
-              {saving ? '共有中…' : '社内に共有する'}
+              {saving ? (shareEditing ? '更新中…' : '共有中…') : shareEditing ? '更新する' : '社内に共有する'}
             </button>
+            {shareEditing && (
+              <button
+                type="button"
+                onClick={cancelShareEdit}
+                disabled={saving}
+                className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+              >
+                編集をやめる
+              </button>
+            )}
             {notice && <span className="text-xs text-gray-700">{notice}</span>}
           </div>
         </section>
@@ -1451,14 +1525,11 @@ function ExecPanel(props: {
             <ul className="mt-3 divide-y divide-black/5">
               {sharedLogs.map((row, i) => {
                 const cleanContent = stripMetadata(row.content ?? '');
-                const fb = cleanContent.startsWith('[FB]');
+                const fb = recordKindOf(cleanContent) === 'feedback';
                 const { memo, help } = splitContent(cleanContent);
                 return (
                   <li key={row.id ?? i} className="py-3">
-                    <div className="mb-1 flex items-center gap-2 text-xs text-gray-500">
-                      <span>{row.created_at ? new Date(row.created_at).toLocaleString() : ''}</span>
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5">{fb ? 'フィードバック' : (row as LogRow & { user_id?: string }).user_id === userId ? '本人の投稿' : '社員の投稿'}</span>
-                    </div>
+                    {renderRecordHeader(row)}
                     {fb ? (
                       <div className="whitespace-pre-wrap text-sm text-gray-900">{feedbackBody({ ...row, content: cleanContent })}</div>
                     ) : (
@@ -1483,33 +1554,12 @@ function ExecPanel(props: {
           ) : (
             <ul className="mt-3 divide-y divide-black/5">
               {logs.map((row, i) => {
-                const when = row.created_at ? new Date(row.created_at).toLocaleString() : '';
                 const cleanContent = stripMetadata(row.content ?? '');
-                const fb = cleanContent.startsWith('[FB]');
+                const fb = recordKindOf(cleanContent) === 'feedback';
                 const body = fb ? feedbackBody({ ...row, content: cleanContent }) : cleanContent;
                 return (
                   <li key={row.id ?? i} className="py-3">
-                    <div className="mb-1 flex items-center justify-between gap-3 text-xs text-gray-500">
-                      <span>{when}</span>
-                      <span className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => (fb ? startEditingFeedback(row) : startEditingCheckin(row))}
-                          disabled={saving || deletingLogId === String(row.id ?? '')}
-                          className="rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          編集
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteLog(row)}
-                          disabled={saving || deletingLogId === String(row.id ?? '')}
-                          className="rounded-full border border-red-200 bg-white px-2.5 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          {deletingLogId === String(row.id ?? '') ? '削除中…' : '削除'}
-                        </button>
-                      </span>
-                    </div>
+                    {renderRecordHeader(row)}
                     <div className="whitespace-pre-wrap text-sm text-gray-900">{body}</div>
                   </li>
                 );
