@@ -73,6 +73,8 @@ import { isDraftProjectMatch, isDraftTargetSelected } from './_lib/generatedDraf
 
 import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
 import { FinanceEffectSection } from '@/components/okr/FinanceEffectSection';
+import { FinanceRevisionControls } from '@/components/okr/FinanceRevisionControls';
+import { isEditLocked, revisedEffectToSave, unconfirmedEffect, type LegacyRevision, type RevisionTarget } from '@/lib/okr/financeEffectRevision';
 import { FinancialDialoguePanel } from '@/components/okr/FinancialDialoguePanel';
 import { buildExecutionCompanyContext } from '@/lib/stage4/companyContext';
 import { isStage4DocumentScreenEnabled } from '@/lib/stage4/plan/documentScreenFlag';
@@ -2189,6 +2191,9 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   );
 
   const [financeCandidateNotice, setFinanceCandidateNotice] = useState<{ key: string; text: string } | null>(null);
+  /* 確認済みの財務効果の修正中の対象と、その一時的な内容（保存するまで確認済みの効果には入らない） */
+  const [financeRevision, setFinanceRevision] = useState<LegacyRevision | null>(null);
+  const [financeBuffer, setFinanceBuffer] = useState<any>(undefined);
   const reflectImpactProposal = useCallback(() => {
     if (!selected || !selectedImpactRole) return;
     const proj = selectedProj as any;
@@ -4036,6 +4041,17 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               />
             )}
             {selectedProj && selected && (
+              <FinanceRevisionControls
+                saved={savedFinanceOf('primary')}
+                revising={revisingTarget('primary')}
+                disabled={isHydrating || isApproved()}
+                onStart={() => startRevisingFinance('primary')}
+                onCancel={cancelRevisingFinance}
+                onSave={() => saveRevisingFinance('primary')}
+                onUnconfirm={() => unconfirmFinance('primary')}
+              />
+            )}
+            {selectedProj && selected && (
               <FinancialDialoguePanel
                 key={keyFor(selected.deptIdx, selected.projIdx)}
                 deferQuestions={!!followUpView.current && !followUpPaused}
@@ -4050,43 +4066,48 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       }
                     : null
                 }
-                effect={(selectedProj as any).financeEffect}
+                effect={financeEditValue('primary')}
                 origin={(selectedProj as any).impactAssumptionsOrigin}
-                disabled={isHydrating || isApproved()}
+                disabled={financeEditDisabled('primary')}
                 notice={
                   financeCandidateNotice && financeCandidateNotice.key === keyFor(selected.deptIdx, selected.projIdx)
                     ? financeCandidateNotice.text
                     : null
                 }
-                onEffectChange={(next) => updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffect: next })}
+                onEffectChange={onFinanceEdit('primary')}
                 onCreateCandidate={reflectImpactProposal}
                 assumptionEditor={assumptionEditorNode}
                 detailsSlot={
                   <div className="space-y-3">
                     <FinanceEffectSection
                       mode="details"
-                      effect={(selectedProj as any).financeEffect}
-                      disabled={isHydrating || isApproved()}
+                      effect={financeEditValue('primary')}
+                      disabled={financeEditDisabled('primary')}
                       overlapCandidates={findFinanceEffectOverlapCandidates(departments, selected.deptIdx, selected.projIdx)}
                       origin={(selectedProj as any).impactAssumptionsOrigin}
-                      onChange={(next) => updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffect: next })}
+                      onChange={onFinanceEdit('primary')}
                     />
                     {((selectedProj as any).financeEffects ?? []).map((extra: any, i: number) => (
-                      <FinanceEffectSection
-                        key={`extra-effect-${i}`}
-                        mode="details"
-                        label={`追加の財務効果 ${i + 1}`}
-                        effect={extra}
-                        disabled={isHydrating || isApproved()}
-                        overlapCandidates={[]}
-                        origin={(selectedProj as any).impactAssumptionsOrigin}
-                        onChange={(next) => {
-                          const list: any[] = [...((selectedProj as any).financeEffects ?? [])];
-                          if (next === undefined) list.splice(i, 1);
-                          else list[i] = next;
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffects: list });
-                        }}
-                      />
+                      <div key={`extra-effect-${i}`} className="space-y-2">
+                        <FinanceRevisionControls
+                          saved={savedFinanceOf(i)}
+                          revising={revisingTarget(i)}
+                          disabled={isHydrating || isApproved()}
+                          onStart={() => startRevisingFinance(i)}
+                          onCancel={cancelRevisingFinance}
+                          onSave={() => saveRevisingFinance(i)}
+                          onUnconfirm={() => unconfirmFinance(i)}
+                        />
+                        <FinanceEffectSection
+                          mode="details"
+                          label={`追加の財務効果 ${i + 1}`}
+                          effect={financeEditValue(i)}
+                          disabled={financeEditDisabled(i)}
+                          overlapCandidates={[]}
+                          origin={(selectedProj as any).impactAssumptionsOrigin}
+                          onChange={onFinanceEdit(i)}
+                        />
+                      </div>
                     ))}
                   </div>
                 }
@@ -5532,6 +5553,45 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
   /* ============================================================
    * return: SIMPLE_FORM フラグで表示を切り替え
    * ========================================================== */
+  /* 確認済みの財務効果の修正：修正中の内容は一時的に持ち、「修正内容を保存」で初めて書く（確認は既存のガードで判定） */
+  const revisionKey = selected ? keyFor(selected.deptIdx, selected.projIdx) : null;
+  const revisingTarget = (target: RevisionTarget): boolean =>
+    !!financeRevision && financeRevision.key === revisionKey && financeRevision.target === target;
+  const savedFinanceOf = (target: RevisionTarget): any =>
+    target === 'primary' ? (selectedProj as any)?.financeEffect : ((selectedProj as any)?.financeEffects ?? [])[target];
+  const writeFinanceOf = (target: RevisionTarget, next: any) => {
+    if (!selected) return;
+    if (target === 'primary') {
+      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffect: next });
+      return;
+    }
+    const list: any[] = [...((selectedProj as any).financeEffects ?? [])];
+    if (next === undefined) list.splice(target, 1);
+    else list[target] = next;
+    updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { financeEffects: list });
+  };
+  const startRevisingFinance = (target: RevisionTarget) => {
+    if (!revisionKey) return;
+    setFinanceRevision({ key: revisionKey, target });
+    setFinanceBuffer(savedFinanceOf(target));
+  };
+  const cancelRevisingFinance = () => {
+    setFinanceRevision(null);
+    setFinanceBuffer(undefined);
+  };
+  const saveRevisingFinance = (target: RevisionTarget) => {
+    writeFinanceOf(target, revisedEffectToSave(savedFinanceOf(target), financeBuffer));
+    cancelRevisingFinance();
+  };
+  const unconfirmFinance = (target: RevisionTarget) => writeFinanceOf(target, unconfirmedEffect(savedFinanceOf(target)));
+  const financeEditValue = (target: RevisionTarget) => (revisingTarget(target) ? financeBuffer : savedFinanceOf(target));
+  const financeEditDisabled = (target: RevisionTarget) =>
+    isHydrating || isApproved() || isEditLocked(savedFinanceOf(target), revisingTarget(target));
+  const onFinanceEdit = (target: RevisionTarget) => (next: any) => {
+    if (revisingTarget(target)) setFinanceBuffer(next);
+    else writeFinanceOf(target, next);
+  };
+
   if (Stage4DocumentScreen && isStage4DocumentScreenEnabled()) {
     return (
       <main className="min-h-screen bg-zinc-50">

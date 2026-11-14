@@ -423,3 +423,64 @@ describe('計画の保存で書く財務効果（financeSaveSteps）', () => {
     expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved, overlapCount: 0 })).toEqual([]);
   });
 });
+
+const userDraftOf = (d: FinanceEffectDraft): FinanceEffectDraft => ({ ...d, fromAi: false, base: { ...d.base, source: 'USER_INPUT' as const } });
+
+describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
+  it('修正（REVISE）は確認済みの金額を修正内容の草案で置き換え、同じ種類を二重に持たない', () => {
+    const old = confirmed(applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL', isIncremental: true, meetingBasisConfirmed: true }));
+    const revised = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'MONTHLY', isIncremental: true, meetingBasisConfirmed: true });
+    const plan = planFinanceEffectWrite({ primary: old, additional: undefined, candidate: revised, action: 'REVISE', nowIso: NOW });
+    expect(plan).toMatchObject({ ok: true, outcome: 'draft_replaced' });
+    const next = (plan as any).patch.financeEffect as FinanceEffect;
+    expect(next.amountBasis).toBe('MONTHLY');
+    expect(next.confirmed).toBe(false);
+    expect(next.confirmedAt).toBeUndefined();
+    expect((plan as any).patch.financeEffects).toBeUndefined();
+  });
+
+  it('修正（REVISE）は追加の効果（2つ目以降）でも、その効果だけを置き換える', () => {
+    const rev = confirmed(applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL', isIncremental: true, meetingBasisConfirmed: true }));
+    const cost = confirmed(applyFinanceAnswers(costDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL' }));
+    const costRevised = applyFinanceAnswers(costDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'MONTHLY' });
+    const plan = planFinanceEffectWrite({ primary: rev, additional: [cost], candidate: costRevised, action: 'REVISE', nowIso: NOW });
+    expect(plan).toMatchObject({ ok: true, outcome: 'draft_replaced' });
+    const list = (plan as any).patch.financeEffects as FinanceEffect[];
+    expect(list).toHaveLength(1);
+    expect(list[0].amountBasis).toBe('MONTHLY');
+    expect(list[0].confirmed).toBe(false);
+    expect((plan as any).patch.financeEffect).toBeUndefined();
+  });
+
+  it('確認の解除（UNCONFIRM）は、同じ内容のまま未確認の草案にする（STAGE6の計算対象から外れる）', () => {
+    const done = confirmed(applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL', isIncremental: true, meetingBasisConfirmed: true }));
+    const plan = planFinanceEffectWrite({ primary: done, additional: undefined, candidate: done, action: 'UNCONFIRM', nowIso: NOW });
+    expect(plan).toMatchObject({ ok: true, outcome: 'draft_replaced' });
+    const next = (plan as any).patch.financeEffect as FinanceEffect;
+    expect(next.confirmed).toBe(false);
+    expect(next.amountBasis).toBe(done.amountBasis);
+    expect(next.directAmountYen).toBe(done.directAmountYen);
+  });
+
+  it('草案の効果の確認解除は何もしない。確認済みが無いときの確認解除は理由を返す', () => {
+    const draft = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL' });
+    expect(planFinanceEffectWrite({ primary: draft, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW })).toEqual({ ok: true, outcome: 'unchanged', patch: {} });
+    expect(planFinanceEffectWrite({ primary: undefined, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW }).ok).toBe(false);
+  });
+
+  it('修正しないで保存すると、確認済みの効果は書き直さない（確認を外さない）', () => {
+    const d = userDraftOf(revenueDraft());
+    const saved = [{ ...d.base, confirmed: true }];
+    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: { amountBasis: 'MONTHLY', startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' } }, saved, overlapCount: 0 })).toEqual([]);
+  });
+
+  it('修正中の効果は、REVISE のあとに、必須項目がそろえば確認し直す。足りなければ草案のまま', () => {
+    const d = userDraftOf(revenueDraft());
+    const saved = [{ ...d.base, confirmed: true }];
+    const complete = { amountBasis: 'MONTHLY' as const, startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' as const };
+    const withRevising = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved, overlapCount: 0, revising: ['REVENUE_UP'] });
+    expect(withRevising.map((s) => s.action)).toEqual(['REVISE', 'CONFIRM']);
+    const incomplete = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved, overlapCount: 0, revising: ['REVENUE_UP'] });
+    expect(incomplete.map((s) => s.action)).toEqual(['REVISE']);
+  });
+});

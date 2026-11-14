@@ -45,8 +45,10 @@ import {
   buildFinanceEffectDrafts,
   financeSaveSteps,
   financeWriteReason,
+  initialFinanceAnswers,
   periodOfLabel,
   type FinanceAnswersByKind,
+  type FinanceDraftKind,
 } from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
 import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
@@ -206,6 +208,8 @@ function Stage3ProjectBrowser({
   const [entries, setEntries] = useState<Record<string, PlanDocEntry>>({});
   const [loads, setLoads] = useState<Record<string, LoadState>>({});
   const [gen, setGen] = useState<Record<string, GenState>>({});
+  /* 確認済みの財務効果を修正中の種類（画面の状態。保存するまで STAGE6 には入らない） */
+  const [revisingByPlan, setRevisingByPlan] = useState<Record<string, FinanceDraftKind[]>>({});
   const tree = useMemo(() => buildStage3Tree({ memberships: source.memberships, strategies: source.strategies }), [source]);
   const handoffProjectKey = handoff?.projectId ? `id:${handoff.projectId}` : null;
   useEffect(() => {
@@ -531,8 +535,8 @@ function Stage3ProjectBrowser({
     });
 
   /* 計画の保存のあとに、入力された財務効果を書く。必須項目がそろったものだけ確認する。途中で止まったら理由を残す */
-  const saveFinance = async (sel: Stage3Selection, projectId: string, targetId: string, answers: FinanceAnswersByKind) => {
-    const steps = financeSaveSteps({ drafts: financeDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
+  const saveFinance = async (sel: Stage3Selection, projectId: string, targetId: string, answers: FinanceAnswersByKind, revising: FinanceDraftKind[]) => {
+    const steps = financeSaveSteps({ drafts: financeDrafts, answers, saved: financeSaved, overlapCount: financeOverlap, revising });
     if (steps.length === 0) return;
     for (const step of steps) {
       const out = await writeFinanceEffectToProject({
@@ -548,6 +552,7 @@ function Stage3ProjectBrowser({
       }
     }
     const written = steps.map((s) => s.kind);
+    setRevisingByPlan((p) => ({ ...p, [targetId]: (p[targetId] ?? []).filter((k) => !written.includes(k)) }));
     updateEntry(targetId, (e) => {
       const rest: FinanceAnswersByKind = { ...(e.finance ?? {}) };
       for (const kind of written) delete rest[kind];
@@ -601,7 +606,7 @@ function Stage3ProjectBrowser({
       stored: entry.stored,
     });
     setEntries((p) => (p[targetId] ? { ...p, [targetId]: entryAfterPersist(p[targetId], result) } : p));
-    if (result.status === 'SAVED') await saveFinance(sel, projectId as string, targetId, entry.finance ?? {});
+    if (result.status === 'SAVED') await saveFinance(sel, projectId as string, targetId, entry.finance ?? {}, revisingByPlan[targetId] ?? []);
   };
 
   /* 競合の解決：項目ごとに選んだ内容で、最新の版に保存し直す */
@@ -642,6 +647,56 @@ function Stage3ProjectBrowser({
   useEffect(() => {
     setStartMode?.(startSelected);
   }, [setStartMode, startSelected]);
+  /* 確認済みの財務効果の修正：修正する（入力欄を開く）→ 計画を保存（修正内容を保存して確認し直す）。
+   * 途中でやめれば、確認済みの内容と前提を保存済みの版に戻す。確認を解除すれば、STAGE6から外す。 */
+  const startReviseFinance = (kind: FinanceDraftKind) => {
+    if (!id) return;
+    const draft = financeDrafts.find((d) => d.kind === kind);
+    if (!draft) return;
+    const savedOne = financeSaved.find((e) => e.kind === kind);
+    setRevisingByPlan((p) => ({ ...p, [id]: [...(p[id] ?? []).filter((k) => k !== kind), kind] }));
+    updateEntry(id, (e) => ({ ...e, finance: { ...(e.finance ?? {}), [kind]: initialFinanceAnswers(draft, savedOne) }, notice: null }));
+  };
+
+  const cancelReviseFinance = (kind: FinanceDraftKind) => {
+    if (!id) return;
+    setRevisingByPlan((p) => ({ ...p, [id]: (p[id] ?? []).filter((k) => k !== kind) }));
+    updateEntry(id, (e) => {
+      const rest: FinanceAnswersByKind = { ...(e.finance ?? {}) };
+      delete rest[kind];
+      const base = e.stored?.base;
+      return {
+        ...e,
+        finance: rest,
+        plan: base ? { ...e.plan, committed: toEdits(base) } : e.plan,
+        notice: '修正をやめました。確認済みの内容を維持しています（保存していない前提の変更も取り消しました）',
+      };
+    });
+  };
+
+  const unconfirmFinance = async (kind: FinanceDraftKind) => {
+    if (!id || !selected || !financeProjectId) return;
+    const draft = financeDrafts.find((d) => d.kind === kind);
+    const savedOne = financeSaved.find((e) => e.kind === kind);
+    if (!draft || !savedOne?.confirmed) return;
+    const out = await writeFinanceEffectToProject({
+      companyId: selected.companyId,
+      strategyId: selected.strategyId,
+      projectId: financeProjectId,
+      candidate: savedOne,
+      action: 'UNCONFIRM',
+    });
+    if (!out.ok) {
+      updateEntry(id, (e) => ({ ...e, notice: `確認を解除できませんでした：${out.message}` }));
+      return;
+    }
+    updateEntry(id, (e) => ({
+      ...e,
+      finance: { ...(e.finance ?? {}), [kind]: initialFinanceAnswers(draft, { ...savedOne, confirmed: false }) },
+      notice: '確認を解除しました。STAGE6の試算から外れています。内容を確かめて「計画を保存」すると、確認し直します',
+    }));
+  };
+
   const financeSection: ReactNode = selected ? (
     <Stage4FinanceConfirm
       drafts={financeDrafts}
@@ -652,6 +707,10 @@ function Stage3ProjectBrowser({
       reasonNotWritable={financeReason}
       answers={entry?.finance ?? {}}
       onAnswer={(kind, a) => id && updateEntry(id, (e) => ({ ...e, finance: { ...(e.finance ?? {}), [kind]: a } }))}
+      revising={(id && revisingByPlan[id]) || []}
+      onStartRevise={startReviseFinance}
+      onCancelRevise={cancelReviseFinance}
+      onUnconfirm={unconfirmFinance}
     />
   ) : undefined;
 

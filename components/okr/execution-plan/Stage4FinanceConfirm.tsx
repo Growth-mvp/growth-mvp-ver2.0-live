@@ -6,13 +6,21 @@ import {
   periodOutsidePlanNote,
   type FinanceAnswers,
   type FinanceAnswersByKind,
+  type FinanceDraftKind,
   type FinanceEffectDraft,
   type PlanPeriod,
 } from '@/lib/stage4/planView/financeBridge';
-import { FINANCE_EFFECT_BASIS_LABEL } from '@/lib/financeEffect';
+import { FINANCE_EFFECT_BASIS_LABEL, isFinanceEffectMaterialChange } from '@/lib/financeEffect';
 import type { FinanceEffect, SpendAmountBasis } from '@/types/strategy';
 
 const BASES: SpendAmountBasis[] = ['TOTAL', 'MONTHLY', 'ANNUAL'];
+
+type RevisionHandlers = {
+  revising: boolean;
+  onStartRevise?: () => void;
+  onCancelRevise?: () => void;
+  onUnconfirm?: () => void;
+};
 
 const millionText = (yen: number | undefined): string => (yen === undefined ? '未入力' : `${Math.round(yen / 1_000_000 * 10) / 10}百万円`);
 
@@ -24,8 +32,9 @@ function formulaOf(draft: FinanceEffectDraft): string {
   return millionText(e.directAmountYen);
 }
 
-function statusOf(saved: FinanceEffect | undefined): string {
+function statusOf(saved: FinanceEffect | undefined, revising: boolean): string {
   if (!saved) return '未保存（STAGE6の試算には入りません）';
+  if (saved.confirmed && revising) return '修正中（保存するまで、確認済みの内容のままです）';
   if (saved.confirmed) return '確認済み（STAGE6の試算に入ります）';
   return '草案（未確認のため、STAGE6の試算には入りません）';
 }
@@ -38,6 +47,10 @@ function DraftCard({
   planPeriod,
   writable,
   onChange,
+  revising,
+  onStartRevise,
+  onCancelRevise,
+  onUnconfirm,
 }: {
   draft: FinanceEffectDraft;
   saved: FinanceEffect | undefined;
@@ -46,12 +59,14 @@ function DraftCard({
   planPeriod: PlanPeriod | null;
   writable: boolean;
   onChange: (answers: FinanceAnswers) => void;
-}) {
+} & RevisionHandlers) {
   const candidate = applyFinanceAnswers(draft, answers);
   const blockers = confirmBlockers(candidate, ctx);
   const isRevenue = draft.kind === 'REVENUE_UP';
-  const locked = saved?.confirmed === true;
+  const confirmedNow = saved?.confirmed === true;
+  const locked = confirmedNow && !revising;
   const disabled = !writable || locked;
+  const differs = confirmedNow && !revising && isFinanceEffectMaterialChange(saved, candidate);
   const set = (patch: Partial<FinanceAnswers>) => onChange({ ...answers, ...patch });
   const periodNote = periodOutsidePlanNote(candidate, planPeriod);
 
@@ -60,7 +75,34 @@ function DraftCard({
       <div>
         <strong>{draft.label}</strong>：{formulaOf(draft)}
       </div>
-      <div className="plan-note">状態：{statusOf(saved)}</div>
+      <div className="plan-note">状態：{statusOf(saved, revising)}</div>
+      {confirmedNow && !revising && onStartRevise && (
+        <div className="plan-actions">
+          <button type="button" disabled={!writable} onClick={onStartRevise}>
+            修正する
+          </button>
+          {onUnconfirm && (
+            <button type="button" disabled={!writable} onClick={onUnconfirm}>
+              確認を解除する
+            </button>
+          )}
+        </div>
+      )}
+      {revising && (
+        <div className="plan-actions">
+          <p className="plan-note">修正中です。「計画を保存」で修正内容を保存し、確認し直します。それまでSTAGE6の金額は変わりません。</p>
+          {onCancelRevise && (
+            <button type="button" onClick={onCancelRevise}>
+              修正をやめる
+            </button>
+          )}
+        </div>
+      )}
+      {differs && (
+        <p role="note" className="plan-note">
+          確認済みの内容と、現在の前提の試算が違います。修正して確認し直すと、STAGE6に反映されます（それまでSTAGE6は確認済みの内容のままです）。
+        </p>
+      )}
       <div className="plan-note">金額の単位：円</div>
       <label>
         発生頻度（年度換算に使います）
@@ -179,6 +221,10 @@ export function Stage4FinanceConfirm({
   reasonNotWritable,
   answers,
   onAnswer,
+  revising = [],
+  onStartRevise,
+  onCancelRevise,
+  onUnconfirm,
 }: {
   drafts: FinanceEffectDraft[];
   saved: FinanceEffect[];
@@ -188,6 +234,10 @@ export function Stage4FinanceConfirm({
   reasonNotWritable?: string;
   answers: FinanceAnswersByKind;
   onAnswer: (kind: FinanceEffectDraft['kind'], answers: FinanceAnswers) => void;
+  revising?: FinanceDraftKind[];
+  onStartRevise?: (kind: FinanceDraftKind) => void;
+  onCancelRevise?: (kind: FinanceDraftKind) => void;
+  onUnconfirm?: (kind: FinanceDraftKind) => void;
 }) {
   const ctx = financeConfirmContext(drafts, saved, overlapCount);
   return (
@@ -217,6 +267,10 @@ export function Stage4FinanceConfirm({
             planPeriod={planPeriod}
             writable={writable}
             onChange={(a) => onAnswer(draft.kind, a)}
+            revising={revising.includes(draft.kind)}
+            onStartRevise={onStartRevise ? () => onStartRevise(draft.kind) : undefined}
+            onCancelRevise={onCancelRevise ? () => onCancelRevise(draft.kind) : undefined}
+            onUnconfirm={onUnconfirm ? () => onUnconfirm(draft.kind) : undefined}
           />
         );
       })}

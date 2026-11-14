@@ -4,6 +4,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { estimateProjectImpact } from '@/lib/stage4/planView/impactEstimate';
 import { buildFinanceEffectDrafts } from '@/lib/stage4/planView/financeBridge';
+import type { FinanceEffect } from '@/types/strategy';
 import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
 
 const project = {
@@ -99,5 +100,48 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
     expect((screen.getByLabelText('売上増加（参考試算の売上）の開始年月') as HTMLInputElement).value).toBe('2026-12');
     expect((screen.getByLabelText('売上増加（参考試算の売上）の営業利益の増分') as HTMLInputElement).value).toBe('9');
     expect((screen.getByLabelText('売上増加（参考試算の売上）の売上の区分') as HTMLSelectElement).value).toBe('PAID_DEVELOPMENT');
+  });
+});
+
+
+describe('確認済みの財務効果の修正', () => {
+  const confirmedCost = (): FinanceEffect => ({
+    kind: 'COST_INCREASE',
+    method: 'DIRECT_AMOUNT',
+    directAmountYen: 6_000_000,
+    amountBasis: 'ANNUAL',
+    startYm: '2027-04',
+    endYm: '2028-03',
+    source: 'USER_INPUT',
+    confirmed: true,
+    confirmedAt: '2026-11-10T00:00:00.000Z',
+    sourceNote: '第5章の参考試算',
+  });
+
+  it('確認済みの効果は、修正する・確認を解除するを出し、入力欄は固定される', () => {
+    const onStartRevise = jest.fn();
+    const onUnconfirm = jest.fn();
+    renderConfirm({ saved: [confirmedCost()], onStartRevise, onUnconfirm });
+    expect((screen.getByLabelText('追加費用の発生頻度') as HTMLSelectElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '修正する' }));
+    expect(onStartRevise).toHaveBeenCalledWith('COST_INCREASE');
+    fireEvent.click(screen.getByRole('button', { name: '確認を解除する' }));
+    expect(onUnconfirm).toHaveBeenCalledWith('COST_INCREASE');
+  });
+
+  it('修正中は入力欄が開き、状態は確認済みの内容のままと示し、修正をやめるを出す', () => {
+    const onCancelRevise = jest.fn();
+    renderConfirm({ saved: [confirmedCost()], revising: ['COST_INCREASE'], onCancelRevise });
+    expect((screen.getByLabelText('追加費用の発生頻度') as HTMLSelectElement).disabled).toBe(false);
+    expect(screen.getByLabelText('追加費用の財務効果').textContent).toContain('修正中（保存するまで、確認済みの内容のままです）');
+    expect(screen.queryByRole('button', { name: '修正する' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '修正をやめる' }));
+    expect(onCancelRevise).toHaveBeenCalledWith('COST_INCREASE');
+  });
+
+  it('草案の効果には、修正する・確認を解除するを出さない', () => {
+    renderConfirm({ saved: [{ ...confirmedCost(), confirmed: false }], onStartRevise: jest.fn() });
+    expect(screen.queryByRole('button', { name: '修正する' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '確認を解除する' })).toBeNull();
   });
 });

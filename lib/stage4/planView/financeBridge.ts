@@ -36,7 +36,8 @@ export type ConfirmContext = {
   revenueOpIncludesAddCost: boolean;
 };
 
-export type FinanceWriteAction = 'SAVE_DRAFT' | 'CONFIRM';
+/* REVISE：確認済みの効果を修正内容で未確認に置き換える（修正の保存）。UNCONFIRM：確認を解除する。 */
+export type FinanceWriteAction = 'SAVE_DRAFT' | 'CONFIRM' | 'REVISE' | 'UNCONFIRM';
 
 export type FinanceWritePlan =
   | {
@@ -190,9 +191,12 @@ export function planFinanceEffectWrite(args: {
   const additional = Array.isArray(args.additional) ? args.additional : [];
   const list: (FinanceEffect | undefined)[] = [args.primary, ...additional];
   const idx = list.findIndex((e) => sameKind(e, args.candidate.kind));
+  const patchAt = (next: FinanceEffect): FinancePatch =>
+    idx === 0 ? { financeEffect: next } : { financeEffects: additional.map((e, i) => (i === idx - 1 ? next : e)) };
 
   if (idx === -1) {
     if (args.action === 'CONFIRM') return { ok: false, reason: '先に計画を保存してください' };
+    if (args.action === 'UNCONFIRM') return { ok: false, reason: '確認済みの財務効果がありません' };
     const plan = planCandidateWrite({ primary: args.primary, additional, candidate: args.candidate });
     if (plan.outcome === 'already_has_same_kind') return { ok: false, reason: '同じ種類の財務効果が既にあります' };
     return { ok: true, outcome: plan.outcome, patch: plan.patch };
@@ -200,6 +204,19 @@ export function planFinanceEffectWrite(args: {
 
   const existing = list[idx]!;
   const same = !isFinanceEffectMaterialChange(existing, args.candidate);
+
+  if (args.action === 'UNCONFIRM') {
+    if (!existing.confirmed) return { ok: true, outcome: 'unchanged', patch: {} };
+    const next: FinanceEffect = { ...existing, confirmed: false };
+    delete next.confirmedAt;
+    return { ok: true, outcome: 'draft_replaced', patch: patchAt(next) };
+  }
+
+  if (args.action === 'REVISE') {
+    const next: FinanceEffect = { ...args.candidate, confirmed: false };
+    delete next.confirmedAt;
+    return { ok: true, outcome: 'draft_replaced', patch: patchAt(next) };
+  }
 
   if (existing.confirmed) {
     if (!same) return { ok: false, reason: '確認済みの財務効果と内容が違うため、ここでは変更しません' };
@@ -218,13 +235,10 @@ export function planFinanceEffectWrite(args: {
     outcome = 'confirmed';
   }
 
-  if (idx === 0) return { ok: true, outcome, patch: { financeEffect: next } };
-  return {
-    ok: true,
-    outcome,
-    patch: { financeEffects: additional.map((e, i) => (i === idx - 1 ? next : e)) },
-  };
+  return { ok: true, outcome, patch: patchAt(next) };
 }
+
+type FinancePatch = { financeEffect?: FinanceEffect; financeEffects?: FinanceEffect[] };
 
 export type PlanPeriod = { startYm: string; endYm: string };
 
@@ -289,15 +303,19 @@ export function financeSaveSteps(args: {
   answers: FinanceAnswersByKind;
   saved: FinanceEffect[];
   overlapCount: number;
+  /** 修正中の効果。確認済みでも、修正内容で置き換えてから確認し直す */
+  revising?: FinanceDraftKind[];
 }): FinanceSaveStep[] {
   const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount);
+  const revising = args.revising ?? [];
   const steps: FinanceSaveStep[] = [];
   for (const draft of args.drafts) {
     const answers = args.answers[draft.kind];
     if (!answers) continue;
-    if (args.saved.find((e) => e.kind === draft.kind)?.confirmed) continue;
+    const isRevising = revising.includes(draft.kind);
+    if (!isRevising && args.saved.find((e) => e.kind === draft.kind)?.confirmed) continue;
     const candidate = applyFinanceAnswers(draft, answers);
-    steps.push({ kind: draft.kind, action: 'SAVE_DRAFT', candidate });
+    steps.push({ kind: draft.kind, action: isRevising ? 'REVISE' : 'SAVE_DRAFT', candidate });
     if (confirmBlockers(candidate, ctx).length === 0) steps.push({ kind: draft.kind, action: 'CONFIRM', candidate });
   }
   return steps;
