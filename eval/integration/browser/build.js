@@ -195,11 +195,11 @@ function html(title, bundleName) {
   fs.writeFileSync(path.join(outDir, 'plan-flow.html'), html('STAGE5 実行計画の流れの検証', 'plan-flow-bundle.js'));
   await esbuild.build({
     ...COMMON,
-    entryPoints: [path.join(__dirname, 'modal-preview-entry.tsx')],
-    outfile: path.join(outDir, 'modal-preview-bundle.js'),
+    entryPoints: [path.join(__dirname, 'stage5-design-preview-entry.tsx')],
+    outfile: path.join(outDir, 'stage5-design-preview-bundle.js'),
     plugins: [stubPlugin(EXEC_STUB_MAP)],
   });
-  fs.writeFileSync(path.join(outDir, 'modal-preview.html'), html('STAGE5 モーダル設計案の確認', 'modal-preview-bundle.js'));
+  fs.writeFileSync(path.join(outDir, 'stage5-design-preview.html'), html('STAGE5 最終設計案の確認', 'stage5-design-preview-bundle.js'));
   await esbuild.build({
     ...COMMON,
     entryPoints: [path.join(__dirname, 'finance-flow-entry.tsx')],
