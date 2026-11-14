@@ -25,9 +25,11 @@ export function ConditionalCfPanel({ cf }: { cf: ConditionalCf }) {
     <section aria-label="条件付きCF試算" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       <div>
         <h4 className="text-sm font-bold text-slate-900">条件付きCF試算（確認済み効果のみ）</h4>
-        <p className="mt-1 text-xs leading-relaxed text-slate-600 break-keep">
-          基準は直近実績の横ばいです。確認済みの施策効果のうち、統一PLの営業利益に反映できたものだけを営業CFに加えています。既存のCF表（経営目標への補間）とは別の計算で、既存の表は変更していません。
-        </p>
+        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs leading-relaxed text-slate-600 break-keep">
+          <li>目的：基本シナリオ（既存事業の計画）に、確認済みの施策効果の営業利益の差分だけを加えた場合のCFを見る。既存のCF表（経営目標への補間）とは別の計算で、既存の表は変更していません。</li>
+          <li>前提：運転資金・減価償却・投資・借入は基本シナリオの値をそのまま使う。売上が変わる年度は運転資金を算定しないため、営業CF以降は未算定。</li>
+          <li>結果：未算定は0ではない。前提が揃わない年度は、安全性の確定判定に使わない。資金判定（下の「5. 参考判定」）とは計算の前提が異なる。</li>
+        </ul>
       </div>
 
       <dl className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">

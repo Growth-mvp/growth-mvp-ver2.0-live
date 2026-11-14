@@ -435,7 +435,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.open-finance-effect',
     screenIds: ['stage4'],
     label: '財務効果の算定根拠（任意）',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 111 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 115 },
     purpose:
       '施策の売上増加・費用削減・追加費用の金額を、算定根拠つきで登録する（任意）。確認して初めて、STAGE6の条件付きPL・CF試算に反映される。',
     steps: [
@@ -451,7 +451,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-kind',
     screenIds: ['stage4'],
     label: '効果の種類',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 120 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 124 },
     purpose:
       '効果の種類を選ぶ。売上増加（売上が増える）、費用削減（営業費用が減る）、追加費用（営業費用が増える）、財務換算しない施策のいずれか。',
     steps: [
@@ -467,7 +467,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-method',
     screenIds: ['stage4'],
     label: '算定方法',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 306 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 320 },
     purpose:
       '金額の求め方を選ぶ。数量×単価、商談数×受注率×平均受注額（売上増加だけ）、直接入力の3つから一つ。',
     steps: [
@@ -483,7 +483,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-amount',
     screenIds: ['stage4'],
     label: '金額（百万円）',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 356 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 370 },
     purpose:
       '直接入力の金額を百万円で入れる（例（架空）：年間の削減見込みが120万円なら「1.2」）。単位は次の「金額の単位」で決める。',
     steps: [
@@ -499,7 +499,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-unit',
     screenIds: ['stage4'],
     label: '金額の単位',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 207 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 211 },
     purpose:
       '入力した金額が、一回限りの総額か、月額か、年額かを選ぶ。ここで決まった単位で年度に割り付けられる。',
     steps: [
@@ -515,7 +515,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-timing',
     screenIds: ['stage4'],
     label: '効果の開始月',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 223 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 230 },
     purpose:
       '効果が始まる月を選ぶ。決算月と組み合わせて、どの年度に金額が割り付くかが決まる（例（架空）：決算が3月なら、2026年4月開始の効果は2026年度ではなく2027年度から入る）。',
     steps: [
@@ -531,7 +531,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.finance-effect-source',
     screenIds: ['stage4'],
     label: '算定根拠・出所',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 374 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 388 },
     purpose:
       '金額の根拠（見積書、社内の計算、AIの提案など）を書く。確認済みにする前に必要で、空だと確認できない。',
     steps: [
@@ -546,7 +546,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.confirm-finance-effect',
     screenIds: ['stage4'],
     label: '内容を確認し、確認済みにする',
-    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 274 },
+    source: { file: 'components/okr/FinanceEffectSection.tsx', line: 288 },
     purpose:
       '利用者自身が財務効果の内容を確認したことを記録する。確認済みの効果だけが、STAGE6の条件付きPL・CF試算に反映される。',
     steps: [

@@ -542,11 +542,13 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
         {tab === 'verdict' && (
           <div className="space-y-4">
             <TabHeader tab="verdict" />
-            <p className="text-xs leading-relaxed text-slate-600 break-keep">
-              計算の前提：STAGE1の財務実績、既存事業の年度別増減、STAGE4の確認済み施策効果から推計した年度別キャッシュフローです。借入を入力すると、借入・返済を反映した資金繰りを表示します。確定予測ではありません。経営目標では補完しません。
-            </p>
+            <ul className="list-disc space-y-0.5 pl-5 text-xs leading-relaxed text-slate-600 break-keep">
+              <li>目的：借入・返済を含む資金の不足と返済余力を、参考として判定する。</li>
+              <li>前提：STAGE1の財務実績、既存事業の年度別増減、確認済みの施策効果（統一PL）。運転資金は比率から推計し、経営目標では補完しない。</li>
+              <li>結果：売上増加があり運転資金・税率が未入力なら暫定（確定判定しない）。必要な前提が欠ける年度は評価保留とし、判定しない。</li>
+            </ul>
             <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 break-keep">
-              この判定は、既存事業の計画と確認済みの施策効果に基づく参考判定です。未確認の施策効果は含まず、目標への補間は使いません。
+              この判定は、既存事業の計画と確認済みの施策効果に基づく参考判定です。未確認の施策効果は含まず、目標への補間は使いません。確定予測ではありません。
             </p>
             <FinanceVerdictPanel
               plan={fundingPlan}

@@ -70,6 +70,8 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
   };
 
   const canConfirm = result.status === 'DRAFT' || result.status === 'CONFIRMED';
+  /* 一回限りは開始月に全額計上する。終了月が入っていると期間按分の矛盾になるため、確認させない */
+  const oneTimeWithEnd = current?.amountBasis === 'TOTAL' && current.endYm !== undefined;
 
   const toggleConfirm = () => {
     if (!current) return;
@@ -77,7 +79,7 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
       onChange({ ...current, confirmed: false, confirmedAt: undefined });
       return;
     }
-    if (!canConfirm) return;
+    if (!canConfirm || oneTimeWithEnd) return;
     // AI提案の効果は、意味と追加効果の確認を済ませないと確認できない（確認条件を緩めない）
     if (aiProposed && !checksDone) return;
     onChange({ ...current, confirmed: true, confirmedAt: new Date().toISOString() });
@@ -96,6 +98,8 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
 
   const statusNote = current?.confirmed
     ? 'この効果は確認済みで、STAGE6の財務試算に反映されています。'
+    : oneTimeWithEnd
+      ? '一回限りの効果に終了月が入っています。終了月を消すと確認できます（一回限りは開始月に全額計上します）。'
     : canConfirm && (!aiProposed || checksDone)
       ? '確認すると、STAGE6の財務試算に反映されます。'
       : canConfirm
@@ -209,7 +213,10 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
                   className={inputClass}
                   disabled={disabled}
                   value={current.amountBasis ?? ''}
-                  onChange={(e) => update({ amountBasis: (e.target.value || undefined) as SpendAmountBasis | undefined })}
+                  onChange={(e) => {
+                    const basis = (e.target.value || undefined) as SpendAmountBasis | undefined;
+                    update(basis === 'TOTAL' ? { amountBasis: basis, endYm: undefined } : { amountBasis: basis });
+                  }}
                 >
                   <option value="">選択してください</option>
                   {(Object.keys(FINANCE_EFFECT_BASIS_LABEL) as SpendAmountBasis[]).map((b) => (
@@ -223,10 +230,17 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
                 <span className="text-[11px] font-semibold">効果の開始月</span>
                 <input type="month" className={inputClass} disabled={disabled} value={current.startYm ?? ''} onChange={(e) => update({ startYm: e.target.value || undefined })} />
               </label>
-              <label className="space-y-1">
-                <span className="text-[11px] font-semibold">終了月（空欄＝継続）</span>
-                <input type="month" className={inputClass} disabled={disabled} value={current.endYm ?? ''} onChange={(e) => update({ endYm: e.target.value || undefined })} />
-              </label>
+              {current.amountBasis === 'TOTAL' ? (
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold">終了月</span>
+                  <div className="text-[11px] text-zinc-600">一回限りは開始月に全額計上するため、入力しません</div>
+                </div>
+              ) : (
+                <label className="space-y-1">
+                  <span className="text-[11px] font-semibold">終了月（空欄＝継続）</span>
+                  <input type="month" className={inputClass} disabled={disabled} value={current.endYm ?? ''} onChange={(e) => update({ endYm: e.target.value || undefined })} />
+                </label>
+              )}
             </div>
           </section>
         )}
@@ -267,7 +281,7 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
             {isFinancial && (
               <button
                 type="button"
-                disabled={disabled || (!current.confirmed && (!canConfirm || (aiProposed && !checksDone)))}
+                disabled={disabled || (!current.confirmed && (!canConfirm || oneTimeWithEnd || (aiProposed && !checksDone)))}
                 onClick={toggleConfirm}
                 className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
               >
