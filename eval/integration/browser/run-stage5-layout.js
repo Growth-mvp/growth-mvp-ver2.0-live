@@ -104,6 +104,19 @@ async function runAt(browser, width, height, withDockedAi) {
     });
   }
 
+  if (withDockedAi) {
+    await check(`[${tag}] 「今、困っていること」は実施事項より上に表示される`, async () => {
+      const consult = await page.locator('section[aria-label="実行支援"] section', { hasText: '今、困っていること' }).first().boundingBox();
+      const action = await page.locator('section[aria-label="実行支援"] summary').filter({ hasText: '1. ' }).first().boundingBox();
+      if (!consult || !action) throw new Error('位置が取れない');
+      if (consult.y >= action.y) throw new Error('今、困っていることが実施事項より下にある');
+      return '今、困っていること → 実施事項';
+    });
+    await page.locator('section[aria-label="実行支援"] summary').filter({ hasText: '1. ' }).first().click();
+    await page.waitForTimeout(300);
+    if (width === 1280) await page.screenshot({ path: path.join(outDir, 'shots', 'stage5-action-expanded-1280.png'), fullPage: false });
+  }
+
   await page.screenshot({ path: path.join(outDir, 'shots', `stage5-layout-open-${tag}.png`), fullPage: false });
 
   await check(`[${tag}] 閉じる操作で、従来のピラミッドに戻る`, async () => {

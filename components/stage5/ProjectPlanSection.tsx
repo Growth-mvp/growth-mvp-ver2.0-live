@@ -3,7 +3,7 @@
 /* STAGE5 のプロジェクトモーダルに、STAGE4で実行開始した計画を読み取り専用で表示する。
  * 計画の内容（目的・KPI・実施事項）は変えない。実施事項の進捗・成果・課題・次の行動・紐づくKRだけを記録する。
  * 同じIDのプロジェクトが複数ある場合は、どの計画か特定できないため表示しない。 */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { currentPlanStoreKind, planStoreFor } from '@/components/okr/execution-plan/planStores';
 import { ActionProgressEditor, type LinkableKr } from '@/components/stage5/ActionProgressEditor';
@@ -33,7 +33,7 @@ export type ProjectPlanSectionProps = {
   projectTitle: string;
   userId: string;
   onLoaded?: (view: StartedPlanView | null) => void;
-  compact?: boolean;
+  children?: ReactNode;
 };
 
 function progressFor(departments: unknown, projectId: string): { progress: Record<string, ActionProgressRecord>; krs: LinkableKr[] } {
@@ -58,7 +58,7 @@ function progressFor(departments: unknown, projectId: string): { progress: Recor
 }
 
 export function ProjectPlanSection(props: ProjectPlanSectionProps) {
-  const { companyId, strategyId, projectId, departmentName, projectTitle, userId, compact = false } = props;
+  const { companyId, strategyId, projectId, departmentName, projectTitle, userId, children } = props;
   const departments = useStrategyStore((st) => (st as unknown as { departments?: unknown }).departments);
   const companyName = useStrategyStore((st) => (st as unknown as { companyName?: string }).companyName ?? '');
   const role = useUserStore((st) => st.role ?? '');
@@ -114,27 +114,36 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
 
   if (duplicated) {
     return (
+      <>
       <section aria-label="実行計画" className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
         同じIDのプロジェクトがあるため、どの計画か特定できず表示していません（STAGE3で確認してください）。
       </section>
+      {children}
+      </>
     );
   }
 
-  if (status.kind === 'off' || status.kind === 'idle') return null;
+  if (status.kind === 'off' || status.kind === 'idle') return <>{children}</>;
 
   if (status.kind === 'none') {
     return (
+      <>
       <section aria-label="実行計画" className="rounded-3xl border border-black/10 bg-white p-4 text-sm text-gray-600">
         実行開始済みの計画はまだありません。STAGE4で実行を開始すると、ここに計画の内容が表示されます。
       </section>
+      {children}
+      </>
     );
   }
 
   if (status.kind === 'failed') {
     return (
+      <>
       <section aria-label="実行計画" className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
         計画を読み込めませんでした。画面を開き直してください。
       </section>
+      {children}
+      </>
     );
   }
 
@@ -165,7 +174,7 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
         <div>
           <div className="mb-1 text-xs font-medium tracking-wide text-gray-500">実行計画（STAGE4・実行開始済み）</div>
           <p className="text-xs text-gray-600">
-            {compact ? '計画は読み取り専用です。' : '計画の内容は読み取り専用です。実施事項の進捗・成果・課題・次の行動と、紐づくKRの実績を、ここで記録します。'}
+            計画は読み取り専用です。
           </p>
         </div>
         <div className="flex flex-col items-start gap-1 md:items-end">
@@ -185,52 +194,8 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
         </div>
       </header>
 
-      {compact && view && <p className="text-xs text-gray-600">責任者：{view.responsible || '未定'}</p>}
-      <details open={!compact} className="rounded-2xl border border-black/5 bg-gray-50 p-3">
-        <summary className="cursor-pointer text-sm font-medium text-gray-700">計画の詳細（目的・KPI）</summary>
-        <div className="mt-3 space-y-4">
-      <div className="rounded-2xl bg-gray-50 p-4">
-        <div className="text-xs text-gray-600">
-          担当：{view.responsible || '未定'}　開始日：{new Date(view.startedAt).toLocaleDateString('ja-JP')}（版 {view.startedVersion}）
-        </div>
-        <dl className="mt-2 space-y-1 text-sm text-gray-800">
-          {view.purpose.map((p) => (
-            <div key={p.label}>
-              <dt className="inline text-xs text-gray-500">{p.label}：</dt>
-              <dd className="inline">{p.text}</dd>
-            </div>
-          ))}
-        </dl>
-      </div>
-
-      <div className="overflow-x-auto rounded-2xl border border-black/10">
-        <table className="min-w-full text-left text-xs text-gray-700">
-          <caption className="sr-only">KPI（目標・期限・担当）</caption>
-          <thead className="bg-gray-50 text-gray-500">
-            <tr>
-              <th scope="col" className="px-3 py-2">KPI</th>
-              <th scope="col" className="px-3 py-2">目標</th>
-              <th scope="col" className="px-3 py-2">期限</th>
-              <th scope="col" className="px-3 py-2">担当</th>
-              <th scope="col" className="px-3 py-2">区分</th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.kpis.map((k, i) => (
-              <tr key={`${k.label}-${i}`} className="border-t border-black/5">
-                <td className="px-3 py-2">{k.label}</td>
-                <td className="px-3 py-2">{k.target}</td>
-                <td className="px-3 py-2">{k.due}</td>
-                <td className="px-3 py-2">{k.owner}</td>
-                <td className="px-3 py-2">{k.statusLabel}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-        </div>
-      </details>
+      <p className="text-xs text-gray-600">責任者：{view.responsible || '未定'}</p>
+      {children}
 
       <div>
         <h3 className="mb-2 text-sm font-semibold text-gray-800">実施事項と進捗</h3>

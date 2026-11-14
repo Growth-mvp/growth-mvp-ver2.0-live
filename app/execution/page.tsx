@@ -1296,9 +1296,8 @@ function ExecPanel(props: {
         </button>
       </header>
 
-      {/* 計画：責任者・PDF・次にやること */}
+      {/* 計画：責任者・PDF・今、困っていること・次にやること */}
       <ProjectPlanSection
-        compact
         companyId={companyId ?? ''}
         strategyId={strategyId ?? ''}
         projectId={projectId ?? ''}
@@ -1306,7 +1305,7 @@ function ExecPanel(props: {
         projectTitle={projectTitle}
         userId={userId ?? ''}
         onLoaded={setStartedPlan}
-      />
+      >
 
       {/* 今、困っていること：右側のAI経営コンサルタントへ、同じ対象で相談する */}
       <section className="rounded-2xl bg-gray-50 p-4">
@@ -1371,6 +1370,8 @@ function ExecPanel(props: {
           </div>
         </section>
       )}
+
+      </ProjectPlanSection>
 
       {/* 補助情報：必要な時だけ開く */}
       <section className="space-y-2">

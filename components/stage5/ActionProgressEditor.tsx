@@ -49,6 +49,7 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
   const [issue, setIssue] = useState<string>(record?.issue ?? '');
   const [nextAction, setNextAction] = useState<string>(record?.nextAction ?? '');
   const [krIds, setKrIds] = useState<string[]>(record?.krIds ?? []);
+  const [pickKr, setPickKr] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const linked = props.krs.filter((k) => (record?.krIds ?? []).includes(k.id));
@@ -82,11 +83,6 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
           </span>
         </summary>
         <div className="mt-2 text-xs text-slate-500">担当：{a.owner}</div>
-      {record && (
-        <div className="mt-1 text-xs text-slate-500">
-          最終更新：{dateText(record.updatedAt)}　記録者：{shortUser(record.updatedBy)}
-        </div>
-      )}
       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
         <label className="text-xs text-slate-600">
           進捗
@@ -142,6 +138,18 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
         </label>
       </div>
       {props.krs.length > 0 && (
+        <div className="mt-2 text-xs">
+          <button
+            type="button"
+            className="text-slate-600 underline-offset-2 hover:underline"
+            aria-expanded={pickKr}
+            onClick={() => setPickKr((v) => !v)}
+          >
+            {pickKr ? '関連KRを閉じる' : '関連KRを選ぶ'}
+          </button>
+        </div>
+      )}
+      {pickKr && props.krs.length > 0 && (
         <fieldset className="mt-2 text-xs text-slate-600">
           <legend>関連するKR（利用者が選んだものだけ紐づけます）</legend>
           <div className="mt-1 flex flex-wrap gap-3">
@@ -167,7 +175,7 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
       )}
       <div className="mt-2 flex items-center gap-3">
         <button type="button" className="rounded-lg bg-slate-800 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50" disabled={busy} onClick={save}>
-          進捗を保存
+          保存
         </button>
         {message && <span role="status" className="text-xs text-slate-600">{message}</span>}
       </div>

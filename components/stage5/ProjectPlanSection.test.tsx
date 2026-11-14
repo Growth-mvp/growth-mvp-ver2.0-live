@@ -89,13 +89,31 @@ const props = (over: Record<string, unknown> = {}) => ({
 describe('STAGE5 のプロジェクトモーダル：実行開始済みの計画（読み取り専用）', () => {
   beforeEach(() => mockDownload.mockClear());
 
-  it('開始したプロジェクトの計画を、担当・目的・KPI（目標・期限）・実施事項つきで表示する', async () => {
+  it('開始したプロジェクトの責任者と実施事項を表示し、計画の詳細（目的・KPI）は表示しない', async () => {
     render(createElement(ProjectPlanSection as never, props()));
     expect(await screen.findByText(/実行計画（STAGE4・実行開始済み）/)).not.toBeNull();
-    expect(screen.getByText(/佐藤（仮）/)).not.toBeNull();
-    expect(screen.getByText('保守契約の継続率')).not.toBeNull();
-    expect(screen.getByText('2027年6月')).not.toBeNull();
+    expect(screen.getByText(/責任者：鈴木一郎（仮）|責任者：/)).not.toBeNull();
     expect(screen.getByText('実施事項：更新案内の一斉送付')).not.toBeNull();
+    expect(screen.queryByText('計画の詳細（目的・KPI）')).toBeNull();
+    expect(screen.queryByText('保守契約の継続率')).toBeNull();
+  });
+
+  it('子要素（今、困っていること）は、計画の有無にかかわらず、実施事項より上に表示される', async () => {
+    const child = createElement('div', { 'data-testid': 'consult' }, '今、困っていること');
+    const { container } = render(createElement(ProjectPlanSection as never, props(), child));
+    expect(await screen.findByText(/実行計画（STAGE4・実行開始済み）/)).not.toBeNull();
+    const consult = screen.getByTestId('consult');
+    const action = screen.getByText('実施事項：更新案内の一斉送付');
+    expect(consult.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.contains(consult)).toBe(true);
+  });
+
+  it('計画がなくても、子要素（今、困っていること）は表示される', async () => {
+    mockLoad = async () => ({ status: 'NONE' });
+    const child = createElement('div', { 'data-testid': 'consult-none' }, '今、困っていること');
+    render(createElement(ProjectPlanSection as never, props(), child));
+    expect(await screen.findByText(/実行開始済みの計画はまだありません/)).not.toBeNull();
+    expect(screen.getByTestId('consult-none')).not.toBeNull();
   });
 
   it('実行開始していない計画は、計画の内容を表示せず、開始の案内を出す', async () => {

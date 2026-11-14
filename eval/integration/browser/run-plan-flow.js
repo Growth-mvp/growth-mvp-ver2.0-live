@@ -74,13 +74,15 @@ const projectOfStorage = (page, title) =>
   await page.waitForTimeout(700);
   await page.evaluate(() => document.querySelectorAll('details').forEach((d) => (d.open = true)));
 
-  await check('モーダル：STAGE4で開始した計画を表示し、STAGE4で修正したKPIの目標を出す', async () => {
+  await check('モーダル：計画の責任者と実施事項を出し、計画の詳細（KPI）は出さない（PDFで確認する）', async () => {
     const section = page.locator('section[aria-label="実行計画"]').first();
     await section.waitFor({ state: 'visible', timeout: 5000 });
     const t = await section.innerText();
     if (!t.includes('実行計画（STAGE4・実行開始済み）')) throw new Error('計画の見出しがない');
-    if (!t.includes(EDITED_KPI)) throw new Error('STAGE4で修正したKPIの目標が出ていない: ' + t.slice(0, 120));
-    return `修正後のKPI目標「${EDITED_KPI}」を表示`;
+    if (!t.includes('責任者：')) throw new Error('責任者が出ていない');
+    if (t.includes(EDITED_KPI)) throw new Error('モーダルに計画の詳細（KPI）が出ている');
+    if (t.includes('計画の詳細（目的・KPI）')) throw new Error('計画の詳細の欄が残っている');
+    return '責任者と実施事項を表示。計画の詳細は出さない';
   });
 
   await check('モーダル：旧KPI一覧（名前だけ）は出さない（重複をなくす）', async () => {
@@ -101,7 +103,7 @@ const projectOfStorage = (page, title) =>
     await action().getByLabel('1. の進捗').selectOption('IN_PROGRESS');
     await action().getByLabel('1. の課題').fill('担当者が不足');
     await action().getByLabel('1. の次の行動').fill('来週の打ち合わせで決める');
-    await action().getByRole('button', { name: '進捗を保存' }).first().click();
+    await action().getByRole('button', { name: '保存', exact: true }).first().click();
     await action().getByRole('status').first().waitFor({ state: 'visible', timeout: 5000 });
     const msg = await action().getByRole('status').first().innerText();
     if (!msg.includes('保存しました')) throw new Error('保存の案内が出ない: ' + msg);
