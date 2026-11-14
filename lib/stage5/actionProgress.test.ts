@@ -2,6 +2,7 @@ import {
   actionKeysFor,
   canonicalJson,
   checkProgressPatch,
+  NOTE_MAX,
   nextRecord,
   progressOf,
   sameProgress,
@@ -105,14 +106,39 @@ describe('記録の更新', () => {
   });
 
   it('既存の値は、指定されなかった項目で残る（成果だけ変えても状態は変わらない）', () => {
-    const prev: ActionProgressRecord = { status: 'IN_PROGRESS', result: '途中', krIds: ['k1'], updatedAt: 'a', updatedBy: 'u' };
+    const prev: ActionProgressRecord = { status: 'IN_PROGRESS', result: '途中', issue: '', nextAction: '', krIds: ['k1'], updatedAt: 'a', updatedBy: 'u' };
     const rec = nextRecord({ existing: prev, patch: { result: '完了まで' }, nowIso: 'b', userId: 'u2' });
     expect(rec).toMatchObject({ status: 'IN_PROGRESS', result: '完了まで', krIds: ['k1'], updatedBy: 'u2' });
   });
 
   it('変更がなければ、保存は不要と判断できる', () => {
-    const prev: ActionProgressRecord = { status: 'DONE', result: '', krIds: [], updatedAt: 'a', updatedBy: 'u' };
+    const prev: ActionProgressRecord = { status: 'DONE', result: '', issue: '', nextAction: '', krIds: [], updatedAt: 'a', updatedBy: 'u' };
     expect(sameProgress(prev, { ...prev, updatedAt: 'b' })).toBe(true);
     expect(sameProgress(prev, { ...prev, status: 'IN_PROGRESS' })).toBe(false);
+  });
+});
+
+describe('課題と次の行動', () => {
+  it('未入力の既存記録は、課題・次の行動を空として読む', () => {
+    const p = progressOf({ executionProgress: { k: { status: 'IN_PROGRESS', result: '', krIds: [] } } });
+    expect(p.k).toMatchObject({ issue: '', nextAction: '' });
+  });
+
+  it('課題と次の行動は、部分の更新で他の項目を変えずに残る', () => {
+    const prev: ActionProgressRecord = { status: 'IN_PROGRESS', result: '成果', issue: '古い課題', nextAction: '', krIds: [], updatedAt: 'a', updatedBy: 'u' };
+    const rec = nextRecord({ existing: prev, patch: { nextAction: '次の一手' }, nowIso: 't', userId: 'u2' });
+    expect(rec).toMatchObject({ result: '成果', issue: '古い課題', nextAction: '次の一手' });
+  });
+
+  it('課題・次の行動が上限を超えると書き込まない', () => {
+    const long = 'あ'.repeat(NOTE_MAX + 1);
+    expect(checkProgressPatch({ actionKey: 'k', allowedKeys: ['k'], patch: { issue: long }, okrIds: [] }).ok).toBe(false);
+    expect(checkProgressPatch({ actionKey: 'k', allowedKeys: ['k'], patch: { nextAction: long }, okrIds: [] }).ok).toBe(false);
+    expect(checkProgressPatch({ actionKey: 'k', allowedKeys: ['k'], patch: { issue: '短い' }, okrIds: [] }).ok).toBe(true);
+  });
+
+  it('課題だけの変更も、変更ありとして比べる', () => {
+    const prev: ActionProgressRecord = { status: 'DONE', result: '', issue: '', nextAction: '', krIds: [], updatedAt: 'a', updatedBy: 'u' };
+    expect(sameProgress(prev, { ...prev, issue: '新しい課題' })).toBe(false);
   });
 });

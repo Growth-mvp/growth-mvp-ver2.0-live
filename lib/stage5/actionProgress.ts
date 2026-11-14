@@ -11,16 +11,27 @@ export const ACTION_STATUS_LABEL: Record<ActionStatus, string> = {
 };
 
 export const RESULT_MAX = 500;
+export const NOTE_MAX = 500;
 
 export type ActionProgressRecord = {
   status: ActionStatus;
   result: string;
+  /** 課題（進めるうえで困っていること） */
+  issue: string;
+  /** 次の行動 */
+  nextAction: string;
   krIds: string[];
   updatedAt: string;
   updatedBy: string;
 };
 
-export type ActionProgressPatch = { status?: ActionStatus; result?: string; krIds?: string[] };
+export type ActionProgressPatch = {
+  status?: ActionStatus;
+  result?: string;
+  issue?: string;
+  nextAction?: string;
+  krIds?: string[];
+};
 
 const canonical = (v: unknown): unknown => {
   if (Array.isArray(v)) return v.map(canonical);
@@ -59,8 +70,9 @@ export function actionKeysFor(startedAt: string, aiDraft: unknown): Array<{ orde
 }
 
 const isStatus = (v: unknown): v is ActionStatus => typeof v === 'string' && (ACTION_STATUSES as readonly string[]).includes(v);
+const textOf = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-/** 保存された進捗のうち、形の正しいものだけを読む（不正な項目は捨てる） */
+/** 保存された進捗のうち、形の正しいものだけを読む（不正な項目は捨てる）。課題・次の行動は未入力なら空 */
 export function progressOf(project: unknown): Record<string, ActionProgressRecord> {
   const raw = (project as { executionProgress?: unknown } | null)?.executionProgress;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -70,10 +82,12 @@ export function progressOf(project: unknown): Record<string, ActionProgressRecor
     if (!r || typeof r !== 'object' || !isStatus(r.status)) continue;
     out[key] = {
       status: r.status,
-      result: typeof r.result === 'string' ? r.result : '',
+      result: textOf(r.result),
+      issue: textOf(r.issue),
+      nextAction: textOf(r.nextAction),
       krIds: Array.isArray(r.krIds) ? r.krIds.filter((x): x is string => typeof x === 'string') : [],
-      updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : '',
-      updatedBy: typeof r.updatedBy === 'string' ? r.updatedBy : '',
+      updatedAt: textOf(r.updatedAt),
+      updatedBy: textOf(r.updatedBy),
     };
   }
   return out;
@@ -92,6 +106,12 @@ export function checkProgressPatch(args: {
   if (args.patch.status !== undefined && !isStatus(args.patch.status)) return { ok: false, reason: '進捗の状態が不正です' };
   if (args.patch.result !== undefined && args.patch.result.length > RESULT_MAX) {
     return { ok: false, reason: `成果は${RESULT_MAX}字以内で入力してください` };
+  }
+  if (args.patch.issue !== undefined && args.patch.issue.length > NOTE_MAX) {
+    return { ok: false, reason: `課題は${NOTE_MAX}字以内で入力してください` };
+  }
+  if (args.patch.nextAction !== undefined && args.patch.nextAction.length > NOTE_MAX) {
+    return { ok: false, reason: `次の行動は${NOTE_MAX}字以内で入力してください` };
   }
   if (args.patch.krIds !== undefined) {
     const known = new Set(args.okrIds);
@@ -114,6 +134,8 @@ export function nextRecord(args: {
   return {
     status: args.patch.status ?? args.existing?.status ?? 'NOT_STARTED',
     result: args.patch.result ?? args.existing?.result ?? '',
+    issue: args.patch.issue ?? args.existing?.issue ?? '',
+    nextAction: args.patch.nextAction ?? args.existing?.nextAction ?? '',
     krIds: args.patch.krIds ?? args.existing?.krIds ?? [],
     updatedAt: args.nowIso,
     updatedBy: args.userId,
@@ -121,5 +143,12 @@ export function nextRecord(args: {
 }
 
 export function sameProgress(a: ActionProgressRecord | undefined, b: ActionProgressRecord): boolean {
-  return !!a && a.status === b.status && a.result === b.result && a.krIds.join(',') === b.krIds.join(',');
+  return (
+    !!a &&
+    a.status === b.status &&
+    a.result === b.result &&
+    a.issue === b.issue &&
+    a.nextAction === b.nextAction &&
+    a.krIds.join(',') === b.krIds.join(',')
+  );
 }

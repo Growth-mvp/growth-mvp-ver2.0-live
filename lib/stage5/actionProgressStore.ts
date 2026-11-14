@@ -1,4 +1,6 @@
 import { findProjectPositionById } from '@/lib/stage4/planView/financeBridgeStore';
+import { applyActionProgressToDepartments, patchStrategyDepartments } from '@/lib/stage5/partialStrategyWrite';
+import { strategyPartialIo } from '@/utils/supabase/strategyPartial';
 import { useStrategyStore } from '@/store/strategyStore';
 import {
   checkProgressPatch,
@@ -12,10 +14,9 @@ import {
 export type ActionWriteResult = { ok: true; changed: boolean; revision?: number } | { ok: false; message: string };
 
 const CHANGED = '会社または戦略が切り替わったため、保存されませんでした。画面を読み込み直してから、もう一度お試しください。';
-const SWITCH_REASONS = new Set(['scope_changed', 'company_switching', 'company_scope_missing']);
 
 /**
- * 実施事項の進捗・成果・紐づくKRを、既存の保存（saveStrategyData）で書く。
+ * 実施事項の進捗・成果・課題・次の行動・紐づくKRを、対象の案件の項目だけを部分更新で書く（戦略全体は送らない）。
  * 会社・戦略・プロジェクトが一致し、実施事項が開始された計画にある場合だけ書く。保存に失敗したら画面を元に戻す。
  */
 export async function writeActionProgress(args: {
@@ -51,15 +52,31 @@ export async function writeActionProgress(args: {
   const nextDepartments = (prevDepartments as any[]).map((d, dIdx) =>
     dIdx !== found.dIdx ? d : { ...d, projects: d.projects.map((p: unknown, pIdx: number) => (pIdx === found.pIdx ? nextProject : p)) },
   );
-  useStrategyStore.setState({ departments: nextDepartments, dirty: true } as never);
+  useStrategyStore.setState({ departments: nextDepartments } as never);
 
-  const result: any = await (useStrategyStore.getState() as any).saveStrategyData({ reason: 'stage5_action_progress', force: true });
-  if (result?.ok) return { ok: true, changed: true, revision: result.revision };
+  const saved = await patchStrategyDepartments(strategyPartialIo, {
+    companyId: args.companyId,
+    actorId: args.userId,
+    apply: (departments) =>
+      applyActionProgressToDepartments(departments, {
+        projectId: args.projectId,
+        actionKey: args.actionKey,
+        patch: args.patch,
+        nowIso: new Date().toISOString(),
+        userId: args.userId,
+      }),
+  });
+  if (saved.ok) {
+    useStrategyStore.getState().syncPartialSave({ departments: saved.departments as unknown[], revision: saved.revision });
+    return { ok: true, changed: true, revision: saved.revision };
+  }
 
   const now = useStrategyStore.getState() as any;
-  if (!result?.skipped && now.companyId === args.companyId && now.strategyId === args.strategyId) {
+  if (now.companyId === args.companyId && now.strategyId === args.strategyId) {
     useStrategyStore.setState({ departments: prevDepartments } as never);
   }
-  if (result?.skipped && SWITCH_REASONS.has(result.reason)) return { ok: false, message: CHANGED };
+  if (saved.reason === 'revision_conflict') {
+    return { ok: false, message: '他の更新と競合したため、保存されませんでした。画面を再読み込みしてから、もう一度お試しください。' };
+  }
   return { ok: false, message: '進捗を保存できませんでした。もう一度お試しください。' };
 }

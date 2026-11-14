@@ -7,6 +7,7 @@ import { useState } from 'react';
 import {
   ACTION_STATUSES,
   ACTION_STATUS_LABEL,
+  NOTE_MAX,
   RESULT_MAX,
   type ActionProgressRecord,
   type ActionStatus,
@@ -45,6 +46,8 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
   const { action: a, record } = props;
   const [status, setStatus] = useState<ActionStatus>(record?.status ?? 'NOT_STARTED');
   const [result, setResult] = useState<string>(record?.result ?? '');
+  const [issue, setIssue] = useState<string>(record?.issue ?? '');
+  const [nextAction, setNextAction] = useState<string>(record?.nextAction ?? '');
   const [krIds, setKrIds] = useState<string[]>(record?.krIds ?? []);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -59,7 +62,7 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
       projectId: props.projectId,
       allowedKeys: props.allowedKeys,
       actionKey: a.actionKey,
-      patch: { status, result, krIds },
+      patch: { status, result, issue, nextAction, krIds },
       userId: props.userId,
     });
     setBusy(false);
@@ -106,6 +109,30 @@ function ActionRow(props: Parameters<typeof ActionProgressEditor>[0] & { action:
             value={result}
             disabled={busy}
             onChange={(e) => setResult(e.target.value)}
+          />
+        </label>
+        <label className="text-xs text-slate-600">
+          課題（{NOTE_MAX}字以内）
+          <textarea
+            aria-label={`${a.no}. の課題`}
+            className="mt-1 w-full rounded border border-slate-300 p-1 text-sm"
+            rows={2}
+            maxLength={NOTE_MAX}
+            value={issue}
+            disabled={busy}
+            onChange={(e) => setIssue(e.target.value)}
+          />
+        </label>
+        <label className="text-xs text-slate-600">
+          次の行動（{NOTE_MAX}字以内）
+          <textarea
+            aria-label={`${a.no}. の次の行動`}
+            className="mt-1 w-full rounded border border-slate-300 p-1 text-sm"
+            rows={2}
+            maxLength={NOTE_MAX}
+            value={nextAction}
+            disabled={busy}
+            onChange={(e) => setNextAction(e.target.value)}
           />
         </label>
       </div>

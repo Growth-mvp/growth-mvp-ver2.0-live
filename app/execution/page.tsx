@@ -10,12 +10,14 @@ import ProjectCard from '@/components/execution/ProjectCard';
 import { ExecutionHeader } from '@/components/stage5/ExecutionHeader';
 import { EmptyExecutionMessage } from '@/components/stage5/EmptyExecutionMessage';
 import { EmptyPyramidMessage } from '@/components/stage5/EmptyPyramidMessage';
-import { StartedPlansPanel } from '@/components/stage5/StartedPlansPanel';
+import { ProjectPlanSection } from '@/components/stage5/ProjectPlanSection';
+import { okrService } from '@/services/okrService';
+import type { StartedPlanView } from '@/lib/stage5/startedPlans';
 import { saveProgressLog } from '@/utils/supabase/strategy';
 import { createPendingInsert, createSingleFlight, insertProgressRowOnce, toAssistProgress, type SavedProgressRow } from '@/lib/stage5/progressSave';
 import { applyKrActualToDepartments, applyWorkProgressToDepartments, patchStrategyDepartments } from '@/lib/stage5/partialStrategyWrite';
 import { strategyPartialIo } from '@/utils/supabase/strategyPartial';
-import { isUuidLike, normalizeObjectiveKey, resolveExistingDbOkrId } from '@/lib/stage5/resolveDbOkr';
+import { isUuidLike, normalizeObjectiveKey, resolveExistingDbOkrId, type OkrReadDeps } from '@/lib/stage5/resolveDbOkr';
 import { buildProgressLogMetadata, embedMetadata } from '@/utils/execution/metadata';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
@@ -49,6 +51,26 @@ const stripMetadata = (content: string): string => {
 };
 
 const isLocalLogId = (id?: string) => String(id ?? '').startsWith('local-');
+
+const okrReadDeps: OkrReadDeps = {
+  findOkrById: async (id) => {
+    const { data, error } = await supabase.from('okrs').select('id').eq('id', id).maybeSingle();
+    return !error && data?.id ? String(data.id).trim() : null;
+  },
+  listProjectOkrs: async (scope) => {
+    const { data, error } = await supabase
+      .from('okrs')
+      .select('id, objective, project_id, department_id, strategy_id, updated_at, created_at, is_deleted')
+      .eq('company_id', scope.companyId)
+      .eq('strategy_id', scope.strategyId)
+      .eq('project_id', scope.projectId)
+      .eq('is_deleted', false)
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false, nullsFirst: false })
+      .limit(10);
+    return !error && Array.isArray(data) ? data : null;
+  },
+};
 
 const fetchOwnProgressRow = async (id: string, userId: string) => {
   const { data, error } = await supabase
@@ -374,6 +396,8 @@ function ExecPanel(props: {
   const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
   const saveLockRef = useRef(createSingleFlight());
   const pendingInsertRef = useRef(createPendingInsert());
+  const [startedPlan, setStartedPlan] = useState<StartedPlanView | null>(null);
+  const [anchoredOkrId, setAnchoredOkrId] = useState('');
   const workProgressPct = useStrategyStore((st: any) =>
     typeof di === 'number' && typeof pi === 'number' ? st.departments?.[di]?.projects?.[pi]?.workProgressPct : undefined,
   ) as number | undefined;
@@ -398,8 +422,8 @@ function ExecPanel(props: {
 
   const progressLogOkrId = progressOkrId?.trim() || '';
   const effectiveDbOkrId = useMemo(
-    () => String(resolvedDbOkrId ?? dbOkrId ?? '').trim(),
-    [resolvedDbOkrId, dbOkrId]
+    () => String(anchoredOkrId || (resolvedDbOkrId ?? dbOkrId ?? '')).trim(),
+    [anchoredOkrId, resolvedDbOkrId, dbOkrId]
   );
   const [resolvedProgressOkrId, setResolvedProgressOkrId] = useState<string>(effectiveDbOkrId);
 
@@ -558,6 +582,31 @@ function ExecPanel(props: {
   }, [canCheckin, canFeedback, userId, resolvedProgressOkrId, deletingLogId, saving, editingLogId, cancelEditing]);
 
   // 保存（チェックイン）
+  /* 実行開始済みの計画の案件に、活動を記録する先のOKR行が無い場合だけ、保存の操作の中で作る（モーダルを開くだけでは作らない） */
+  const anchorProjectOkr = useCallback(async (): Promise<string> => {
+    if (!startedPlan || !companyId || !strategyId || !projectId || !departmentId) return '';
+    const objective = (projectTitle || startedPlan.projectTitle).trim();
+    const resolved = await resolveExistingDbOkrId({ objective, projectId, companyId, strategyId }, { dbOkrMap: {}, cachedRows: [] }, okrReadDeps);
+    if (resolved) {
+      setAnchoredOkrId(resolved.id);
+      return resolved.id;
+    }
+    const row = await okrService.upsertOkr(
+      {
+        objective,
+        owner_name: startedPlan.responsible || undefined,
+        strategy_id: strategyId,
+        department_id: departmentId,
+        project_id: projectId,
+      },
+      projectId,
+      companyId,
+    );
+    const id = String(row?.id ?? '').trim();
+    if (id) setAnchoredOkrId(id);
+    return id;
+  }, [startedPlan, companyId, strategyId, projectId, departmentId, projectTitle]);
+
   const runCheckinSave = useCallback(async () => {
     // ===== TASK A: Save 実行直前 - 認証状態ログ =====
     // IMPORTANT: auth.uid と page userId を並べて出力
@@ -609,18 +658,9 @@ function ExecPanel(props: {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
-    // ===== 修正 2: dbOkrId が無い場合は保存せず return =====
-    if (!effectiveDbOkrId) {
-      setNotice('❌ OKRが見つかりません。DB同期を確認してください。');
-      console.warn('[STAGE5-save-checkin-blocked]', {
-        reason: 'resolvedDbOkrId is undefined',
-        resolvedDbOkrId: resolvedDbOkrId ?? '(undefined)',
-        dbOkrId: dbOkrId ?? '(undefined)',
-        mapHit: mapHit ?? '(undefined)',
-        objective: objective ?? '(undefined)',
-        projectId: projectId ?? '(undefined)',
-        displayOkrId: displayOkrId ?? '(undefined)',
-      });
+    const okrIdResolved = effectiveDbOkrId || (await anchorProjectOkr());
+    if (!okrIdResolved) {
+      setNotice('❌ OKRが見つかりません。STAGE4で実行を開始すると、活動を記録できます。');
       return;
     }
 
@@ -632,7 +672,7 @@ function ExecPanel(props: {
         : progressText.trim();
 
       // ===== 修正 1: dbOkrId のみを使う（fallback なし） =====
-      const okrIdForSave = effectiveDbOkrId;
+      const okrIdForSave = okrIdResolved;
 
       const metadata = buildProgressLogMetadata({
         companyId: companyId ?? 'unknown',
@@ -672,7 +712,7 @@ function ExecPanel(props: {
       });
 
       // dbOkrId が無い場合は notice と console.error で詳細を出す
-      if (!effectiveDbOkrId) {
+      if (!okrIdResolved) {
         const reason = mapHit ? '（map hit だが値が undefined）' : '（map key miss - DBに OKR が見つかりません）';
         console.error('[STAGE5-save-checkin-warning]', {
           reason,
@@ -969,18 +1009,9 @@ function ExecPanel(props: {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
-    // ===== 修正 2: dbOkrId が無い場合は保存せず return =====
-    if (!effectiveDbOkrId) {
-      setNotice('❌ OKRが見つかりません。DB同期を確認してください。');
-      console.error('[STAGE5-save-feedback-blocked]', {
-        reason: 'resolvedDbOkrId is undefined',
-        resolvedDbOkrId: resolvedDbOkrId ?? '(undefined)',
-        dbOkrId: dbOkrId ?? '(undefined)',
-        mapHit: mapHit ?? '(undefined)',
-        objective: objective ?? '(undefined)',
-        projectId: projectId ?? '(undefined)',
-        displayOkrId: displayOkrId ?? '(undefined)',
-      });
+    const okrIdResolved = effectiveDbOkrId || (await anchorProjectOkr());
+    if (!okrIdResolved) {
+      setNotice('❌ OKRが見つかりません。STAGE4で実行を開始すると、活動を記録できます。');
       return;
     }
 
@@ -990,7 +1021,7 @@ function ExecPanel(props: {
       const fbContent = `[FB]\n${reviewText.trim()}`;
 
       // ===== 修正 1: dbOkrId のみを使う（fallback なし） =====
-      const okrIdForSave = effectiveDbOkrId;
+      const okrIdForSave = okrIdResolved;
 
       const metadata = buildProgressLogMetadata({
         companyId: companyId ?? 'unknown',
@@ -1030,7 +1061,7 @@ function ExecPanel(props: {
       });
 
       // dbOkrId が無い場合は notice と console.error で詳細を出す
-      if (!effectiveDbOkrId) {
+      if (!okrIdResolved) {
         const reason = mapHit ? '（map hit だが値が undefined）' : '（map key miss - DBに OKR が見つかりません）';
         console.error('[STAGE5-save-feedback-warning]', {
           reason,
@@ -1189,7 +1220,7 @@ function ExecPanel(props: {
     const store = useStrategyStore.getState() as any;
     const saved = await patchStrategyDepartments(strategyPartialIo, {
       companyId: String(store.companyId ?? ''),
-      actorId: String(store.userId ?? ''),
+      actorId: userId ?? '',
       apply: (departments) => applyWorkProgressToDepartments(departments, pending),
     });
     if (saved.ok) {
@@ -1197,7 +1228,7 @@ function ExecPanel(props: {
       return;
     }
     setNotice('⚠️ 作業進捗率を保存できませんでした。画面を再読み込みしてから、もう一度入力してください。');
-  }, []);
+  }, [userId]);
 
   useEffect(() => () => void flushWorkProgress(), [flushWorkProgress]);
 
@@ -1280,6 +1311,7 @@ function ExecPanel(props: {
             </div>
           </div>
 
+          {!startedPlan && (
           <div className="mt-3 rounded-2xl bg-gray-50 p-4">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="text-xs font-medium text-gray-600 tracking-wide">主なKPI</div>
@@ -1301,7 +1333,18 @@ function ExecPanel(props: {
               <div className="text-xs leading-5 text-gray-500">KPIは未設定です。必要に応じてSTAGE4で設定してください。</div>
             )}
           </div>
+          )}
         </section>
+
+        <ProjectPlanSection
+          companyId={companyId ?? ''}
+          strategyId={strategyId ?? ''}
+          projectId={projectId ?? ''}
+          departmentName={deptName}
+          projectTitle={projectTitle}
+          userId={userId ?? ''}
+          onLoaded={setStartedPlan}
+        />
 
         {props.onRecordKrActual ? <KrActualSection krs={props.krs} onRecord={props.onRecordKrActual} /> : null}
 
@@ -2383,7 +2426,7 @@ function ExecutionPageContent() {
       const projectId = String(store.departments?.[selectedDi]?.projects?.[selectedPi]?.id ?? '').trim();
       const saved = await patchStrategyDepartments(strategyPartialIo, {
         companyId: String(store.companyId ?? ''),
-        actorId: String(store.userId ?? ''),
+        actorId: String(useUserStore.getState().user?.id ?? ''),
         apply: (departments) => applyKrActualToDepartments(departments, { projectId, krId, actual }),
       });
       if (saved.ok) {
@@ -2439,25 +2482,7 @@ function ExecutionPageContent() {
           dbOkrMap: dbOkrMap as Record<string, string | undefined>,
           cachedRows: Array.isArray(dbOkrsData) ? (dbOkrsData as any[]) : [],
         },
-        {
-          findOkrById: async (id) => {
-            const { data, error } = await supabase.from('okrs').select('id').eq('id', id).maybeSingle();
-            return !error && data?.id ? String(data.id).trim() : null;
-          },
-          listProjectOkrs: async (scope) => {
-            const { data, error } = await supabase
-              .from('okrs')
-              .select('id, objective, project_id, department_id, strategy_id, updated_at, created_at, is_deleted')
-              .eq('company_id', scope.companyId)
-              .eq('strategy_id', scope.strategyId)
-              .eq('project_id', scope.projectId)
-              .eq('is_deleted', false)
-              .order('updated_at', { ascending: false, nullsFirst: false })
-              .order('created_at', { ascending: false, nullsFirst: false })
-              .limit(10);
-            return !error && Array.isArray(data) ? data : null;
-          },
-        },
+        okrReadDeps,
       );
 
       if (!resolved) {
@@ -2791,9 +2816,6 @@ function ExecutionPageContent() {
       {/* Header */}
       <ExecutionHeader isHydrating={isHydrating} selected={selected} />
 
-      <div className="px-3 sm:px-4 pt-4">
-        <StartedPlansPanel />
-      </div>
 
       {/* モバイル */}
       <div className="md:hidden -mx-3 px-3 sm:-mx-4 sm:px-4 pt-6">

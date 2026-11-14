@@ -1,3 +1,4 @@
+import { nextRecord, progressOf, sameProgress, type ActionProgressPatch } from '@/lib/stage5/actionProgress';
 import { recordKrActual } from '@/lib/stage5/krActual';
 import type { KrActual } from '@/types/strategy';
 
@@ -74,6 +75,25 @@ export function applyKrActualToDepartments(
   return {
     ok: true,
     departments: replaceProject(departments, loc.di, loc.pi, (p) => ({ ...p, okrsV2: recorded.next })),
+  };
+}
+
+export function applyActionProgressToDepartments(
+  departments: unknown[],
+  input: { projectId: string; actionKey: string; patch: ActionProgressPatch; nowIso: string; userId: string },
+): ApplyResult {
+  const loc = locateProject(departments, input.projectId);
+  if (!loc.ok) return loc;
+  const project = projectsOf(departments[loc.di])[loc.pi] as StoredProject;
+  const existing = progressOf(project)[input.actionKey];
+  const record = nextRecord({ existing, patch: input.patch, nowIso: input.nowIso, userId: input.userId });
+  if (sameProgress(existing, record)) return { ok: true, departments };
+  return {
+    ok: true,
+    departments: replaceProject(departments, loc.di, loc.pi, (p) => ({
+      ...p,
+      executionProgress: { ...progressOf(p), [input.actionKey]: record },
+    })),
   };
 }
 
