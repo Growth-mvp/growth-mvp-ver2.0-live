@@ -1191,7 +1191,6 @@ function ExecPanel(props: {
   };
 
   const progressHintTemplates = [
-    { key: 'moyamoya', label: 'モヤモヤ', template: '【現状のモヤモヤ】\n' },
     { key: 'issue', label: '困りごと', template: '【いま解くべき課題】\n' },
     { key: 'review', label: '見直したいこと', template: '【見直すべき進め方】\n' },
   ] as const;
