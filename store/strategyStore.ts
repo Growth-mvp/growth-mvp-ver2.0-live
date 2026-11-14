@@ -423,6 +423,7 @@ export type StrategyState = {
 
   /** after-save フック（互換のため残置） */
   __afterSave?: (serverData: Partial<StrategyState> & { revision?: number }) => void;
+  syncPartialSave: (result: { departments: unknown[]; revision: number }) => boolean;
 
   /** 直近サーバ取得エラー */
   __lastServerError?: Error | null;
@@ -3625,6 +3626,14 @@ export const useStrategyStore = create<StrategyState>()(
       setFinanceSummary: (rows) => {
         set((s) => ({ ...s, financeSummary: rows, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => get().recomputeValueAnalysis('setFinanceSummary'), 0);
+      },
+
+      syncPartialSave({ departments, revision }) {
+        const cur = get();
+        if (cur.dirty || cur.boot?.isSaving || cur._loadingSave) return false;
+        const normalized = normalizeDepartmentsInput(departments, cur.departments ?? []);
+        set({ departments: normalized, revision, version: (cur.version ?? 0) + 1 });
+        return true;
       },
 
       __afterSave(data) {

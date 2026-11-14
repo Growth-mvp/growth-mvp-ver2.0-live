@@ -125,6 +125,7 @@ export type ProgressLogInput = {
   status?: 'ontrack' | 'atrisk' | 'offtrack' | null;
   score?: number | null; // 0-1 など任意
   createdAt?: string; // 指定なければサーバ側で now()
+  id?: string; // 指定時は冪等キーとして使う（同じ id の再挿入は 23505 になる）
 };
 
 /* 🔰 新規追加：戦略全体スナップショット型（今後の「丸ごと保存」用） */
@@ -3139,6 +3140,7 @@ export async function saveProgressLog(
       status = null,
       score = null,
       createdAt,
+      id,
     } = input;
 
     const authUserId = await getActiveUserId();
@@ -3255,6 +3257,7 @@ export async function saveProgressLog(
       // reason: route.ts で SELECT されず、okrMetaMap で department は okrs.department_id から取得される
       // department カラムが存在しない場合、INSERT エラーになるため削除
       ...(createdAt ? { created_at: createdAt } : {}),
+      ...(id ? { id } : {}),
     };
 
     // ===== 診断: INSERT 直前に row の内容を確認 =====

@@ -12,6 +12,10 @@ import { EmptyExecutionMessage } from '@/components/stage5/EmptyExecutionMessage
 import { EmptyPyramidMessage } from '@/components/stage5/EmptyPyramidMessage';
 import { StartedPlansPanel } from '@/components/stage5/StartedPlansPanel';
 import { saveProgressLog } from '@/utils/supabase/strategy';
+import { createPendingInsert, createSingleFlight, insertProgressRowOnce, toAssistProgress, type SavedProgressRow } from '@/lib/stage5/progressSave';
+import { applyKrActualToDepartments, applyWorkProgressToDepartments, patchStrategyDepartments } from '@/lib/stage5/partialStrategyWrite';
+import { strategyPartialIo } from '@/utils/supabase/strategyPartial';
+import { isUuidLike, normalizeObjectiveKey, resolveExistingDbOkrId } from '@/lib/stage5/resolveDbOkr';
 import { buildProgressLogMetadata, embedMetadata } from '@/utils/execution/metadata';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
@@ -21,7 +25,6 @@ import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { debugLog } from '@/utils/debug';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { okrService } from '@/services/okrService';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { KrActualSection, type KrRecordResult } from '@/components/stage5/KrActualSection';
@@ -46,6 +49,16 @@ const stripMetadata = (content: string): string => {
 };
 
 const isLocalLogId = (id?: string) => String(id ?? '').startsWith('local-');
+
+const fetchOwnProgressRow = async (id: string, userId: string) => {
+  const { data, error } = await supabase
+    .from('progress_logs')
+    .select('id, user_id, company_id, okr_id, created_at, content, score, status')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return { data: data as SavedProgressRow | null, error };
+};
 const toEpochMs = (value?: string) => {
   if (!value) return 0;
   const ms = new Date(value).getTime();
@@ -92,24 +105,12 @@ const okrKey = (d: number, p: number, o: number, okr?: any) => {
   return `okr-${d}-${p}-${o}`;
 };
 
-// ===== TASK 2: Normalize function for consistent map keys =====
-const normalizeObjectiveKey = (s?: string): string =>
-  String(s ?? '')
-    .trim()
-    .replace(/\s+/g, ' ') // multiple spaces → single space
-    .replace(/[　]+/g, ' ') // full-width spaces → single space
-    .toLowerCase();
-
 const normalizeProjectTitleKey = (s?: string): string =>
   String(s ?? '')
     .trim()
     .replace(/\s+/g, ' ')
     .replace(/[　]+/g, ' ')
     .toLowerCase();
-
-const isUuidLike = (v: any): v is string =>
-  typeof v === 'string' &&
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v.trim());
 
 const pickFirstUuid = (...values: any[]): string | undefined => {
   for (const v of values) {
@@ -371,6 +372,11 @@ function ExecPanel(props: {
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [editingKind, setEditingKind] = useState<'checkin' | 'feedback' | null>(null);
   const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
+  const saveLockRef = useRef(createSingleFlight());
+  const pendingInsertRef = useRef(createPendingInsert());
+  const workProgressPct = useStrategyStore((st: any) =>
+    typeof di === 'number' && typeof pi === 'number' ? st.departments?.[di]?.projects?.[pi]?.workProgressPct : undefined,
+  ) as number | undefined;
 
   // AI相談用のstate
   const [executionAiLoading, setExecutionAiLoading] = useState(false);
@@ -498,7 +504,6 @@ function ExecPanel(props: {
     setEditingKind('checkin');
     setProgressText(memo);
     setHelpRequest(help);
-    setRating(typeof row.score === 'number' ? row.score : 0);
     setNotice('編集中です。保存すると上書きされます。');
   }, []);
 
@@ -508,7 +513,6 @@ function ExecPanel(props: {
     setEditingLogId(String(row.id ?? ''));
     setEditingKind('feedback');
     setReviewText(feedbackBody({ ...row, content: cleanContent }));
-    setReviewScore(typeof row.score === 'number' ? row.score : 0);
     setNotice('編集中です。保存すると上書きされます。');
   }, []);
 
@@ -554,7 +558,7 @@ function ExecPanel(props: {
   }, [canCheckin, canFeedback, userId, resolvedProgressOkrId, deletingLogId, saving, editingLogId, cancelEditing]);
 
   // 保存（チェックイン）
-  const onSaveCheckin = useCallback(async () => {
+  const runCheckinSave = useCallback(async () => {
     // ===== TASK A: Save 実行直前 - 認証状態ログ =====
     // IMPORTANT: auth.uid と page userId を並べて出力
     const { data: authData } = await supabase.auth.getUser();
@@ -689,14 +693,11 @@ function ExecPanel(props: {
 
       const payloadContent = embedMetadata(metadata, composed);
 
-      let saved: any = null;
-      let saveError: any = null;
       if (editingLogId && editingKind === 'checkin') {
         const { data, error } = await supabase
           .from('progress_logs')
           .update({
             content: payloadContent,
-            score: rating ?? null,
             department_id: departmentId ?? null,
             project_id: projectId ?? null,
           })
@@ -705,112 +706,64 @@ function ExecPanel(props: {
           .eq('okr_id', okrIdForSave)
           .select('id, created_at, content, score, status')
           .single();
-        saved = data;
-        saveError = error;
+        if (error) throw error;
+        if (!data?.id) throw new Error('更新結果を確認できませんでした。');
+        setLogs((prev) =>
+          prev.map((log) =>
+            String(log.id ?? '') === editingLogId
+              ? { ...log, content: composed, created_at: data.created_at, score: data.score, status: data.status }
+              : log,
+          ),
+        );
+        setNotice('✅ メモを更新しました');
       } else {
-        const { data, error } = await saveProgressLog({
-          userId, // string として確定
-          okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
-          content: payloadContent,
-          score: rating ?? null,
-          departmentId: departmentId ?? undefined,
-          projectId: projectId ?? undefined,
-          companyIdOverride: companyId ?? undefined,
+        const { id, submission } = pendingInsertRef.current.attempt(
+          `checkin|${userId}|${okrIdForSave}|${companyId ?? ''}|${composed}|${rating ?? ''}`,
+          () => ({
+            userId,
+            companyId: companyId ?? '',
+            okrId: okrIdForSave,
+            content: payloadContent,
+            score: rating ?? null,
+          }),
+        );
+        const result = await insertProgressRowOnce(id, submission, {
+          insert: (rowId, s) =>
+            saveProgressLog({
+              userId: s.userId,
+              okrId: s.okrId,
+              content: s.content,
+              score: s.score,
+              departmentId: departmentId ?? undefined,
+              projectId: projectId ?? undefined,
+              companyIdOverride: s.companyId || undefined,
+              id: rowId,
+            }),
+          fetchById: (rowId) => fetchOwnProgressRow(rowId, submission.userId),
         });
-        saved = data;
-        saveError = error;
-      }
-
-      // ===== TASK 1-A: Save 結果ログ =====
-      if (saveError) {
-        const msg = `code=${saveError?.code}, message=${saveError?.message}, status=${saveError?.status}`;
-        console.error('[STAGE5-save-checkin-error]', msg);
-        if (saveError?.details) console.error('[STAGE5-save-checkin-error-details]', saveError.details);
-        if (saveError?.hint) console.error('[STAGE5-save-checkin-error-hint]', saveError.hint);
-        throw saveError;
-      }
-
-      // ★ 根本原因②修正：saved.id が存在することを確認
-      const savedId = saved?.id;
-      if (!savedId) {
-        throw new Error('[STAGE5-save-checkin] saved.id is missing - progress_logs INSERT may have failed');
-      }
-
-      const savedAt = saved?.created_at ?? new Date().toISOString();
-
-      console.log('[STAGE5-save-checkin-success]', {
-        savedId,  // ← 正規ID（'local-*' ではない）
-        savedScore: saved?.score,
-        savedAt,
-        timestamp: new Date().toISOString(),
-      });
-
-      // 🔥 Store に score を保存
-      useStrategyStore.getState().setOKRTargetScore(okrId, rating);
-
-      // ★ STAGE5 FIX: save 実行前に restore/hydrate 状態を確認
-      // fetch/hydrate guard により save がブロックされるのを防ぐため、
-      // 同期中なら save を延期して useAutoSave に委譲
-      const checkState = useStrategyStore.getState();
-      if (!checkState.restoreReady || checkState.__isFetchingFromServer || checkState.boot?.isHydrating) {
-        setNotice('📡 データ同期中です。少し待ってから再度お試しください。');
-        console.log('[STAGE5-save-checkin-deferred]', {
-          reason: 'restore/hydrate guard triggered',
-          restoreReady: checkState.restoreReady,
-          isFetching: checkState.__isFetchingFromServer,
-          hydrating: checkState.boot?.isHydrating,
-          timestamp: new Date().toISOString(),
-        });
-        setSaving(false);
-        return;
-      }
-
-      // ★ 修正案1：saveStrategyData の返却値を確認
-      const result = await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
-
-      if (result?.ok) {
-        setNotice(editingLogId && editingKind === 'checkin' ? '✅ メモを更新しました' : '✅ 記録しました');
-      } else {
-        // save が skip された場合は dirty: true のままになる
-        // useAutoSave が later に拾ってくれる
-        setNotice(`⚠️ 同期中のため、もう一度保存を試してください（${result?.reason}）`);
-        setSaving(false);
-        return;
-      }
-
-      // ★ 根本原因②修正：saved.id（正規ID）を使用
-      // 'local-*' プレフィックスを廃止
-      setLogs((prev) => {
-        const nextRow = {
-          id: savedId,
-          created_at: savedAt,
-          content: composed,
-          score: rating ?? null,
-          status: saved?.status ?? null,
-        };
-
-        if (editingLogId && editingKind === 'checkin') {
-          return prev.map((log) => (String(log.id ?? '') === editingLogId ? { ...log, ...nextRow } : log));
+        if (!result.ok) {
+          if ((result.error as { code?: unknown } | null)?.code === 'ID_CONFLICT') pendingInsertRef.current.settle();
+          throw result.error;
         }
-
-        // 既存の 'local-*' ログを除去（重複防止）
-        const nonLocalLogs = prev.filter((l) => !isLocalLogId(l.id));
-        return [nextRow, ...nonLocalLogs];
-      });
-
-      // ★ 根本修正：parent re-render を防止するため onActivitySaved を呼び出さない
-      // 理由：onActivitySaved() → parent setProjectActivityMap() → parent re-render
-      //   → child props 再生成 → resolvedProgressOkrId 変動 → loadLogs() 再実行
-      //   → Supabase fetch で古いデータ取得 → setLogs で上書き → 新規ログが消える
-      // 新規ログは setLogs() で即座に表示されるため、parent への通知は不要
-      // モーダル内での activity tracking も、ユーザーが見ている最中のため不要
-      // onActivitySaved?.({ okrId: resolvedProgressOkrId, at: savedAt });
+        pendingInsertRef.current.settle();
+        const savedRow = result.row;
+        setLogs((prev) => [
+          {
+            id: savedRow.id,
+            created_at: savedRow.created_at ?? new Date().toISOString(),
+            content: composed,
+            score: savedRow.score == null ? null : Number(savedRow.score),
+            status: savedRow.status ?? null,
+          },
+          ...prev.filter((l) => !isLocalLogId(l.id)),
+        ]);
+        setNotice('✅ 記録しました');
+      }
 
       setProgressText('');
       setHelpRequest('');
       setEditingLogId(null);
       setEditingKind(null);
-      // FIXED: Do NOT reset rating to 0 - keep the saved score displayed
     } catch (e: any) {
       // ===== TASK 1-A: エラー詳細ログ =====
       const errorMsg = `code=${e?.code}, message=${e?.message}, status=${e?.status}`;
@@ -835,6 +788,8 @@ function ExecPanel(props: {
       setTimeout(() => setNotice(''), 3000);
     }
   }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
+
+  const onSaveCheckin = useCallback(() => saveLockRef.current(runCheckinSave), [runCheckinSave]);
 
   // AI相談（実行メモを整理）
   const handleAssistExecution = useCallback(async () => {
@@ -870,7 +825,7 @@ function ExecPanel(props: {
         departmentName: deptName ?? undefined,
         objective: objective ?? undefined,
         keyResults: Array.isArray(keyResults) && keyResults.length > 0 ? keyResults : undefined,
-        progress: typeof rating === 'number' && rating > 0 ? rating / 5 : undefined,
+        progress: toAssistProgress(workProgressPct),
         memo: progressText.trim(),
         supportRequest: helpRequest.trim() || undefined,
       };
@@ -911,7 +866,7 @@ function ExecPanel(props: {
     } finally {
       setExecutionAiLoading(false);
     }
-  }, [progressText, helpRequest, projectTitle, deptName, objective, keyResults, rating]);
+  }, [progressText, helpRequest, projectTitle, deptName, objective, keyResults, workProgressPct]);
 
   // AI結果をメモに反映
   const appendAiResultToMemo = useCallback(() => {
@@ -964,7 +919,7 @@ function ExecPanel(props: {
   }, [executionAiResult]);
 
   // 保存（フィードバック）
-  const onSaveFeedback = useCallback(async () => {
+  const runFeedbackSave = useCallback(async () => {
     // ===== TASK A: Save 実行直前 - 認証状態ログ =====
     // IMPORTANT: auth.uid と page userId を並べて出力
     const { data: authData } = await supabase.auth.getUser();
@@ -1096,14 +1051,11 @@ function ExecPanel(props: {
 
       const payloadContent = embedMetadata(metadata, fbContent);
 
-      let saved: any = null;
-      let saveError: any = null;
       if (editingLogId && editingKind === 'feedback') {
         const { data, error } = await supabase
           .from('progress_logs')
           .update({
             content: payloadContent,
-            score: reviewScore ?? null,
             department_id: departmentId ?? null,
             project_id: projectId ?? null,
           })
@@ -1112,93 +1064,63 @@ function ExecPanel(props: {
           .eq('okr_id', okrIdForSave)
           .select('id, created_at, content, score, status')
           .single();
-        saved = data;
-        saveError = error;
+        if (error) throw error;
+        if (!data?.id) throw new Error('更新結果を確認できませんでした。');
+        setLogs((prev) =>
+          prev.map((log) =>
+            String(log.id ?? '') === editingLogId
+              ? { ...log, content: fbContent, created_at: data.created_at, score: data.score, status: data.status }
+              : log,
+          ),
+        );
+        setNotice('✅ フィードバックを更新しました');
       } else {
-        const { data, error } = await saveProgressLog({
-          userId, // string として確定
-          okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
-          content: payloadContent,
-          score: reviewScore ?? null,
-          departmentId: departmentId ?? undefined,
-          projectId: projectId ?? undefined,
-          companyIdOverride: companyId ?? undefined,
+        const { id, submission } = pendingInsertRef.current.attempt(
+          `feedback|${userId}|${okrIdForSave}|${companyId ?? ''}|${fbContent}|${reviewScore ?? ''}`,
+          () => ({
+            userId,
+            companyId: companyId ?? '',
+            okrId: okrIdForSave,
+            content: payloadContent,
+            score: reviewScore ?? null,
+          }),
+        );
+        const result = await insertProgressRowOnce(id, submission, {
+          insert: (rowId, s) =>
+            saveProgressLog({
+              userId: s.userId,
+              okrId: s.okrId,
+              content: s.content,
+              score: s.score,
+              departmentId: departmentId ?? undefined,
+              projectId: projectId ?? undefined,
+              companyIdOverride: s.companyId || undefined,
+              id: rowId,
+            }),
+          fetchById: (rowId) => fetchOwnProgressRow(rowId, submission.userId),
         });
-        saved = data;
-        saveError = error;
-      }
-
-      // ===== Save 結果ログ =====
-      if (saveError) {
-        const msg = `code=${saveError?.code}, message=${saveError?.message}, status=${saveError?.status}`;
-        console.error('[STAGE5-save-feedback-error]', msg);
-        if (saveError?.details) console.error('[STAGE5-save-feedback-error-details]', saveError.details);
-        if (saveError?.hint) console.error('[STAGE5-save-feedback-error-hint]', saveError.hint);
-        throw saveError;
-      }
-
-      console.log('[STAGE5-save-feedback-success]', {
-        savedId: saved?.id,
-        savedScore: saved?.score,
-        timestamp: new Date().toISOString(),
-      });
-
-      // 🔥 Store に score を保存
-      useStrategyStore.getState().setOKRTargetScore(okrId, reviewScore);
-
-      // ★ STAGE5 FIX: save 実行前に restore/hydrate 状態を確認
-      // fetch/hydrate guard により save がブロックされるのを防ぐため、
-      // 同期中なら save を延期して useAutoSave に委譲
-      const checkState = useStrategyStore.getState();
-      if (!checkState.restoreReady || checkState.__isFetchingFromServer || checkState.boot?.isHydrating) {
-        setNotice('📡 データ同期中です。少し待ってから再度お試しください。');
-        console.log('[STAGE5-save-feedback-deferred]', {
-          reason: 'restore/hydrate guard triggered',
-          restoreReady: checkState.restoreReady,
-          isFetching: checkState.__isFetchingFromServer,
-          hydrating: checkState.boot?.isHydrating,
-          timestamp: new Date().toISOString(),
-        });
-        setSaving(false);
-        return;
-      }
-
-      // ★ 修正案1：saveStrategyData の返却値を確認
-      const result = await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
-
-      if (result?.ok) {
-        setNotice(editingLogId && editingKind === 'feedback' ? '✅ フィードバックを更新しました' : '✅ フィードバックを保存しました');
-      } else {
-        // save が skip された場合は dirty: true のままになる
-        // useAutoSave が later に拾ってくれる
-        setNotice(`⚠️ 同期中のため、もう一度保存を試してください（${result?.reason}）`);
-        setSaving(false);
-        return;
-      }
-
-      const savedId = saved?.id ?? `feedback-${Date.now()}`;
-      const savedAt = saved?.created_at ?? new Date().toISOString();
-      setLogs((prev) => {
-        const nextRow = { id: savedId, created_at: savedAt, content: fbContent, score: reviewScore ?? null, status: saved?.status ?? null };
-        if (editingLogId && editingKind === 'feedback') {
-          return prev.map((log) => (String(log.id ?? '') === editingLogId ? { ...log, ...nextRow } : log));
+        if (!result.ok) {
+          if ((result.error as { code?: unknown } | null)?.code === 'ID_CONFLICT') pendingInsertRef.current.settle();
+          throw result.error;
         }
-        const nonLocalLogs = prev.filter((l) => !String(l.id ?? '').startsWith('local-'));
-        return [nextRow, ...nonLocalLogs];
-      });
-
-      // ★ 根本修正：モーダル open 中のコメント保存では onActivitySaved を呼び出さない
-      // 理由：onActivitySaved() → parent setProjectActivityMap() → parent re-render
-      //   → child props 再生成 → resolvedProgressOkrId 変動 → loadLogs() 再実行
-      //   → Supabase fetch で古いデータ取得 → setLogs で上書き → 新規ログが消える
-      // open === true（モーダル内）の場合はユーザーが見ている最中のため通知不要
-      // 代わり、モーダルを閉じた時に loadLogs() で自動同期される
-      // onActivitySaved?.({ okrId: resolvedProgressOkrId, at: nowIso });
+        pendingInsertRef.current.settle();
+        const savedRow = result.row;
+        setLogs((prev) => [
+          {
+            id: savedRow.id,
+            created_at: savedRow.created_at ?? new Date().toISOString(),
+            content: fbContent,
+            score: savedRow.score == null ? null : Number(savedRow.score),
+            status: savedRow.status ?? null,
+          },
+          ...prev.filter((l) => !isLocalLogId(l.id)),
+        ]);
+        setNotice('✅ フィードバックを保存しました');
+      }
 
       setReviewText('');
       setEditingLogId(null);
       setEditingKind(null);
-      // FIXED: Do NOT reset reviewScore to 0 - keep the saved score displayed
     } catch (e: any) {
       // ===== TASK 1-A: エラー詳細ログ =====
       const errorMsg = `code=${e?.code}, message=${e?.message}, status=${e?.status}`;
@@ -1224,6 +1146,8 @@ function ExecPanel(props: {
     }
   }, [canFeedback, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
 
+
+  const onSaveFeedback = useCallback(() => saveLockRef.current(runFeedbackSave), [runFeedbackSave]);
 
   const isFeedback = (row: LogRow) => (row.content || '').startsWith('[FB]');
   const feedbackBody = (row: LogRow) => (row.content || '').replace(/^\[FB]\s*\n?/, '').trim();
@@ -1251,36 +1175,52 @@ function ExecPanel(props: {
   }, []);
 
   // Stage4 確定情報を useStrategyStore から取得
-  const { departments, updateDepartments } = useStrategyStore();
+  const { departments } = useStrategyStore();
   const stage4Proj = typeof di === 'number' && typeof pi === 'number'
     ? departments?.[di]?.projects?.[pi]
     : null;
 
   // 作業進捗率（財務効果・金額とは独立した記録。金額は変えない）
+  const workProgressFlushRef = useRef<{ projectId: string; pct: number | undefined } | null>(null);
+  const flushWorkProgress = useCallback(async () => {
+    const pending = workProgressFlushRef.current;
+    if (!pending) return;
+    workProgressFlushRef.current = null;
+    const store = useStrategyStore.getState() as any;
+    const saved = await patchStrategyDepartments(strategyPartialIo, {
+      companyId: String(store.companyId ?? ''),
+      actorId: String(store.userId ?? ''),
+      apply: (departments) => applyWorkProgressToDepartments(departments, pending),
+    });
+    if (saved.ok) {
+      useStrategyStore.getState().syncPartialSave({ departments: saved.departments, revision: saved.revision });
+      return;
+    }
+    setNotice('⚠️ 作業進捗率を保存できませんでした。画面を再読み込みしてから、もう一度入力してください。');
+  }, []);
+
+  useEffect(() => () => void flushWorkProgress(), [flushWorkProgress]);
+
   const handleWorkProgressChange = useCallback(
     (value: string) => {
-      if (typeof di !== 'number' || typeof pi !== 'number') return;
+      if (typeof di !== 'number' || typeof pi !== 'number' || !projectId) return;
 
       const parsed = parseInt(value, 10);
       const numValue = value === '' || isNaN(parsed) ? undefined : Math.max(0, Math.min(100, parsed));
 
-      updateDepartments((prev) => {
-        const next = [...prev];
-        const dept = next[di];
-        if (!dept) return prev;
-
+      useStrategyStore.setState((prev: any) => {
+        const departments = [...(prev.departments ?? [])];
+        const dept = departments[di];
+        if (!dept) return {};
         const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-        const proj = projs[pi];
-        if (!proj) return prev;
-
-        projs[pi] = { ...proj, workProgressPct: numValue };
-        next[di] = { ...dept, projects: projs };
-        return next;
+        if (!projs[pi]) return {};
+        projs[pi] = { ...projs[pi], workProgressPct: numValue };
+        departments[di] = { ...dept, projects: projs };
+        return { departments, version: (prev.version ?? 0) + 1 };
       });
-
-      useStrategyStore.setState({ dirty: true });
+      workProgressFlushRef.current = { projectId, pct: numValue };
     },
-    [di, pi, updateDepartments]
+    [di, pi, projectId],
   );
 
   const projectHypothesis = String(
@@ -1645,6 +1585,7 @@ function ExecPanel(props: {
                 step="1"
                 value={(stage4Proj as any).workProgressPct ?? ''}
                 onChange={(e) => handleWorkProgressChange(e.target.value)}
+                onBlur={() => void flushWorkProgress()}
                 className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
                 placeholder="例：20"
               />
@@ -2434,23 +2375,30 @@ function ExecutionPageContent() {
           projects[selectedPi] = { ...projects[selectedPi], okrsV2: next };
           dept.projects = projects;
           departments[selectedDi] = dept;
-          return { departments, dirty: true, version: (prev.version ?? 0) + 1 };
+          return { departments, version: (prev.version ?? 0) + 1 };
         });
       writeOkrsV2(result.next);
 
-      const saved: any = await useStrategyStore
-        .getState()
-        .saveStrategyData({ reason: 'stage5_kr_actual', force: true })
-        .catch(() => undefined);
-      const outcome = krSaveOutcome(saved);
-      if (outcome.ok) return { ok: true };
-      const scopeChanged = saved?.reason === 'scope_changed';
-      if (!scopeChanged && beforeKr) {
+      const store = useStrategyStore.getState() as any;
+      const projectId = String(store.departments?.[selectedDi]?.projects?.[selectedPi]?.id ?? '').trim();
+      const saved = await patchStrategyDepartments(strategyPartialIo, {
+        companyId: String(store.companyId ?? ''),
+        actorId: String(store.userId ?? ''),
+        apply: (departments) => applyKrActualToDepartments(departments, { projectId, krId, actual }),
+      });
+      if (saved.ok) {
+        useStrategyStore.getState().syncPartialSave({ departments: saved.departments, revision: saved.revision });
+        return { ok: true };
+      }
+      if (beforeKr) {
         const latest = (useStrategyStore.getState() as any).departments?.[selectedDi]?.projects?.[selectedPi]?.okrsV2;
         const reverted = revertKrActual(latest, krId, beforeKr);
         if (reverted) writeOkrsV2(reverted);
       }
-      return { ok: false, error: outcome.message };
+      const failure = krSaveOutcome(
+        saved.reason === 'revision_conflict' ? { ok: false, code: 'REVISION_CONFLICT' } : { ok: false, reason: saved.reason },
+      );
+      return { ok: false, error: failure.ok ? '保存に失敗しました。もう一度お試しください。' : failure.message };
     },
     [selectedDi, selectedPi],
   );
@@ -2464,7 +2412,6 @@ function ExecutionPageContent() {
   // モーダル：ストーリー / 部門
   const [storyOpen, setStoryOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState<{ open: boolean; di: number | null }>({ open: false, di: null });
-  const promotionAttemptedRef = useRef<Set<string>>(new Set());
 
 
 
@@ -2473,222 +2420,60 @@ function ExecutionPageContent() {
       if (sel.resolvedDbOkrId?.trim()) return sel;
 
       const objective = String(sel.objective ?? '').trim();
-      const objectiveKey = normalizeObjectiveKey(objective);
       const strategyId = String(sel.strategyId ?? scopeStrategyId ?? '').trim();
       const companyId = String(sel.companyId ?? scopeCompanyId ?? accessCompanyId ?? '').trim();
       const projectId = String(sel.projectId ?? '').trim();
-      const departmentId = String(sel.departmentId ?? '').trim();
 
-      const directId = String(sel.dbOkrId ?? '').trim();
-      if (directId) {
-        return { ...sel, resolvedDbOkrId: directId };
-      }
-
-      const mapKey = companyId && strategyId && projectId && objectiveKey
-        ? `${companyId}::${strategyId}::${projectId}::${objectiveKey}`
-        : '';
-      const mapResolvedId = mapKey ? String(dbOkrMap[mapKey] ?? '').trim() : '';
-      if (mapResolvedId) {
-        return {
-          ...sel,
-          dbOkrId: mapResolvedId,
-          resolvedDbOkrId: mapResolvedId,
-          mapHit: true,
-        };
-      }
-
-      const sameProjectCandidates = Array.isArray(dbOkrsData)
-        ? (dbOkrsData as any[]).filter((okr) => {
-            return String(okr?.project_id ?? '').trim() === projectId &&
-              normalizeObjectiveKey(okr?.objective) === objectiveKey;
-          })
-        : [];
-
-      if (sameProjectCandidates.length === 1 && sameProjectCandidates[0]?.id) {
-        const resolvedId = String(sameProjectCandidates[0].id).trim();
-        return {
-          ...sel,
-          dbOkrId: resolvedId,
-          resolvedDbOkrId: resolvedId,
-          mapHit: true,
-        };
-      }
-
-      const queryCandidates = [
-        String(sel.progressOkrId ?? '').trim(),
-        String(sel.okrId ?? '').trim(),
-        String(sel.displayOkrId ?? '').trim(),
-      ].filter(Boolean);
-
-      for (const candidate of queryCandidates) {
-        if (!isUuidLike(candidate)) continue;
-        const { data, error } = await supabase
-          .from('okrs')
-          .select('id')
-          .eq('id', candidate)
-          .maybeSingle();
-        if (!error && data?.id) {
-          const resolvedId = String(data.id).trim();
-          return {
-            ...sel,
-            dbOkrId: resolvedId,
-            resolvedDbOkrId: resolvedId,
-            mapHit: true,
-          };
-        }
-      }
-
-      if (companyId && strategyId && projectId && objectiveKey) {
-        const { data, error } = await supabase
-          .from('okrs')
-          .select('id, objective, project_id, department_id, strategy_id, updated_at, created_at, is_deleted')
-          .eq('company_id', companyId)
-          .eq('strategy_id', strategyId)
-          .eq('project_id', projectId)
-          .eq('is_deleted', false)
-          .order('updated_at', { ascending: false, nullsFirst: false })
-          .order('created_at', { ascending: false, nullsFirst: false })
-          .limit(10);
-
-        if (!error && Array.isArray(data)) {
-          const aliveCandidates = data.filter((row: any) => normalizeObjectiveKey(row?.objective) === objectiveKey);
-          if (aliveCandidates.length === 1 && aliveCandidates[0]?.id) {
-            const resolvedId = String(aliveCandidates[0].id).trim();
-            return {
-              ...sel,
-              dbOkrId: resolvedId,
-              resolvedDbOkrId: resolvedId,
-              mapHit: true,
-            };
-          }
-        }
-      }
-
-      // 新規再生成 project 向け: 厳格条件で 1回だけ DB-backed promotion を試す
-      const canPromote =
-        Boolean(companyId) &&
-        Boolean(strategyId) &&
-        Boolean(projectId) &&
-        Boolean(departmentId) &&
-        Boolean(objective);
-
-      if (canPromote) {
-        const attemptKey = `${companyId}::${strategyId}::${departmentId}::${projectId}::${objectiveKey}`;
-        if (!promotionAttemptedRef.current.has(attemptKey)) {
-          promotionAttemptedRef.current.add(attemptKey);
-
-          const dept = typeof sel.di === 'number' ? cascade?.[sel.di] : undefined;
-          const proj = typeof sel.di === 'number' && typeof sel.pi === 'number'
-            ? dept?.projects?.[sel.pi]
-            : undefined;
-
-          const snapshotOkrs = Array.isArray((proj as any)?.okrs) ? ((proj as any).okrs as any[]) : [];
-          const matchedSnapshotOkr =
-            snapshotOkrs.find((o: any) => normalizeObjectiveKey(o?.objective) === objectiveKey) ??
-            snapshotOkrs[0];
-
-          const ownerName = String(
-            matchedSnapshotOkr?.owner ??
-            (proj as any)?.ownerName ??
-            (proj as any)?.owner ??
-            ''
-          ).trim();
-
-          try {
-            console.log('[STAGE5-resolve-selection-promotion-start]', {
-              objective,
-              companyId,
-              strategyId,
-              departmentId,
-              projectId,
-              ownerName,
-            });
-
-            await okrService.upsertOkr(
-              {
-                objective,
-                owner_name: ownerName || undefined,
-                strategy_id: strategyId,
-                department_id: departmentId,
-                project_id: projectId,
-              },
-              projectId,
-              companyId
-            );
-
-            const { data: promotedRows, error: promotedError } = await supabase
+      const resolved = await resolveExistingDbOkrId(
+        {
+          dbOkrId: sel.dbOkrId,
+          okrId: sel.okrId,
+          progressOkrId: sel.progressOkrId,
+          displayOkrId: sel.displayOkrId,
+          objective,
+          projectId,
+          companyId,
+          strategyId,
+        },
+        {
+          dbOkrMap: dbOkrMap as Record<string, string | undefined>,
+          cachedRows: Array.isArray(dbOkrsData) ? (dbOkrsData as any[]) : [],
+        },
+        {
+          findOkrById: async (id) => {
+            const { data, error } = await supabase.from('okrs').select('id').eq('id', id).maybeSingle();
+            return !error && data?.id ? String(data.id).trim() : null;
+          },
+          listProjectOkrs: async (scope) => {
+            const { data, error } = await supabase
               .from('okrs')
-              .select('id, objective, project_id, updated_at, created_at')
-              .eq('company_id', companyId)
-              .eq('strategy_id', strategyId)
-              .eq('department_id', departmentId)
-              .eq('project_id', projectId)
+              .select('id, objective, project_id, department_id, strategy_id, updated_at, created_at, is_deleted')
+              .eq('company_id', scope.companyId)
+              .eq('strategy_id', scope.strategyId)
+              .eq('project_id', scope.projectId)
               .eq('is_deleted', false)
               .order('updated_at', { ascending: false, nullsFirst: false })
               .order('created_at', { ascending: false, nullsFirst: false })
               .limit(10);
+            return !error && Array.isArray(data) ? data : null;
+          },
+        },
+      );
 
-            if (!promotedError && Array.isArray(promotedRows)) {
-              const exact = promotedRows.find((row: any) => normalizeObjectiveKey(row?.objective) === objectiveKey);
-              if (exact?.id) {
-                const resolvedId = String(exact.id).trim();
-                setDbOkrsData((prevData) => {
-                  const prevList = Array.isArray(prevData) ? prevData : [];
-                  if (prevList.some((row: any) => String(row?.id ?? '').trim() === resolvedId)) return prevList;
-                  return [...prevList, exact];
-                });
-                setDbOkrMap((prev) => ({
-                  ...prev,
-                  [attemptKey]: resolvedId,
-                }));
-                console.log('[STAGE5-resolve-selection-promotion-success]', {
-                  objective,
-                  projectId,
-                  resolvedDbOkrId: resolvedId,
-                });
-                return {
-                  ...sel,
-                  dbOkrId: resolvedId,
-                  resolvedDbOkrId: resolvedId,
-                  mapHit: true,
-                };
-              }
-            }
-
-            console.warn('[STAGE5-resolve-selection-promotion-no-match]', {
-              objective,
-              projectId,
-              departmentId,
-              strategyId,
-            });
-          } catch (error) {
-            console.error('[STAGE5-resolve-selection-promotion-failed]', {
-              objective,
-              projectId,
-              departmentId,
-              strategyId,
-              message: (error as any)?.message,
-              code: (error as any)?.code,
-              details: (error as any)?.details,
-            });
-          }
-        }
+      if (!resolved) {
+        console.warn('[STAGE5-resolve-selection-unresolved]', {
+          objective: sel.objective,
+          projectId,
+          departmentId: sel.departmentId,
+          strategyId,
+          reason: 'db-backed OKR not found',
+        });
+        return { ...sel, resolvedDbOkrId: undefined };
       }
-
-      console.warn('[STAGE5-resolve-selection-unresolved]', {
-        objective: sel.objective,
-        projectId,
-        departmentId,
-        strategyId,
-        reason: 'db-backed OKR not found after promotion attempt',
-      });
-
-      return {
-        ...sel,
-        resolvedDbOkrId: undefined,
-      };
+      if (resolved.direct) return { ...sel, resolvedDbOkrId: resolved.id };
+      return { ...sel, dbOkrId: resolved.id, resolvedDbOkrId: resolved.id, mapHit: true };
     },
-    [accessCompanyId, cascade, dbOkrMap, dbOkrsData, scopeCompanyId, scopeStrategyId]
+    [accessCompanyId, dbOkrMap, dbOkrsData, scopeCompanyId, scopeStrategyId]
   );
 
   const openExecutionSelection = useCallback(
