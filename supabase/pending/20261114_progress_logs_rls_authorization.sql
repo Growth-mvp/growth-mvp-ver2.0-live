@@ -11,7 +11,8 @@
 --
 -- 方針:
 --   - 判定関数は rls_private スキーマに置く。PostgREST の公開対象（public）外のため RPC として呼べない。
---     実行権限は authenticated だけに与え、PUBLIC と anon からは取り消す。
+--     判定関数の実行権限は authenticated だけに与え、PUBLIC と anon からは取り消す。
+--     トリガー関数には利用者ロールの実行権限を与えない。
 --   - 既存の progress_logs のポリシーは、名前を問わず全て削除してから作り直す。
 --     許可ポリシーが1本でも残ると OR 条件で制限が効かなくなるため。
 --   - service_role は RLS を迂回する。サーバー経路（delete-all 等）は各 route の権限確認に依存する。
@@ -106,6 +107,9 @@ begin
   return new;
 end;
 $$;
+
+-- トリガー関数は DML を行う利用者が直接呼ぶ必要がないため、どの利用者ロールにも実行権限を与えない。
+revoke all on function rls_private.progress_logs_guard_identity() from public, anon, authenticated;
 
 drop trigger if exists progress_logs_guard_identity_trg on public.progress_logs;
 create trigger progress_logs_guard_identity_trg

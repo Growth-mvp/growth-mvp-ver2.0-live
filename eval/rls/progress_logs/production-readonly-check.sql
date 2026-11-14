@@ -2,6 +2,7 @@
 -- 本番の読み取り専用確認（SELECT のみ。データ・ポリシー・関数は変更しない）
 -- 実行場所: Supabase ダッシュボードの SQL Editor（本番プロジェクト）
 -- 本文（progress_logs.content）は取得しない。件数と定義だけを返す。
+-- 結果は適用前の記録として保存する（8 の出力が、切り戻しの元になる）。
 -- ============================================================
 
 -- 1. 現在の progress_logs のポリシー（許可ポリシーが残っていないか）
@@ -25,7 +26,7 @@ from information_schema.columns
 where table_schema = 'public' and table_name = 'progress_logs'
 order by ordinal_position;
 
--- 4. 既存の権限判定関数の定義と実行権限（SECURITY DEFINER・RPC 公開の有無）
+-- 4. 既存の権限判定関数の定義と実行権限（SECURITY DEFINER・PUBLIC・anon への付与）
 select n.nspname as schema, p.proname as name, p.prosecdef as security_definer,
        pg_get_userbyid(p.proowner) as owner, p.proacl as acl
 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -55,3 +56,18 @@ select
      where not exists (select 1 from public.okrs o where o.id = p.okr_id and o.company_id = p.company_id)) as okr_not_in_same_company,
   (select count(*) from public.progress_logs p
      where not exists (select 1 from public.company_members m where m.company_id = p.company_id and m.user_id = p.user_id)) as author_not_member;
+
+-- 8. 切り戻し用：現在の progress_logs ポリシーを CREATE POLICY 文として出す（修正案を適用する前に保存する）
+select format(
+  'create policy %I on public.progress_logs as %s for %s to %s%s%s;',
+  policyname, permissive, cmd, array_to_string(roles, ', '),
+  case when qual is not null then format(' using (%s)', qual) else '' end,
+  case when with_check is not null then format(' with check (%s)', with_check) else '' end
+) as restore_ddl
+from pg_policies
+where schemaname = 'public' and tablename = 'progress_logs'
+order by policyname;
+
+-- 9. 修正案の適用先に、既に同名の非公開スキーマや関数があるか
+select n.nspname, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'rls_private';
