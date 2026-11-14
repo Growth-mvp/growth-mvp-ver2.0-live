@@ -1,7 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- DB モックの型は意図的に緩く定義している */
 jest.mock('server-only', () => ({}));
+const mockHeaderState: { authorization: string | null; tokenValid: boolean } = { authorization: 'Bearer test-token', tokenValid: true };
 jest.mock('next/headers', () => ({
-  headers: async () => new Headers({ authorization: 'Bearer test-token' }),
+  headers: async () => {
+    const h = new Headers();
+    if (mockHeaderState.authorization) h.set('authorization', mockHeaderState.authorization);
+    return h;
+  },
 }));
 jest.mock('@supabase/supabase-js', () => ({ createClient: jest.fn() }));
 
@@ -51,7 +56,12 @@ function makeAdmin(memberships: string[]) {
   };
   return {
     calls,
-    auth: { getUser: async () => ({ data: { user: { id: USER } }, error: null }) },
+    auth: {
+      getUser: async () =>
+        mockHeaderState.tokenValid
+          ? { data: { user: { id: USER } }, error: null }
+          : { data: { user: null }, error: { message: 'invalid token' } },
+    },
     from,
   };
 }
@@ -101,5 +111,34 @@ describe('GET /api/stage5/execution-summary', () => {
     (createClient as jest.Mock).mockReturnValue(admin);
     expect((await GET(request())).status).toBe(400);
     expect((await GET(request('not-a-uuid'))).status).toBe(400);
+  });
+});
+
+describe('GET /api/stage5/execution-summary：認証', () => {
+  beforeAll(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
+  });
+  afterEach(() => {
+    mockHeaderState.authorization = 'Bearer test-token';
+    mockHeaderState.tokenValid = true;
+  });
+
+  it('トークンがない場合は401で、どのテーブルも読まない', async () => {
+    mockHeaderState.authorization = null;
+    const admin = makeAdmin([COMPANY_A]);
+    (createClient as jest.Mock).mockReturnValue(admin);
+    const res = await GET(request(COMPANY_A));
+    expect(res.status).toBe(401);
+    expect(admin.calls).toHaveLength(0);
+  });
+
+  it('トークンが無効・期限切れの場合は401で、どのテーブルも読まない', async () => {
+    mockHeaderState.tokenValid = false;
+    const admin = makeAdmin([COMPANY_A]);
+    (createClient as jest.Mock).mockReturnValue(admin);
+    const res = await GET(request(COMPANY_A));
+    expect(res.status).toBe(401);
+    expect(admin.calls).toHaveLength(0);
   });
 });
