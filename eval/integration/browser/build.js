@@ -126,7 +126,7 @@ const COMMON = {
 function buildTailwindCss() {
   const out = path.join(outDir, 'app.css');
   const outRel = path.relative(root, out).split(path.sep).join('/');
-  execSync('npx tailwindcss -c tailwind.config.js -i app/globals.css -o "' + outRel + '"', { cwd: root, stdio: 'ignore' });
+  execSync('npx tailwindcss -c eval/integration/browser/tailwind.harness.config.js -i app/globals.css -o "' + outRel + '"', { cwd: root, stdio: 'ignore' });
   return out;
 }
 
@@ -193,6 +193,13 @@ function html(title, bundleName) {
     plugins: [stubPlugin(PLAN_FLOW_STUB_MAP)],
   });
   fs.writeFileSync(path.join(outDir, 'plan-flow.html'), html('STAGE5 実行計画の流れの検証', 'plan-flow-bundle.js'));
+  await esbuild.build({
+    ...COMMON,
+    entryPoints: [path.join(__dirname, 'modal-preview-entry.tsx')],
+    outfile: path.join(outDir, 'modal-preview-bundle.js'),
+    plugins: [stubPlugin(EXEC_STUB_MAP)],
+  });
+  fs.writeFileSync(path.join(outDir, 'modal-preview.html'), html('STAGE5 モーダル設計案の確認', 'modal-preview-bundle.js'));
   await esbuild.build({
     ...COMMON,
     entryPoints: [path.join(__dirname, 'finance-flow-entry.tsx')],
