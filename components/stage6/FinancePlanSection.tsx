@@ -41,11 +41,13 @@ import {
   SAVE_STATUS_LABEL,
   buildUnconfirmedItems,
   deriveSaveStatus,
+  provisionalFundingReasonsOf,
   repaymentOutlook,
+  withProvisionalItem,
   type FinanceTab,
   type SaveStatus,
 } from './financePlanStatus';
-import { buildCashSummary, buildFundingStatus, buildTargetSummary } from './financeSummaryModel';
+import { buildCashSummary, buildFundingStatus, buildTargetSummary, type FundingStatus } from './financeSummaryModel';
 import {
   baseScenarioFormFrom,
   cashFlowFormFrom,
@@ -302,19 +304,26 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   });
   const saveStatus = deriveSaveStatus({ saving, failed: saveFailed, unsaved, freshness });
 
+  const provisionalReasons = provisionalFundingReasonsOf({
+    revenueChanged: unifiedPl.years.some((y) => y.effect.revenueUpYen !== 0),
+    assumptions,
+  });
   const fundingNeed = fundingNeedOf(fundingPlan.years.filter((y) => y.kind === 'FORECAST')).need;
   const outlook = repaymentOutlook({
     debtEntered,
     years: fundingPlan.years.filter((y) => y.kind === 'FORECAST'),
   });
-  const unconfirmed = buildUnconfirmedItems({
-    investment,
-    existingLoanCount: debtForm.existing.length,
-    debtEntered,
-    minCashEntered: cfForm.minCash.trim() !== '',
-    plan: fundingPlan,
-    schedule,
-  });
+  const unconfirmed = withProvisionalItem(
+    buildUnconfirmedItems({
+      investment,
+      existingLoanCount: debtForm.existing.length,
+      debtEntered,
+      minCashEntered: cfForm.minCash.trim() !== '',
+      plan: fundingPlan,
+      schedule,
+    }),
+    provisionalReasons,
+  );
   const requiredCount = unconfirmed.filter((i) => i.required).length;
   const tabCount = (key: FinanceTab) => unconfirmed.filter((i) => i.tab === key).length;
 
@@ -371,7 +380,10 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   const targetSummary = buildTargetSummary({ unifiedPl, target: unifiedTarget });
   const outlookCharts = buildOutlookCharts(financeOutlook, targetSummary);
   const cashSummary = buildCashSummary(conditionalCf);
-  const fundingStatus = buildFundingStatus({ outlook });
+  const fundingStatus: FundingStatus =
+    provisionalReasons.length > 0
+      ? { kind: 'JUDGED', label: '暫定（確定判定なし）', detail: '売上増加に伴う運転資金・税率の前提が未確認です', tone: 'hold' }
+      : buildFundingStatus({ outlook });
   const firstRequired = unconfirmed.find((i) => i.required);
   const requiredItem = requiredCount > 0 && firstRequired ? { count: requiredCount, tab: firstRequired.tab } : null;
   const hasStatusNote =
@@ -542,6 +554,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
               debtEntered={debtEntered}
               fundingNeed={fundingNeed}
               items={unconfirmed}
+              provisionalReasons={provisionalReasons}
               onNavigate={setTab}
             />
           </div>

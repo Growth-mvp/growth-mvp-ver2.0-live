@@ -1,4 +1,4 @@
-import type { CashFlowPlan, CfYear } from '@/utils/stage6/cashflow';
+import type { CashFlowPlan, CfAssumptions, CfYear } from '@/utils/stage6/cashflow';
 import type { DebtSchedule } from '@/utils/stage6/debt';
 import type { Freshness } from '@/utils/stage6/financePlanSnapshot';
 import type { InvestmentItem, buildInvestmentDemandSummary } from '@/utils/stage6/investmentDemand';
@@ -117,6 +117,29 @@ export function buildUnconfirmedItems(args: {
   }
 
   return [...items.filter((i) => i.required), ...items.filter((i) => !i.required)];
+}
+
+/** 売上増加の年度の運転資金・税率が利用者入力でない間は、資金判定を暫定にする理由 */
+export function provisionalFundingReasonsOf(args: { revenueChanged: boolean; assumptions: CfAssumptions }): string[] {
+  if (!args.revenueChanged) return [];
+  const { assumptions: a } = args;
+  const reasons: string[] = [];
+  if (a.arRatio === null || a.inventoryRatio === null || a.apRatio === null) {
+    reasons.push('売上増加に伴う運転資金は、直近実績の売掛・棚卸・買掛の比率で推計しています（回収・支払の条件は未入力）');
+  }
+  if (a.taxRate === null) reasons.push('税率は直近実績からの推計です（利用者入力なし）');
+  return reasons;
+}
+
+export const PROVISIONAL_ITEM_KEY = 'cf-provisional-assumption';
+
+/** 暫定の判定では、判定を妨げる未確認事項として前提の入力を先頭に出す */
+export function withProvisionalItem(items: UnconfirmedItem[], provisionalReasons: string[]): UnconfirmedItem[] {
+  if (provisionalReasons.length === 0) return items;
+  return [
+    { key: PROVISIONAL_ITEM_KEY, label: '売上増加に伴う運転資金・税率の前提を入力すると、資金判定は暫定から確定に変わります', tab: 'cashflow', required: true },
+    ...items,
+  ];
 }
 
 export type RepaymentOutlook = {

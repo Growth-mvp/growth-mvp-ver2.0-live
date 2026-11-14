@@ -1,8 +1,8 @@
-import type { CompanyTarget, FinanceBSRow, FinancePLRow } from '@/types/strategy';
+import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { gapText, buildTargetSummary, achievementPct } from '@/components/stage6/financeSummaryModel';
 import { buildCashFlowPlan, type CfAssumptions } from './cashflow';
 import { buildFinanceOutlook, forecastHorizonOf, type FinanceOutlookInput } from './financeOutlook';
-import { withoutTargetPath } from './financeEffectPlan';
+import { buildFinanceEffectTrial, withoutTargetPath } from './financeEffectPlan';
 import type { FinancePlanDomain } from './financePlanSnapshot';
 
 /* 手計算の前提（架空企業、百万円）
@@ -11,7 +11,7 @@ import type { FinancePlanDomain } from './financePlanSnapshot';
  * 確認済み施策：
  *   売上増加 年額 60（2026年4月開始）、営業利益への効果 年額 12
  *   費用削減 年額 1.2（2026年4月開始）
- *   追加費用 月額 5（2027年1〜6月の6か月＝30）
+ *   追加費用 一回限り 30（2027年1月に全額計上。終了年月は入れない）
  * 未確認：売上増加 年額 100（効果に含めない）
  * 目標：売上 1,200・営業利益 80（いずれも FY2030）
  */
@@ -96,10 +96,9 @@ const DEPARTMENTS = [
         financeEffect: confirmed({
           kind: 'COST_INCREASE',
           method: 'DIRECT_AMOUNT',
-          directAmountYen: 5 * M,
-          amountBasis: 'MONTHLY',
+          directAmountYen: 30 * M,
+          amountBasis: 'TOTAL',
           startYm: '2027-01',
-          endYm: '2027-06',
         }),
       },
     ],
@@ -149,7 +148,7 @@ describe('3系列の年度別期待値（既存事業・施策効果反映・経
 
   it('② 施策効果反映後：確認済みの効果だけを加算。未確認の売上100は入らない', () => {
     const o = outlookOf();
-    const expected: Record<number, [number, number]> = { 2027: [1_080, 70.2], 2028: [1_100, 72.2], 2029: [1_120, 89.2], 2030: [1_140, 91.2] };
+    const expected: Record<number, [number, number]> = { 2027: [1_080, 55.2], 2028: [1_100, 87.2], 2029: [1_120, 89.2], 2030: [1_140, 91.2] };
     for (const [fy, [rev, oi]] of Object.entries(expected)) {
       const p = yearOf(o, Number(fy)).plan;
       expect(mil(p.revenueYen)).toBeCloseTo(rev, 6);
@@ -158,20 +157,41 @@ describe('3系列の年度別期待値（既存事業・施策効果反映・経
     expect(o.effectTrial.excluded.map((e) => e.projectTitle)).toContain('未確認の受注');
   });
 
-  it('FY2027 の営業利益 70.2 の内訳：基準 72 ＋ 売上増加の営業利益 12 ＋ 費用削減 1.2 − 追加費用 15', () => {
+  it('FY2027 の営業利益 55.2 の内訳：基準 72 ＋ 売上増加の営業利益 12 ＋ 費用削減 1.2 − 一回限りの追加費用 30', () => {
     const y = yearOf(outlookOf(), 2027);
     expect(mil(y.baseline.operatingIncomeYen)).toBeCloseTo(72, 6);
     expect(mil(y.effect.revenueOperatingIncomeYen)).toBeCloseTo(12, 6);
     expect(mil(y.effect.costReductionYen)).toBeCloseTo(1.2, 6);
-    expect(mil(y.effect.costIncreaseYen)).toBeCloseTo(15, 6);
-    expect(mil(y.plan.operatingIncomeYen)).toBeCloseTo(72 + 12 + 1.2 - 15, 6);
+    expect(mil(y.effect.costIncreaseYen)).toBeCloseTo(30, 6);
+    expect(mil(y.plan.operatingIncomeYen)).toBeCloseTo(72 + 12 + 1.2 - 30, 6);
   });
 
-  it('費用の発生期間：追加費用は2027年1〜6月の6か月で、FY2027（1〜3月）とFY2028（4〜6月）に各15', () => {
+  it('一回限りの追加費用は開始月（2027年1月）に全額計上：FY2027は30、FY2028以降は0', () => {
     const o = outlookOf();
+    expect(mil(yearOf(o, 2027).effect.costIncreaseYen)).toBeCloseTo(30, 6);
+    expect(mil(yearOf(o, 2028).effect.costIncreaseYen)).toBeCloseTo(0, 6);
+    expect(mil(yearOf(o, 2029).effect.costIncreaseYen)).toBeCloseTo(0, 6);
+  });
+
+  it('同じ30でも「月額5×2027年1〜6月」とは年度配分が違う（FY2027は15、FY2028も15）', () => {
+    const monthly = JSON.parse(JSON.stringify(DEPARTMENTS)) as typeof DEPARTMENTS;
+    Object.assign(monthly[1].projects[1].financeEffect as object, { amountBasis: 'MONTHLY', directAmountYen: 5 * M, endYm: '2027-06' });
+    const o = outlookOf({ departments: monthly });
     expect(mil(yearOf(o, 2027).effect.costIncreaseYen)).toBeCloseTo(15, 6);
     expect(mil(yearOf(o, 2028).effect.costIncreaseYen)).toBeCloseTo(15, 6);
-    expect(mil(yearOf(o, 2029).effect.costIncreaseYen)).toBeCloseTo(0, 6);
+    expect(mil(yearOf(o, 2027).plan.operatingIncomeYen)).toBeCloseTo(70.2, 6);
+  });
+
+  it('会計年度の開始月：2026年12月の一回限り費用は、12月決算ならFY2026、3月決算ならFY2027に計上', () => {
+    const cost = { kind: 'COST_INCREASE', method: 'DIRECT_AMOUNT', directAmountYen: 30 * M, amountBasis: 'TOTAL', startYm: '2026-12', confirmed: true, source: 'USER_INPUT', sourceNote: 'x' };
+    const trialOf = (fiscalYearEnd: string) =>
+      buildFinanceEffectTrial({
+        departments: [{ id: 'd', name: '製造部', projects: [{ id: 'p', title: '一時費用', financeEffect: cost }] }] as unknown as Department[],
+        fiscalYearEnd,
+        fiscalYears: [2026, 2027],
+      }).years.map((y) => [y.fiscalYear, mil(y.costIncreaseYen)]);
+    expect(trialOf('3')).toEqual([[2026, 0], [2027, 30]]);
+    expect(trialOf('12')).toEqual([[2026, 30], [2027, 0]]);
   });
 
   it('③ 経営目標：予測に加算しない。FY2030 の②は目標（1,200）ではなく 1,140', () => {
@@ -234,13 +254,13 @@ describe('資金判定の前提（既存事業の増減＋確認済み効果）'
       CURRENT_YEAR,
     );
 
-  it('営業CF＝統一PLの営業利益（税率0・減価償却0・運転資金0の検証条件）。現預金は FY2027〜FY2030 で 170.2 / 242.4 / 331.6 / 422.8', () => {
+  it('営業CF＝統一PLの営業利益（税率0・減価償却0・運転資金0の検証条件）。現預金は FY2027〜FY2030 で 155.2 / 242.4 / 331.6 / 422.8', () => {
     const unified = outlookOf().unifiedPl;
     const plan = fundingPlanOf(ASSUMPTIONS, unified);
     const forecast = plan.years.filter((y) => y.kind === 'FORECAST');
     const rounded = (yen: number | null) => (yen === null ? null : Math.round(yen / M * 1e6) / 1e6);
-    expect(forecast.map((y) => rounded(y.operatingCf.value))).toEqual([70.2, 72.2, 89.2, 91.2]);
-    expect(forecast.map((y) => rounded(y.closingCashBeforeFinancing.value))).toEqual([170.2, 242.4, 331.6, 422.8]);
+    expect(forecast.map((y) => rounded(y.operatingCf.value))).toEqual([55.2, 87.2, 89.2, 91.2]);
+    expect(forecast.map((y) => rounded(y.closingCashBeforeFinancing.value))).toEqual([155.2, 242.4, 331.6, 422.8]);
   });
 
   it('目標補間の前提を入れても、資金判定の計算は変わらない（TARGET_PATHは使わない）', () => {

@@ -79,8 +79,14 @@ type Props = {
   debtEntered: boolean;
   fundingNeed: number | null;
   items: UnconfirmedItem[];
+  provisionalReasons: string[];
   onNavigate: (tab: FinanceTab) => void;
 };
+
+const PROVISIONAL_CONCLUSION =
+  '売上増加に伴う運転資金・税率の前提が未確認のため、資金の安全性と返済可能性は確定判定しません。下の数値は暫定値です。';
+const PROVISIONAL_CF_NOTE =
+  '条件付きCF（上の「3. お金は足りるか」）は、売上増加の年度の営業CFを未算定にしています。この判定は比率による推計を使うため、両者は一致しません。';
 
 export function FinanceVerdictPanel({
   plan,
@@ -88,12 +94,19 @@ export function FinanceVerdictPanel({
   debtEntered,
   fundingNeed,
   items,
+  provisionalReasons,
   onNavigate,
 }: Props) {
   const forecast = plan.years.filter((y) => y.kind === 'FORECAST');
+  const provisional = provisionalReasons.length > 0;
   const outlook = repaymentOutlook({ debtEntered, years: forecast });
-  const verdict = overallVerdictOf(outlook);
+  const verdict: { label: string; tone: 'ok' | 'warn' | 'hold' } = provisional
+    ? { label: '暫定（確定判定なし）', tone: 'hold' }
+    : overallVerdictOf(outlook);
   const narrative = verdictNarrativeOf({ debtEntered, years: forecast });
+  const conclusion = provisional ? PROVISIONAL_CONCLUSION : narrative.conclusion;
+  const reasons = provisional ? [...provisionalReasons, PROVISIONAL_CF_NOTE, ...narrative.reasons] : narrative.reasons;
+  const yearLabel = (year: number) => (provisional ? `${year}年（推計・暫定）` : `${year}年（推計）`);
   const dscrValues = forecast.map((y) => y.dscr.value);
   const minDscr =
     dscrValues.length > 0 && dscrValues.every((v): v is number => v !== null) ? Math.min(...dscrValues) : null;
@@ -109,23 +122,23 @@ export function FinanceVerdictPanel({
     <div className="space-y-6">
       <section className={`rounded-2xl border p-5 ${VERDICT_TONE_CLASS[verdict.tone]}`}>
         <div className="text-xs font-semibold text-slate-600">① 結論</div>
-        <div className="mt-1 text-lg font-bold leading-relaxed text-slate-900 break-keep">{narrative.conclusion}</div>
+        <div className="mt-1 text-lg font-bold leading-relaxed text-slate-900 break-keep">{conclusion}</div>
         <div className="mt-2 text-xs text-slate-600">判定：{verdict.label}</div>
         {verdict.tone === 'warn' && outlook.detail && (
           <p className="mt-1 text-xs text-slate-600">該当年度：{outlook.detail}</p>
         )}
         {minDscr !== null && (
           <p className="mt-3 text-xs text-slate-500">
-            参考指標：簡易DSCR {minDscr.toFixed(2)}倍（{minDscrYear}年・期間中の最小）
+            参考指標{provisional ? '（暫定）' : ''}：簡易DSCR {minDscr.toFixed(2)}倍（{minDscrYear}年・期間中の最小）
           </p>
         )}
       </section>
 
       <section>
         <h3 className="text-base font-bold text-slate-900">② 理由</h3>
-        {narrative.reasons.length > 0 && (
+        {reasons.length > 0 && (
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-800">
-            {narrative.reasons.map((r) => (
+            {reasons.map((r) => (
               <li key={r}>{r}</li>
             ))}
           </ul>
@@ -184,18 +197,18 @@ export function FinanceVerdictPanel({
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <KpiCard
-            label="資金不足額"
+            label={provisional ? '資金不足額（暫定）' : '資金不足額'}
             value={fundingNeed === null ? '未確定' : `${fmtMil(fundingNeed)} 百万円`}
             note="借入反映前の年度別不足額の最大。新規借入額は自動確定しません。"
           />
           <KpiCard
-            label="事業からの返済余力"
+            label={provisional ? '事業からの返済余力（暫定）' : '事業からの返済余力'}
             term="簡易DSCR・期間中の最小"
             value={minDscr === null ? '未確定' : `${minDscr.toFixed(2)} 倍`}
             note={minDscrYear === null ? '算定できる年度がありません。' : `${minDscrYear}年の値。簡易指標です。`}
           />
           <KpiCard
-            label="期末現預金"
+            label={provisional ? '期末現預金（暫定）' : '期末現預金'}
             value={closingCashYen === null ? '未確定' : `${fmtMil(closingCashYen)} 百万円`}
             note={lastYear ? `${lastYear.year}年末（借入反映後）` : '推計年度がありません。'}
           />
@@ -214,7 +227,7 @@ export function FinanceVerdictPanel({
                   <tr>
                     <th className="px-2 py-2 text-left font-semibold">項目</th>
                     {forecast.map((y) => (
-                      <th key={y.year} className="px-2 py-2 text-right font-semibold">{y.year}年（推計）</th>
+                      <th key={y.year} className="px-2 py-2 text-right font-semibold">{yearLabel(y.year)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -241,8 +254,8 @@ export function FinanceVerdictPanel({
                     <td className="px-2 py-1.5 font-semibold text-slate-900">判定</td>
                     {forecast.map((y) => (
                       <td key={y.year} className="px-2 py-1.5 text-right align-top">
-                        <div className={`ml-auto inline-block max-w-[14rem] rounded px-1.5 py-0.5 text-left text-xs font-semibold ${verdictClass(y.verdict)}`}>
-                          {y.verdict}
+                        <div className={`ml-auto inline-block max-w-[14rem] rounded px-1.5 py-0.5 text-left text-xs font-semibold ${provisional ? 'bg-slate-100 text-slate-700' : verdictClass(y.verdict)}`}>
+                          {provisional ? '暫定（確定判定なし）' : y.verdict}
                         </div>
                       </td>
                     ))}

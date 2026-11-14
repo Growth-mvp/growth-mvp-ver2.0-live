@@ -622,7 +622,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage6.save-finance-plan',
     screenIds: ['stage6'],
     label: '財務計画を保存',
-    source: { file: 'components/stage6/FinancePlanSection.tsx', line: 396 },
+    source: { file: 'components/stage6/FinancePlanSection.tsx', line: 408 },
     purpose: '試算条件と借入計画の前提を会社データとして保存する。',
     steps: ['「財務計画を保存」を押す', '左サイドバーの保存状態が「保存済み」になったことを確認する'],
     conditions: '会社IDがないと無効',
