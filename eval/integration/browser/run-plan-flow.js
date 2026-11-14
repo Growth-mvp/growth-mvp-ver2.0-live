@@ -137,7 +137,7 @@ const projectOfStorage = (page, title) =>
 
   await check('OKRが無い案件：活動ログは保存時にだけ、OKRを作ってから保存する', async () => {
     const before = await counters(page);
-    await page.getByRole('button', { name: '組織に協力を求める' }).first().click();
+    await page.getByRole('button', { name: '社内に協力を求める' }).first().click();
     await page.getByPlaceholder('協力してほしいことを書いてください').fill('ハーネスの共有投稿');
     await page.getByRole('button', { name: '社内に共有する' }).first().click();
     await page.waitForTimeout(600);
@@ -147,6 +147,30 @@ const projectOfStorage = (page, title) =>
     const last = await page.evaluate(() => window.__progressInserts[window.__progressInserts.length - 1]);
     if (!String(last.okrId).startsWith('okr-anchor-')) throw new Error('活動ログの参照先がOKRでない: ' + last.okrId);
     return `OKRを保存時に作成（${last.okrId}）し、活動ログを1件保存`;
+  });
+
+  await check('フィードバック：今、困っていることの直下に、直近の1件を出す（別の案件の記録は出さない）', async () => {
+    const panel = page.locator('section[aria-label="実行支援"]').first();
+    const fbSection = panel.getByText('フィードバック（管理者）', { exact: true }).locator('xpath=ancestor::section[1]');
+    await fbSection.waitFor({ state: 'visible', timeout: 5000 });
+    const t = await fbSection.innerText();
+    if (!t.includes('来週の引き継ぎの場は')) throw new Error('直近のフィードバックが出ていない: ' + t.slice(0, 120));
+    if (t.includes('別の案件へのフィードバック')) throw new Error('別の案件のフィードバックが出ている');
+    const consult = await panel.getByText('今、困っていること', { exact: true }).locator('xpath=ancestor::section[1]').boundingBox();
+    const fb = await fbSection.boundingBox();
+    if (!consult || !fb || fb.y < consult.y) throw new Error('フィードバックが今、困っていることの下にない');
+    await fbSection.locator('summary', { hasText: '過去のフィードバック' }).click();
+    await page.waitForTimeout(200);
+    await panel.screenshot({ path: path.join(outDir, 'shots', 'stage5-feedback-open-1280.png') });
+    return '直近のフィードバックを表示し、過去の履歴を展開';
+  });
+
+  await check('組織変革ルーム：「本音や違和感を相談する」は既存の移動先に向かう（共有はしない）', async () => {
+    const link = page.getByRole('link', { name: '本音や違和感を相談する' });
+    if ((await link.count()) !== 1) throw new Error('導線が無い');
+    const href = await link.getAttribute('href');
+    if (href !== '/org-transformation') throw new Error('移動先が違う: ' + href);
+    return '移動先 /org-transformation';
   });
 
   await check('PDF：モーダルのボタンで開き、STAGE4で修正したKPIを含む計画書を作る（計画は変えない）', async () => {

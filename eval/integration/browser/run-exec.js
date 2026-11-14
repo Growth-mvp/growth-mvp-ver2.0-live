@@ -93,7 +93,7 @@ const krOfStore = (page, title, label) =>
   await check('STAGE5 既存の進捗・チェックインの機能が残っている', async () => {
     const t = await page.locator('#root').innerText();
     if (!t.includes('今、困っていること')) throw new Error('困っていることの入力が見当たらない');
-    if (!t.includes('組織に協力を求める')) throw new Error('協力を求める入口が見当たらない');
+    if (!t.includes('社内に協力を求める')) throw new Error('協力を求める入口が見当たらない');
     if (!t.includes('チェックイン') && !t.includes('フィードバック')) throw new Error('タブが見当たらない');
     if (!t.includes('KR実績（目標指標の達成状況）')) throw new Error('KR実績が見当たらない');
     if (!t.includes('作業の進み具合やチェックインとは別に')) throw new Error('区別の説明がない');

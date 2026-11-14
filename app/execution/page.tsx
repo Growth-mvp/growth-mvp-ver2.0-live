@@ -1336,12 +1336,72 @@ function ExecPanel(props: {
             aria-expanded={shareOpen}
             className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
           >
-            組織に協力を求める
+            社内に協力を求める
           </button>
+          <a
+            href="/org-transformation"
+            className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+          >
+            本音や違和感を相談する
+          </a>
         </div>
       </section>
 
-      {/* 組織に協力を求める：社内に共有する投稿（本人が投稿したものだけ共有される） */}
+      {/* フィードバック（管理者）：このプロジェクトへの支援。直近の1件を表示し、古い履歴は展開する */}
+      <section className="rounded-2xl border border-black/10 bg-white p-4">
+        <div className="text-sm font-semibold text-gray-800">フィードバック（管理者）</div>
+        {(() => {
+          const fbRows = sharedLogs.filter((r) => stripMetadata(r.content ?? '').startsWith('[FB]'));
+          const [latest, ...older] = fbRows;
+          return (
+            <>
+              {latest ? (
+                <div className="mt-2 rounded-xl bg-gray-50 p-3 text-sm text-gray-900">
+                  <div className="mb-1 text-xs text-gray-500">{latest.created_at ? new Date(latest.created_at).toLocaleString() : ''}</div>
+                  <div className="whitespace-pre-wrap">{feedbackBody({ ...latest, content: stripMetadata(latest.content ?? '') })}</div>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-gray-600">このプロジェクトへのフィードバックはまだありません。</p>
+              )}
+              {older.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-gray-600">過去のフィードバック（{older.length}件）</summary>
+                  <ul className="mt-2 space-y-2">
+                    {older.map((r, i) => (
+                      <li key={r.id ?? i} className="rounded-xl bg-gray-50 p-3 text-sm text-gray-900">
+                        <div className="mb-1 text-xs text-gray-500">{r.created_at ? new Date(r.created_at).toLocaleString() : ''}</div>
+                        <div className="whitespace-pre-wrap">{feedbackBody({ ...r, content: stripMetadata(r.content ?? '') })}</div>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </>
+          );
+        })()}
+        {canFeedback && (
+          <div className="mt-3 space-y-2">
+            <AutoResizeTextarea
+              minRows={2}
+              maxRows={6}
+              className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+              placeholder="見直した方がよい点・次に活かしたい気づきを書いてください。"
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+            />
+            <button
+              onClick={onSaveFeedback}
+              disabled={saving || !userId}
+              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
+              type="button"
+            >
+              {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* 社内に協力を求める：社内に共有する投稿（本人が投稿したものだけ共有される） */}
       {shareOpen && (
         <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
           <div className="text-sm font-semibold text-gray-800">社内に共有する投稿</div>
@@ -1363,9 +1423,6 @@ function ExecPanel(props: {
             >
               {saving ? '共有中…' : '社内に共有する'}
             </button>
-            <a href="/org-transformation" className="text-xs text-gray-600 underline-offset-2 hover:underline">
-              組織変革ルームで管理者に相談する
-            </a>
             {notice && <span className="text-xs text-gray-700">{notice}</span>}
           </div>
         </section>
@@ -1460,30 +1517,6 @@ function ExecPanel(props: {
             </ul>
           )}
         </details>
-
-        {canFeedback && (
-          <details className="rounded-2xl border border-black/10 bg-white p-3">
-            <summary className="cursor-pointer text-sm font-medium text-gray-800">フィードバック（管理者）</summary>
-            <div className="mt-3 space-y-2">
-              <AutoResizeTextarea
-                minRows={3}
-                maxRows={8}
-                className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
-                placeholder="見直した方がよい点、確認したいこと、次に活かしたい気づきを書いてください。"
-                value={reviewText}
-                onChange={(e) => setReviewText(e.target.value)}
-              />
-              <button
-                onClick={onSaveFeedback}
-                disabled={saving || !userId}
-                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
-                type="button"
-              >
-                {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
-              </button>
-            </div>
-          </details>
-        )}
 
         {stage4Proj && typeof (stage4Proj as any).workProgressPct === 'number' && (
           <details className="rounded-2xl border border-black/10 bg-white p-3">
