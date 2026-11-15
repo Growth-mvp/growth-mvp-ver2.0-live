@@ -50,6 +50,7 @@ import {
   pickDisplayedStory,
   pickFinancialTargets,
   withStoredConfirmedRecord,
+  withMidtermSnapshot,
   resolveConclusion,
   resolveStrategicAssumptions,
   toConfirmedEdits,
@@ -3240,7 +3241,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               ...storeState,
               storyDraft: newStoryDraft,  // ★ 修正：story ではなく storyDraft として保存
               stage2FinalDocumentEdits: withStoredConfirmedRecord(
-                editingDocumentEdits,
+                withMidtermSnapshot(editingDocumentEdits, midtermStrategy),
                 storeState.stage2FinalDocumentEdits,
               ),  // ★ 補助セクション編集内容を明示的に含める
             };
@@ -3490,7 +3491,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           try {
             const storeState = useStrategyStore.getState() as any;
             const documentEditsToSave = withStoredConfirmedRecord(
-              editingDocumentEdits,
+              withMidtermSnapshot(editingDocumentEdits, data?.midtermStrategy ?? midtermStrategy),
               storeState.stage2FinalDocumentEdits,
             );
             const savePayload = {
@@ -3737,7 +3738,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         finalStoryEdited: finalStoryToSave,
         finalStory: finalStoryToSave,
         stage3_strategy_bridge: bridgeResult,
-        stage2FinalDocumentEdits: confirmedDocumentEdits,
+        stage2FinalDocumentEdits: withMidtermSnapshot(confirmedDocumentEdits, s.midtermStrategy),
         midtermStrategy: mergeMidtermStrategyIntoDocumentEdits(confirmedDocumentEdits, s.midtermStrategy)?.midtermStrategy ?? s.midtermStrategy,
         dirty: true,
         version: (s.version ?? 0) + 1,
@@ -4305,7 +4306,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             const saveScope = captureSaveScope();
 
                             const mergedDocumentEdits = withStoredConfirmedRecord(
-                              latestDocumentEdits,
+                              withMidtermSnapshot(latestDocumentEdits, midtermStrategy),
                               useStrategyStore.getState().stage2FinalDocumentEdits,
                             );
                             const savedDocumentEdits =

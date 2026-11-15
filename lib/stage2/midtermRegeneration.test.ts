@@ -1,6 +1,6 @@
 import { buildDbRowFromState, buildStateFromDbRow } from '@/utils/supabase/strategy';
 import { buildPlanData } from '@/utils/export/buildPlanData';
-import { applyMidtermPatch, mergeMidtermStrategyIntoDocumentEdits } from './finalDocument';
+import { applyMidtermPatch, mergeMidtermStrategyIntoDocumentEdits, withMidtermSnapshot } from './finalDocument';
 import type { StoryChapter } from '@/types/strategy';
 
 const chapters = (body: string): StoryChapter[] => [
@@ -10,13 +10,6 @@ const chapters = (body: string): StoryChapter[] => [
   { title: '第4章：どう行動', body: '4章' },
 ];
 
-const view = (edits: any, top: any) => mergeMidtermStrategyIntoDocumentEdits(edits, top)?.midtermStrategy;
-
-const persist = (state: any) => {
-  const row = buildDbRowFromState(state);
-  return buildStateFromDbRow({ ...row, id: 'strategy-1', company_id: 'company-1', revision: 1 }) as any;
-};
-
 const confirmedRecord = {
   confirmed: {
     conclusion: '確定結論',
@@ -25,44 +18,57 @@ const confirmedRecord = {
   },
 };
 
+// 新コードの読み方
+const newReaderView = (edits: any, top: any) => mergeMidtermStrategyIntoDocumentEdits(edits, top)?.midtermStrategy;
+// 旧コードの読み方（編集値の中計があればそれを、無ければトップレベルを表示する）
+const oldReaderView = (edits: any, top: any) => edits?.midtermStrategy ?? top;
+
+// 保存して再読込する（DBの行の往復）
+const persist = (state: any) => {
+  const row = buildDbRowFromState(state);
+  return buildStateFromDbRow({ ...row, id: 'strategy-1', company_id: 'company-1', revision: 1 }) as any;
+};
+
+const generation1 = {
+  midtermConcept: 'G1コンセプト',
+  growthStrategy: 'G1成長戦略',
+  portfolioPolicy: 'G1方針',
+  priorityStrategicThemes: ['G1テーマ'],
+};
+const generation2 = {
+  midtermConcept: 'G2コンセプト',
+  growthStrategy: 'G2成長戦略',
+  portfolioPolicy: 'G2方針',
+  priorityStrategicThemes: ['G2テーマ'],
+};
+
 describe('再生成時の中計の編集値保護（①編集済み・②空欄・③未編集）', () => {
-  const generation1 = {
-    midtermConcept: 'G1コンセプト',
-    growthStrategy: 'G1成長戦略',
-    portfolioPolicy: 'G1方針',
-    priorityStrategicThemes: ['G1テーマ'],
-  };
-  const generation2 = {
-    midtermConcept: 'G2コンセプト',
-    growthStrategy: 'G2成長戦略',
-    portfolioPolicy: 'G2方針',
-    priorityStrategicThemes: ['G2テーマ'],
+  // 利用者がコンセプトを編集し、成長戦略と重点テーマを空欄にした状態
+  const userEdits = () => {
+    const once = applyMidtermPatch(undefined, { midtermConcept: '利用者のコンセプト' });
+    return applyMidtermPatch(once, { growthStrategy: '', priorityStrategicThemes: [] });
   };
 
-  it('編集値は利用者の変更だけを保持し、生成値の差し替えは未編集の項目に反映される', () => {
-    let edits: any = applyMidtermPatch(undefined, { midtermConcept: '利用者のコンセプト' });
-    edits = applyMidtermPatch(edits, { growthStrategy: '', priorityStrategicThemes: [] });
-    expect(Object.keys(edits.midtermStrategy).sort()).toEqual(['growthStrategy', 'midtermConcept', 'priorityStrategicThemes']);
-
-    const saved = persist({ finalStoryFinal: chapters('確定本文'), midtermStrategy: generation1, stage2FinalDocumentEdits: { ...confirmedRecord, ...edits } });
-    expect(view(saved.stage2FinalDocumentEdits, saved.midtermStrategy)).toEqual({
+  it('保存・再読込・再生成の後も、編集値と空欄は保持され、未編集の項目は新しい生成値になる（新コード）', () => {
+    const saved = persist({
+      finalStoryFinal: chapters('確定本文'),
+      midtermStrategy: generation1,
+      stage2FinalDocumentEdits: { ...confirmedRecord, ...withMidtermSnapshot(userEdits(), generation1) },
+    });
+    expect(newReaderView(saved.stage2FinalDocumentEdits, saved.midtermStrategy)).toEqual({
       midtermConcept: '利用者のコンセプト',
       growthStrategy: '',
       portfolioPolicy: 'G1方針',
       priorityStrategicThemes: [],
     });
 
+    // 再生成：生成結果を反映した後に保存する
     const regenerated = persist({
       finalStoryFinal: chapters('確定本文'),
       midtermStrategy: generation2,
-      stage2FinalDocumentEdits: saved.stage2FinalDocumentEdits,
+      stage2FinalDocumentEdits: withMidtermSnapshot(saved.stage2FinalDocumentEdits, generation2),
     });
-    expect(Object.keys(regenerated.stage2FinalDocumentEdits.midtermStrategy).sort()).toEqual([
-      'growthStrategy',
-      'midtermConcept',
-      'priorityStrategicThemes',
-    ]);
-    expect(view(regenerated.stage2FinalDocumentEdits, regenerated.midtermStrategy)).toEqual({
+    expect(newReaderView(regenerated.stage2FinalDocumentEdits, regenerated.midtermStrategy)).toEqual({
       midtermConcept: '利用者のコンセプト',
       growthStrategy: '',
       portfolioPolicy: 'G2方針',
@@ -70,15 +76,31 @@ describe('再生成時の中計の編集値保護（①編集済み・②空欄�
     });
   });
 
-  it('経営計画書の出力も、利用者の編集・空欄を保持し、未編集の項目は再生成後の値になる', () => {
-    const edits = applyMidtermPatch(
-      applyMidtermPatch(undefined, { midtermConcept: '利用者のコンセプト' }),
-      { growthStrategy: '' },
-    );
+  it('旧コードが読んでも、未編集の項目が空にならず、編集と空欄は保たれる（後方互換）', () => {
+    const saved = persist({
+      finalStoryFinal: chapters('確定本文'),
+      midtermStrategy: generation1,
+      stage2FinalDocumentEdits: { ...confirmedRecord, ...withMidtermSnapshot(userEdits(), generation1) },
+    });
+    const regenerated = persist({
+      finalStoryFinal: chapters('確定本文'),
+      midtermStrategy: generation2,
+      stage2FinalDocumentEdits: withMidtermSnapshot(saved.stage2FinalDocumentEdits, generation2),
+    });
+
+    expect(oldReaderView(regenerated.stage2FinalDocumentEdits, regenerated.midtermStrategy)).toEqual({
+      midtermConcept: '利用者のコンセプト',
+      growthStrategy: '',
+      portfolioPolicy: 'G2方針',
+      priorityStrategicThemes: [],
+    });
+  });
+
+  it('経営計画書の出力も、編集・空欄を保持し、未編集の項目は再生成後の値になる', () => {
     const state = persist({
       finalStoryFinal: chapters('確定本文'),
       midtermStrategy: generation2,
-      stage2FinalDocumentEdits: { ...confirmedRecord, midtermStrategy: edits.midtermStrategy },
+      stage2FinalDocumentEdits: { ...confirmedRecord, ...withMidtermSnapshot(userEdits(), generation1) },
     });
 
     const planData = buildPlanData(state, 'bank');
@@ -88,7 +110,7 @@ describe('再生成時の中計の編集値保護（①編集済み・②空欄�
     expect(planData.stage2?.portfolioPolicy).toBe('G2方針');
   });
 
-  it('編集済みか判定できない古いデータ（中計全体が固定された編集値）は再生成で上書きされない', () => {
+  it('編集した項目の記録が無い古いデータ（中計全体が固定された編集値）は、再生成で上書きされない', () => {
     const legacyEdits = {
       ...confirmedRecord,
       midtermStrategy: { ...generation1, midtermConcept: '旧の利用者コンセプト' },
@@ -96,12 +118,13 @@ describe('再生成時の中計の編集値保護（①編集済み・②空欄�
     const state = persist({
       finalStoryFinal: chapters('確定本文'),
       midtermStrategy: generation2,
-      stage2FinalDocumentEdits: legacyEdits,
+      stage2FinalDocumentEdits: withMidtermSnapshot(legacyEdits, generation2),
     });
 
-    expect(view(state.stage2FinalDocumentEdits, state.midtermStrategy)).toEqual({
+    expect(newReaderView(state.stage2FinalDocumentEdits, state.midtermStrategy)).toEqual({
       ...generation1,
       midtermConcept: '旧の利用者コンセプト',
     });
+    expect(state.stage2FinalDocumentEdits.midtermEditedKeys).toBeUndefined();
   });
 });

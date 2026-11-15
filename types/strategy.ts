@@ -1747,8 +1747,11 @@ export type Stage2FinalDocumentEdits = {
     howToExecute?: string;
   };
 
-  /** 中計設計（編集値） */
+  /** 中計設計（編集値）。旧コードの表示用に、保存時点の表示値を含む */
   midtermStrategy?: MidtermStrategy;
+
+  /** 利用者が編集した中計の項目名。ここに無い項目は再生成後のトップレベルの値を使う */
+  midtermEditedKeys?: string[];
 
   /** 確定時点の結論・戦略判断の前提（確定版。下書き編集とは分けて下流が参照する） */
   confirmed?: {

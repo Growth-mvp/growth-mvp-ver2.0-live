@@ -46,18 +46,42 @@ export function sameChapters(a: StoryChapter[], b: StoryChapter[]): boolean {
 }
 
 /** 利用者の編集値を優先し、トップレベルの生成値は編集されていない項目の補完にだけ使う */
+/**
+ * 中計の表示値。利用者が編集した項目（midtermEditedKeys）だけを編集値から取り、それ以外は
+ * トップレベルの現在の値を使う。midtermEditedKeys が無い古いデータは、編集値の全項目を編集済みとして扱う。
+ */
+export function resolveMidtermView(
+  edits: Stage2FinalDocumentEdits | undefined | null,
+  topLevel: unknown,
+): MidtermStrategy {
+  const top = isPlainObject(topLevel) ? (topLevel as MidtermStrategy) : ({} as MidtermStrategy);
+  const stored = edits?.midtermStrategy;
+  if (!isPlainObject(stored)) return top;
+  const keys = edits?.midtermEditedKeys;
+  const edited = keys
+    ? Object.fromEntries(keys.filter((k) => k in stored).map((k) => [k, (stored as Record<string, unknown>)[k]]))
+    : stored;
+  return { ...top, ...(edited as Partial<MidtermStrategy>) };
+}
+
 export function mergeMidtermStrategyIntoDocumentEdits(
   edits: Stage2FinalDocumentEdits | undefined | null,
   midtermStrategy: unknown,
 ): Stage2FinalDocumentEdits | undefined {
   if (!isPlainObject(midtermStrategy)) return edits ?? undefined;
-  return {
-    ...(edits ?? {}),
-    midtermStrategy: {
-      ...(midtermStrategy as MidtermStrategy),
-      ...(edits?.midtermStrategy ?? {}),
-    },
-  };
+  return { ...(edits ?? {}), midtermStrategy: resolveMidtermView(edits, midtermStrategy) };
+}
+
+/**
+ * 保存用。旧コードでも中計を表示できるよう、その時点の表示値を編集値の中計として残す。
+ * 編集した項目の記録（midtermEditedKeys）は変更しない。
+ */
+export function withMidtermSnapshot(
+  edits: Stage2FinalDocumentEdits | undefined | null,
+  topLevel: unknown,
+): Stage2FinalDocumentEdits | undefined {
+  if (!isPlainObject(edits?.midtermStrategy)) return edits ?? undefined;
+  return { ...(edits ?? {}), midtermStrategy: resolveMidtermView(edits, topLevel) };
 }
 
 /** 利用者が変更した項目だけを編集値に加える。未変更の項目はトップレベルの生成値に任せる */
@@ -65,7 +89,12 @@ export function applyMidtermPatch(
   edits: Stage2FinalDocumentEdits | undefined,
   patch: Partial<MidtermStrategy>,
 ): Stage2FinalDocumentEdits {
-  return { ...(edits ?? {}), midtermStrategy: { ...(edits?.midtermStrategy ?? {}), ...patch } };
+  const prior = edits?.midtermEditedKeys ?? Object.keys(edits?.midtermStrategy ?? {});
+  return {
+    ...(edits ?? {}),
+    midtermStrategy: { ...(edits?.midtermStrategy ?? {}), ...patch },
+    midtermEditedKeys: [...new Set([...prior, ...Object.keys(patch)])],
+  };
 }
 
 export function resolveConclusion(edited: string | undefined, aiGenerated: string | undefined): string {
@@ -242,7 +271,7 @@ export function findUnconfirmedChanges(input: {
   const topLevel = input.midtermStrategy ?? {};
   const midtermStrategy =
     !!input.edits?.midtermStrategy &&
-    stableStringify({ ...topLevel, ...input.edits.midtermStrategy }) !== stableStringify(topLevel);
+    stableStringify(resolveMidtermView(input.edits, topLevel)) !== stableStringify(topLevel);
 
   return { chapters, document, midtermStrategy };
 }
