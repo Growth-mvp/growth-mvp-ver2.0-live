@@ -18,6 +18,8 @@ export type UnifiedPlYear = {
   effect: { revenueUpYen: number; costReductionYen: number; costIncreaseYen: number; revenueOperatingIncomeYen: number | null };
   /** D：条件付きPL試算（B に C を年度ごとに反映）。算定できない項目は null */
   plan: { revenueYen: number | null; operatingExpenseYen: number | null; operatingIncomeYen: number | null };
+  /** 確認済みで算定できた営業利益改善（費用削減−追加費用＋算定できた売上増加の営業利益）。未算定分は含めない */
+  confirmedOperatingImprovementYen: number;
   unknownReasons: string[];
 };
 
@@ -79,6 +81,7 @@ export function buildUnifiedPl(args: {
       baseline: { revenueYen: b.revenueYen, operatingExpenseYen: baseOpex, operatingIncomeYen: b.operatingIncomeYen },
       effect: { revenueUpYen, costReductionYen, costIncreaseYen, revenueOperatingIncomeYen },
       plan,
+      confirmedOperatingImprovementYen: costReductionYen - costIncreaseYen + (revenueOperatingIncomeYen ?? 0),
       unknownReasons: Array.from(new Set(unknownReasons)),
     };
   });

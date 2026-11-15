@@ -40,6 +40,8 @@ export type PlanDocumentProps = {
   onAdopt: () => void;
   onUnadopt: () => void;
   onOpenStart: () => void;
+  /* 計画書の下部に出す実行開始の操作（無ければ「実行を開始する」で開始画面へ進む） */
+  startPanel?: ReactNode;
 };
 
 export function EditableBlock({
@@ -400,12 +402,17 @@ export default function PlanDocument(props: PlanDocumentProps) {
           <p className="plan-p">{doc.goals.customerOutcome.text}</p>
           <h3 className="plan-h3">自社の売上・利益への貢献</h3>
           <EditableBlock {...editable(doc.impact.companyResult.key, '自社の売上・利益への貢献', doc.impact.companyResult.text)} />
-          {(props.impactEstimate || props.financeSection) && (
-            <details className="plan-supplement plan-finance-toggle">
-              <summary>財務効果を設定する</summary>
+          {props.financeSection && (
+            <div className="plan-finance">
+              <h3 className="plan-h3">財務効果（STAGE6に反映）</h3>
+              {props.financeSection}
+            </div>
+          )}
+          {props.impactEstimate && (
+            <details className="plan-supplement">
+              <summary>参考試算（任意・STAGE6には入りません）</summary>
               <div className="plan-supplement-body">
-                {props.impactEstimate && <ImpactEstimateBlock estimate={props.impactEstimate} onEdit={props.onImpactEdit} />}
-                {props.financeSection}
+                <ImpactEstimateBlock estimate={props.impactEstimate} onEdit={props.onImpactEdit} />
               </div>
             </details>
           )}
@@ -506,11 +513,13 @@ export default function PlanDocument(props: PlanDocumentProps) {
 
       {!readOnly && directEdit && (
       <section className="plan-next" aria-label="実行開始へ進む">
-        <div className="plan-next-actions">
-          <button type="button" className="plan-btn-primary" onClick={props.onOpenStart}>
-            実行を開始する
-          </button>
-        </div>
+        {props.startPanel ?? (
+          <div className="plan-next-actions">
+            <button type="button" className="plan-btn-primary" onClick={props.onOpenStart}>
+              実行を開始する
+            </button>
+          </div>
+        )}
       </section>
       )}
       {!readOnly && !directEdit && props.showAdoption !== false && (

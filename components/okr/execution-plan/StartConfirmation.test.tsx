@@ -35,7 +35,7 @@ const plan = (over: Partial<ProjectPlanState> = {}): ProjectPlanState => ({ ...I
 
 function renderStart(
   target: Record<string, unknown>,
-  over: { plan?: Partial<ProjectPlanState>; bodyDirty?: boolean; responsible?: string; actionNotice?: string | null } = {}
+  over: { plan?: Partial<ProjectPlanState>; bodyDirty?: boolean; responsible?: string; actionNotice?: string | null; busy?: boolean } = {}
 ) {
   const p = plan(over.plan);
   const handlers = { onStart: jest.fn(), onBack: jest.fn() };
@@ -46,6 +46,7 @@ function renderStart(
       bodyDirty={over.bodyDirty ?? false}
       responsible={over.responsible ?? ''}
       actionNotice={over.actionNotice ?? null}
+      busy={over.busy ?? false}
       {...handlers}
     />
   );
@@ -65,6 +66,11 @@ describe('実行開始の画面：見出し・実行責任者・「実行を開�
     for (const word of ['現在の状態', '草案として保存', '採用', '操作の記録', '版', '確認の状況', '主要な実行条件', 'STAGE3の']) {
       expect(screen.queryByText(new RegExp(word))).toBeNull();
     }
+  });
+
+  it('開始の処理中は押せず、二重に開始されない', () => {
+    renderStart(bundleWithoutRegulatoryItems, { responsible: '佐藤（仮）', busy: true });
+    expect((screen.getByRole('button', { name: '開始しています…' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('実行責任者が設定済みなら、その内容を初期表示する（再入力は求めない）', () => {

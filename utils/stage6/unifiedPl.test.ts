@@ -95,6 +95,12 @@ describe('統一PL：売上増加・費用削減・追加費用の符号と年�
     expect(p.years[3].effect).toEqual({ revenueUpYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0, revenueOperatingIncomeYen: null });
   });
 
+  it('S11 売上増加の営業利益が未算定でも、確認済みの費用削減は確定分の改善として示し、全体の営業利益は未算定のまま', () => {
+    const p = plan([dept('営業部', [proj('新規開拓', revenueUp60)]), dept('製造部', [proj('工程改善', costReduction6)])]);
+    expect(p.years[1].confirmedOperatingImprovementYen).toBe(3 * M);
+    expect(p.years[1].plan.operatingIncomeYen).toBeNull();
+  });
+
   it('S5 決算月：12月と3月で同じ効果の年度配分が変わる（2026年1月開始・年額 1.2 百万円）', () => {
     const annual12 = confirmed({ kind: 'COST_REDUCTION', method: 'DIRECT_AMOUNT', directAmountYen: 1_200_000, amountBasis: 'ANNUAL', startYm: '2026-01' });
     const dec = trialOf([dept('製造部', [proj('工程改善', annual12)])], '12');

@@ -23,12 +23,14 @@ export type StartConfirmationProps = {
   /* STAGE3の目標・期限・担当から、STAGE4上で変えた件数（開始は止めない。関係者への共有を促す） */
   stage3Changes?: number;
   onStart: (input: StartInput) => void;
-  onBack: () => void;
+  onBack?: () => void;
+  /* 開始の処理中（二重押下を防ぐ） */
+  busy?: boolean;
 };
 
-/* 実行開始の画面。見出し・実行責任者・「実行を開始する」・「計画書に戻る」だけを出す。
+/* 実行開始の操作。実行責任者・「実行を開始する」（と、必要なら「計画書に戻る」）を出す。
  * 開始は活動の開始であり、法令・安全上の承認の完了ではない。規制・安全の確認フォームは置かない。 */
-export default function StartConfirmation({ plan, view, bodyDirty, responsible, actionNotice, stage3Changes = 0, onStart, onBack }: StartConfirmationProps) {
+export default function StartConfirmation({ plan, view, bodyDirty, responsible, actionNotice, stage3Changes = 0, onStart, onBack, busy = false }: StartConfirmationProps) {
   const [name, setName] = useState(responsible);
   const candidates = [...new Set([...((view.d.sections as unknown as SectionViews)[4].blocks[0].responsible.candidates ?? [])])];
   const trimmed = name.trim();
@@ -48,9 +50,11 @@ export default function StartConfirmation({ plan, view, bodyDirty, responsible, 
           <Link href="/execution" className={BUTTON_PRIMARY}>
             STAGE5で進捗を確認する
           </Link>
-          <button type="button" className={BUTTON_QUIET} onClick={onBack}>
-            計画書に戻る
-          </button>
+          {onBack && (
+            <button type="button" className={BUTTON_QUIET} onClick={onBack}>
+              計画書に戻る
+            </button>
+          )}
         </div>
       </div>
     );
@@ -78,12 +82,14 @@ export default function StartConfirmation({ plan, view, bodyDirty, responsible, 
       </label>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className={BUTTON_PRIMARY} disabled={!ready} onClick={() => onStart({ responsible: trimmed })}>
-          実行を開始する
+        <button type="button" className={BUTTON_PRIMARY} disabled={!ready || busy} onClick={() => onStart({ responsible: trimmed })}>
+          {busy ? '開始しています…' : '実行を開始する'}
         </button>
-        <button type="button" className={BUTTON_QUIET} onClick={onBack}>
-          計画書に戻る
-        </button>
+        {onBack && (
+          <button type="button" className={BUTTON_QUIET} onClick={onBack}>
+            計画書に戻る
+          </button>
+        )}
       </div>
 
       {!ready && (

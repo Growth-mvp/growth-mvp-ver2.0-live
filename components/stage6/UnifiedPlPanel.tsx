@@ -26,6 +26,10 @@ function costIncreaseText(v: number) {
   return v > 0 ? `+${mil(v)}` : '0.0';
 }
 
+function signedMil(v: number) {
+  return `${v > 0 ? '+' : v < 0 ? '−' : ''}${mil(Math.abs(v))}`;
+}
+
 function uniqueReasons(years: UnifiedPlYear[]) {
   return Array.from(new Set(years.flatMap((y) => y.unknownReasons)));
 }
@@ -62,6 +66,29 @@ export function UnifiedPlPanel({ plan, trial }: { plan: UnifiedPl; trial: Financ
         </div>
       </dl>
 
+      {trial.ready && (
+        <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-xs text-slate-800">
+          <p className="font-semibold">確認済みの営業利益改善（確定分）</p>
+          {plan.years.some((y) => y.confirmedOperatingImprovementYen !== 0) ? (
+            <ul className="mt-1 space-y-0.5">
+              {plan.years
+                .filter((y) => y.confirmedOperatingImprovementYen !== 0)
+                .map((y) => (
+                  <li key={y.fiscalYear}>
+                    {y.fiscalYear}年度：{signedMil(y.confirmedOperatingImprovementYen)} 百万円
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p className="mt-1">確認済みの営業利益改善はありません</p>
+          )}
+          {plan.years.some((y) => y.plan.operatingIncomeYen === null) && (
+            <p className="mt-1 text-slate-600">
+              全体の営業利益（条件付きPL）は、未算定の項目がある年度では計算していません（0とはみなしません）。未算定の理由は下に示します。
+            </p>
+          )}
+        </div>
+      )}
       {!trial.ready && (
         <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">決算月が未設定のため、施策効果の年度配分は行っていません。</p>
       )}

@@ -83,12 +83,17 @@ describe('PlanDocument（直接編集の文書）', () => {
     expect(p.onOpenStart).toHaveBeenCalledTimes(1);
   });
 
-  it('財務効果の入力欄は、「財務効果を設定する」を開くまで閉じている', () => {
+  it('財務効果の入力欄は、開く操作なしで最初から表示される', () => {
     const { container } = render(<PlanDocument {...props({ financeSection: <p>財務効果の入力欄</p> })} />);
-    const toggle = container.querySelector('details.plan-finance-toggle') as HTMLDetailsElement | null;
-    expect(toggle).not.toBeNull();
-    expect(toggle?.open).toBe(false);
-    expect(screen.getByText('財務効果を設定する')).toBeTruthy();
+    expect(screen.getByText('財務効果の入力欄')).toBeTruthy();
+    expect(container.querySelector('details.plan-finance-toggle')).toBeNull();
+    expect(screen.queryByText('財務効果を設定する')).toBeNull();
+  });
+
+  it('開始の操作が渡されたら、「実行を開始する」の代わりに計画書の下部へそれを出す', () => {
+    render(<PlanDocument {...props({ startPanel: <button type="button">開始の操作</button> })} />);
+    expect(screen.getByRole('button', { name: '開始の操作' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '実行を開始する' })).toBeNull();
   });
 });
 

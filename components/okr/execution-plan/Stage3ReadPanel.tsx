@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
@@ -401,33 +402,34 @@ function Stage3ProjectBrowser({
   /* 「実行を開始する」：実行責任者を保存 → （採用していなければ）採用 → 開始。
    * 途中で止まったら、そこまでの状態が残り、理由を表示する。押し直すと、残りだけを行う。
    * 本文に未保存の修正がある時は、開始せず、計画書で保存してもらう（本文を黙って上書きしない）。 */
-  const startPlanRemote = async (sel: Stage3Selection, input: StartInput) => {
+  const startPlanRemote = async (sel: Stage3Selection, input: StartInput): Promise<boolean> => {
     const id = selectionKey(sel);
     const entry = entries[id];
-    if (!entry?.stored) return;
+    if (!entry?.stored) return false;
     if (isBodyDirty(entry)) {
       updateEntry(id, (e) => ({ ...e, notice: '計画書の本文に未保存の修正があります。計画書に戻り、「計画を保存」してから開始してください。' }));
-      return;
+      return false;
     }
     let version = entry.stored.version;
     let adopted = entry.stored.adopted;
     if (input.responsible !== responsibleOf(entry)) {
       if (adopted) {
         const unadopted = await runTransition(sel, version, 'UNADOPT');
-        if (!unadopted.ok) return;
+        if (!unadopted.ok) return false;
         version = unadopted.version;
         adopted = false;
       }
       const saved = await saveResponsible(sel, version, input.responsible);
-      if (!saved.ok) return;
+      if (!saved.ok) return false;
       version = saved.version;
     }
     if (!adopted) {
       const done = await runTransition(sel, version, 'ADOPT', undefined, false);
-      if (!done.ok) return;
+      if (!done.ok) return false;
       version = done.version;
     }
-    await runTransition(sel, version, 'START', undefined, false);
+    const started = await runTransition(sel, version, 'START', undefined, false);
+    return started.ok;
   };
 
   const createPlan = (sel: Stage3Selection) => {
@@ -796,7 +798,7 @@ function Stage3ProjectBrowser({
             onRegenCancel={() => id && regenCancel(id)}
             remote={ops !== null}
             onTransition={(action, reg) => sel && transitionRemote(sel, action, reg)}
-            onStartPlan={(input) => sel && startPlanRemote(sel, input)}
+            onStartPlan={(input) => (sel ? startPlanRemote(sel, input) : Promise.resolve(false))}
           />
         )}
       </section>
@@ -855,7 +857,7 @@ function ReadOnlyProject({
   onView: (v: 'document' | 'start') => void;
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
-  onStartPlan: (input: StartInput) => void;
+  onStartPlan: (input: StartInput) => Promise<boolean>;
   impactEstimate: ImpactEstimate | null;
   financeSection: ReactNode;
   regen: RegenState | undefined;
@@ -863,6 +865,20 @@ function ReadOnlyProject({
   onRegenUse: () => void;
   onRegenCancel: () => void;
 }) {
+  const router = useRouter();
+  const startingRef = useRef(false);
+  const [starting, setStarting] = useState(false);
+  const startFromDocument = async (input: StartInput) => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setStarting(true);
+    try {
+      if (await onStartPlan(input)) router.push('/execution');
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
+    }
+  };
   const loadPending = stableId && (load === undefined || load.status === 'LOADING');
   const m = view.model;
   if (m.status !== 'READY') return null;
@@ -1077,6 +1093,20 @@ function ReadOnlyProject({
                 onAdopt={() => (remote ? onTransition('ADOPT') : onPlan((p) => adopt(p, planView.d.adoption.adoptable)))}
                 onUnadopt={() => (remote ? onTransition('UNADOPT') : onPlan(unadopt))}
                 onOpenStart={() => onView('start')}
+                startPanel={
+                  remote && entry && planView ? (
+                    <StartConfirmation
+                      plan={entry.plan}
+                      view={planView}
+                      bodyDirty={isBodyDirty(entry)}
+                      responsible={responsibleOf(entry)}
+                      actionNotice={entry.notice}
+                      stage3Changes={buildDocModel(entry.aiDraft, entry.plan.committed).goals.kpis.filter((k) => k.stage3Changed).length}
+                      busy={starting}
+                      onStart={(input) => void startFromDocument(input)}
+                    />
+                  ) : undefined
+                }
               />
               )}
               {entry.plan.started && !planView.gate.startable && <Reconcile onPlan={onPlan} />}
