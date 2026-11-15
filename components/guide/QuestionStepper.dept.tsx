@@ -59,7 +59,23 @@ export type DeptQuestionStepperProps = {
   onDraftGenerated?: (p: { mission?: string; projects?: string[]; okrs?: OKR[] }) => void;
   /** 親へ：未保存の回答を親へ渡す関数を登録する（外れるときは null）。再生成の前に呼ばれる */
   onRegisterFlush?: (flush: (() => void) | null) => void;
+  /** 親へ：回答を保存する。成功したときだけ次のテーマへ進む */
+  onSaveAnswers?: () => Promise<{ ok: boolean; reason?: string }>;
 };
+
+const AUTO_SAVE_DELAY_MS = 1200;
+
+/** ヒントのうち、質問意図の説明（reason）と重複する文を除く。全て重複すれば undefined */
+function visibleHintFor(reason: string, hint?: string): string | undefined {
+  if (!hint) return undefined;
+  const norm = (s: string) => s.replace(/[\s、。，．,.!！?？]/g, '');
+  const base = norm(reason);
+  const rest = hint
+    .split(/(?<=[。！？])/)
+    .map((s) => s.trim())
+    .filter((s) => s && !base.includes(norm(s)));
+  return rest.length > 0 ? rest.join('') : undefined;
+}
 
 function clampStep(n: number): StepNumber {
   return Math.max(1, Math.min(6, Math.round(n))) as StepNumber;
@@ -100,6 +116,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     initialAnswers = [],
     onChange,
     onRegisterFlush,
+    onSaveAnswers,
   } = props;
 
   // ★ 閲覧はOK、編集は部門レベル（Admin/Manager）
@@ -121,6 +138,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
 
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [saveState, setSaveState] = useState<{ status: 'idle' | 'saving' | 'saved' | 'failed'; step: StepNumber }>({
+    status: 'idle',
+    step: 1,
+  });
 
 
   // 表示中のテーマを、どのステップについて読み込んだか（ステップが変わったときだけ初期化する）
@@ -444,20 +465,58 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const canGoNext = canEdit;
   const isLastStep = step === 6;
 
-  const onClickNext = useCallback(() => {
-    if (!canGoNext) return;
+  const answerDirty =
+    canEdit && !!question && answerText.trim() !== (answers.find(a => a.stepNumber === step)?.answer ?? '').trim();
+
+  const persistAnswers = useCallback(async (): Promise<boolean> => {
+    if (!onSaveAnswers) return true;
+    setSaveState({ status: 'saving', step });
+    const result = await onSaveAnswers();
+    setSaveState({ status: result.ok ? 'saved' : 'failed', step });
+    return result.ok;
+  }, [onSaveAnswers, step]);
+
+  const commitAnswer = useCallback(async (): Promise<boolean> => {
     handleSaveAnswerLocally();
+    return persistAnswers();
+  }, [handleSaveAnswerLocally, persistAnswers]);
+
+  const commitAnswerRef = useRef(commitAnswer);
+  commitAnswerRef.current = commitAnswer;
+
+  // 回答の入力が止まってから自動保存する（前のテーマを編集した場合も同じ）
+  useEffect(() => {
+    if (!answerDirty) return;
+    const timer = setTimeout(() => { void commitAnswerRef.current(); }, AUTO_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [answerText, answerDirty, step]);
+
+  const onClickNext = useCallback(async () => {
+    if (!canGoNext || saveState.status === 'saving') return;
+    const saved = await commitAnswer();
+    if (!saved) return;
     if (!isLastStep) {
       setStep(s => clampStep(s + 1));
       setAnswerText('');
       setShowHint(false);
       setShouldFetchQuestion(true);
     }
-  }, [canGoNext, isLastStep, handleSaveAnswerLocally]);
+  }, [canGoNext, isLastStep, commitAnswer, saveState.status]);
+
+  const switchStep = useCallback((next: StepNumber) => {
+    if (next === step) return;
+    if (answerDirty) void commitAnswer();
+    setStep(next);
+  }, [step, answerDirty, commitAnswer]);
+
+  const visibleHint = visibleHintFor(reason, hint);
+  const savedHere = saveState.step === step ? saveState.status : null;
 
   // このステップからやり直す（テーマの再生成）
   const onRedoFromHere = useCallback(() => {
     if (!canEdit) return;
+    const willDelete = answers.filter(a => a.stepNumber >= step && a.answer?.trim()).length;
+    if (willDelete > 0 && !window.confirm(`このテーマと以降の回答 ${willDelete} 件が消えます。作り直しますか？`)) return;
     const kept = answers.filter(a => a.stepNumber < step);
     setAnswers(kept);
     setAnswerText('');
@@ -513,12 +572,11 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
             const active = step === sn;
             const answered = !!item?.answer?.trim();
             const title = (active && question) || item?.question || '';
-            const dirty = active && answerText.trim() !== (item?.answer ?? '').trim();
             return (
               <div key={sn}>
                 <button
                   type="button"
-                  onClick={() => setStep(sn)}
+                  onClick={() => switchStep(sn)}
                   aria-expanded={active}
                   className={active ? 'flex w-full items-start gap-3 bg-gray-50 px-5 py-4 text-left' : 'flex w-full items-start gap-3 px-5 py-4 text-left hover:bg-gray-50'}
                 >
@@ -537,8 +595,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                     {question ? (
                       <>
                         {reason && <p className="text-sm leading-7 text-gray-700">{reason}</p>}
-                        {showHint && hint && (
-                          <p className="rounded-lg bg-gray-50 px-4 py-3 text-sm leading-7 text-gray-800">{hint}</p>
+                        {showHint && visibleHint && (
+                          <p className="rounded-lg bg-gray-50 px-4 py-3 text-sm leading-7 text-gray-800">{visibleHint}</p>
                         )}
                         {canEdit ? (
                           <div className="space-y-2">
@@ -556,8 +614,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                           <p className="whitespace-pre-wrap text-sm leading-7 text-gray-700">{item?.answer?.trim() || '（回答なし）'}</p>
                         )}
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex gap-2">
-                            {hint && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {visibleHint && (
                               <button
                                 type="button"
                                 onClick={() => setShowHint(v => !v)}
@@ -572,7 +630,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                                 onClick={onRedoFromHere}
                                 disabled={loading || isCompletedAll6}
                                 title="このテーマを作り直します（以降の回答はリセット）"
-                                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:text-gray-400"
+                                className="px-1 py-1.5 text-xs text-gray-500 underline underline-offset-2 hover:text-gray-800 disabled:text-gray-300"
                               >
                                 このテーマから作り直す
                               </button>
@@ -580,21 +638,34 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                           </div>
                           {canEdit && (
                             <div className="flex flex-wrap items-center gap-3">
-                              {dirty && <span className="text-xs text-amber-700">未保存の変更があります</span>}
-                              {!isLastStep && (
+                              {answerDirty && savedHere !== 'saving' && (
+                                <span className="text-xs text-gray-500">入力中（自動保存します）</span>
+                              )}
+                              {savedHere === 'saving' && <span className="text-xs text-gray-500">保存中…</span>}
+                              {savedHere === 'saved' && !answerDirty && (
+                                <span className="text-xs text-gray-500">
+                                  {isLastStep
+                                    ? '保存済み。下の「6問を反映して戦略書を再生成」で戦略書に反映できます'
+                                    : '保存済み'}
+                                </span>
+                              )}
+                              {savedHere === 'failed' && (
+                                <span className="text-xs text-red-600">保存に失敗しました。もう一度お試しください（次のテーマへは進みません）</span>
+                              )}
+                              {savedHere === 'failed' && (
                                 <button
                                   type="button"
-                                  onClick={handleSaveAnswerLocally}
-                                  disabled={!dirty || loading}
+                                  onClick={() => void commitAnswer()}
+                                  disabled={loading}
                                   className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:text-gray-400"
                                 >
-                                  回答を保存
+                                  もう一度保存
                                 </button>
                               )}
                               <button
                                 type="button"
-                                onClick={onClickNext}
-                                disabled={!canGoNext || loading}
+                                onClick={() => void onClickNext()}
+                                disabled={!canGoNext || loading || savedHere === 'saving'}
                                 className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-black disabled:bg-gray-200 disabled:text-gray-500"
                                 title={isLastStep ? '内容を保存して完了にします' : '回答を保存して、次のテーマを作ります'}
                               >

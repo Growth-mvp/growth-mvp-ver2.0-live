@@ -4059,6 +4059,10 @@ useEffect(() => {
           else delete deptAnswerFlushRef.current[index];
           registerFlush(flush);
         }}
+        onSaveAnswers={async () => {
+          const saved = await useStrategyStore.getState().saveStrategyData({ force: true, reason: 'stage3:answer-save' });
+          return saved.ok ? { ok: true } : { ok: false, reason: saved.reason };
+        }}
       />
     );
   };

@@ -21,6 +21,7 @@ jest.mock('@/lib/openai', () => ({
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { POST as analyze } from './analyze/route';
 import { POST as regenerate } from './regenerate/route';
+import { POST as propose } from './propose/route';
 
 const C1 = '11111111-1111-4111-8111-111111111111';
 const C2 = '33333333-3333-4333-8333-333333333333';
@@ -298,6 +299,85 @@ describe('POST /api/stage3/adjustment/analyze', () => {
   it('AIの出力が読めない場合は内部情報を返さず502', async () => {
     mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'not json' } }] });
     const res = await analyze(req('analyze', { companyId: C1, strategyId: S1 }));
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(await res.json())).not.toMatch(/SyntaxError|not json/);
+  });
+});
+
+describe('POST /api/stage3/adjustment/propose', () => {
+  const candidate = {
+    id: 'adj-1',
+    kind: 'duplicate',
+    title: '既存顧客への重複施策',
+    summary: '営業とマーケが同じ既存顧客を対象にしている。',
+    departments: [
+      { departmentKey: 'id:d-sales', name: '営業部' },
+      { departmentKey: 'id:d-mkt', name: 'マーケティング部' },
+    ],
+    planRefs: [
+      { departmentKey: 'id:d-sales', projectId: 'id:p-1', departmentName: '営業部', projectTitle: '既存顧客の再受注施策' },
+      { departmentKey: 'id:d-mkt', projectId: 'id:p-2', departmentName: 'マーケティング部', projectTitle: '既存顧客向けセミナー' },
+    ],
+    dialogueTopics: ['既存顧客の担当をどちらが持つか'],
+  };
+
+  it('所属がない利用者は拒否し、AIを呼ばない', async () => {
+    authUser = 'user-9';
+    const res = await propose(req('propose', { companyId: C1, strategyId: S1, candidates: [candidate] }));
+    expect(res.status).toBe(403);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('STAGE2の確定版が無い戦略は、AIを呼ばない', async () => {
+    tables.strategy_data[0].stage2_final_document_edits = { conclusion: '下書きだけ', draftChangedAt: '2026-11-02T00:00:00.000Z' };
+    tables.strategy_data[0].final_story_final = [];
+    const res = await propose(req('propose', { companyId: C1, strategyId: S1, candidates: [candidate] }));
+    expect(res.status).toBe(409);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('保存済みにない計画を含む候補は受け付けない', async () => {
+    const forged = { ...candidate, planRefs: [{ ...candidate.planRefs[0], projectId: 'id:p-forged' }] };
+    const res = await propose(req('propose', { companyId: C1, strategyId: S1, candidates: [forged] }));
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('調整案を候補ごとに返す。候補にない部門・計画を指す変更は捨てて件数を知らせる。書き込みはしない', async () => {
+    mockCreate.mockResolvedValueOnce(
+      llmReply({
+        proposals: [
+          {
+            candidateId: 'adj-1',
+            proposal: '営業部を主担当とし、マーケ部はリストを提供する。',
+            changes: [
+              { departmentKey: 'id:d-sales', projectId: 'id:p-1', item: 'project', change: '既存顧客の担当を営業部に一本化する' },
+              { departmentKey: 'id:d-none', projectId: null, item: 'kpi', change: '存在しない部門への変更' },
+              { departmentKey: 'id:d-mkt', projectId: 'id:p-forged', item: 'project', change: '存在しない計画への変更' },
+            ],
+          },
+        ],
+      }),
+    );
+    const res = await propose(req('propose', { companyId: C1, strategyId: S1, candidates: [candidate] }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.revision).toBe(7);
+    expect(body.proposals).toHaveLength(1);
+    expect(body.proposals[0]).toMatchObject({ candidateId: 'adj-1', proposal: '営業部を主担当とし、マーケ部はリストを提供する。' });
+    expect(body.proposals[0].changes).toHaveLength(1);
+    expect(body.rejectedChanges).toBe(2);
+    expect(writes).toEqual([]);
+
+    const sent = mockCreate.mock.calls[0][0].messages[1].content as string;
+    expect(sent).toContain('既存顧客の深耕を優先する');
+    expect(sent).toContain('計画ID=id:p-2');
+    expect(sent).not.toContain('他社の計画');
+  });
+
+  it('AIの出力が読めない場合は内部情報を返さず502', async () => {
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'not json' } }] });
+    const res = await propose(req('propose', { companyId: C1, strategyId: S1, candidates: [candidate] }));
     expect(res.status).toBe(502);
     expect(JSON.stringify(await res.json())).not.toMatch(/SyntaxError|not json/);
   });

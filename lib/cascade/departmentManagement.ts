@@ -64,6 +64,7 @@ export function pruneWorkspaceForDepartment(state: WorkspaceState, departmentKey
     projectSelections: state.projectSelections.filter((p) => p.departmentKey !== departmentKey),
     analysis: analysisTouched ? null : state.analysis,
     candidateDecisions: analysisTouched ? {} : state.candidateDecisions,
+    adjustmentProposals: analysisTouched ? [] : state.adjustmentProposals,
     dialogue: analysisTouched ? [] : state.dialogue,
   };
 }
@@ -109,6 +110,7 @@ export function editCandidateProject(state: WorkspaceState, candidateId: string,
     projectSelections: state.projectSelections.map((p) => (p.candidateId === candidateId ? { ...p, title: newTitle } : p)),
     analysis: dropAnalysis ? null : state.analysis,
     candidateDecisions: dropAnalysis ? {} : state.candidateDecisions,
+    adjustmentProposals: dropAnalysis ? [] : state.adjustmentProposals,
     dialogue: dropAnalysis ? [] : state.dialogue,
   };
 }

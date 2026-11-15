@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   AdjustmentCandidateSchema,
+  AdjustmentProposalSchema,
   collectPlanUnits,
   departmentKeyOf,
   normalizeDialogue,
@@ -137,6 +138,7 @@ export const WorkspaceStateSchema = z.object({
   drafts: z.array(StrategyDraftSchema).max(MAX_DRAFTS),
   analysis: AnalysisSchema.nullable(),
   candidateDecisions: z.record(z.string().regex(/^adj-\d{1,2}$/), z.enum(CANDIDATE_DECISIONS)).default({}),
+  adjustmentProposals: z.array(AdjustmentProposalSchema).max(8).default([]),
   dialogue: z
     .array(
       z.object({
@@ -162,6 +164,7 @@ export function emptyWorkspaceState(): WorkspaceState {
     drafts: [],
     analysis: null,
     candidateDecisions: {},
+    adjustmentProposals: [],
     dialogue: [],
     selections: [],
     projectSelections: [],
@@ -276,6 +279,13 @@ export function verifyWorkspaceState(
 
   for (const id of Object.keys(state.candidateDecisions)) {
     if (!candidateIds.has(id)) return { ok: false, error: 'decision_unknown_candidate' };
+  }
+
+  for (const p of state.adjustmentProposals) {
+    if (!candidateIds.has(p.candidateId)) return { ok: false, error: 'decision_unknown_candidate' };
+    if (p.changes.some((ch) => !officialDeptKeys.has(ch.departmentKey))) {
+      return { ok: false, error: 'selection_department_unknown' };
+    }
   }
 
   for (const s of state.selections) {

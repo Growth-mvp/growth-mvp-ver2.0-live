@@ -6,7 +6,11 @@ import {
   countDepartments,
   normalizeDialogue,
   resolveCandidates,
+  resolveProposals,
+  adjustmentConclusion,
   verifyCandidates,
+  withAdjustmentEdit,
+  type AdjustmentProposal,
   type PlanUnit,
 } from './stage3Adjustment';
 
@@ -253,5 +257,62 @@ describe('buildAnalysisMessages', () => {
     expect(user).toContain('<全社戦略（STAGE2確定版）>');
     expect(user).toContain('部門ID=id:d-sales');
     expect(user).toContain('計画ID=id:p-2');
+  });
+});
+
+describe('resolveProposals（AI調整案の照合）', () => {
+  const [candidate] = resolveCandidates({ candidates: [llmCandidate] }, units).candidates;
+
+  it('候補にない部門・計画を指す変更は捨て、有効な変更と調整案は残す', () => {
+    const raw = {
+      proposals: [
+        {
+          candidateId: candidate.id,
+          proposal: '営業部を主担当にし、マーケティング部は顧客接点を提供する。',
+          changes: [
+            { departmentKey: 'id:d-sales', projectId: 'id:p-1', item: 'project', change: '再受注の担当を移す' },
+            { departmentKey: 'id:d-ga', projectId: null, item: 'collab', change: '総務が調整する' },
+            { departmentKey: 'id:d-sales', projectId: 'id:p-999', item: 'kpi', change: '存在しない計画' },
+          ],
+        },
+      ],
+    };
+    const result = resolveProposals(raw, [candidate]);
+    expect(result.proposals).toHaveLength(1);
+    expect(result.proposals[0].changes).toHaveLength(1);
+    expect(result.rejectedChanges).toBe(2);
+  });
+
+  it('候補にない調整案IDは採用しない', () => {
+    const raw = { proposals: [{ candidateId: 'adj-9', proposal: '別の候補', changes: [] }] };
+    expect(resolveProposals(raw, [candidate]).proposals).toEqual([]);
+  });
+
+  it('形式が崩れた出力は、何も採用せずに返す', () => {
+    expect(resolveProposals('not json', [candidate])).toEqual({ proposals: [], rejectedChanges: 0 });
+  });
+});
+
+describe('調整案の修正と結論', () => {
+  const proposals: AdjustmentProposal[] = [
+    { candidateId: 'adj-1', proposal: '営業部が主担当になる。マーケ部は案内を担う。条件を確かめる。', changes: [] },
+    { candidateId: 'adj-2', proposal: '別の案。', changes: [] },
+  ];
+
+  it('修正文は対象の候補だけに入り、他の候補や判断に影響しない', () => {
+    const next = withAdjustmentEdit(proposals, 'adj-1', '修正した案');
+    expect(next[0].edited).toBe('修正した案');
+    expect(next[1]).toEqual(proposals[1]);
+    expect(proposals[0].edited).toBeUndefined();
+  });
+
+  it('AIの原文と同じ文や空の修正は、修正なしとして外す', () => {
+    expect(withAdjustmentEdit(withAdjustmentEdit(proposals, 'adj-1', '直す'), 'adj-1', proposals[0].proposal)[0].edited).toBeUndefined();
+    expect(withAdjustmentEdit(withAdjustmentEdit(proposals, 'adj-1', '直す'), 'adj-1', null)[0].edited).toBeUndefined();
+  });
+
+  it('結論は先頭の1〜2文で、条件の文は詳細側に残る', () => {
+    expect(adjustmentConclusion(proposals[0].proposal)).toBe('営業部が主担当になる。マーケ部は案内を担う。');
+    expect(adjustmentConclusion('一文だけ。')).toBe('一文だけ。');
   });
 });

@@ -87,20 +87,62 @@ describe('DepartmentQuestionStepper（6つの問い）', () => {
 
     const box = screen.getByRole('textbox') as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: '保存する回答' } });
-    expect(screen.getByText('未保存の変更があります')).toBeTruthy();
+    expect(screen.getByText('入力中（自動保存します）')).toBeTruthy();
+    expect(screen.queryByText('回答を保存')).toBeNull();
 
-    fireEvent.click(screen.getByText('回答を保存'));
-    await waitFor(() => expect(screen.queryByText('未保存の変更があります')).toBeNull());
-    expect(onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        currentStep: 1,
-        answers: [expect.objectContaining({ stepNumber: 1, answer: '保存する回答' })],
-      }),
+    await waitFor(
+      () =>
+        expect(onChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            currentStep: 1,
+            answers: [expect.objectContaining({ stepNumber: 1, answer: '保存する回答' })],
+          }),
+        ),
+      { timeout: 3000 },
     );
+    expect(screen.queryByText('入力中（自動保存します）')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 
+
+describe('DepartmentQuestionStepper（次のテーマへの保存）', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async (_url: string, opts: { json: { afterStepIndex: number } }) =>
+      questionFor(opts.json.afterStepIndex + 2),
+    );
+  });
+
+  it('保存に失敗したら次のテーマへ進まず、失敗を表示する', async () => {
+    const onSaveAnswers = jest.fn(async () => ({ ok: false, reason: 'failed' }));
+    render(<DepartmentQuestionStepper departmentName="営業部" onSaveAnswers={onSaveAnswers} />);
+    fireEvent.click(screen.getByText('このテーマを生成'));
+    await waitFor(() => expect(screen.getByText('Q1テーマ')).toBeTruthy());
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '回答1' } });
+    fireEvent.click(screen.getByText('次のテーマへ'));
+    await waitFor(() => expect(screen.getByText(/保存に失敗しました/)).toBeTruthy());
+
+    expect(onSaveAnswers).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Q2テーマ')).toBeNull();
+  });
+
+  it('保存に成功したら次のテーマを1回だけ生成する', async () => {
+    const onSaveAnswers = jest.fn(async () => ({ ok: true }));
+    render(<DepartmentQuestionStepper departmentName="営業部" onSaveAnswers={onSaveAnswers} />);
+    fireEvent.click(screen.getByText('このテーマを生成'));
+    await waitFor(() => expect(screen.getByText('Q1テーマ')).toBeTruthy());
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '回答1' } });
+    fireEvent.click(screen.getByText('次のテーマへ'));
+    await waitFor(() => expect(screen.getByText('Q2テーマ')).toBeTruthy());
+
+    expect(onSaveAnswers).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('DepartmentQuestionStepper（再生成の前の保存）', () => {
   it('未保存の回答は、登録された関数で親へ渡され、2回目は変更がないので渡さない', async () => {

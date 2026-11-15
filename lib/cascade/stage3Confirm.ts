@@ -92,6 +92,7 @@ export function planConfirm(args: {
     return { index, at, departmentName };
   };
 
+  let appliedChanges = 0;
   for (const c of args.changes) {
     const fail = (error: ConfirmError) => ({ ok: false as const, error, departmentName: c.departmentName, item: c.item });
     const index = original.findIndex((d) => d && typeof d === 'object' && departmentKeyOf(d) === c.departmentKey);
@@ -101,8 +102,14 @@ export function planConfirm(args: {
     const key = `${c.departmentKey} ${request.item}`;
     if (seen.has(key)) return fail('duplicate_change');
     seen.add(key);
-    if (!sameItemValues(c.base, currentItemValues(original[index], request.item))) return fail('current_value_changed');
+    const currentValues = currentItemValues(original[index], request.item);
+    if (!sameItemValues(c.base, currentValues)) {
+      // 以前の確定で既に正式データへ反映済みの変更（作業版に古い採用が残っている）は、競合ではなく反映済みとして扱う
+      if (sameItemValues(c.proposed, currentValues)) continue;
+      return fail('current_value_changed');
+    }
     next[index] = { ...next[index], ...c.proposed };
+    appliedChanges += 1;
   }
 
   for (const e of args.projectEdits ?? []) {
@@ -146,5 +153,5 @@ export function planConfirm(args: {
     next[index] = { ...next[index], projects: [...list, prepared.project] };
   }
 
-  return { ok: true, departments: next, appliedCount: args.changes.length, adoptedProjectIds };
+  return { ok: true, departments: next, appliedCount: appliedChanges, adoptedProjectIds };
 }

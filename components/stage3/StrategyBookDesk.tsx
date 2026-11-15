@@ -4,7 +4,16 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
-import { ADJUSTMENT_KIND_LABEL, departmentKeyOf, type AdjustmentCandidate, type DialogueResult } from '@/lib/cascade/stage3Adjustment';
+import {
+  ADJUSTMENT_KIND_LABEL,
+  PROPOSAL_ITEM_LABEL,
+  adjustmentConclusion,
+  departmentKeyOf,
+  withAdjustmentEdit,
+  type AdjustmentCandidate,
+  type AdjustmentProposal,
+  type DialogueResult,
+} from '@/lib/cascade/stage3Adjustment';
 import { DEPT_PROPOSAL_ITEMS, currentItemValues, type DeptProposal, type DeptProposalItem } from '@/lib/cascade/stage3Candidates';
 import { draftDepartmentsFrom, newProjectCandidatesFrom, projectSelectionsFrom, selectionsFrom } from '@/lib/cascade/stage3Draft';
 import {
@@ -188,7 +197,8 @@ const ERROR_MESSAGE: Record<string, string> = {
   confirmed_with_pending: '未判断の変更案が残っています。反映するか、保留・反映しないを選んでください。',
   confirmed_with_undecided_candidate: '未判断の調整候補が残っています。採用・保留・不採用のいずれかを選んでください。',
   already_confirmed: 'この内容はすでに確定済みです。',
-  current_value_changed: '反映予定の値が、案を作った後に変わっていました。正式データは変わっていません。もう一度生成からやり直してください。',
+  current_value_changed:
+    '正式データの値が変更案を作った後に変わっていたため、この変更は反映していません。回答と判断は残っています。該当部門の「6問を反映して戦略書を再生成」で変更案を作り直してから、もう一度確定してください。',
   confirm_failed: '確定できませんでした。正式データも作業内容も変わっていません。',
   insufficient_role: '確定は管理者・管理職のみ行えます。',
   reference_check_failed: '計画からの参照を確認できず、外す処理を止めました。時間をおいて再度お試しください。',
@@ -259,6 +269,46 @@ function confirmErrorMessage(e: unknown): string {
 }
 
 const dialogueKey = (candidateId: string, topic: string) => `${candidateId} ${topic}`;
+type ProposalResponse = {
+  ok: true;
+  revision: number;
+  workspaceVersion: number;
+  proposals: AdjustmentProposal[];
+  rejectedChanges: number;
+};
+
+/* 採否の選択ボタン（部門間の調整・新規プロジェクト候補で共通）。選択中は色と「✓」の両方で示す */
+function ChoiceButton({
+  selected,
+  tone,
+  disabled,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  tone: 'adopt' | 'reject';
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const selectedClass =
+    tone === 'adopt' ? 'border-[#1e3a8a] bg-[#1e3a8a] text-white' : 'border-slate-500 bg-slate-500 text-white';
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex h-9 min-w-[7.5rem] items-center justify-center gap-1 rounded-full border-2 px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        selected ? selectedClass : 'border-slate-400 bg-white text-slate-900 hover:bg-slate-50'
+      }`}
+    >
+      {selected && <span aria-hidden="true">✓</span>}
+      {children}
+    </button>
+  );
+}
+
 const reopen = (state: WorkspaceState): WorkspaceState => ({ ...state, status: 'draft', confirmed: null });
 const nextDraftVersion = (state: WorkspaceState) => Math.max(0, ...state.drafts.map((d) => d.version)) + 1;
 const newDraftId = () => `draft-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -271,11 +321,14 @@ const STEPS: Array<{ phase: Phase; label: string; title: string }> = [
   { phase: 1, label: 'STEP1', title: 'たたき台' },
   { phase: 2, label: 'STEP2', title: '6つの問い' },
   { phase: 4, label: 'STEP3', title: '戦略書を編集' },
-  { phase: 5, label: 'STEP4', title: '確認・確定' },
-  { phase: 6, label: 'STEP5', title: 'PDF・次へ' },
+  { phase: 5, label: 'STEP4', title: '重点プロジェクトを選ぶ' },
 ];
 
-const linesOf = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : typeof v === 'string' && v ? [v] : []);
+/* 同じ内容の計画か（空白と大文字小文字を無視して題名で比べる） */
+const sameTitle = (a: string, b: string): boolean =>
+  a.replace(/\s/g, '').toLowerCase() === b.replace(/\s/g, '').toLowerCase();
+
+const linesOf = (v: unknown): string[] =>(Array.isArray(v) ? v.map((x) => String(x)) : typeof v === 'string' && v ? [v] : []);
 
 function projectSummaryOf(state: WorkspaceState, candidateId: string): string {
   for (const draft of state.drafts) {
@@ -345,6 +398,7 @@ export function StrategyBookDesk({
   const [stage2, setStage2] = useState<Stage2View>({ status: 'loading' });
   const [workspaceErrorCode, setWorkspaceErrorCode] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
+  const [editingProposal, setEditingProposal] = useState<{ candidateId: string; text: string } | null>(null);
   const [docDraft, setDocDraft] = useState<{ deptKey: string; texts: TextDraft; projects: Record<string, ProjectTextDraft> } | null>(null);
   const [candEdit, setCandEdit] = useState<{ candidateId: string; title: string; reason: string; hypothesis: string; description: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -514,6 +568,7 @@ export function StrategyBookDesk({
         drafts: [...state.drafts, draft].slice(-MAX_DRAFTS),
         analysis: null,
         candidateDecisions: {},
+        adjustmentProposals: [],
         dialogue: [],
         selections: [
           ...selectionsFrom(official, proposals, previousSelections.filter((s) => regenKeys.has(s.departmentKey))),
@@ -571,6 +626,7 @@ export function StrategyBookDesk({
             rejectedReferences: res.rejectedReferences,
           },
           candidateDecisions: {},
+          adjustmentProposals: [],
           dialogue: [],
         }),
       );
@@ -594,7 +650,7 @@ export function StrategyBookDesk({
       }
     } catch (e) {
       if (errorCode(e) === 'insufficient_departments') {
-        await save(reopen({ ...base, analysis: null, candidateDecisions: {}, dialogue: [] }));
+        await save(reopen({ ...base, analysis: null, candidateDecisions: {}, adjustmentProposals: [], dialogue: [] }));
         setNotice(ERROR_MESSAGE.insufficient_departments + ' 戦略書の作成は続けられます。');
       } else {
         setNotice(errorMessage(e));
@@ -614,59 +670,80 @@ export function StrategyBookDesk({
     );
   };
 
-  const saveDialogue = async () => {
-    setBusy('dialogue');
-    const ok = await save(reopen({ ...state, dialogue: filledDialogue() }));
-    setBusy(null);
-    if (ok) setNotice('話し合いの結果を保存しました。');
-  };
+  /* 利用者が採用した調整案を、変更案作成の入力として加える（話し合いの記録にはしない） */
+  const approvedAdjustmentDialogue = (s: WorkspaceState): DialogueResult[] =>
+    (s.analysis?.candidates ?? []).flatMap((c) => {
+      if (s.candidateDecisions[c.id] !== 'adopted') return [];
+      const p = s.adjustmentProposals.find((x) => x.candidateId === c.id);
+      const topic = c.dialogueTopics[0];
+      if (!p || !topic) return [];
+      const lines = [p.edited ?? p.proposal];
+      for (const ch of p.changes) {
+        const dept = c.departments.find((d) => d.departmentKey === ch.departmentKey)?.name ?? '';
+        const plan = ch.projectId
+          ? c.planRefs.find((r) => r.departmentKey === ch.departmentKey && r.projectId === ch.projectId)?.projectTitle
+          : undefined;
+        lines.push(`・${dept}${plan ? `「${plan}」` : ''}（${PROPOSAL_ITEM_LABEL[ch.item]}）：${ch.change}`);
+      }
+      return [{ candidateId: c.id, topic, result: lines.join('\n').slice(0, 1000) }];
+    });
 
-  /* 対話結果を反映して変更案を作り直す（未確定。正式データは変えない） */
-  const regenerateFromDialogue = async () => {
-    const analysis = state.analysis;
+  /* 調整後の戦略を確認する。判断と修正を保存し、採用した調整案だけで変更案を作る。保存や作成が失敗したら成功扱いにしない */
+  const applyAdjustments = async () => {
     const g = gate();
-    if (!g || !analysis || analysis.candidates.length === 0) return;
-    const filled = filledDialogue();
-    if (filled.length === 0) {
-      setNotice('話し合いの結果を1件以上入力してから反映してください。');
-      return;
-    }
+    const current = state.analysis;
+    if (!g || !current || current.candidates.length === 0) return;
+    const pending = editingProposal;
+    const base = reopen({
+      ...state,
+      dialogue: filledDialogue(),
+      adjustmentProposals: pending
+        ? withAdjustmentEdit(state.adjustmentProposals, pending.candidateId, pending.text)
+        : state.adjustmentProposals,
+    });
     setBusy('regenerate');
     setNotice('');
     try {
-      const withDialogue = reopen({ ...state, dialogue: filled });
-      if (!(await save(withDialogue))) return;
+      if (!(await save(base))) return;
+      if (pending) setEditingProposal(null);
+      const approved = approvedAdjustmentDialogue(base);
+      if (base.dialogue.length === 0 && approved.length === 0) {
+        setNotice('採用した調整案がないため、変更案は作りませんでした。判断は保存しました。');
+        return;
+      }
       const res = await authFetchJson<RegenerateResponse>('/api/stage3/adjustment/regenerate', {
         method: 'POST',
         json: {
           companyId: g.companyId,
           strategyId: g.strategyId,
-          draft: analysis.draftId && analysis.draftVersion ? { draftId: analysis.draftId, version: analysis.draftVersion } : null,
-          candidates: analysis.candidates,
-          dialogue: filled,
+          draft: current.draftId && current.draftVersion ? { draftId: current.draftId, version: current.draftVersion } : null,
+          candidates: current.candidates,
+          dialogue: [...base.dialogue, ...approved],
         },
       });
       const proposals = Object.fromEntries(res.departments.map((d) => [d.departmentKey, d.proposals]));
       const responded = new Set(res.departments.map((d) => d.departmentKey));
       const official = departments as unknown as AnyRecord[];
       const saved = await save({
-        ...withDialogue,
+        ...base,
         selections: [
-          ...selectionsFrom(official, proposals, withDialogue.selections.filter((s) => responded.has(s.departmentKey))),
-          ...withDialogue.selections.filter((s) => !responded.has(s.departmentKey)),
+          ...selectionsFrom(official, proposals, base.selections.filter((s) => responded.has(s.departmentKey))),
+          ...base.selections.filter((s) => !responded.has(s.departmentKey)),
         ],
       });
-      if (saved) {
-        const count = res.departments.reduce((n, d) => n + d.proposals.length, 0);
-        setNotice(
-          [
-            count === 0 ? '話し合いの結果を反映すると変わる項目はありませんでした。' : `変更案を${count}件作りました。採否を選んでから確定してください。`,
-            res.rejectedDepartments > 0 ? `保存済みにない部門IDを含んだため、${res.rejectedDepartments}件を採用しませんでした。` : '',
-          ]
-            .filter(Boolean)
-            .join(' '),
-        );
+      if (!saved) return;
+      const count = res.departments.reduce((n, d) => n + d.proposals.length, 0);
+      const firstKey = res.departments[0]?.departmentKey;
+      const firstIdx = departments.findIndex((d) => departmentKeyOf(d as unknown as AnyRecord) === firstKey);
+      if (firstKey && firstIdx >= 0) {
+        setTab(`dept:${firstIdx}`);
+        setViewByDept((prev) => ({ ...prev, [firstKey]: 4 }));
       }
+      setNotice(
+        count === 0
+          ? '調整後の内容を反映すると変わる項目はありませんでした。'
+          : `変更案を${count}件作りました。各部門の戦略書で内容を確認し、採用する変更を選んでから確定してください。`,
+      );
     } catch (e) {
       setNotice(errorMessage(e));
     } finally {
@@ -674,8 +751,66 @@ export function StrategyBookDesk({
     }
   };
 
-  const decideCandidate = async (id: string, decision: 'adopted' | 'deferred' | 'rejected') => {
-    await save(reopen({ ...state, candidateDecisions: { ...state.candidateDecisions, [id]: decision } }));
+  /* 採否の判断。調整案の編集中の文があれば、同じ保存で残す。保留・未判断へ戻す操作は通常画面に置かない（既存の判断は上書きできる） */
+  const decideCandidate = async (id: string, decision: 'adopted' | 'rejected') => {
+    const pending = editingProposal?.candidateId === id ? editingProposal.text : null;
+    const saved = await save(
+      reopen({
+        ...state,
+        candidateDecisions: { ...state.candidateDecisions, [id]: decision },
+        adjustmentProposals: pending === null ? state.adjustmentProposals : withAdjustmentEdit(state.adjustmentProposals, id, pending),
+      }),
+    );
+    if (saved) setEditingProposal(null);
+  };
+
+  /* 調整案の修正を保存する（判断は変えない）。null なら AI の原文に戻す */
+  const saveProposalEdit = async (id: string, text: string | null) => {
+    const saved = await save(reopen({ ...state, adjustmentProposals: withAdjustmentEdit(state.adjustmentProposals, id, text) }));
+    if (saved) setEditingProposal(null);
+  };
+
+  const proposalOf = (candidateId: string) => state.adjustmentProposals.find((p) => p.candidateId === candidateId);
+
+  /* AIの調整案を、分析済みの候補ごとに5件まとめて作る。内容は保存して、利用者が確認する（採用はしない） */
+  const generateProposals = async () => {
+    const g = gate();
+    const current = state.analysis;
+    if (!g || !current || current.candidates.length === 0) return;
+    setBusy('proposal');
+    setNotice('');
+    setEditingProposal(null);
+    try {
+      const res = await authFetchJson<ProposalResponse>('/api/stage3/adjustment/propose', {
+        method: 'POST',
+        json: {
+          companyId: g.companyId,
+          strategyId: g.strategyId,
+          draft: current.draftId && current.draftVersion ? { draftId: current.draftId, version: current.draftVersion } : null,
+          candidates: current.candidates,
+        },
+      });
+      if (res.proposals.length === 0) {
+        setNotice('AI調整案を作れませんでした。時間をおいて、もう一度お試しください。');
+        return;
+      }
+      const replaced = new Set(res.proposals.map((p) => p.candidateId));
+      const saved = await save(
+        reopen({
+          ...state,
+          adjustmentProposals: [...state.adjustmentProposals.filter((p) => !replaced.has(p.candidateId)), ...res.proposals],
+        }),
+      );
+      if (saved) {
+        setNotice(
+          `AI調整案を${res.proposals.length}件作りました。内容を確認して、採用する・採用しないを選んでください。`,
+        );
+      }
+    } catch (e) {
+      setNotice(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const decideProject = async (target: ProjectSelection, decision: ProjectSelection['decision']) => {
@@ -894,7 +1029,7 @@ export function StrategyBookDesk({
       return;
     }
     if (undecided > 0) {
-      setConfirmResult({ tone: 'error', message: `部門間調整の判断が${undecided}件残っています。STEP4で採用・保留・不採用のいずれかを選んでください。` });
+      setConfirmResult({ tone: 'error', message: `部門間調整の判断が${undecided}件残っています。採用する・採用しないのいずれかを選んでください。` });
       return;
     }
     const g = getWriteGate();
@@ -921,7 +1056,7 @@ export function StrategyBookDesk({
     } catch (e) {
       const code = errorCode(e);
       setConfirmResult({ tone: 'error', message: confirmErrorMessage(e) });
-      if (code === 'revision_changed' || code === 'version_conflict') await load();
+      if (code === 'revision_changed' || code === 'version_conflict' || code === 'current_value_changed') await load();
     } finally {
       setBusy(null);
     }
@@ -1137,6 +1272,10 @@ export function StrategyBookDesk({
     const initialDoc = docFor(latestInitial);
     const regenDoc = docFor(latestRegen);
     const currentDoc = docFor(latestRegen ?? latestInitial);
+    const oldVersionRows = DOC_FIELDS.map((f) => ({
+      f,
+      text: linesOf(baseOf(f.item)[DEPT_PROPOSAL_ITEMS[f.item].keys[0]]).join(f.lines ? '\n' : ''),
+    })).filter((r) => r.text.trim() !== '');
     /* 編集中は、項目を押すとその場で直せる（STAGE4の計画書と同じ操作）。通常表示では編集欄を出さない。 */
     const editingHere = docDraft !== null && docDraft.deptKey === key;
     const draftHere = editingHere ? docDraft.texts : null;
@@ -1223,7 +1362,7 @@ export function StrategyBookDesk({
                   disabled={isBusy || editingHere}
                   className="rounded-full h-8 px-3 text-xs"
                 >
-                  PDF出力
+                  {progress.deptConfirmed ? 'PDF出力（確定版）' : 'PDF出力（未確定版）'}
                 </Button>
               )}
             </div>
@@ -1233,14 +1372,14 @@ export function StrategyBookDesk({
               編集中のためPDFは出力できません。「編集を保存」か「編集をやめる」を押してから、出力してください。
             </p>
           )}
-          <nav className="grid grid-cols-2 gap-2 md:grid-cols-5" aria-label="戦略書の作業手順">
+          <nav className="grid grid-cols-2 gap-2 md:grid-cols-4" aria-label="戦略書の作業手順">
             {STEPS.map((s) => {
               const enabled =
                 s.phase === 1 ||
                 (s.phase === 2 && progress.hasInitial) ||
                 ((s.phase === 4 || s.phase === 5) && progress.hasRegen) ||
-                (s.phase === 6 && progress.deptConfirmed);
-              const active = s.phase === effective;
+                (s.phase === 5 && progress.deptConfirmed);
+              const active = s.phase === (effective === 6 ? 5 : effective);
               return (
                 <button
                   key={s.phase}
@@ -1271,8 +1410,8 @@ export function StrategyBookDesk({
                 : judgments.blockers > 0
                   ? `${judgmentBlockerOf(judgments)}（STEP4で判断してください）`
                   : progress.deptConfirmed
-                    ? '確定済みです。STEP5で確定版PDFを出力し、確定した計画から実行計画書を作成できます。'
-                    : 'STEP3で内容を確認・編集してから、STEP4で「戦略書を確定する」を押してください。'}
+                    ? '確定済みです。下の「確定版PDFを出力」と、確定した計画からのSTAGE4への移動を使えます。'
+                    : 'STEP3で内容を確認・編集してから、「部門間の調整」タブの④で全体を確定してください。'}
           </p>
         </header>
 
@@ -1415,25 +1554,25 @@ export function StrategyBookDesk({
               <p className="text-sm text-gray-600">③で再生成すると、ここに戦略書の変更案が表示されます。</p>
             ) : (
               <>
-                <div className="flex justify-end">
-                  <details className="w-full rounded-lg bg-zinc-50 px-3 py-2 text-xs">
-                    <summary className="cursor-pointer font-semibold">旧版（現在の戦略）と比べる</summary>
-                    <div className="mt-2 space-y-2">
-                      {DOC_FIELDS.map((f) => (
-                        <div key={f.item}>
-                          <div className="font-semibold text-gray-700">{f.label}</div>
-                          <div className="whitespace-pre-wrap text-gray-700">
-                            {linesOf(baseOf(f.item)[DEPT_PROPOSAL_ITEMS[f.item].keys[0]]).join(f.lines ? '\n' : '') || '（未設定）'}
+                {oldVersionRows.length > 0 && (
+                  <div className="flex justify-end">
+                    <details className="w-full rounded-lg bg-zinc-50 px-3 py-2 text-xs">
+                      <summary className="cursor-pointer font-semibold">旧版（現在の戦略）と比べる</summary>
+                      <div className="mt-2 space-y-2">
+                        {oldVersionRows.map(({ f, text }) => (
+                          <div key={f.item}>
+                            <div className="font-semibold text-gray-700">{f.label}</div>
+                            <div className="whitespace-pre-wrap text-gray-700">{text}</div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                </div>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                )}
 
                 <div className="flex justify-end border-t pt-4">
                   <Button onClick={() => showPhase(5)} className="rounded-full h-9 px-5">
-                    確認・確定（STEP4）へ進む
+                    重点プロジェクトを選ぶ（STEP4）へ進む
                   </Button>
                 </div>
               </>
@@ -1442,14 +1581,24 @@ export function StrategyBookDesk({
         </section>
         )}
 
-        {/* STEP4：確認・確定（新規候補・部門間調整・確定内容の要約） */}
+        {/* STEP4：重点プロジェクトを選ぶ（正式確定は「部門間の調整」タブの最後で行う） */}
         {isOpen(5) && (
         <section className={sectionClass}>
-          <h4 className={summaryClass}>STEP4：確認・確定</h4>
+          <h4 className={summaryClass}>STEP4：重点プロジェクトを選ぶ</h4>
           <div className="space-y-6 border-t px-4 py-4">
             <div className="space-y-3">
               <h4 className="text-sm font-semibold">AIが提案した新規プロジェクト候補（{dept.name}）</h4>
-              <p className="text-xs text-gray-600">必要なものだけ採用できます。選ばなかった候補は保留として残り、後から再検討できます。</p>
+              <p className="text-xs text-gray-600">
+                これはAIの候補です。すべて採用する必要はありません。重要な2〜3件を選んでください。選ばなかった候補は消えず、保留として残ります。
+              </p>
+              <p className="text-xs text-gray-700">
+                採用 {projs.filter((p) => p.decision === 'applied').length}件 ／ 候補 {projs.length}件
+              </p>
+              {projs.length > 0 && !projs.some((p) => p.decision === 'applied') && (
+                <p className="text-xs text-amber-800">
+                  採用するプロジェクトが0件です。このまま確定すると、STAGE4の実行計画が作成されない可能性があります。
+                </p>
+              )}
               {projs.length === 0 && <p className="text-xs text-gray-600">この部門の新規の候補プロジェクトはまだありません。</p>}
               {projs.map((p) => {
                 const c = latest?.newProjects.find((np) => np.candidateId === p.candidateId);
@@ -1460,8 +1609,16 @@ export function StrategyBookDesk({
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold">{p.title}</span>
                       <Chip tone={p.decision === 'applied' ? 'ok' : 'neutral'}>
-                        {p.decision === 'pending' ? '未選択（確定時に保留）' : `新規の候補・${PROJECT_DECISION_LABEL[p.decision]}`}
+                        {p.decision === 'pending'
+                          ? '未選択（確定時は保留として残ります）'
+                          : p.decision === 'deferred'
+                            ? '保留（以前の判断）'
+                            : `新規の候補・${PROJECT_DECISION_LABEL[p.decision]}`}
                       </Chip>
+                      {p.decision === 'applied' &&
+                        state.projectSelections.some(
+                          (o) => o.departmentKey !== key && o.decision === 'applied' && sameTitle(o.title, p.title),
+                        ) && <Chip tone="warn">他の事業でも同じ内容を採用しています</Chip>}
                     </div>
                     {summary && !editing && <p className="text-xs leading-5 text-gray-700">目的：{summary}</p>}
                     {editing && candEdit ? (
@@ -1517,16 +1674,16 @@ export function StrategyBookDesk({
                       </details>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      {(['applied', 'deferred', 'discarded'] as const).map((d) => (
-                        <Button
+                      {(['applied', 'discarded'] as const).map((d) => (
+                        <ChoiceButton
                           key={d}
-                          variant={p.decision === d ? 'primary' : 'outline'}
+                          selected={p.decision === d}
+                          tone={d === 'applied' ? 'adopt' : 'reject'}
                           onClick={() => decideProject(p, d)}
                           disabled={!canOperate}
-                          className="rounded-full h-7 px-3 text-xs"
                         >
-                          {PROJECT_DECISION_LABEL[d]}
-                        </Button>
+                          {d === 'applied' ? '採用する' : '採用しない'}
+                        </ChoiceButton>
                       ))}
                     </div>
                   </div>
@@ -1550,16 +1707,16 @@ export function StrategyBookDesk({
                     <p className="font-semibold">{c.title}</p>
                     <p className="text-sm text-gray-700">{c.summary}</p>
                     <div className="flex flex-wrap gap-2">
-                      {(['adopted', 'deferred', 'rejected'] as const).map((d) => (
-                        <Button
+                      {(['adopted', 'rejected'] as const).map((d) => (
+                        <ChoiceButton
                           key={d}
-                          variant={decision === d ? 'primary' : 'outline'}
+                          selected={decision === d}
+                          tone={d === 'adopted' ? 'adopt' : 'reject'}
                           onClick={() => decideCandidate(c.id, d)}
                           disabled={!canOperate}
-                          className="rounded-full h-8 px-3"
                         >
-                          {CANDIDATE_LABEL[d]}
-                        </Button>
+                          {d === 'adopted' ? '採用する' : '採用しない'}
+                        </ChoiceButton>
                       ))}
                     </div>
                   </div>
@@ -1570,11 +1727,14 @@ export function StrategyBookDesk({
               )}
             </div>
 
-            <div className="space-y-3 border-t pt-4">
-              <h4 className="text-sm font-semibold">正式に確定する内容</h4>
-              {renderConfirmSummary()}
+            <div className="space-y-2 border-t pt-4">
+              <p className="text-xs text-gray-700">
+                次の操作：重点プロジェクトを選んだら、「部門間の調整」へ進んでください。全部門をまとめた正式確定は、そのタブの最後（④）で1回だけ行います。
+              </p>
+              <Button onClick={() => setTab('compare')} className="rounded-full h-9 px-4">
+                部門間の調整へ進む
+              </Button>
             </div>
-            <div className="border-t pt-4">{renderConfirm()}</div>
             <div>
               <Button variant="outline" onClick={() => showPhase(4)} className="rounded-full h-8 px-3 text-xs">
                 STEP3に戻って戦略書を編集する
@@ -1584,7 +1744,7 @@ export function StrategyBookDesk({
         </section>
         )}
 
-        {/* STEP5：確定後のPDF・次へ */}
+        {/* 確定後：PDF出力とSTAGE4への移動（STEP4の代わりに表示する） */}
         {isOpen(6) && (
         <section className={sectionClass}>
           <h4 className={summaryClass}>事業・部門戦略書が確定しました</h4>
@@ -1597,7 +1757,12 @@ export function StrategyBookDesk({
               <span className="text-xs text-zinc-600">確定した内容だけを出力します（未確定の内容は含みません）</span>
             </div>
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-zinc-800">確定した計画から、実行計画書を作成できます。</p>
+              <p className="text-xs font-semibold text-zinc-800">
+                次の操作：確定した計画から実行計画書を作成するか、STAGE4の実行計画画面へ進めます。
+              </p>
+              <Link href="/okr" className="inline-flex rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-50">
+                STAGE4（実行計画）へ進む
+              </Link>
               {officialProjects.filter((p) => stableIdText(p.id) !== null).map((p) => {
                 const projectId = stableIdText(p.id) as string;
                 const href = `/okr?from=stage3&dept=${encodeURIComponent(dept.name)}&projectId=${encodeURIComponent(projectId)}`;
@@ -1775,120 +1940,301 @@ export function StrategyBookDesk({
       {/* 各部門：①たたき台 → ②6問 → ③再生成 → ④文書の編集 → ⑤確定 → ⑥PDF */}
       {tab.startsWith('dept:') && departments.length > 0 && renderDepartment(Number(tab.slice(5)))}
 
-      {/* 部門間調整：複数部門の最新案を比べ、候補ごとに採否と話し合いを記録する */}
+      {/* 部門間の調整：AIの調整案を読み、候補ごとに採用するかを判断する。詳細と話し合いの記録は折りたたむ */}
       {tab === 'compare' && (
         <section className="space-y-6">
           <div className="space-y-2">
-            <h3 className="text-base font-semibold">最新の計画案の比較</h3>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-gray-600">
-                  <th className="py-2">部門</th>
-                  <th className="py-2">最新案の計画（既存・新規）</th>
-                  <th className="py-2">変更案（未判断・採用）</th>
-                </tr>
-              </thead>
-              <tbody>
-                {departments.map((d) => {
-                  const key = departmentKeyOf(d as unknown as AnyRecord);
-                  const draftDept = latest?.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
-                  const titles = draftDept?.projects.map((p) => p.title) ?? (d.projects ?? []).map((p) => String((p as AnyRecord).title ?? ''));
-                  const pending = state.selections.filter((s) => s.departmentKey === key && s.decision === 'pending').length;
-                  const applied = state.selections.filter((s) => s.departmentKey === key && s.decision === 'applied').length;
-                  return (
-                    <tr key={key} className="border-b align-top">
-                      <td className="py-2 font-semibold">{d.name}</td>
-                      <td className="py-2 text-xs">{titles.length > 0 ? titles.join(' / ') : '（計画なし）'}</td>
-                      <td className="py-2 text-xs">
-                        未判断 {pending}・採用 {applied}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <h3 className="text-lg font-semibold text-zinc-900">部門間の調整</h3>
+            <p className="text-sm text-zinc-700">
+              AIが各事業・部門の戦略を比較し、調整が必要な項目を見つけました。提案を確認して判断してください。
+            </p>
+            {departments.length < 2 && <p className="text-xs text-zinc-600">部門が2つ以上あると分析できます（部門間の調整対象はありません）。</p>}
+            {!latest && departments.length >= 2 && <p className="text-xs text-zinc-600">先に、部門のたたき台を作成してください。</p>}
+            {staleAnalysis && <p className="text-xs text-amber-800">分析の後に計画が変わっています。補助操作から分析し直してください。</p>}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              onClick={() => latest && analyze({ draftId: latest.draftId, version: latest.version })}
-              disabled={!!genBlocker || !latest || departments.length < 2}
-              className="rounded-full h-9 px-4"
-            >
-              {busy === 'analyze' ? '分析しています…' : analysis ? '最新の計画案をもう一度分析する' : '最新の計画案を分析する'}
-            </Button>
-            {departments.length < 2 && <span className="text-xs text-gray-600">部門が2つ以上あると分析できます（部門間の調整対象はありません）。</span>}
-            {!latest && departments.length >= 2 && <span className="text-xs text-gray-600">先に、部門のたたき台を作成してください。</span>}
-            {staleAnalysis && <span className="text-xs text-amber-800">分析の後に再生成されています。もう一度分析してください。</span>}
-          </div>
-
-          {analysis && analysis.candidates.length > 0 && (
-            <div className="space-y-4">
-              {analysis.candidates.map((c) => {
-                const decision = state.candidateDecisions[c.id];
-                return (
-                  <div key={c.id} className="rounded-xl border border-gray-200 p-4 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <Chip tone="neutral">{ADJUSTMENT_KIND_LABEL[c.kind]}</Chip>
-                      <span className="text-gray-600">対象：{c.departments.map((d) => d.name).join('・')}</span>
-                      <span className="ml-auto font-semibold text-gray-700">{decision ? `判断：${CANDIDATE_LABEL[decision]}` : '未判断'}</span>
-                    </div>
-                    <p className="font-semibold">{c.title}</p>
-                    <p className="text-sm text-gray-700">{c.summary}</p>
-                    <ul className="list-disc pl-5 text-xs text-gray-700">
-                      {c.planRefs.map((r) => (
-                        <li key={`${r.departmentKey}-${r.projectId}`}>
-                          {r.departmentName}：{r.projectTitle}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="space-y-2">
-                      {c.dialogueTopics.map((topic) => {
-                        const key = dialogueKey(c.id, topic);
-                        return (
-                          <div key={key} className="space-y-1">
-                            <label className="text-sm">{topic}</label>
-                            <textarea
-                              value={results[key] ?? ''}
-                              onChange={(e) => setResults((prev) => ({ ...prev, [key]: e.target.value }))}
-                              placeholder="関係部門の話し合いの結果（空欄のままでも構いません）"
-                              rows={2}
-                              maxLength={1000}
-                              disabled={!canEdit}
-                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(['adopted', 'deferred', 'rejected'] as const).map((d) => (
-                        <Button
-                          key={d}
-                          variant={decision === d ? 'primary' : 'outline'}
-                          onClick={() => decideCandidate(c.id, d)}
-                          disabled={!canOperate}
-                          className="rounded-full h-8 px-3"
-                        >
-                          {CANDIDATE_LABEL[d]}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={saveDialogue} disabled={!canOperate} className="rounded-full h-9 px-4">
-                  話し合いの結果を保存
-                </Button>
-                <Button onClick={regenerateFromDialogue} disabled={!canOperate} className="rounded-full h-9 px-4">
-                  {busy === 'regenerate' ? '反映しています…' : '話し合いの結果を反映して変更案を作る'}
-                </Button>
-              </div>
+          {!analysis && (
+            <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+              <p className="text-sm text-zinc-800">部門間の調整はまだ分析されていません。</p>
+              <Button
+                onClick={() => latest && analyze({ draftId: latest.draftId, version: latest.version })}
+                disabled={!!genBlocker || !latest || departments.length < 2}
+                className="rounded-full h-9 px-4"
+              >
+                {busy === 'analyze' ? '分析しています…' : '計画案を分析する'}
+              </Button>
+              {reasonLine(genBlocker)}
             </div>
           )}
 
-          {renderConfirm()}
+          {analysis && analysis.candidates.length === 0 && (
+            <p className="text-sm text-zinc-700">部門間の調整候補は見つかりませんでした。</p>
+          )}
+
+          {analysis && analysis.candidates.length > 0 && (
+            <>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-700">
+                <span>候補 {analysis.candidates.length}件</span>
+                <span>採用する {analysis.candidates.filter((c) => state.candidateDecisions[c.id] === 'adopted').length}件</span>
+                <span>採用しない {analysis.candidates.filter((c) => state.candidateDecisions[c.id] === 'rejected').length}件</span>
+                <span className="font-semibold">
+                  未判断 {analysis.candidates.filter((c) => !state.candidateDecisions[c.id]).length}件
+                </span>
+              </div>
+
+              {state.adjustmentProposals.length === 0 && (
+                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-zinc-50 p-3 text-sm text-zinc-800">
+                  <span>まだAI調整案がありません。</span>
+                  {canEdit && (
+                    <Button
+                      onClick={generateProposals}
+                      disabled={!!genBlocker || busy === 'proposal'}
+                      className="rounded-full h-8 px-3 text-xs"
+                    >
+                      {busy === 'proposal' ? 'AI調整案を作っています…' : 'AI調整案を作る'}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              <ol className="space-y-3">
+                {analysis.candidates.map((c, idx) => {
+                  const decision = state.candidateDecisions[c.id];
+                  const proposal = proposalOf(c.id);
+                  const shown = proposal ? (proposal.edited ?? proposal.proposal) : '';
+                  const isEditing = editingProposal?.candidateId === c.id;
+                  const filledCount = c.dialogueTopics.filter((t) => (results[dialogueKey(c.id, t)] ?? '').trim() !== '').length;
+                  return (
+                    <li key={c.id} className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="space-y-1">
+                          <p className="text-xs text-zinc-500">
+                            {idx + 1}. {ADJUSTMENT_KIND_LABEL[c.kind]}・{c.departments.map((d) => d.name).join('・')}
+                          </p>
+                          <p className="font-semibold text-zinc-900">{c.title}</p>
+                        </div>
+                        <Chip tone={decision === 'adopted' ? 'ok' : 'neutral'}>{decision ? CANDIDATE_LABEL[decision] : '未判断'}</Chip>
+                      </div>
+
+                      {proposal ? (
+                        <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-900">{adjustmentConclusion(shown)}</p>
+                      ) : (
+                        <p className="text-sm text-zinc-600">AI調整案はまだありません。</p>
+                      )}
+
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-zinc-600">
+                            調整案を修正します。採用すると、この内容で変更案を作ります。
+                          </p>
+                          <textarea
+                            value={(editingProposal?.text ?? '')}
+                            onChange={(e) => setEditingProposal({ candidateId: c.id, text: e.target.value })}
+                            maxLength={600}
+                            rows={5}
+                            disabled={!canOperate}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              onClick={() => saveProposalEdit(c.id, (editingProposal?.text ?? ''))}
+                              disabled={!canOperate || (editingProposal?.text ?? '').trim() === ''}
+                              className="rounded-full h-8 px-3 text-xs"
+                            >
+                              修正を保存
+                            </Button>
+                            {proposal?.edited && (
+                              <Button
+                                variant="outline"
+                                onClick={() => saveProposalEdit(c.id, null)}
+                                disabled={!canOperate}
+                                className="rounded-full h-8 px-3 text-xs"
+                              >
+                                AIの案に戻す
+                              </Button>
+                            )}
+                            <Button variant="outline" onClick={() => setEditingProposal(null)} className="rounded-full h-8 px-3 text-xs">
+                              やめる
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ChoiceButton
+                            selected={decision === 'adopted'}
+                            tone="adopt"
+                            onClick={() => decideCandidate(c.id, 'adopted')}
+                            disabled={!canOperate || !proposal}
+                          >
+                            採用する
+                          </ChoiceButton>
+                          <ChoiceButton
+                            selected={decision === 'rejected'}
+                            tone="reject"
+                            onClick={() => decideCandidate(c.id, 'rejected')}
+                            disabled={!canOperate}
+                          >
+                            採用しない
+                          </ChoiceButton>
+                          {proposal && canOperate && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingProposal({ candidateId: c.id, text: shown })}
+                              className="px-1 text-xs text-zinc-600 underline underline-offset-2 hover:text-zinc-900"
+                            >
+                              調整案を修正する
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <details className="rounded-lg bg-zinc-50 px-3 py-2 text-sm">
+                        <summary className="cursor-pointer font-semibold text-zinc-700">詳細を見る</summary>
+                        <div className="mt-3 space-y-4">
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-zinc-500">AIが見つけた問題（事実・仮説を含む）</p>
+                            <p className="whitespace-pre-wrap text-zinc-800">{c.summary}</p>
+                          </div>
+                          {proposal && (
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold text-zinc-500">AI調整案（全文）</p>
+                              <p className="whitespace-pre-wrap text-zinc-800">{shown}</p>
+                            </div>
+                          )}
+                          {proposal && proposal.changes.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold text-zinc-500">具体的な変更対象と変更内容（確定前の案）</p>
+                              <ul className="list-disc pl-5 text-xs text-zinc-700">
+                                {proposal.changes.map((ch, i) => {
+                                  const dept = c.departments.find((d) => d.departmentKey === ch.departmentKey)?.name ?? '';
+                                  const plan = ch.projectId
+                                    ? c.planRefs.find((r) => r.departmentKey === ch.departmentKey && r.projectId === ch.projectId)?.projectTitle
+                                    : undefined;
+                                  return (
+                                    <li key={i}>
+                                      {dept}
+                                      {plan ? `「${plan}」` : ''}（{PROPOSAL_ITEM_LABEL[ch.item]}）：{ch.change}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          )}
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-zinc-500">関係する部門と計画</p>
+                            <ul className="list-disc pl-5 text-xs text-zinc-700">
+                              {c.planRefs.map((r) => (
+                                <li key={`${r.departmentKey}-${r.projectId}`}>
+                                  {r.departmentName}：{r.projectTitle}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-zinc-500">
+                              関係部門の話し合い結果（任意の記録・{filledCount}/{c.dialogueTopics.length}件入力済み）
+                            </p>
+                            {c.dialogueTopics.map((topic) => {
+                              const key = dialogueKey(c.id, topic);
+                              return (
+                                <div key={key} className="space-y-1">
+                                  <label className="text-sm">{topic}</label>
+                                  <textarea
+                                    value={results[key] ?? ''}
+                                    onChange={(e) => setResults((prev) => ({ ...prev, [key]: e.target.value }))}
+                                    placeholder="関係部門の話し合いの結果（空欄のままでも構いません）"
+                                    rows={2}
+                                    maxLength={1000}
+                                    disabled={!canEdit}
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </details>
+                    </li>
+                  );
+                })}
+              </ol>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                <p className="text-sm text-zinc-700">
+                  未判断 {analysis.candidates.filter((c) => !state.candidateDecisions[c.id]).length}件
+                  （未判断のままでも保存できます。確定するまでに採否を選んでください）
+                </p>
+                <div className="flex flex-col items-end gap-1">
+                  <Button onClick={applyAdjustments} disabled={!canOperate || !!genBlocker} className="rounded-full h-10 px-5">
+                    {busy === 'regenerate' ? '調整後の戦略を作っています…' : '調整後の戦略を確認する'}
+                  </Button>
+                  {reasonLine(genBlocker)}
+                </div>
+              </div>
+            </>
+          )}
+
+          <details className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+            <summary className="cursor-pointer font-semibold text-zinc-700">補助操作と計画案の比較</summary>
+            <div className="mt-3 space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                {analysis && (
+                  <Button
+                    variant="outline"
+                    onClick={() => latest && analyze({ draftId: latest.draftId, version: latest.version })}
+                    disabled={!!genBlocker || !latest || departments.length < 2}
+                    className="rounded-full h-9 px-4"
+                  >
+                    {busy === 'analyze' ? '分析しています…' : '最新の計画案をもう一度分析する'}
+                  </Button>
+                )}
+                {analysis && analysis.candidates.length > 0 && canEdit && state.adjustmentProposals.length > 0 && (
+                  <Button variant="outline" onClick={generateProposals} disabled={!!genBlocker || busy === 'proposal'} className="rounded-full h-9 px-4">
+                    {busy === 'proposal' ? 'AI調整案を作っています…' : 'AI調整案をもう一度作る'}
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-2">
+                <h4 className="font-semibold text-zinc-800">最新の計画案の比較</h4>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs text-gray-600">
+                      <th className="py-2">部門</th>
+                      <th className="py-2">最新案の計画（既存・新規）</th>
+                      <th className="py-2">変更案（未判断・採用）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {departments.map((d) => {
+                      const key = departmentKeyOf(d as unknown as AnyRecord);
+                      const draftDept = latest?.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
+                      const titles = draftDept?.projects.map((p) => p.title) ?? (d.projects ?? []).map((p) => String((p as AnyRecord).title ?? ''));
+                      const pending = state.selections.filter((s) => s.departmentKey === key && s.decision === 'pending').length;
+                      const applied = state.selections.filter((s) => s.departmentKey === key && s.decision === 'applied').length;
+                      return (
+                        <tr key={key} className="border-b align-top">
+                          <td className="py-2 font-semibold">{d.name}</td>
+                          <td className="py-2 text-xs">{titles.length > 0 ? titles.join(' / ') : '（計画なし）'}</td>
+                          <td className="py-2 text-xs">
+                            未判断 {pending}・採用 {applied}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+
+          <div className="space-y-3">
+            <h3 className="text-base font-semibold text-zinc-900">④ 全体を確認して正式に確定する</h3>
+            <p className="text-xs text-zinc-700">
+              確定する内容（事業別の戦略の変更、採用した部門間調整、採用したプロジェクト）を確認してから確定してください。
+            </p>
+            {renderConfirmSummary()}
+            {renderConfirm()}
+          </div>
         </section>
       )}
     </article>

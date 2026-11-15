@@ -251,3 +251,35 @@ describe('planConfirm（既存プロジェクトの編集と計画から外す�
     expect(run({ projectEdits: [{ ...edit, projectId: 'p-x' }] })).toEqual({ ok: false, error: 'project_missing', departmentName: '営業部', item: 'project' });
   });
 });
+
+describe('planConfirm（以前の確定で反映済みの変更）', () => {
+  const home = (mission: string) => [{ id: 'd-home', name: '宅配事業', mission, projects: [] }];
+  const missionChange = (base: string, proposed: string): ConfirmChange => ({
+    departmentKey: 'id:d-home',
+    departmentName: '宅配事業',
+    item: 'mission',
+    proposed: { mission: proposed },
+    base: { mission: base },
+  });
+
+  it('正式データが採用値と一致していれば、競合にせず反映件数にも数えない', () => {
+    const plan = planConfirm({
+      departments: home('新しい使命'),
+      changes: [missionChange('', '新しい使命')],
+      mintId: sequence(),
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.appliedCount).toBe(0);
+    expect(plan.departments[0].mission).toBe('新しい使命');
+  });
+
+  it('基準値と現在値が違い、採用値とも違う場合は、従来どおり止める', () => {
+    const plan = planConfirm({
+      departments: home('別の人が書いた使命'),
+      changes: [missionChange('', '新しい使命')],
+      mintId: sequence(),
+    });
+    expect(plan).toMatchObject({ ok: false, error: 'current_value_changed', departmentName: '宅配事業', item: 'mission' });
+  });
+});
