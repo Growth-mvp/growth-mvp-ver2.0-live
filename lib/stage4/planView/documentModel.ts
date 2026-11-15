@@ -16,6 +16,8 @@ export type DocKpi = {
   label: string;
   target: string;
   due: string;
+  /** 期限の年月（YYYY-MM）。未設定や未入力なら空。入力欄は表示文字列ではなくこれを使う */
+  dueMonth: string;
   owner: string;
   confirmed: boolean;
   /** 表の印。確定・入力済み（確定の印なし）・提案のいずれか */
@@ -139,6 +141,7 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       label: k.label,
       target: k.target,
       due: k.judge && k.judge.value ? `${ymJa(k.due)}（判定時期：${ymJa(k.judge.value)}）` : k.due ? ymJa(k.due) : '未定（STAGE3で未設定）',
+      dueMonth: typeof k.due === 'string' ? k.due : '',
       owner: k.owner && k.owner !== '未設定' ? k.owner : '未定',
       confirmed: k.confirmed,
       statusLabel: k.confirmed ? KPI_STATE_LABEL.confirmed : KPI_STATE_LABEL.unconfirmed,
@@ -154,6 +157,7 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       label: k.label,
       target: k.target.value === null || k.target.value === undefined ? '未定' : `${k.target.value}${k.target.unit === '%' ? '%' : k.target.unit ? ` ${k.target.unit}` : ''}`,
       due: ymJa(k.due.value),
+      dueMonth: typeof k.due.value === 'string' ? k.due.value : '',
       owner: k.owner.value ?? '未定',
       confirmed: false,
       statusLabel: KPI_STATE_LABEL.proposed,

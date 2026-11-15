@@ -5,7 +5,7 @@ import PlanDocument from './PlanDocument';
 export type RegenState =
   | { status: 'BUSY' }
   | { status: 'FAILED'; message: string }
-  | { status: 'READY'; draft: Record<string, unknown>; previewToken: string; notice: string | null };
+  | { status: 'READY'; draft: Record<string, unknown>; previewToken: string; notice: string | null; saving?: boolean };
 
 const noop = () => {};
 
@@ -32,7 +32,7 @@ export function RegenPanel({ state, onUse, onCancel }: { state: RegenState; onUs
     <section aria-label="新しい案" className="plan-regen-panel">
       <h2 className="plan-h2">新しいAI案</h2>
       <p className="plan-note">
-        「この案を使う」を押すと、現在の計画書がこの案に替わります。内容が変わった項目や無くなった項目への修正は引き継がれず、下の注意に示します（操作の履歴には残ります）。採用と開始は解除されるため、改めて採用・開始してください。
+        この案は読み取り専用です（ここでは編集できません）。「この案を使う」を押すと、編集・保存できる現在の計画書がこの案に替わります。内容が変わった項目や無くなった項目への修正は引き継がれず、下の注意に示します（操作の履歴には残ります）。採用と開始は解除されるため、改めて採用・開始してください。
       </p>
       {state.notice && (
         <p role="status" className="plan-note">
@@ -40,7 +40,7 @@ export function RegenPanel({ state, onUse, onCancel }: { state: RegenState; onUs
         </p>
       )}
       <div className="plan-toolbar">
-        <button type="button" className="plan-btn-primary" onClick={onUse}>
+        <button type="button" className="plan-btn-primary" onClick={onUse} disabled={state.saving === true}>
           この案を使う
         </button>
         <button type="button" className="plan-btn-quiet" onClick={onCancel}>

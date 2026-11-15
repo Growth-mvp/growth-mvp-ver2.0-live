@@ -3,22 +3,42 @@
  * 試算は確定値ではない。STAGE6の経路A・経路Bには書き込まず、既存の数値も変えない。
  * STAGE3の営業利益（費用削減の式）は、この案件の利益貢献として対応を確認できないため使わない。 */
 
+import { formatYenScaled } from '@/utils/yenScale';
+
 type Json = Record<string, unknown>;
 
-export type ParamKey = 'customers' | 'rate' | 'deal' | 'grossMarginPct' | 'addCostMJPY' | 'investmentMJPY' | 'startYear' | 'endYear';
+export type ParamKey =
+  | 'customers'
+  | 'rate'
+  | 'deal'
+  | 'currentCostMJPY'
+  | 'reductionRatePct'
+  | 'grossMarginPct'
+  | 'addCostMJPY'
+  | 'investmentMJPY'
+  | 'startYear'
+  | 'endYear'
+  | 'serviceRevenue'
+  | 'serviceCountPerCustomerMonthly'
+  | 'serviceUnitPriceYen';
 export type ParamSource = 'USER' | 'STAGE3' | 'STAGE3_TEXT' | 'AI_HYPOTHESIS' | 'MISSING';
 
 export const IMPACT_EDIT_PREFIX = 'impact:';
 
 export const PARAM_LABEL: Record<ParamKey, { label: string; unit: string }> = {
-  customers: { label: '対象の顧客数', unit: '社' },
+  customers: { label: '顧客数', unit: '社' },
   rate: { label: '受注率', unit: '%' },
   deal: { label: '平均受注額', unit: '百万円' },
+  currentCostMJPY: { label: '削減対象の年間費用', unit: '百万円' },
+  reductionRatePct: { label: '想定削減率', unit: '%' },
   grossMarginPct: { label: '粗利率', unit: '%' },
   addCostMJPY: { label: '追加費用', unit: '百万円' },
   investmentMJPY: { label: '投資額', unit: '百万円' },
   startYear: { label: '計上開始年度', unit: '年度' },
   endYear: { label: '計上終了年度', unit: '年度' },
+  serviceRevenue: { label: 'サービス提供型で売上を計算する（顧客数×件数×料金）', unit: '' },
+  serviceCountPerCustomerMonthly: { label: '1社当たり月間配送件数', unit: '件／社・月' },
+  serviceUnitPriceYen: { label: '1件当たり料金', unit: '円／件' },
 };
 
 export const SOURCE_LABEL: Record<ParamSource, string> = {
@@ -55,8 +75,9 @@ export type ImpactEstimate =
 export type HypothesisValues = Partial<Record<ParamKey, number>>;
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const round1 = (v: number): number => Math.round(v * 10) / 10;
-const fmt = (v: number): string => String(round1(v));
+const roundMil = (v: number): number => Math.round(v * 1_000_000) / 1_000_000;
+const fmt = (v: number): string => String(roundMil(v));
+const MONTHS_PER_YEAR = 12;
 const SAME = 0.05;
 const KPI_MARGIN_LABEL = '用途別案件の粗利率';
 
@@ -133,6 +154,14 @@ export function estimateProjectImpact(
     investmentMJPY: pick(e('investmentMJPY'), null, textInvest, hyp.investmentMJPY ?? null),
     startYear: { value: e('startYear'), source: (e('startYear') !== null ? 'USER' : 'MISSING') as ParamSource },
     endYear: { value: e('endYear'), source: (e('endYear') !== null ? 'USER' : 'MISSING') as ParamSource },
+    currentCostMJPY: pick(e('currentCostMJPY'), num(a?.currentCostMJPY), null, null),
+    reductionRatePct: pick(e('reductionRatePct'), num(a?.reductionRatePct), null, null),
+    serviceRevenue: { value: e('serviceRevenue'), source: (e('serviceRevenue') !== null ? 'USER' : 'MISSING') as ParamSource },
+    serviceCountPerCustomerMonthly: {
+      value: e('serviceCountPerCustomerMonthly'),
+      source: (e('serviceCountPerCustomerMonthly') !== null ? 'USER' : 'MISSING') as ParamSource,
+    },
+    serviceUnitPriceYen: { value: e('serviceUnitPriceYen'), source: (e('serviceUnitPriceYen') !== null ? 'USER' : 'MISSING') as ParamSource },
   };
   const params: ParamView[] = (Object.keys(PARAM_LABEL) as ParamKey[]).map((k) => ({
     key: k,
@@ -141,39 +170,67 @@ export function estimateProjectImpact(
     source: picks[k].source,
   }));
 
+  const serviceOn = e('serviceRevenue') === 1;
+  const perCustomerMonthly = e('serviceCountPerCustomerMonthly');
+  const unitPriceYen = e('serviceUnitPriceYen');
   const target = picks.customers.value;
   const rate = picks.rate.value;
   const deal = picks.deal.value;
-  if (target === null || rate === null || deal === null) {
+  const ready = serviceOn
+    ? target !== null && perCustomerMonthly !== null && unitPriceYen !== null
+    : target !== null && rate !== null && deal !== null;
+  if (!ready) {
+    const costReady = picks.currentCostMJPY.value !== null && picks.reductionRatePct.value !== null;
     return {
       status: 'NOT_CALCULATED',
-      reason: '売上の計算に必要な前提（対象の顧客数・受注率・平均受注額）が、まだそろっていません。修正欄から入力できます',
+      reason: serviceOn
+        ? 'サービス提供型の売上に必要な前提（顧客数・1社当たり月間配送件数・1件当たり料金）が、まだそろっていません。修正欄から入力できます'
+        : costReady
+          ? '売上の前提は未入力です。コスト削減の前提（削減対象の年間費用・想定削減率）はそろっているため、財務効果の案にはコスト削減が表示されます'
+          : '売上の計算に必要な前提（対象の顧客数・受注率・平均受注額）が、まだそろっていません。修正欄から入力できます',
       params,
     };
   }
 
   const rows: EstimateRow[] = [];
   const warnings: string[] = [];
-  const revenue = round1(target * (rate / 100) * deal);
   const allFromStage3 = [picks.customers, picks.rate, picks.deal].every((p) => p.source === 'STAGE3');
-  const revenueMatches = allFromStage3 && stage3Revenue !== null && Math.abs(revenue - stage3Revenue) < SAME;
-  const sourceText = `対象の顧客数：${SOURCE_LABEL[picks.customers.source]}、受注率：${SOURCE_LABEL[picks.rate.source]}、平均受注額：${SOURCE_LABEL[picks.deal.source]}`;
-  rows.push({
-    label: '売上（参考試算）',
-    valueMJPY: revenue,
-    valueText: null,
-    formula: `${target}社 × ${rate}% × ${deal}百万円 = ${fmt(revenue)}百万円`,
-    source: sourceText,
-    check: revenueMatches ? 'MATCHES_STAGE3' : 'UNCONFIRMED',
-    note: revenueMatches
-      ? 'STAGE3の売上増分の目標と一致。売上の対象区分（有償開発か量産か）は未確認'
-      : '売上の対象区分（有償開発か量産か）は未確認',
-  });
+  let revenue: number;
+  if (serviceOn) {
+    const monthlyYen = target! * perCustomerMonthly! * unitPriceYen!;
+    const annualYen = monthlyYen * MONTHS_PER_YEAR;
+    revenue = roundMil(annualYen / 1_000_000);
+    rows.push({
+      label: '売上（参考試算）',
+      valueMJPY: revenue,
+      valueText: formatYenScaled(annualYen),
+      formula: `月間売上：${target}社 × 1社当たり月${perCustomerMonthly}件 × ${unitPriceYen!.toLocaleString('ja-JP')}円 = ${formatYenScaled(monthlyYen)}。年間売上：${formatYenScaled(monthlyYen)} × ${MONTHS_PER_YEAR}か月 = ${formatYenScaled(annualYen)}`,
+      source: `顧客数：${SOURCE_LABEL[picks.customers.source]}、1社当たり月間配送件数・1件当たり料金：利用者の修正`,
+      check: 'UNCONFIRMED',
+      note: '顧客数×1社当たり月間配送件数×1件当たり料金で計算した年額（サービス提供型）。対象の範囲は利用者が確認',
+    });
+  } else {
+    revenue = roundMil(target! * (rate! / 100) * deal!);
+    const revenueMatches = allFromStage3 && stage3Revenue !== null && Math.abs(revenue - stage3Revenue) < SAME;
+    const sourceText = `対象の顧客数：${SOURCE_LABEL[picks.customers.source]}、受注率：${SOURCE_LABEL[picks.rate.source]}、平均受注額：${SOURCE_LABEL[picks.deal.source]}`;
+    rows.push({
+      label: '売上（参考試算）',
+      valueMJPY: revenue,
+      valueText: null,
+      formula: `${target}社 × ${rate}% × ${deal}百万円 = ${fmt(revenue)}百万円`,
+      source: sourceText,
+      check: revenueMatches ? 'MATCHES_STAGE3' : 'UNCONFIRMED',
+      note: revenueMatches
+        ? 'STAGE3の売上増分の目標と一致。売上の対象区分（有償開発か量産か）は未確認'
+        : '売上の対象区分（有償開発か量産か）は未確認',
+    });
+  }
+  const revenueMatchesStage3 = rows[0].check === 'MATCHES_STAGE3';
   if (role === 'COST' && (num(a?.targetCustomers) !== null)) {
     warnings.push('役割はCOSTだが、売上の前提（REVENUE用）も登録されている。売上の計上対象は未確認');
   }
   warnings.push('売上の対象区分（有償開発か量産か）は未確認');
-  if (stage3Revenue !== null && !revenueMatches && allFromStage3 === false) {
+  if (stage3Revenue !== null && !revenueMatchesStage3 && allFromStage3 === false) {
     warnings.push(`売上の参考試算（${fmt(revenue)}百万円）は、STAGE3の売上目標（${fmt(stage3Revenue)}百万円）と前提の出所が異なるため、一致とは扱わない`);
   }
 
@@ -184,7 +241,7 @@ export function estimateProjectImpact(
   if (margin === null) {
     grossRows.push({ label: '粗利益（参考試算）', valueMJPY: null, valueText: null, formula: null, source: '粗利率の前提なし', check: 'NOT_CALCULATED', note: '粗利率の前提が無いため算定しない' });
   } else {
-    const gp = round1(revenue * (margin / 100));
+    const gp = roundMil(revenue * (margin / 100));
     grossRows.push({
       label: `粗利益（参考試算・粗利率${margin}%）`,
       valueMJPY: gp,
@@ -201,7 +258,7 @@ export function estimateProjectImpact(
   if (textMarginAlt !== null) {
     rows.push({
       label: `粗利益（比較値・粗利率${textMarginAlt}%）`,
-      valueMJPY: round1(revenue * (textMarginAlt / 100)),
+      valueMJPY: roundMil(revenue * (textMarginAlt / 100)),
       valueText: null,
       formula: `${fmt(revenue)}百万円 × ${textMarginAlt}% = ${fmt(revenue * (textMarginAlt / 100))}百万円`,
       source: `粗利率：${SOURCE_LABEL.STAGE3_TEXT}`,
@@ -212,9 +269,9 @@ export function estimateProjectImpact(
   }
 
   if (margin !== null && addCost !== null) {
-    const gp = round1(revenue * (margin / 100));
-    const values = [round1(gp - addCost)];
-    if (textMarginAlt !== null) values.push(round1(revenue * (textMarginAlt / 100) - addCost));
+    const gp = roundMil(revenue * (margin / 100));
+    const values = [roundMil(gp - addCost)];
+    if (textMarginAlt !== null) values.push(roundMil(revenue * (textMarginAlt / 100) - addCost));
     const lo = Math.min(...values);
     const hi = Math.max(...values);
     rows.push({

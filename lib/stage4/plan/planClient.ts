@@ -205,7 +205,7 @@ export type ListResult = { status: 'FOUND'; records: PlanDocRecord[] } | { statu
 
 export type PreviewResult =
   | { status: 'PREVIEW'; draft: Record<string, unknown>; previewToken: string }
-  | { status: 'DISABLED' | 'NOT_FOUND' | 'DENIED' | 'FAILED' }
+  | { status: 'DISABLED' | 'NOT_FOUND' | 'DENIED' | 'FAILED' | 'NOT_CONFIGURED' }
   | { status: 'INVALID'; messages: string[] }
   | { status: 'MODEL_FAILED'; message: string };
 
@@ -262,6 +262,7 @@ export function createRemotePlanOps(o: ApiOptions) {
       }
       if (r.status === 422) return { status: 'INVALID', messages: (body.messages as string[]) ?? [] };
       if (r.status === 502) return { status: 'MODEL_FAILED', message: String(body.message ?? '') };
+      if (r.status === 503 && body.reason === 'PREVIEW_NOT_CONFIGURED') return { status: 'NOT_CONFIGURED' };
       if (r.status === 503) return { status: 'DISABLED' };
       if (r.status === 404) return { status: 'NOT_FOUND' };
       if (r.status === 403) return { status: 'DENIED' };

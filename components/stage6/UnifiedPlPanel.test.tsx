@@ -15,6 +15,7 @@ const trialWith = (years: FinanceEffectTrial['years'], included: FinanceEffectTr
   legacyReferenced: [],
   projects: [],
   years,
+  scenario: { years: [] },
 });
 
 const cells = (html: string) => [...html.matchAll(/<td class="px-2 py-1[^"]*">([^<]*)<\/td>/g)].map((m) => m[1]);

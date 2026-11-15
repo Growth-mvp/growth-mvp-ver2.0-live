@@ -37,6 +37,7 @@ describe('新しいAI案：文書をそのまま見せ、選べるのは2つだ�
     expect(screen.queryByText(/section\d\./)).toBeNull();
     expect(screen.getByRole('button', { name: 'この案を使う' })).not.toBeNull();
     expect(screen.getByRole('button', { name: '元の計画に戻る' })).not.toBeNull();
+    expect(screen.getByText(/この案は読み取り専用です/)).not.toBeNull();
   });
 
   it('「この案を使う」と「元の計画に戻る」は、それぞれの操作だけを呼ぶ', () => {
@@ -47,6 +48,15 @@ describe('新しいAI案：文書をそのまま見せ、選べるのは2つだ�
     expect(h.onCancel).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '元の計画に戻る' }));
     expect(h.onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('送信中は「この案を使う」を押せない（二重に差し替えない）', () => {
+    const h = handlers();
+    render(<RegenPanel state={{ status: 'READY', draft, previewToken: 't', notice: null, saving: true }} {...h} />);
+    const use = screen.getByRole('button', { name: 'この案を使う' }) as HTMLButtonElement;
+    expect(use.disabled).toBe(true);
+    fireEvent.click(use);
+    expect(h.onUse).not.toHaveBeenCalled();
   });
 
   it('案を使えなかった理由は、ボタンの近くに出す', () => {

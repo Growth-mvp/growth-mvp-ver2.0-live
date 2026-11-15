@@ -116,6 +116,7 @@ export function buildPlanSource(raw: RawPlanInput): { source: PlanSource; scope:
     .map((d) => ({
       id: String(d.id ?? d.name),
       name: d.name,
+      interDeptCollab: strs(d.interDeptCollab),
       projects: d.projects.map((p) => ({
         title: str(p.title) ?? '',
         kpiLabels: kpisOfProject(p).map((k) => k.label).filter(Boolean),

@@ -99,6 +99,7 @@ export const PlanSourceSchema = z
           z.object({
             id: z.string().min(1),
             name: z.string().min(1),
+            interDeptCollab: StrList.optional(),
             projects: z.array(z.object({ title: z.string(), kpiLabels: StrList })),
           })
         )

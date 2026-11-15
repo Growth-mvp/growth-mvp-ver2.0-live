@@ -30,8 +30,8 @@ function renderConfirm(over: Partial<React.ComponentProps<typeof Stage4FinanceCo
 describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保存で一括）', () => {
   it('参考試算の数値から案を表示し、個別の保存・確認ボタンと2つのチェックボックスは出さない', () => {
     renderConfirm();
-    expect(screen.getByLabelText('売上増加（参考試算の売上）の財務効果').textContent).toContain('10社 × 30% × 20百万円');
-    expect(screen.getByLabelText('追加費用の財務効果').textContent).toContain('6百万円');
+    expect(screen.getByLabelText('売上増加（参考試算の売上）の財務効果').textContent).toContain('10社 × 30% × 2,000万円');
+    expect(screen.getByLabelText('追加費用の財務効果').textContent).toContain('600万円');
     expect(screen.queryByRole('button', { name: 'この内容を財務効果として確認' })).toBeNull();
     expect(screen.queryByRole('button', { name: '草案として保存' })).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();
@@ -143,5 +143,23 @@ describe('確認済みの財務効果の修正', () => {
     renderConfirm({ saved: [{ ...confirmedCost(), confirmed: false }], onStartRevise: jest.fn() });
     expect(screen.queryByRole('button', { name: '修正する' })).toBeNull();
     expect(screen.queryByRole('button', { name: '確認を解除する' })).toBeNull();
+  });
+});
+
+describe('Stage4FinanceConfirm（コスト削減型）', () => {
+  it('コスト削減は年額で固定し、確認の項目と年間利益改善額（削減 − 追加費用）を出す', () => {
+    const est = estimateProjectImpact(
+      { role: 'COST', okrsV2: [] },
+      { edits: { 'impact:currentCostMJPY': 120, 'impact:reductionRatePct': 10, 'impact:addCostMJPY': 2, 'impact:startYear': 2027, 'impact:endYear': 2028 } },
+    );
+    const costDrafts = buildFinanceEffectDrafts({ estimate: est, fiscalYearEnd: '3' });
+    const onAnswer = jest.fn();
+    render(<Stage4FinanceConfirm drafts={costDrafts} saved={[]} overlapCount={0} writable answers={{}} onAnswer={onAnswer} />);
+    const card = screen.getByLabelText('削減効果（年間削減額）の財務効果');
+    expect(card.textContent).toContain('発生頻度：年額');
+    expect(screen.queryByLabelText('削減効果（年間削減額）の発生頻度')).toBeNull();
+    expect(card.textContent).toContain('年間利益改善額＝年間削減額 1,200万円 − 追加費用 200万円 ＝ 1,000万円');
+    fireEvent.click(screen.getByLabelText('削減効果（年間削減額）の削減の確認'));
+    expect(onAnswer).toHaveBeenCalledWith('COST_REDUCTION', expect.objectContaining({ reductionConfirmed: true }));
   });
 });

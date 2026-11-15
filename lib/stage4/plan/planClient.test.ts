@@ -69,6 +69,15 @@ describe('番号の付与（画面の手順）', () => {
   });
 });
 
+describe('再生成のプレビューの503（理由で区別する）', () => {
+  it('設定が無い503は NOT_CONFIGURED、それ以外の503は DISABLED', async () => {
+    const notConfigured = createRemotePlanOps({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(503, { status: 'DISABLED', reason: 'PREVIEW_NOT_CONFIGURED' }) as never });
+    expect((await notConfigured.preview(KEY)).status).toBe('NOT_CONFIGURED');
+    const off = createRemotePlanOps({ baseUrl: 'http://x', getToken: TOKEN, fetchFn: fetchOf(503, { status: 'DISABLED' }) as never });
+    expect((await off.preview(KEY)).status).toBe('DISABLED');
+  });
+});
+
 describe('API経由の保存先（結果を画面の型に変える）', () => {
   it('作成：草案は生成の経路だけが作るため、画面からの作成は通信せず権限なしを返す', async () => {
     let called = false;

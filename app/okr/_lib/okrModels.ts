@@ -509,7 +509,7 @@ export function buildKRFromText(
   },
 ): KRStructuredX {
   const numMatch = text.match(/-?\d+(\.\d+)?/);
-  const target = numMatch ? Number(numMatch[0]) : 0;
+  const target = numMatch ? Number(numMatch[0]) : undefined;
 
   const unit = guessUnit(text);
   const { kind, baseKey } = guessKindAndBase(text);

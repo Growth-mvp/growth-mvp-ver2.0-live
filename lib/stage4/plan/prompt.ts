@@ -45,6 +45,9 @@ export const CONSTRAINT_AND_LINK_RULES = `## 重要な制約（規制・安全�
 
 export const ACTION_AND_VALUE_CHAIN_RULES = `## 実施事項の書き方（具体性）
 - title は、誰が何を対象に何をするかが分かる行動にする。「整理する」「検討する」「確認する」の語だけで終わらせない（例：「既存の改装事例3件の改装前後のテナント売上を比べ表にする」）。
+- title は80文字以内にする（長くなる場合は、対象と作業を残して短くする）。
+- 行動は、入力のプロジェクトと部門の業務（対象の作業・件数・時間・費用・誤りなどの指標）に即して書く。「集める」「試す」「測る」だけの抽象的な行動にしない（例：「配達ルートごとの件数と作業時間を一覧にし、区分別に比べる」）。業務の数値（目標・実績）が入力に無い場合は創作せず、集める項目を verificationItems に書く。
+- 部門間の連携事項（S3-COLLAB）は、役割（section5.roles）か実施事項に反映する。誰と何を共通化・実施するかを、相手部門の名前と内容で書く。
 - deliverable は、この行動で残る成果物を書く（文書・試作仕様書・見積書・評価結果表など）。成果物が無い行動は書かない。
 - exitCondition は、次の工程へ進む判断条件を数値・状態で書く（例：「試作の評価で、基準の不良率を下回った件数が3件以上」）。判断条件が書けない行動は、行動を分けるか、確認事項にする。
 
@@ -81,7 +84,7 @@ const OUTPUT_SHAPE = `{
   ] },
   "section3": {
     "kpis": [
-      { "key": "A1", "kind": "CUSTOMER_OUTCOME | COMPANY_RESULT | LEADING", "label": "", "target": 0, "unit": "", "targetBasis": "AI_PROVISIONAL | null", "due": "YYYY-MM", "owner": null, "measurement": "", "supportsActionOrders": [] }
+      { "key": "A1", "kind": "CUSTOMER_OUTCOME | COMPANY_RESULT | LEADING", "label": "", "target": null, "unit": "", "targetBasis": "AI_PROVISIONAL | null", "due": "YYYY-MM", "owner": null, "measurement": "", "supportsActionOrders": [] }
     ],
     "stage3Review": [ { "stage3KpiId": "", "concern": "", "sourceRefs": [] } ]
   },
@@ -117,7 +120,12 @@ const FINANCE_RULES = `## 財務入力（section4）
   - DIRECT_AMOUNT：DIRECT_AMOUNT
 - 上の方式に当てはまらない項目（歩留まり、原価率、回収期間、投資額など）は method を "FREE" にし、freeNote に算定の考え方と、金額を作れない理由（不足している入力）を書く。FREE の項目は金額を作らず、入力を保持する。
 - 数量と単価で表せる効果（例：導入件数 × 有償化の割合 × 単価）は、方式 QUANTITY_UNIT_PRICE を選び、根拠のある仮定の値（単価・数量）は basis HYPOTHESIS で value に入れる。仮定は仮説であり、確定値ではない。
-- 売上の前提（対象の顧客数・受注率・平均受注額）が入力に無い案件は、売上効果の項目（方式 FUNNEL）に、仮の算定条件（MEETINGS・WIN_RATE・AVG_DEAL。必要なら COST_RATE・追加費用の OTHER）を basis HYPOTHESIS で入れる。sourceNote に、STAGE3に前提が無いため仮に置いたと書く。
+- 効果の型は、入力の事業内容で選ぶ（kind と method の組で表す）。
+  - 新規売上・顧客獲得型：売上の前提（対象の顧客数・受注率・平均受注額）が入力にある場合だけ、kind REVENUE_UP、方式 FUNNEL を使う。入力に無い売上の前提は仮置きしない。
+  - コスト削減・生産性改善型（作業時間・人件費・車両費・追加費用など）：kind COST_REDUCTION とし、方式 QUANTITY_UNIT_PRICE（数量 × 単価）か DIRECT_AMOUNT を使う。削減量や単価は、入力にあれば STAGE_DATA、無ければ basis HYPOTHESIS か UNCONFIRMED にする。
+  - 既存事業の採算改善型：売上と原価のどちらを改善するかを freeNote に書き、その効果を表せる式を選ぶ。式に入らない項目は method を FREE にする。
+  - 数値効果がまだ算定できない型：金額を作らず、kind を NOT_FINANCIAL、方式を FREE にし、freeNote に不足しているデータを書く。
+- 業務の作業量や費用を下げる改善（例：配達や作業の効率化）は、新規売上型にせず、コスト削減・生産性改善型か算定できない型にする。
 - 方式が FREE の項目も、算定式に必要なデータ（数量・単価・原価・受注率・利益率など）を inputs に label 付きで列挙する。値が不明なら value を null、basis と confirmState を UNCONFIRMED にする。freeNote には、算定式（例：利益 = 売上 − 原価）と、不足しているデータを分けて書く。
 - 役割は、1つの項目の中で同じ役割を2回使わない（OTHER は除く）。DIRECT_AMOUNT は金額の入力を1つだけ使い、それ以外の金額（直接原価・試作費など）は OTHER にして label に具体名を書く。
 - 役割の選び方：利益率・原価率は COST_RATE、受注率は CONVERSION_RATE（または WIN_RATE）、歩留まりは YIELD_RATE、それ以外（投資額、回収期間、固定費など）は OTHER とし、label と unit に具体名と単位を書く（例：label「案件別の直接原価」、unit「円/件」）。
@@ -149,7 +157,7 @@ ${START_ORDER_RULE(ctx)}`;
 export function buildExecutionPlanPrompt(ctx: PlanContext): string {
   const sourceLines = ctx.sources.map((s) => `- ${s.ref}｜${s.stage}・${s.role}・${s.label}：${s.text}`);
   const protectedLines = protectedKpisOf(ctx).map(
-    (k) => `- ${k.key}（stage3KpiId: ${k.stage3KpiId}）：${k.label}／目標 ${k.target ?? '未設定'}${k.unit}／期限 ${k.due ?? '未設定'}／担当 ${k.owner ?? '未設定'}`
+    (k) => `- ${k.key}（stage3KpiId: ${k.stage3KpiId}）：${k.label}／目標 ${k.target == null ? '未設定' : `${k.target}${k.unit}`}／期限 ${k.due ?? '未設定'}／担当 ${k.owner ?? '未設定'}`
   );
   const ownerLine = ctx.ownerCandidates.length
     ? ctx.ownerCandidates.join('、')

@@ -58,7 +58,7 @@ import { RegenPanel, type RegenState } from './RegenPanel';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdits';
-import { buildDocModel, type Edits } from '@/lib/stage4/planView/documentModel';
+import { buildDocModel } from '@/lib/stage4/planView/documentModel';
 import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
 import {
   conflictRows,
@@ -70,6 +70,7 @@ import {
   isBodyDirty,
   isDirty,
   responsibleOf,
+  savedPdfInput,
   toEdits,
   type PlanDocEntry,
 } from './planDocEntry';
@@ -102,7 +103,7 @@ const ymJa = (ym: string | null): string => {
   const m = /^(\d{4})-(\d{1,2})/.exec(ym);
   return m ? `${m[1]}年${Number(m[2])}月` : ym;
 };
-const targetText = (t: number | null, unit: string): string => (t === null ? '未設定' : `${t}${unit}`);
+const targetText = (t: number | null, unit: string): string => (t === null ? '未設定' : unit === '¥' ? `¥${t}` : `${t}${unit}`);
 const textOrMissing = (t: string | null, missing = '未入力'): string => t ?? missing;
 const currentYm = (): string => {
   const d = new Date();
@@ -483,11 +484,13 @@ function Stage3ProjectBrowser({
         ? `新しい案を作れませんでした：${out.messages.join('、')}`
         : out.status === 'MODEL_FAILED'
           ? out.message
-          : out.status === 'DISABLED'
-            ? '新しい案の作成は現在利用できません。'
-            : out.status === 'DENIED'
-              ? 'この計画を作り直す権限がありません。'
-              : '新しい案を作れませんでした。現在の計画書はそのままです。';
+          : out.status === 'NOT_CONFIGURED'
+            ? '新しい案の作成は、再生成の設定が完了していないため利用できません。管理者に確認してください。現在の計画書はそのままです。'
+            : out.status === 'DISABLED'
+              ? '新しい案の作成は現在利用できません。'
+              : out.status === 'DENIED'
+                ? 'この計画を作り直す権限がありません。'
+                : '新しい案を作れませんでした。現在の計画書はそのままです。';
     setRegen((p) => ({ ...p, [id]: { status: 'FAILED', message } }));
   };
   const regenUse = async (sel: Stage3Selection) => {
@@ -495,8 +498,9 @@ function Stage3ProjectBrowser({
     const entry = entries[id];
     const key = keyOf(sel);
     const current = regen[id];
-    if (!ops || !entry || !key || !entry.stored || !current || current.status !== 'READY') return;
-    const note = (text: string) => setRegen((p) => (p[id]?.status === 'READY' ? { ...p, [id]: { ...p[id], notice: text } } : p));
+    if (!ops || !entry || !key || !entry.stored || !current || current.status !== 'READY' || current.saving) return;
+    const note = (text: string) =>
+      setRegen((p) => (p[id]?.status === 'READY' ? { ...p, [id]: { ...p[id], notice: text, saving: false } } : p));
     const clear = () =>
       setRegen((p) => {
         const next = { ...p };
@@ -504,6 +508,7 @@ function Stage3ProjectBrowser({
         return next;
       });
     if (isBodyDirty(entry)) return note('計画書の本文に未保存の修正があります。先に「計画を保存」してください。');
+    setRegen((p) => (p[id]?.status === 'READY' ? { ...p, [id]: { ...p[id], saving: true } } : p));
     const out = await ops.useDraft(key, entry.stored.version, current.draft, current.previewToken);
     if (out.status === 'OK') {
       const report = editsAfterReplace(entry.plan.committed, entry.aiDraft, current.draft);
@@ -1004,18 +1009,26 @@ function ReadOnlyProject({
                 type="button"
                 className="plan-btn-quiet"
                 disabled={!entry.stored || isDirty(entry)}
-                onClick={() =>
-                  void downloadProjectPlanPdf({
-                    aiDraft: entry.aiDraft,
-                    userEdits: entry.plan.committed as Edits,
-                    startInfo: entry.server?.startInfo ? { at: entry.server.startInfo.at, version: entry.server.startInfo.version } : null,
-                    companyName: companyLabel,
-                    generatedAt: new Date().toISOString(),
-                  }).catch(() => window.alert('PDFを作成できませんでした。もう一度お試しください。'))
-                }
+                onClick={() => {
+                  const input = savedPdfInput(entry, companyLabel, new Date().toISOString());
+                  if (!input) return;
+                  void downloadProjectPlanPdf(input).catch((error: unknown) => {
+                    console.error('[stage4-pdf] failed', error);
+                    window.alert('PDFを作成できませんでした。もう一度お試しください。');
+                  });
+                }}
               >
-                実行計画書をPDFで開く
+                PDFをダウンロード
               </button>
+            )}
+            {remote && (
+              <span className="plan-note">
+                {regen?.status === 'READY'
+                  ? 'PDFは保存済みの計画書です。表示中の新しいAI案は含まれません。'
+                  : isDirty(entry)
+                    ? 'PDFは、未保存の修正を保存してから作れます。'
+                    : null}
+              </span>
             )}
           </div>
           {remote && saveWillReset(entry) && (

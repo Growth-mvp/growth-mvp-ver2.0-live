@@ -1,13 +1,14 @@
-import { isFinanceEffectMaterialChange } from '@/lib/financeEffect';
+import { computeFinanceEffect, isFinanceEffectMaterialChange } from '@/lib/financeEffect';
 import { blockingChecksDone, candidateChecks, planCandidateWrite } from '@/lib/okr/financeEffectCandidate';
 import { parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
+import { formatYenScaled } from '@/utils/yenScale';
 import type { FinanceEffect, SpendAmountBasis } from '@/types/strategy';
 import { SOURCE_LABEL, type ImpactEstimate, type ParamKey, type ParamView } from './impactEstimate';
 
 const MILLION = 1_000_000;
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
-export type FinanceDraftKind = 'REVENUE_UP' | 'COST_INCREASE';
+export type FinanceDraftKind = 'REVENUE_UP' | 'COST_REDUCTION' | 'COST_INCREASE';
 
 export type FinanceEffectDraft = {
   kind: FinanceDraftKind;
@@ -24,7 +25,8 @@ export type FinanceAnswers = {
   isIncremental?: boolean;
   operatingIncomeEffectYen?: number;
   opIncomeIncludesAddCost?: boolean;
-  revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION';
+  revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION' | 'SERVICE';
+  reductionConfirmed?: boolean;
   overlapNote?: string;
 };
 
@@ -34,6 +36,10 @@ export type ConfirmContext = {
   hasCostEffect: boolean;
   costConfirmed: boolean;
   revenueOpIncludesAddCost: boolean;
+  /** 同じ案件の売上増加が、営業利益増分を持つか（コスト削減との二重計上の確認に使う） */
+  revenueHasOperatingEffect?: boolean;
+  /** 同じ案件の追加費用の年額（円）。金額が決まらないときは undefined */
+  addCostAnnualYen?: number;
 };
 
 /* REVISE：確認済みの効果を修正内容で未確認に置き換える（修正の保存）。UNCONFIRM：確認を解除する。 */
@@ -62,7 +68,7 @@ function valueOf(params: ParamView[], key: ParamKey): ParamView {
 
 /** 参考試算（第5章）から、財務効果の未確認の草案を作る。AIの仮説の値を含むときは fromAi にする */
 export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fiscalYearEnd: string | undefined }): FinanceEffectDraft[] {
-  if (args.estimate.status !== 'CALCULATED') return [];
+  const calculated = args.estimate.status === 'CALCULATED';
   const params = args.estimate.params;
   const customers = valueOf(params, 'customers');
   const rate = valueOf(params, 'rate');
@@ -81,7 +87,28 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
   const sourceNoteOf = (ps: ParamView[]): string =>
     `第5章の参考試算。` + ps.map((p) => `${p.label}：${SOURCE_LABEL[p.source]}`).join('、');
 
-  if (customers.value !== null && rate.value !== null && deal.value !== null) {
+  const serviceOn = valueOf(params, 'serviceRevenue').value === 1;
+  const perCustomer = valueOf(params, 'serviceCountPerCustomerMonthly');
+  const unitPrice = valueOf(params, 'serviceUnitPriceYen');
+  const costRatePct = margin.value !== null && margin.value >= 0 && margin.value <= 100 ? 100 - margin.value : undefined;
+
+  if (calculated && serviceOn && customers.value !== null && perCustomer.value !== null && unitPrice.value !== null) {
+    const ps = [customers, perCustomer, unitPrice];
+    const yenPerCase = Math.round(unitPrice.value);
+    const base: FinanceEffect = {
+      kind: 'REVENUE_UP',
+      method: 'QUANTITY_UNIT_PRICE',
+      quantity: customers.value * perCustomer.value,
+      unitPriceYen: yenPerCase,
+      source: fromAiOf(ps) ? 'AI_PROPOSED' : 'USER_INPUT',
+      confirmed: false,
+      sourceNote: `サービス提供型：${customers.value}社 × 1社当たり月間配送件数${perCustomer.value}件 × 1件当たり料金${yenPerCase.toLocaleString('ja-JP')}円（月額で計上）。${sourceNoteOf(ps)}`,
+    };
+    if (costRatePct !== undefined) base.costRatePct = costRatePct;
+    if (startYm) base.startYm = startYm;
+    if (endYm) base.endYm = endYm;
+    drafts.push({ kind: 'REVENUE_UP', label: '売上増加（サービス提供型）', fromAi: fromAiOf(ps), base });
+  } else if (calculated && !serviceOn && customers.value !== null && rate.value !== null && deal.value !== null) {
     const ps = [customers, rate, deal];
     const base: FinanceEffect = {
       kind: 'REVENUE_UP',
@@ -93,10 +120,29 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
       confirmed: false,
       sourceNote: sourceNoteOf(ps),
     };
-    if (margin.value !== null && margin.value >= 0 && margin.value <= 100) base.costRatePct = 100 - margin.value;
+    if (costRatePct !== undefined) base.costRatePct = costRatePct;
     if (startYm) base.startYm = startYm;
     if (endYm) base.endYm = endYm;
     drafts.push({ kind: 'REVENUE_UP', label: '売上増加（参考試算の売上）', fromAi: fromAiOf(ps), base });
+  }
+
+  const cost = valueOf(params, 'currentCostMJPY');
+  const reduction = valueOf(params, 'reductionRatePct');
+  if (cost.value !== null && reduction.value !== null && cost.value >= 0 && reduction.value >= 0 && reduction.value <= 100) {
+    const base: FinanceEffect = {
+      kind: 'COST_REDUCTION',
+      method: 'DIRECT_AMOUNT',
+      directAmountYen: Math.round((cost.value * reduction.value) / 100 * MILLION),
+      amountBasis: 'ANNUAL',
+      source: 'USER_INPUT',
+      confirmed: false,
+      sourceNote:
+        `削減対象の年間費用：${SOURCE_LABEL[cost.source]}（${cost.value}百万円）、想定削減率：${SOURCE_LABEL[reduction.source]}（${reduction.value}%）。` +
+        `年間削減額＝削減対象の年間費用×想定削減率。実際に減らせる費用として確認できた分だけを計上する（費用配賦の見直しや作業時間短縮だけでは計上しない）`,
+    };
+    if (startYm) base.startYm = startYm;
+    if (endYm) base.endYm = endYm;
+    drafts.push({ kind: 'COST_REDUCTION', label: '削減効果（年間削減額）', fromAi: false, base });
   }
 
   if (addCost.value !== null) {
@@ -118,7 +164,15 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
 export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceAnswers): FinanceEffect {
   const e: FinanceEffect = { ...draft.base, confirmed: false };
   delete e.confirmedAt;
-  if (answers.amountBasis) e.amountBasis = answers.amountBasis;
+  const serviceRevenue = draft.kind === 'REVENUE_UP' && draft.base.method === 'QUANTITY_UNIT_PRICE';
+  if (draft.kind === 'COST_REDUCTION') {
+    e.amountBasis = 'ANNUAL';
+    if (answers.reductionConfirmed !== undefined) e.reductionConfirmed = answers.reductionConfirmed;
+  } else if (serviceRevenue) {
+    e.amountBasis = 'MONTHLY';
+  } else if (answers.amountBasis) {
+    e.amountBasis = answers.amountBasis;
+  }
   e.startYm = answers.startYm || draft.base.startYm;
   if (e.startYm === undefined) delete e.startYm;
   e.endYm = answers.endYm || draft.base.endYm;
@@ -132,10 +186,34 @@ export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceA
     if (answers.opIncomeIncludesAddCost !== undefined && e.operatingIncomeEffectYen !== undefined) {
       e.opIncomeIncludesAddCost = answers.opIncomeIncludesAddCost;
     }
-    if (answers.revenueKind) e.revenueKind = answers.revenueKind;
+    if (serviceRevenue) e.revenueKind = 'SERVICE';
+    else if (answers.revenueKind) e.revenueKind = answers.revenueKind;
   }
   if (answers.overlapNote?.trim()) e.overlapNote = answers.overlapNote.trim();
   return e;
+}
+
+/* 営業利益増分（年額）が、売上の年額・原価率・追加費用の差し引き方と整合するか。整合しなければ確認できない */
+function operatingIncomeConsistencyOf(effect: FinanceEffect, ctx: ConfirmContext): string | null {
+  const result = computeFinanceEffect(effect);
+  const annualRevenue = result.annualRevenueYen;
+  const annualOperating = result.annualOperatingEffectYen;
+  if (annualRevenue === undefined || annualOperating === undefined) return null;
+  if (annualOperating > annualRevenue) {
+    return `営業利益増分（年額${formatYenScaled(annualOperating)}）が年額の売上（${formatYenScaled(annualRevenue)}）を超えています。売上と営業利益増分の単位（月額・年額）が合っているか確認してください`;
+  }
+  if (effect.costRatePct === undefined || (ctx.hasCostEffect && effect.opIncomeIncludesAddCost === undefined)) return null;
+  const grossYen = annualRevenue * (1 - effect.costRatePct / 100);
+  const includesAddCost = ctx.hasCostEffect && effect.opIncomeIncludesAddCost === true;
+  if (includesAddCost && ctx.addCostAnnualYen === undefined) {
+    return '追加費用の年額が決まらないため、追加費用を差し引いた後の営業利益増分と整合するか確認できません';
+  }
+  const expectedYen = includesAddCost ? grossYen - (ctx.addCostAnnualYen ?? 0) : grossYen;
+  if (Math.abs(annualOperating - expectedYen) > 1) {
+    const deduction = includesAddCost ? `から追加費用（${formatYenScaled(ctx.addCostAnnualYen ?? 0)}）を差し引いた${formatYenScaled(expectedYen)}` : '';
+    return `営業利益増分（年額${formatYenScaled(annualOperating)}）が、売上の粗利（${formatYenScaled(grossYen)}）${deduction}と一致しません。追加費用を差し引く前の値か後の値かを確かめてください`;
+  }
+  return null;
 }
 
 /**
@@ -164,6 +242,11 @@ export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): str
     if (effect.opIncomeIncludesAddCost === true && ctx.costConfirmed) {
       reasons.push('追加費用は確定済みのため、営業利益増分は追加費用を差し引く前の値に直してください');
     }
+    const inconsistent = operatingIncomeConsistencyOf(effect, ctx);
+    if (inconsistent) reasons.push(inconsistent);
+  }
+  if (effect.kind === 'COST_REDUCTION' && ctx.revenueHasOperatingEffect && !effect.overlapNote?.trim()) {
+    reasons.push('同じ案件の売上増加で営業利益増分を計上しているため、コスト削減との重複がないことの説明が未入力です');
   }
   if (effect.kind === 'COST_INCREASE' && ctx.revenueOpIncludesAddCost) {
     reasons.push('売上増加の営業利益増分に追加費用が含まれているため、この追加費用は別に確定しません');
@@ -278,18 +361,29 @@ export function initialFinanceAnswers(draft: FinanceEffectDraft, saved: FinanceE
     operatingIncomeEffectYen: saved.operatingIncomeEffectYen,
     opIncomeIncludesAddCost: saved.opIncomeIncludesAddCost,
     revenueKind: saved.revenueKind,
+    reductionConfirmed: saved.reductionConfirmed,
     overlapNote: saved.overlapNote,
   };
 }
 
-export function financeConfirmContext(drafts: FinanceEffectDraft[], saved: FinanceEffect[], overlapCount: number): ConfirmContext {
+export function financeConfirmContext(
+  drafts: FinanceEffectDraft[],
+  saved: FinanceEffect[],
+  overlapCount: number,
+  answers?: FinanceAnswersByKind,
+): ConfirmContext {
   const revenueSaved = saved.find((e) => e.kind === 'REVENUE_UP');
   const costSaved = saved.find((e) => e.kind === 'COST_INCREASE');
+  const costDraft = drafts.find((d) => d.kind === 'COST_INCREASE');
+  const costAnswers = answers?.COST_INCREASE;
+  const costEffect = costDraft && costAnswers ? applyFinanceAnswers(costDraft, costAnswers) : costSaved;
   return {
     overlapCount,
     hasCostEffect: drafts.some((d) => d.kind === 'COST_INCREASE') || !!costSaved,
     costConfirmed: costSaved?.confirmed === true,
     revenueOpIncludesAddCost: revenueSaved?.opIncomeIncludesAddCost === true && typeof revenueSaved.operatingIncomeEffectYen === 'number',
+    revenueHasOperatingEffect: !!revenueSaved && typeof revenueSaved.operatingIncomeEffectYen === 'number',
+    addCostAnnualYen: costEffect ? computeFinanceEffect(costEffect).annualYen : undefined,
   };
 }
 
@@ -306,7 +400,7 @@ export function financeSaveSteps(args: {
   /** 修正中の効果。確認済みでも、修正内容で置き換えてから確認し直す */
   revising?: FinanceDraftKind[];
 }): FinanceSaveStep[] {
-  const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount);
+  const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount, args.answers);
   const revising = args.revising ?? [];
   const steps: FinanceSaveStep[] = [];
   for (const draft of args.drafts) {

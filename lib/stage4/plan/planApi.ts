@@ -205,7 +205,7 @@ export function createPlanApi(deps: PlanApiDeps) {
   /* 再生成のプレビュー（POST …/preview）：保存せず、新しい案だけを返す */
   async function preview(req: Request): Promise<Response> {
     if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
-    if (!deps.previewSecret) return json(503, { status: 'DISABLED' });
+    if (!deps.previewSecret) return json(503, { status: 'DISABLED', reason: 'PREVIEW_NOT_CONFIGURED' });
     const auth = await withUser(req);
     if ('error' in auth) return auth.error;
 

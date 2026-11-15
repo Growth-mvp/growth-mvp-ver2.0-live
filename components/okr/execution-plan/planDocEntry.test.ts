@@ -1,5 +1,5 @@
 import { COMMERCIAL_GOLDEN_DRAFT } from '@/eval/plan/fixtures/commercial.golden';
-import { entryAfterPersist, entryFromDraft, entryFromRecord, conflictRows, isDirty, saveWillReset, type PlanDocEntry } from './planDocEntry';
+import { entryAfterPersist, entryFromDraft, entryFromRecord, conflictRows, isDirty, saveWillReset, savedPdfInput, type PlanDocEntry } from './planDocEntry';
 import type { PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
 import { regulatoryComplete } from '@/lib/stage4/planView/model';
 
@@ -12,6 +12,32 @@ const record = (version: number, userEdits: Record<string, unknown>): PlanDocRec
   adopted: false,
   updatedAt: '2026-11-10T00:00:00.000Z',
   updatedBy: 'bob',
+});
+
+describe('PDFに出す内容は、保存済みの草案と修正だけ', () => {
+  it('保存済みの修正は、そのままPDFの入力になる（修正後の内容が反映される）', () => {
+    const e = entryFromRecord(record(2, { 'action:1:title': '保存済みの修正' }));
+    const input = savedPdfInput(e, '架空', '2026-11-15T00:00:00.000Z');
+    expect(input?.userEdits).toEqual({ 'action:1:title': '保存済みの修正' });
+    expect(input?.aiDraft).toBe(DRAFT);
+  });
+
+  it('未保存の修正があるときは出さない（null）', () => {
+    const e = entryFromRecord(record(2, {}));
+    const changed = { ...e, plan: { ...e.plan, committed: { 'action:1:title': '未保存' } } };
+    expect(savedPdfInput(changed, '架空', '2026-11-15T00:00:00.000Z')).toBeNull();
+  });
+
+  it('未保存の草案（保存されていない）は出さない（null）', () => {
+    const e = entryFromDraft(DRAFT);
+    expect(savedPdfInput(e, '架空', '2026-11-15T00:00:00.000Z')).toBeNull();
+  });
+
+  it('採用の状態だけが保存と違うときも出さない（null）', () => {
+    const e = entryFromRecord(record(2, {}));
+    const changed = { ...e, plan: { ...e.plan, adopted: true } };
+    expect(savedPdfInput(changed, '架空', '2026-11-15T00:00:00.000Z')).toBeNull();
+  });
 });
 
 describe('草案の画面の状態', () => {

@@ -255,10 +255,12 @@ export function normalizeFinanceEffect(raw: unknown): FinanceEffect | undefined 
   for (const key of ['scopeNote', 'sourceNote', 'overlapNote', 'confirmedAt'] as const) {
     if (typeof r[key] === 'string') out[key] = r[key] as string;
   }
-  for (const key of ['isIncremental', 'meetingBasisConfirmed', 'opIncomeIncludesAddCost'] as const) {
+  for (const key of ['isIncremental', 'meetingBasisConfirmed', 'opIncomeIncludesAddCost', 'reductionConfirmed'] as const) {
     if (typeof r[key] === 'boolean') out[key] = r[key] as boolean;
   }
-  if (r.revenueKind === 'PAID_DEVELOPMENT' || r.revenueKind === 'MASS_PRODUCTION') out.revenueKind = r.revenueKind;
+  if (r.revenueKind === 'PAID_DEVELOPMENT' || r.revenueKind === 'MASS_PRODUCTION' || r.revenueKind === 'SERVICE') {
+    out.revenueKind = r.revenueKind;
+  }
   const answers = readQuestionAnswers(r.questionAnswers);
   if (answers) out.questionAnswers = answers;
   return out;
@@ -338,6 +340,7 @@ const CONFIRMATION_MATERIAL_KEYS = [
   'meetingBasisConfirmed',
   'opIncomeIncludesAddCost',
   'revenueKind',
+  'reductionConfirmed',
   'scopeNote',
   'sourceNote',
   'source',

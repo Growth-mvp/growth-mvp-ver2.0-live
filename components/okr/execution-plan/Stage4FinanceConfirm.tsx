@@ -10,7 +10,8 @@ import {
   type FinanceEffectDraft,
   type PlanPeriod,
 } from '@/lib/stage4/planView/financeBridge';
-import { FINANCE_EFFECT_BASIS_LABEL, isFinanceEffectMaterialChange } from '@/lib/financeEffect';
+import { computeFinanceEffect, FINANCE_EFFECT_BASIS_LABEL, isFinanceEffectMaterialChange } from '@/lib/financeEffect';
+import { formatYenScaled } from '@/utils/yenScale';
 import type { FinanceEffect, SpendAmountBasis } from '@/types/strategy';
 
 const BASES: SpendAmountBasis[] = ['TOTAL', 'MONTHLY', 'ANNUAL'];
@@ -22,14 +23,17 @@ type RevisionHandlers = {
   onUnconfirm?: () => void;
 };
 
-const millionText = (yen: number | undefined): string => (yen === undefined ? '未入力' : `${Math.round(yen / 1_000_000 * 10) / 10}百万円`);
+const amountText = (yen: number | undefined): string => (yen === undefined ? '未入力' : formatYenScaled(yen));
 
 function formulaOf(draft: FinanceEffectDraft): string {
   const e = draft.base;
-  if (e.kind === 'REVENUE_UP') {
-    return `${e.meetingsPerPeriod}社 × ${e.winRatePct}% × ${millionText(e.averageDealYen)}`;
+  if (e.kind === 'REVENUE_UP' && e.method === 'QUANTITY_UNIT_PRICE') {
+    return `${e.quantity}件（月額）× ${amountText(e.unitPriceYen)}`;
   }
-  return millionText(e.directAmountYen);
+  if (e.kind === 'REVENUE_UP') {
+    return `${e.meetingsPerPeriod}社 × ${e.winRatePct}% × ${amountText(e.averageDealYen)}`;
+  }
+  return amountText(e.directAmountYen);
 }
 
 function statusOf(saved: FinanceEffect | undefined, revising: boolean): string {
@@ -51,6 +55,7 @@ function DraftCard({
   onStartRevise,
   onCancelRevise,
   onUnconfirm,
+  addCostYen,
 }: {
   draft: FinanceEffectDraft;
   saved: FinanceEffect | undefined;
@@ -59,10 +64,21 @@ function DraftCard({
   planPeriod: PlanPeriod | null;
   writable: boolean;
   onChange: (answers: FinanceAnswers) => void;
+  /** 同じ試算の追加費用（円）。未入力なら undefined（0とはみなさない） */
+  addCostYen?: number;
 } & RevisionHandlers) {
   const candidate = applyFinanceAnswers(draft, answers);
   const blockers = confirmBlockers(candidate, ctx);
   const isRevenue = draft.kind === 'REVENUE_UP';
+  const isCost = draft.kind === 'COST_REDUCTION';
+  const isService = draft.base.method === 'QUANTITY_UNIT_PRICE';
+  const annual = computeFinanceEffect(candidate);
+  const opBasis = isService ? 'MONTHLY' : answers.amountBasis;
+  const opBasisText = opBasis ? FINANCE_EFFECT_BASIS_LABEL[opBasis] : '売上の単位を先に選ぶ';
+  const grossYen =
+    annual.annualRevenueYen !== undefined && candidate.costRatePct !== undefined
+      ? annual.annualRevenueYen * (1 - candidate.costRatePct / 100)
+      : undefined;
   const confirmedNow = saved?.confirmed === true;
   const locked = confirmedNow && !revising;
   const disabled = !writable || locked;
@@ -104,6 +120,9 @@ function DraftCard({
         </p>
       )}
       <div className="plan-note">金額の単位：円</div>
+      {isCost && <div className="plan-note">発生頻度：年額（削減対象は年間費用のため、年額で固定します）</div>}
+      {isService && <div className="plan-note">発生頻度：月額（顧客数×1社当たり月間配送件数×1件当たり料金で計算します）</div>}
+      {!isCost && !isService && (
       <label>
         発生頻度（年度換算に使います）
         <select
@@ -123,6 +142,7 @@ function DraftCard({
           ))}
         </select>
       </label>
+      )}
       <label>
         開始年月
         <input
@@ -145,7 +165,7 @@ function DraftCard({
       </label>
       {isRevenue && (
         <label>
-          売上増加に伴う営業利益の増分（百万円・任意）
+          営業利益増分（{opBasisText}・百万円・任意）
           <input
             type="number"
             inputMode="decimal"
@@ -161,7 +181,8 @@ function DraftCard({
           />
         </label>
       )}
-      {isRevenue && (
+      {isRevenue && isService && <div className="plan-note">売上の区分：サービス提供（役務）</div>}
+      {isRevenue && !isService && (
         <label>
           売上の区分
           <select
@@ -175,6 +196,12 @@ function DraftCard({
             <option value="MASS_PRODUCTION">量産（製品の販売）</option>
           </select>
         </label>
+      )}
+      {isRevenue && annual.annualOperatingEffectYen !== undefined && (
+        <p className="plan-note">
+          営業利益増分の年額：{amountText(annual.annualOperatingEffectYen)}（年額の売上 {amountText(annual.annualRevenueYen)}
+          {grossYen !== undefined ? `、売上の粗利 ${amountText(grossYen)}（原価率${candidate.costRatePct}%）` : ''}）
+        </p>
       )}
       {isRevenue && answers.operatingIncomeEffectYen !== undefined && ctx.hasCostEffect && (
         <label>
@@ -191,9 +218,30 @@ function DraftCard({
           </select>
         </label>
       )}
-      {ctx.overlapCount > 0 && (
+      {isCost && (
+        <>
+          <label>
+            <input
+              type="checkbox"
+              aria-label={`${draft.label}の削減の確認`}
+              checked={answers.reductionConfirmed === true}
+              disabled={disabled}
+              onChange={(e) => set({ reductionConfirmed: e.target.checked })}
+            />
+            実際に減らせる費用として確認できた（費用配賦の見直し・作業時間短縮だけでは計上しない）
+          </label>
+          <p className="plan-note">
+            {addCostYen === undefined || candidate.directAmountYen === undefined
+              ? '追加費用が未入力のため、年間利益改善額は算出しません（追加費用は別の効果として入力します）。'
+              : `年間利益改善額＝年間削減額 ${amountText(candidate.directAmountYen)} − 追加費用 ${amountText(addCostYen)} ＝ ${amountText(candidate.directAmountYen - addCostYen)}`}
+          </p>
+        </>
+      )}
+      {(ctx.overlapCount > 0 || (isCost && ctx.revenueHasOperatingEffect === true)) && (
         <label>
-          同じ効果の可能性がある他の施策（{ctx.overlapCount}件）について、重複していない理由
+          {isCost && ctx.overlapCount === 0
+            ? '同じ案件の売上増加で営業利益増分を計上しています。コスト削減との重複がないことの説明'
+            : `同じ効果の可能性がある他の施策（${ctx.overlapCount}件）について、重複していない理由`}
           <textarea
             aria-label={`${draft.label}の重複の説明`}
             value={answers.overlapNote ?? ''}
@@ -239,7 +287,8 @@ export function Stage4FinanceConfirm({
   onCancelRevise?: (kind: FinanceDraftKind) => void;
   onUnconfirm?: (kind: FinanceDraftKind) => void;
 }) {
-  const ctx = financeConfirmContext(drafts, saved, overlapCount);
+  const ctx = financeConfirmContext(drafts, saved, overlapCount, answers);
+  const addCostYen = drafts.find((d) => d.kind === 'COST_INCREASE')?.base.directAmountYen;
   return (
     <section aria-labelledby="stage4-finance-confirm" className="plan-impact-estimate">
       <h3 id="stage4-finance-confirm" className="plan-h3">
@@ -271,6 +320,7 @@ export function Stage4FinanceConfirm({
             onStartRevise={onStartRevise ? () => onStartRevise(draft.kind) : undefined}
             onCancelRevise={onCancelRevise ? () => onCancelRevise(draft.kind) : undefined}
             onUnconfirm={onUnconfirm ? () => onUnconfirm(draft.kind) : undefined}
+            addCostYen={addCostYen}
           />
         );
       })}

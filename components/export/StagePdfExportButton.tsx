@@ -25,12 +25,15 @@ interface StagePdfExportButtonProps {
    * クラス名を追加する（カスタマイズ用）
    */
   className?: string;
+  /** ボタンの表示名（既定: PDF出力） */
+  label?: string;
 }
 
 export function StagePdfExportButton({
   exportToPdf,
   disabled = false,
   className = '',
+  label = 'PDF出力',
 }: StagePdfExportButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -82,7 +85,7 @@ export function StagePdfExportButton({
       </svg>
 
       {/* ラベル */}
-      <span>{isLoading ? '出力中...' : 'PDF出力'}</span>
+      <span>{isLoading ? '出力中...' : label}</span>
     </button>
   );
 }

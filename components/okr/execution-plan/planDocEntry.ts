@@ -7,6 +7,7 @@ import { EMPTY_REGULATORY, regulatoryComplete, type RegulatoryRecord } from '@/l
 import { INITIAL_PLAN_STATE, type ProjectPlanState } from '@/lib/stage4/planView/planState';
 import type { Edits } from '@/lib/stage4/planView/documentModel';
 import { listEditableItems } from '@/lib/stage4/planView/regen';
+import type { ProjectPlanPdfInput } from '@/lib/stage4/plan/projectPlanPdf';
 
 export const toEdits = (edits: UserEdits): Edits => edits as Edits;
 
@@ -160,6 +161,18 @@ const canonicalJson = (value: unknown): string => {
 export function isDirty(entry: PlanDocEntry): boolean {
   if (!entry.stored) return true;
   return canonicalJson(entry.plan.committed) !== canonicalJson(entry.stored.base) || entry.plan.adopted !== entry.stored.adopted;
+}
+
+/* PDFに出す内容は、保存済みの草案と保存済みの修正だけ。未保存の修正や未採用の案があるときは null（出力しない） */
+export function savedPdfInput(entry: PlanDocEntry, companyName: string, generatedAt: string): ProjectPlanPdfInput | null {
+  if (!entry.stored || isDirty(entry)) return null;
+  return {
+    aiDraft: entry.aiDraft,
+    userEdits: toEdits(entry.stored.base),
+    startInfo: entry.server?.startInfo ? { at: entry.server.startInfo.at, version: entry.server.startInfo.version } : null,
+    companyName,
+    generatedAt,
+  };
 }
 
 /* 計画書の本文に未保存の修正があるか。実行責任者は、開始の操作の中で保存するため、ここには含めない */

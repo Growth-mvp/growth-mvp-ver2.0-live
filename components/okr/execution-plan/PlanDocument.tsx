@@ -82,7 +82,20 @@ export function EditableBlock({
   );
 }
 
-function EditableMonth({ label, value, mode, onChange }: { label: string; value: string; mode: Mode; onChange: (v: string) => void }) {
+function EditableMonth({
+  label,
+  value,
+  monthValue,
+  mode,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  /** 入力欄の年月（YYYY-MM）。表示文字列（判定時期などを含む）からは作らない */
+  monthValue?: string;
+  mode: Mode;
+  onChange: (v: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   if (mode === 'read') return <span>{value}</span>;
   if (!open) {
@@ -94,7 +107,7 @@ function EditableMonth({ label, value, mode, onChange }: { label: string; value:
   }
   return (
     <span className="plan-edit-open-inline">
-      <input aria-label={label} type="month" value={toMonthInput(value)} onChange={(e) => onChange(e.target.value)} />
+      <input aria-label={label} type="month" value={monthValue ?? toMonthInput(value)} onChange={(e) => onChange(e.target.value)} />
       <button type="button" className="plan-btn-quiet" onClick={() => setOpen(false)}>
         閉じる
       </button>
@@ -249,7 +262,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
                   </td>
                   <td>
                     {k.dueKey && mode === 'edit' ? (
-                      <EditableMonth label={`${k.label}の期限`} value={k.due} mode={mode} onChange={(v) => setEdit(k.dueKey!, v)} />
+                      <EditableMonth label={`${k.label}の期限`} value={k.due} monthValue={k.dueMonth} mode={mode} onChange={(v) => setEdit(k.dueKey!, v)} />
                     ) : (
                       k.due
                     )}

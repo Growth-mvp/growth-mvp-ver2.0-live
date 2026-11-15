@@ -3086,9 +3086,10 @@ const cancelEditKr = () => {
 
 const saveEditKr = async (dIdx: number, pIdx: number, krId: string) => {
   if (!editingKrDraft) return;
-  const t = Number(editingKrDraft.target);
-  if (!editingKrDraft.target.trim() || !Number.isFinite(t)) {
-    alert('目標値は数値で入力してください。');
+  const trimmedTarget = editingKrDraft.target.trim();
+  const t = trimmedTarget === '' ? undefined : Number(trimmedTarget);
+  if (t !== undefined && !Number.isFinite(t)) {
+    alert('目標値は数値で入力してください。空欄のままにすると未設定になります。');
     return;
   }
   const nextLabel = editingKrDraft.label.trim();
@@ -3120,7 +3121,7 @@ const saveEditKr = async (dIdx: number, pIdx: number, krId: string) => {
       ...before,
       label: nextLabel,
       target: t,
-      ...(Number(before.target) !== t ? { targetBasis: 'USER_CONFIRMED', targetAdoptedAt: new Date().toISOString() } : {}),
+      ...(t !== undefined && Number(before.target) !== t ? { targetBasis: 'USER_CONFIRMED', targetAdoptedAt: new Date().toISOString() } : {}),
       unit: (editingKrDraft.unit || undefined) as any,
       due: editingKrDraft.due?.trim() || undefined,
       owner: editingKrDraft.owner?.trim() || undefined,

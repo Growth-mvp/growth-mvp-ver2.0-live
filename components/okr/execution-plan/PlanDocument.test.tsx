@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { STAGE3_SNAPSHOT_STRATEGIES } from '@/lib/stage4/planView/fixtures/stage3Snapshot';
 import { generateMockExecutionPlan } from '@/lib/stage4/plan/mockGenerate';
 import PlanDocument, { type PlanDocumentProps } from './PlanDocument';
+import { buildDocModel } from '@/lib/stage4/planView/documentModel';
 
 const CO = 'fict-co-a';
 const ST = 'fict-strategy-a';
@@ -88,5 +89,38 @@ describe('PlanDocument（直接編集の文書）', () => {
     expect(toggle).not.toBeNull();
     expect(toggle?.open).toBe(false);
     expect(screen.getByText('財務効果を設定する')).toBeTruthy();
+  });
+});
+
+describe('PlanDocument（STAGE3由来KPIの期限の入力）', () => {
+  it('期限が未設定で判定時期の候補があるKPIでも、選んだ年月は反映後に入力欄へ残る', async () => {
+    const source = JSON.parse(JSON.stringify(STAGE3_SNAPSHOT_STRATEGIES[0]));
+    for (const d of source.departments) {
+      for (const p of d.projects) {
+        if (p.id !== PROJ) continue;
+        p.okrsV2 = (p.okrsV2 ?? []).map((k: Record<string, unknown>) => ({ ...k, due: null }));
+      }
+    }
+    const r = await generateMockExecutionPlan({
+      strategy: source,
+      membershipCompanyId: CO,
+      requestedStrategyId: ST,
+      requestedProjectId: PROJ,
+      currentYm: '2026-11',
+      companyName: '架空',
+      createdAt: '2026-11-10T00:00:00.000Z',
+    });
+    if (r.status !== 'READY') throw new Error('mock draft must be ready');
+    const kpi = buildDocModel(r.bundle, {}).goals.kpis.find((k) => k.confirmed && k.dueKey && k.due.includes('判定時期'));
+    expect(kpi).toBeTruthy();
+    const label = `${kpi!.label}の期限`;
+    const p = props({ bundle: r.bundle });
+    const { rerender } = render(<PlanDocument {...p} />);
+    fireEvent.click(screen.getByRole('button', { name: `${label}を修正する` }));
+    fireEvent.change(screen.getByLabelText(label), { target: { value: '2027-01' } });
+    expect(p.onDirectChange).toHaveBeenLastCalledWith(kpi!.dueKey, '2027-01');
+
+    rerender(<PlanDocument {...p} committed={{ [kpi!.dueKey!]: '2027-01' }} />);
+    expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('2027-01');
   });
 });

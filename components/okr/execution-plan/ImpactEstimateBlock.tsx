@@ -26,6 +26,22 @@ function ParamInput({
     if (parsed !== param.value) setText(param.value === null ? '' : String(param.value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [param.value]);
+  if (param.key === 'serviceRevenue') {
+    return (
+      <div className="plan-param">
+        <label className="plan-param-label">
+          <input
+            type="checkbox"
+            aria-label={param.label}
+            checked={param.value === 1}
+            onChange={(e) => onEdit(param.key, e.target.checked ? 1 : null)}
+          />{' '}
+          {param.label}
+        </label>
+        <span className="plan-tag">{SOURCE_LABEL[param.source]}</span>
+      </div>
+    );
+  }
   const isYear = param.key === 'startYear' || param.key === 'endYear';
   return (
     <div className="plan-param">
@@ -64,6 +80,12 @@ export function ImpactEstimateBlock({
   /** 前提の修正の保存口。省略時は前提の入力欄を出さない（保存できない文書） */
   onEdit?: (key: ParamKey, value: number | null) => void;
 }) {
+  const serviceOn = estimate.params.find((p) => p.key === 'serviceRevenue')?.value === 1;
+  const visibleParams = estimate.params.filter((p) => {
+    if (p.key === 'rate' || p.key === 'deal') return !serviceOn;
+    if (p.key === 'serviceCountPerCustomerMonthly' || p.key === 'serviceUnitPriceYen') return serviceOn;
+    return true;
+  });
   return (
     <section aria-labelledby="impact-estimate" className="plan-impact-estimate">
       <h3 id="impact-estimate" className="plan-h3">
@@ -76,7 +98,7 @@ export function ImpactEstimateBlock({
         <>
           <p className="plan-note">前提は直接入力できます。変えると、下の試算を自動で計算し直します（計算結果は入力できません）。</p>
           <div className="plan-params">
-            {estimate.params.map((p) => (
+            {visibleParams.map((p) => (
               <ParamInput key={p.key} param={p} onEdit={onEdit} />
             ))}
           </div>

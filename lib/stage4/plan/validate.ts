@@ -245,7 +245,7 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
       }
       if (/^(整理|検討|確認|調整|共有|把握)する$/.test(a.title)) {
         issues.push(err('ACTION_TITLE_VAGUE', p, `実施事項「${a.title}」は、何をするかが分からない。対象と行う内容を書く`));
-      } else if (/(整理|検討|確認|調整|共有|把握)する$/.test(a.title) && a.title.length <= 14) {
+      } else if (/((整理|検討|確認|調整|共有|把握)する|(集める|試す|測る|決める))$/.test(a.title) && a.title.length <= 14) {
         issues.push(warn('ACTION_TITLE_VAGUE', p, `実施事項「${a.title}」は、語が短く具体性が低い。対象と行う内容を書く`));
       }
       const rank = a.valueStage ? STAGE_RANK[a.valueStage] : undefined;
@@ -286,7 +286,7 @@ export function validatePlan(plan: AssembledPlan, ctx: PlanContext): PlanIssue[]
         issues.push(err('FREE_NOTE_MISSING', p, '財務効果として扱わない項目なのに、理由と確認が必要な点（freeNote）が無い'));
       }
     }
-    const profitOrPayback = /限界利益|粗利|投資回収|回収期間|回収見込み/.test(`${f.label} ${f.sourceNote} ${f.freeNote ?? ''}`);
+    const profitOrPayback = /限界利益|粗利|投資回収|回収期間|回収見込み/.test(f.label);
     if (profitOrPayback && f.kind !== 'NOT_FINANCIAL') {
       issues.push(err('FINANCE_MISCLASSIFIED', p, '限界利益・投資回収は、売上増加・費用増加とは別の指標。kind を NOT_FINANCIAL にし、確認事項として残す'));
     }

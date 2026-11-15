@@ -9,6 +9,30 @@ const ctxOf = (raw: RawPlanInput) => {
   return buildPlanContext(source, scope);
 };
 
+describe('部門間の連携事項（STAGE3の合意）', () => {
+  const withDepts = (edit: (depts: any[]) => void) => {
+    const raw = JSON.parse(JSON.stringify(COMMERCIAL_INPUT));
+    edit(raw.strategy.departments);
+    return ctxOf(raw);
+  };
+
+  it('自部門の合意は、文字の重なりが無くても根拠に入る', () => {
+    const c = withDepts((depts) => {
+      depts[0].interDeptCollab = ['案件採算指標の定義を両事業で統一する'];
+    });
+    expect(c.sources.find((s) => s.ref === 'S3-COLLAB-1')?.text).toBe('案件採算指標の定義を両事業で統一する');
+  });
+
+  it('相手部門の記録は、自部門の名前に触れているものだけ根拠に入る', () => {
+    const c = withDepts((depts) => {
+      depts[1].interDeptCollab = ['営業部と案件採算指標の定義を統一する', '別の部門と在庫を共有する'];
+    });
+    expect(c.sources.filter((s) => s.ref.startsWith('S3-COLLAB-OTHER')).map((s) => s.text)).toEqual([
+      '営業部と案件採算指標の定義を統一する',
+    ]);
+  });
+});
+
 describe('計画期間', () => {
   it('現在月の翌月から6か月間を計画期間にする', () => {
     expect(addMonths('2026-11', 1)).toBe('2026-12');

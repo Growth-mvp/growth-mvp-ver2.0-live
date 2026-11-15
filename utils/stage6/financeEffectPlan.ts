@@ -1,5 +1,5 @@
 import type { Department, FinanceEffect, FinanceEffectKind } from '@/types/strategy';
-import { computeFinanceEffect } from '@/lib/financeEffect';
+import { computeFinanceEffect, type FinanceEffectResult } from '@/lib/financeEffect';
 import { fiscalYearOf, parseFiscalYearEndMonth } from './investmentDemand';
 import type { CfAssumptions } from './cashflow';
 
@@ -58,6 +58,10 @@ export type FinanceEffectProjectRow = {
   operatingUnknown: boolean;
   /** REFLECTED のときだけ、試算の年度に対応する金額を持つ */
   years: FinanceEffectProjectYear[];
+  /** DRAFT（未確認）の効果の参考金額。正式な試算（years・trial.years）には含めない */
+  scenarioYears?: FinanceEffectProjectYear[] | null;
+  /** DRAFT の参考金額に含めない理由（正式に反映済みの同じ種類の効果と重なる等） */
+  scenarioNote?: string | null;
 };
 
 export type FinanceEffectTrial = {
@@ -68,6 +72,8 @@ export type FinanceEffectTrial = {
   revenueCostUnknown: FinanceEffectTrialTarget[];
   legacyReferenced: FinanceEffectTrialTarget[];
   years: FinanceEffectTrialYear[];
+  /** 参考シミュレーション（未確認の効果の合計）。正式な years には加算しない */
+  scenario: { years: FinanceEffectTrialYear[] };
   /** 全施策の一覧（反映状態つき）。years はこの REFLECTED 行の合計と一致する */
   projects: FinanceEffectProjectRow[];
 };
@@ -90,10 +96,48 @@ function revenueOperatingPerMonthOf(effect: FinanceEffect, startIdx: number, end
   return effect.amountBasis === 'MONTHLY' ? value : value / 12;
 }
 
+function flowOf(effect: FinanceEffect, result: FinanceEffectResult): Flow {
+  const kind = effect.kind as Flow['kind'];
+  const startIdx = monthIndexOf(effect.startYm!);
+  const endIdx = effect.endYm ? monthIndexOf(effect.endYm) : null;
+  const perMonthYen =
+    effect.amountBasis === 'TOTAL'
+      ? result.totalYen! / (endIdx === null ? 1 : endIdx - startIdx + 1)
+      : result.monthlyYen!;
+  const flowEnd = effect.amountBasis === 'TOTAL' && endIdx === null ? startIdx : endIdx;
+  const opPerMonthYen = kind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx) : 0;
+  return { kind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen };
+}
+
 const REASON: Record<Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, string> = {
   DRAFT: '利用者が未確認（確認すると試算に入ります）',
   INCOMPLETE: '入力不足のため未算定',
   NOT_FINANCIAL: '非財務の効果のため、財務試算には含めない',
+};
+
+const SCENARIO_DUPLICATE_REFLECTED = '同じ種類の効果が試算に反映済みのため、参考シミュレーションには含めていません（二重計上を防ぐため）';
+const SCENARIO_DUPLICATE_DRAFT = '同じ種類の未確認の効果が施策に既にあるため、参考シミュレーションには含めていません（二重計上を防ぐため）';
+
+const sumYear = (fiscalYear: number, items: FinanceEffectProjectYear[]): FinanceEffectTrialYear => {
+  let revenueYen = 0;
+  let costReductionYen = 0;
+  let costIncreaseYen = 0;
+  let revenueOperatingIncomeYen: number | null = 0;
+  for (const y of items) {
+    revenueYen += y.revenueYen ?? 0;
+    costReductionYen += y.costReductionYen ?? 0;
+    costIncreaseYen += y.costIncreaseYen ?? 0;
+    if (y.revenueOperatingIncomeYen === null) revenueOperatingIncomeYen = null;
+    else if (revenueOperatingIncomeYen !== null) revenueOperatingIncomeYen += y.revenueOperatingIncomeYen;
+  }
+  return {
+    fiscalYear,
+    revenueYen,
+    costReductionYen,
+    costIncreaseYen,
+    operatingEffectYen: costReductionYen - costIncreaseYen,
+    revenueOperatingIncomeYen,
+  };
 };
 
 export function buildFinanceEffectTrial(args: {
@@ -110,12 +154,15 @@ export function buildFinanceEffectTrial(args: {
     revenueCostUnknown: [],
     legacyReferenced: [],
     years: [],
+    scenario: { years: [] },
     projects: [],
   };
   if (endMonth === null) return trial;
 
   /** 施策ごとの月次フロー（反映された施策だけ） */
   const flowsOf = new Map<string, Flow[]>();
+  /** 未確認（DRAFT）の効果の月次フロー。参考シミュレーションにだけ使う */
+  const draftFlowsOf = new Map<string, Flow>();
   const rows: FinanceEffectProjectRow[] = [];
   (args.departments ?? []).forEach((dept, deptIndex) => {
     (dept.projects ?? []).forEach((project, projectIndex) => {
@@ -146,21 +193,16 @@ export function buildFinanceEffectTrial(args: {
         if (result.status === 'INCOMPLETE') {
           return notReflected('INCOMPLETE', `${REASON.INCOMPLETE}：${result.missing.join('、')}`);
         }
-        if (result.status === 'DRAFT') return notReflected('DRAFT', REASON.DRAFT);
+        if (result.status === 'DRAFT') {
+          draftFlowsOf.set(key, flowOf(effect, result));
+          return notReflected('DRAFT', REASON.DRAFT);
+        }
 
-        const reflectedKind = effect.kind as Flow['kind'];
-        const startIdx = monthIndexOf(effect.startYm!);
-        const endIdx = effect.endYm ? monthIndexOf(effect.endYm) : null;
-        const perMonthYen =
-          effect.amountBasis === 'TOTAL'
-            ? result.totalYen! / (endIdx === null ? 1 : endIdx - startIdx + 1)
-            : result.monthlyYen!;
-        const flowEnd = effect.amountBasis === 'TOTAL' && endIdx === null ? startIdx : endIdx;
-        const opPerMonthYen = reflectedKind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx) : 0;
-        flowsOf.set(key, [{ kind: reflectedKind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen }]);
+        const flow = flowOf(effect, result);
+        flowsOf.set(key, [flow]);
         rows.push({ ...effectBase, status: 'REFLECTED', kind, startFiscalYear: startFy, endFiscalYear: endFy, reason: null, years: [] });
-        trial.included.push({ ...target, kind: reflectedKind });
-        if (reflectedKind === 'REVENUE_UP') trial.revenueCostUnknown.push(target);
+        trial.included.push({ ...target, kind: flow.kind });
+        if (flow.kind === 'REVENUE_UP') trial.revenueCostUnknown.push(target);
         if (project.impactRevenueMJPY !== undefined || project.impactOpIncomeMJPY !== undefined) {
           trial.legacyReferenced.push(target);
         }
@@ -205,29 +247,42 @@ export function buildFinanceEffectTrial(args: {
     row.operatingUnknown = row.years.some((y) => y.operatingIncomeYen === null);
   }
 
-  trial.years = args.fiscalYears.map((fiscalYear) => {
-    let revenueYen = 0;
-    let costReductionYen = 0;
-    let costIncreaseYen = 0;
-    let revenueOperatingIncomeYen: number | null = 0;
-    for (const row of rows) {
-      if (row.status !== 'REFLECTED') continue;
-      const y = row.years.find((v) => v.fiscalYear === fiscalYear)!;
-      revenueYen += y.revenueYen ?? 0;
-      costReductionYen += y.costReductionYen ?? 0;
-      costIncreaseYen += y.costIncreaseYen ?? 0;
-      if (y.revenueOperatingIncomeYen === null) revenueOperatingIncomeYen = null;
-      else if (revenueOperatingIncomeYen !== null) revenueOperatingIncomeYen += y.revenueOperatingIncomeYen;
-    }
-    return {
+  trial.years = args.fiscalYears.map((fiscalYear) =>
+    sumYear(
       fiscalYear,
-      revenueYen,
-      costReductionYen,
-      costIncreaseYen,
-      operatingEffectYen: costReductionYen - costIncreaseYen,
-      revenueOperatingIncomeYen,
-    };
-  });
+      rows.filter((row) => row.status === 'REFLECTED').map((row) => row.years.find((v) => v.fiscalYear === fiscalYear)!),
+    ),
+  );
+
+  const reflectedKinds = new Set(
+    rows.filter((row) => row.status === 'REFLECTED').map((row) => `${row.deptIndex}:${row.projectIndex}:${row.kind}`),
+  );
+  const countedDraftKinds = new Set<string>();
+  for (const row of rows) {
+    if (row.status !== 'DRAFT' || !row.kind) continue;
+    const id = `${row.deptIndex}:${row.projectIndex}:${row.kind}`;
+    if (reflectedKinds.has(id)) {
+      row.scenarioYears = null;
+      row.scenarioNote = SCENARIO_DUPLICATE_REFLECTED;
+      continue;
+    }
+    if (countedDraftKinds.has(id)) {
+      row.scenarioYears = null;
+      row.scenarioNote = SCENARIO_DUPLICATE_DRAFT;
+      continue;
+    }
+    const flow = draftFlowsOf.get(`${row.deptIndex}:${row.projectIndex}:${row.effectIndex}`);
+    if (!flow) continue;
+    countedDraftKinds.add(id);
+    row.scenarioYears = args.fiscalYears.map((fy) => yearsOf([flow], fy));
+    row.scenarioNote = null;
+  }
+  const scenarioRows = rows.filter((row) => row.status === 'DRAFT' && row.scenarioYears);
+  trial.scenario = {
+    years: args.fiscalYears.map((fiscalYear) =>
+      sumYear(fiscalYear, scenarioRows.map((row) => row.scenarioYears!.find((v) => v.fiscalYear === fiscalYear)!)),
+    ),
+  };
 
   trial.projects = rows.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
   return trial;

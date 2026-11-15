@@ -183,9 +183,15 @@ export function buildPlanContext(source: PlanSource, scope: PlanScope): PlanCont
       add({ ref: `S3-BEH-${i + 1}`, stage: 'STAGE3', role: 'PRIMARY', label: 'STAGE3の求める行動変化', text: t })
     );
   }
-  pickRelevant(dept.interDeptCollab, (t) => t, corpus, 3).forEach((t, i) =>
-    add({ ref: `S3-COLLAB-${i + 1}`, stage: 'STAGE3', role: 'SUPPORT', label: '部門間の連携事項', text: t })
+  dept.interDeptCollab.slice(0, 5).forEach((t, i) =>
+    add({ ref: `S3-COLLAB-${i + 1}`, stage: 'STAGE3', role: 'SUPPORT', label: '部門間の連携事項（STAGE3で合意済み）', text: t })
   );
+  stage3.otherDepartments
+    .flatMap((d) => (d.interDeptCollab ?? []).filter((t) => t.includes(dept.name)))
+    .slice(0, 3)
+    .forEach((t, i) =>
+      add({ ref: `S3-COLLAB-OTHER-${i + 1}`, stage: 'STAGE3', role: 'SUPPORT', label: '他部門との連携事項（相手部門の記録）', text: t })
+    );
   keepConstraints(dept.alignmentRiskPoints, 4).forEach((t, i) =>
     add({ ref: `S3-RISK-${i + 1}`, stage: 'STAGE3', role: 'SUPPORT', label: 'すり合わせの論点', text: t })
   );
@@ -210,7 +216,7 @@ export function buildPlanContext(source: PlanSource, scope: PlanScope): PlanCont
       stage: 'STAGE3',
       role: 'PRIMARY',
       label: k.basis === 'USER_CONFIRMED' ? '確定済みKPI（変更不可）' : '入力済みKPI（変更不可・確定の印なし）',
-      text: `${k.label}：目標 ${k.target ?? '未設定'}${k.unit}、期限 ${k.due ?? '未設定'}、担当 ${k.owner ?? '未設定'}`,
+      text: `${k.label}：目標 ${k.target == null ? '未設定' : `${k.target}${k.unit}`}、期限 ${k.due ?? '未設定'}、担当 ${k.owner ?? '未設定'}`,
     });
   }
   for (const k of kpiSplit.aiProvisional) {
@@ -219,7 +225,7 @@ export function buildPlanContext(source: PlanSource, scope: PlanScope): PlanCont
       stage: 'STAGE3',
       role: 'SUPPORT',
       label: 'AIが仮に置いた目標（確定ではない・書き直し可）',
-      text: `${k.label}：仮の目標 ${k.target ?? '未設定'}${k.unit}、期限 ${k.due ?? '未設定'}`,
+      text: `${k.label}：仮の目標 ${k.target == null ? '未設定' : `${k.target}${k.unit}`}、期限 ${k.due ?? '未設定'}`,
     });
   }
 

@@ -25,6 +25,13 @@ describe('validatePlan（期待出力と、違反の検出）', () => {
     expect(codes(plan())).toEqual([]);
   });
 
+  it('「集める・試す・測る」で終わる短い実施事項は、具体性の警告にする（エラーにはしない）', () => {
+    const p = plan();
+    p.section2.actions[0].title = '現状の数値と原因を集める';
+    expect(allCodes(p)).toContain('ACTION_TITLE_VAGUE');
+    expect(codes(p)).not.toContain('ACTION_TITLE_VAGUE');
+  });
+
   it('計画期間は、入力の根拠（既存KPIの期限）から決まる', () => {
     expect(ctx.periodBasis).toBe('STAGE3_KPI_DUE');
     expect(plan().period).toEqual({ startYm: '2026-12', endYm: '2027-05', basis: 'STAGE3_KPI_DUE' });
@@ -249,6 +256,15 @@ describe('validatePlan（期待出力と、違反の検出）', () => {
       f.label = '案件別の限界利益';
       f.kind = 'REVENUE_UP';
       expect(codes(p)).toContain('FINANCE_MISCLASSIFIED');
+    });
+
+    it('売上増加の算定根拠に粗利率を換算として書いても、誤分類にしない（項目の名称で判定する）', () => {
+      const p = plan();
+      const f = p.section4.financeItems[0];
+      f.kind = 'REVENUE_UP';
+      f.method = 'FUNNEL';
+      f.sourceNote = '粗利率30％を換算して算定';
+      expect(codes(p)).not.toContain('FINANCE_MISCLASSIFIED');
     });
 
     it('財務効果として扱わない項目（NOT_FINANCIAL）は、算定式を持てず、理由が必要', () => {

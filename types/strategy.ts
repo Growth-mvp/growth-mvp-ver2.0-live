@@ -629,8 +629,10 @@ export type FinanceEffect = {
   meetingBasisConfirmed?: boolean;
   /** 営業利益増分（売上増加）が、同じ案件の追加費用を差し引いた後の値か（利用者が確認。true なら追加費用を別に控除しない） */
   opIncomeIncludesAddCost?: boolean;
-  /** 売上の区分（利用者が確認）。有償開発の受注か、量産品の売上か */
-  revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION';
+  /** 売上の区分（利用者が確認）。有償開発の受注か、量産品の売上か、サービス提供（役務）か */
+  revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION' | 'SERVICE';
+  /** コスト削減：実際に減らせる費用として確認できたか（費用配賦の見直し・作業時間短縮だけの効果は計上しない） */
+  reductionConfirmed?: boolean;
   /** AIの質問への回答（未回答と「まだ分からない」を区別する）。未設定の項目は既存フィールドから推定する */
   questionAnswers?: FinanceEffectQuestionAnswers;
 };

@@ -6,6 +6,33 @@ import { buildPlanSource } from './source';
 const { source, scope } = buildPlanSource(COMMERCIAL_INPUT);
 const prompt = buildExecutionPlanPrompt(buildPlanContext(source, scope));
 
+describe('プロンプト（KPI・財務・実施事項・部門間連携）', () => {
+  it('目標が未設定のSTAGE3 KPIは、単位を付けず「未設定」と書く（未設定%にしない）', () => {
+    const raw = JSON.parse(JSON.stringify(COMMERCIAL_INPUT));
+    raw.strategy.departments[0].projects[0].okrsV2[0].target = null;
+    const s = buildPlanSource(raw);
+    const p = buildExecutionPlanPrompt(buildPlanContext(s.source, s.scope));
+    expect(p).toContain('改装提案を出した商業施設数／目標 未設定／期限');
+    expect(p).not.toContain('未設定件');
+  });
+
+  it('出力例は未設定の目標を 0 ではなく null で示す', () => {
+    expect(prompt).not.toContain('"target": 0');
+    expect(prompt).toContain('"target": null');
+  });
+
+  it('効果の型は事業内容で選び、売上の前提を仮置きしない（コスト削減・生産性改善型を扱う）', () => {
+    expect(prompt).toContain('コスト削減・生産性改善型');
+    expect(prompt).toContain('kind COST_REDUCTION');
+    expect(prompt).not.toContain('仮の算定条件（MEETINGS');
+  });
+
+  it('実施事項は「集める・試す・測る」だけの抽象表現にせず、部門間の連携を役割か実施事項に反映する', () => {
+    expect(prompt).toContain('「集める」「試す」「測る」だけの抽象的な行動にしない');
+    expect(prompt).toContain('部門間の連携事項（S3-COLLAB）は、役割（section5.roles）か実施事項に反映する');
+  });
+});
+
 describe('プロンプト v2（活動と成果・契約・簡潔さ）', () => {
   it('活動と成果を混同しない原則を、例とともに含む', () => {
     expect(prompt).toContain('活動を実施することは目的ではない');

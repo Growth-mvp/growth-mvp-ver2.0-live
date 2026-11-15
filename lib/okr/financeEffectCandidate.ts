@@ -79,7 +79,7 @@ export function buildFinanceEffectCandidate(args: {
 }
 
 export type CandidateCheck = {
-  key: 'meaning' | 'incremental' | 'basis' | 'startYm' | 'operatingIncome';
+  key: 'meaning' | 'incremental' | 'basis' | 'startYm' | 'operatingIncome' | 'reduction';
   label: string;
   done: boolean;
   /** true の項目が未了なら、AI提案の効果は確認できない（確認条件を緩めない） */
@@ -110,6 +110,14 @@ export function candidateChecks(effect: FinanceEffect): CandidateCheck[] {
       label: '営業利益への増分（未入力の場合は未算定）',
       done: typeof effect.operatingIncomeEffectYen === 'number' && Number.isFinite(effect.operatingIncomeEffectYen),
       blocking: false,
+    });
+  }
+  if (effect.kind === 'COST_REDUCTION') {
+    checks.push({
+      key: 'reduction',
+      label: '実際に減らせる費用として確認できたか（費用配賦の見直し・作業時間短縮だけではない）',
+      done: effect.reductionConfirmed === true,
+      blocking: true,
     });
   }
   checks.push({ key: 'basis', label: '金額の単位（一回限り・月額・年額）', done: effect.amountBasis !== undefined, blocking: true });

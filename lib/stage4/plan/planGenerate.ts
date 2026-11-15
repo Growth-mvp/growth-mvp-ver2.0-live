@@ -229,7 +229,9 @@ export async function previewPlanDraft(
   try {
     const { result, reply } = await draftWithModel(raw, deps);
     if (!result.ok || !result.plan) {
-      return { status: 'INVALID', messages: result.issues.filter((i) => i.severity === 'error').map((i) => i.message) };
+      const errors = result.issues.filter((i) => i.severity === 'error');
+      console.warn('[stage4-preview] invalid', errors.map((i) => i.code).join(','));
+      return { status: 'INVALID', messages: errors.map((i) => i.message) };
     }
     const draft = toRunRecord({
       result,

@@ -322,7 +322,18 @@ describe('再生成のプレビュー（POST …/preview）', () => {
       },
     }).preview(previewReq());
     expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ status: 'DISABLED', reason: 'PREVIEW_NOT_CONFIGURED' });
     expect(modelCalled).toBe(false);
+  });
+
+  it('秘密の値が無くても、AI生成（初回）は通る。再生成のプレビューだけが 503 になる（同じ設定で再現）', async () => {
+    const generation = { currentYm: () => '2026-11', mapStrategy: (row: Record<string, unknown>) => row as never, modelFor: mockModelFor as never };
+    const deps = { previewSecret: null, generation };
+    const created = await api(gateway(), deps).generate(req('POST', 'plan-documents/generate', { ...key, projectId: 'fict-proj-renewal' }));
+    expect(created.status).toBe(201);
+    const previewed = await api(gateway(), deps).preview(previewReq());
+    expect(previewed.status).toBe(503);
+    expect((await previewed.json()).reason).toBe('PREVIEW_NOT_CONFIGURED');
   });
 
   it('新しい案を 200 PREVIEW で返し、保存（権利・完了・失敗・更新）は一切しない', async () => {
