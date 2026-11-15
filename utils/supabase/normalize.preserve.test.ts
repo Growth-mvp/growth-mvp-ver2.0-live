@@ -225,3 +225,22 @@ describe('KR目標の未入力と0の区別（正規化・保存・再読込）'
     expect(krs.map((k) => k.target)).toEqual([1_300_000, -500, 20, undefined]);
   });
 });
+
+describe('財務サマリーの保存値は、PL由来の値で上書きされない', () => {
+  const pl = [{ year: 2025, revenue: 1000, operatingIncome: 100 }];
+
+  it('保存済みのゼロ値のサマリーは、有効な値として残しPLで置き換えない', () => {
+    const out: any = normalizeStrategyData({
+      financePL: pl,
+      financeSummary: [{ year: 2025, revenue: 0, operatingIncome: 0 }],
+    } as any);
+
+    expect(out.financeSummary).toEqual([{ year: 2025, revenue: 0, operatingIncome: 0 }]);
+  });
+
+  it('保存済みのサマリーが空のときだけ、PLを財務サマリーとして使う', () => {
+    const out: any = normalizeStrategyData({ financePL: pl, financeSummary: [] } as any);
+
+    expect(out.financeSummary).toEqual(pl);
+  });
+});

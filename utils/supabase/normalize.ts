@@ -1059,11 +1059,9 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
         ? (swotSuggestionsSrc as any).midtermStrategy
         : undefined);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-    const str = (v: any) => (typeof v === 'string' && v.trim() ? v : undefined);
-    const strArr = (v: any) =>
-      Array.isArray(v) && v.filter((x) => typeof x === 'string' && x.trim()).length > 0
-        ? v.filter((x: any) => typeof x === 'string' && x.trim())
-        : undefined;
+    // 空文字・空配列は「利用者が空欄にした」意味を持つため、未入力（undefined）と区別して残す
+    const str = (v: any) => (typeof v === 'string' ? v : undefined);
+    const strArr = (v: any) => (Array.isArray(v) ? v.filter((x: any) => typeof x === 'string') : undefined);
     const m = {
       midtermConcept: str(raw.midtermConcept),
       targetVisionForMidterm: str(raw.targetVisionForMidterm),

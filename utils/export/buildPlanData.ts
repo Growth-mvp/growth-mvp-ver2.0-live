@@ -1,5 +1,5 @@
 import { projectFinanceSummary } from '@/lib/plans/financeEffectSummary';
-import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
+import { mergeMidtermStrategyIntoDocumentEdits, toConfirmedEdits } from '@/lib/stage2/finalDocument';
 /**
  * /utils/export/buildPlanData.ts
  *
@@ -215,7 +215,10 @@ export function buildPlanData(
         }))
     : [];
 
-  const midtermStrategy = (state as any)?.midtermStrategy;
+  const midtermStrategy = mergeMidtermStrategyIntoDocumentEdits(
+    (state as any)?.stage2FinalDocumentEdits,
+    (state as any)?.midtermStrategy,
+  )?.midtermStrategy;
 
   const stage2 = {
     finalStory: stage2FinalStory,

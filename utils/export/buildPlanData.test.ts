@@ -313,3 +313,45 @@ describe('buildPlanData - STAGE2確定版の結論（下書きを流さない）
     expect(planData.stage2?.confirmed?.conclusion).toBe('従来の編集結論');
   });
 });
+
+describe('STAGE2 中計の編集値（空欄を含む）を経営計画書へ反映する', () => {
+  it('利用者が空欄にした中計項目は、AI生成値で復活せず出力されない', () => {
+    const generated = {
+      midtermConcept: '生成コンセプト',
+      growthStrategy: '生成の成長戦略',
+      profitImprovementStrategy: '生成の利益戦略',
+      managementMeetingIssues: ['生成の論点'],
+      companyWideDecisionCriteria: ['生成の判断基準'],
+    };
+    const state: any = {
+      finalStoryFinal: [{ title: '第1章', body: '確定本文' }],
+      midtermStrategy: generated,
+      stage2FinalDocumentEdits: {
+        confirmed: { conclusion: '確定結論', assumptions: { external: [], internal: [], implications: [] }, confirmedAt: '2026-11-11T00:00:00.000Z' },
+        midtermStrategy: { ...generated, growthStrategy: '', managementMeetingIssues: [], companyWideDecisionCriteria: [] },
+      },
+    };
+
+    const planData = buildPlanData(state, 'bank');
+
+    expect(planData.stage2?.growthStrategy).toBeFalsy();
+    expect(planData.stage2?.managementIssues ?? []).toEqual([]);
+    expect(planData.stage2?.confirmed?.decisionCriteria ?? []).toEqual([]);
+    expect(planData.stage2?.midtermConcept).toBe('生成コンセプト');
+  });
+
+  it('利用者の編集値があれば、生成値より編集値を経営計画書へ反映する', () => {
+    const state: any = {
+      finalStoryFinal: [{ title: '第1章', body: '確定本文' }],
+      midtermStrategy: { growthStrategy: '生成の成長戦略' },
+      stage2FinalDocumentEdits: {
+        confirmed: { conclusion: '確定結論', assumptions: { external: [], internal: [], implications: [] }, confirmedAt: '2026-11-11T00:00:00.000Z' },
+        midtermStrategy: { growthStrategy: '編集した成長戦略' },
+      },
+    };
+
+    const planData = buildPlanData(state, 'bank');
+
+    expect(planData.stage2?.growthStrategy).toBe('編集した成長戦略');
+  });
+});
