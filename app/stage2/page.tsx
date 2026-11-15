@@ -41,6 +41,7 @@ import { extendPlanOf, isSameScope, opportunityCandidatesOf, selectedEntryOf } f
 import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
 import {
+  applyMidtermPatch,
   buildConfirmedDocumentEdits,
   buildStrategicAssumptions,
   findUnconfirmedChanges,
@@ -2236,6 +2237,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     [strength, weakness, opportunity, threat],
   );
   const documentEditsForView = editingDocumentEdits ?? stage2FinalDocumentEdits;
+  const midtermView = useMemo(
+    () => mergeMidtermStrategyIntoDocumentEdits(documentEditsForView, midtermStrategy)?.midtermStrategy,
+    [documentEditsForView, midtermStrategy],
+  );
   const unconfirmedChanges = findUnconfirmedChanges({
     finalStoryFinal: finalStoryFinalRaw,
     finalStoryEdited: finalStoryEditedRaw,
@@ -2247,18 +2252,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     unconfirmedChanges.chapters || unconfirmedChanges.document || unconfirmedChanges.midtermStrategy;
   const stage3Bridge = useStrategyStore((s: any) => s.stage3_strategy_bridge);
   const midtermCandidates = useMemo(
-    () => buildMidtermCandidates(stage3Bridge, documentEditsForView?.midtermStrategy ?? midtermStrategy),
-    [stage3Bridge, documentEditsForView, midtermStrategy],
+    () => buildMidtermCandidates(stage3Bridge, midtermView),
+    [stage3Bridge, midtermView],
   );
   const documentIssues = useMemo(
     () =>
       runDocumentChecks({
         chapters: editingStory,
         conclusion: resolveConclusion(documentEditsForView?.conclusion, stage2FinalGeneratedConclusion),
-        midtermStrategy: documentEditsForView?.midtermStrategy ?? midtermStrategy,
+        midtermStrategy: midtermView,
         companyTargets,
       }),
-    [editingStory, documentEditsForView, stage2FinalGeneratedConclusion, midtermStrategy, companyTargets],
+    [editingStory, documentEditsForView, stage2FinalGeneratedConclusion, midtermView, companyTargets],
   );
 
   // ★ TASK A-2: Final タブの表示モード（auto / draft / edited / final）
@@ -3235,7 +3240,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               ...storeState,
               storyDraft: newStoryDraft,  // ★ 修正：story ではなく storyDraft として保存
               stage2FinalDocumentEdits: withStoredConfirmedRecord(
-                mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
+                editingDocumentEdits,
                 storeState.stage2FinalDocumentEdits,
               ),  // ★ 補助セクション編集内容を明示的に含める
             };
@@ -3485,7 +3490,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           try {
             const storeState = useStrategyStore.getState() as any;
             const documentEditsToSave = withStoredConfirmedRecord(
-              mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),
+              editingDocumentEdits,
               storeState.stage2FinalDocumentEdits,
             );
             const savePayload = {
@@ -3668,10 +3673,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // Step 1: STAGE3へ引き渡し（戦略展開ブリッジ生成）
       setCommittingStatus('STAGE3へ引き渡しています...');
 
-      const draftDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(
-        editingDocumentEdits ?? stage2FinalDocumentEdits,
-        midtermStrategy,
-      );
+      const draftDocumentEdits = editingDocumentEdits ?? stage2FinalDocumentEdits;
       const confirmedDocumentEdits = buildConfirmedDocumentEdits({
         edits: draftDocumentEdits,
         aiGeneratedConclusion: stage2FinalGeneratedConclusion,
@@ -3680,7 +3682,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           buildStrategicAssumptions({
             swotSuggestions,
             swotData: documentSwotData,
-            midtermStrategy: draftDocumentEdits?.midtermStrategy,
+            midtermStrategy: midtermView,
           }),
         ),
         confirmedAt: new Date().toISOString(),
@@ -3693,7 +3695,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           json: {
             finalStoryFinal: finalStoryToSave,
             companyId,
-            stage2FinalDocumentEdits: confirmedDocumentEdits,
+            stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(confirmedDocumentEdits, midtermStrategy),
           },
         });
 
@@ -3736,7 +3738,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         finalStory: finalStoryToSave,
         stage3_strategy_bridge: bridgeResult,
         stage2FinalDocumentEdits: confirmedDocumentEdits,
-        midtermStrategy: confirmedDocumentEdits.midtermStrategy ?? s.midtermStrategy,
+        midtermStrategy: mergeMidtermStrategyIntoDocumentEdits(confirmedDocumentEdits, s.midtermStrategy)?.midtermStrategy ?? s.midtermStrategy,
         dirty: true,
         version: (s.version ?? 0) + 1,
       }));
@@ -4229,7 +4231,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           story={editingStory.length > 0 ? editingStory : displayingStory}
                           finalized={!!(finalStoryFinalRaw && finalStoryFinalRaw.length > 0) && !hasUnconfirmedChanges}
                           companyName={companyName}
-                          midtermStrategy={documentEditsForView?.midtermStrategy ?? midtermStrategy}
+                          midtermStrategy={midtermView}
                           midtermCandidates={midtermCandidates}
                           financialTargets={financialTargets}
                           swotSuggestions={swotSuggestions}
@@ -4244,8 +4246,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           onAssumptionsChange={(assumptions) => {
                             setEditingDocumentEdits({ ...documentEditsForView, assumptions });
                           }}
-                          onMidtermStrategyChange={(midtermStrategy) => {
-                            setEditingDocumentEdits({ ...documentEditsForView, midtermStrategy });
+                          onMidtermStrategyChange={(patch) => {
+                            setEditingDocumentEdits(applyMidtermPatch(documentEditsForView, patch));
                           }}
                         />
                       </div>
@@ -4303,7 +4305,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             const saveScope = captureSaveScope();
 
                             const mergedDocumentEdits = withStoredConfirmedRecord(
-                              mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy),
+                              latestDocumentEdits,
                               useStrategyStore.getState().stage2FinalDocumentEdits,
                             );
                             const savedDocumentEdits =

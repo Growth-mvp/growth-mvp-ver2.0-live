@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import StrategyGuard from '@/app/StrategyGuard';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
-import { pickFinancialTargets, toConfirmedEdits } from '@/lib/stage2/finalDocument';
+import { mergeMidtermStrategyIntoDocumentEdits, pickFinancialTargets, toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { AlertCircle, ArrowLeft, Download } from 'lucide-react';
 
 const NO_CHAPTERS: never[] = [];
@@ -238,7 +238,7 @@ export default function Stage2StrategyPage() {
                   story={finalStoryToUse}
                   finalized={finalized}
                   companyName={companyName}
-                  midtermStrategy={documentEdits?.midtermStrategy ?? midtermStrategy}
+                  midtermStrategy={mergeMidtermStrategyIntoDocumentEdits(documentEdits, midtermStrategy)?.midtermStrategy}
                   financialTargets={financialTargets}
                   swotSuggestions={swotSuggestions}
                   swotData={swotData}

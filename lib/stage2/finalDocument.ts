@@ -60,6 +60,14 @@ export function mergeMidtermStrategyIntoDocumentEdits(
   };
 }
 
+/** 利用者が変更した項目だけを編集値に加える。未変更の項目はトップレベルの生成値に任せる */
+export function applyMidtermPatch(
+  edits: Stage2FinalDocumentEdits | undefined,
+  patch: Partial<MidtermStrategy>,
+): Stage2FinalDocumentEdits {
+  return { ...(edits ?? {}), midtermStrategy: { ...(edits?.midtermStrategy ?? {}), ...patch } };
+}
+
 export function resolveConclusion(edited: string | undefined, aiGenerated: string | undefined): string {
   if (edited?.trim()) return edited;
   return aiGenerated?.trim() ? aiGenerated : '';

@@ -39,7 +39,7 @@ interface StrategyStoryPreviewProps {
   isEditMode?: boolean;
   onConclusionChange?: (conclusion: string) => void;
   onAssumptionsChange?: (assumptions: StrategicAssumptions) => void;
-  onMidtermStrategyChange?: (midtermStrategy: MidtermStrategy) => void;
+  onMidtermStrategyChange?: (patch: Partial<MidtermStrategy>) => void;
   /** 既存の構造化データから作った、空の中計項目の候補（編集時のみ表示。確定値にはならない） */
   midtermCandidates?: MidtermCandidate[];
 }
@@ -341,7 +341,7 @@ export function StrategyStoryPreview({
     hasList(midterm.deploymentPrinciplesForUnits) ||
     hasText(midterm.portfolioPolicy);
 
-  const updateMidterm = (patch: Partial<MidtermStrategy>) => onMidtermStrategyChange?.({ ...midterm, ...patch });
+  const updateMidterm = (patch: Partial<MidtermStrategy>) => onMidtermStrategyChange?.(patch);
   const candidateFor = (field: MidtermCandidateField) => (edit ? midtermCandidates?.find((c) => c.field === field) : undefined);
   const adoptCandidate = (candidate: MidtermCandidate) =>
     updateMidterm(

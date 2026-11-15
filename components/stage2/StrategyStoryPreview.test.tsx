@@ -140,3 +140,24 @@ describe('箇条書きの編集', () => {
     expect(textarea.value).toBe('市場の成長\n人口減少');
   });
 });
+
+describe('中計の編集（変更した項目だけを通知する）', () => {
+  it('基本コンセプトを空欄にすると、変更した項目だけが通知され、他の項目は含まれない', () => {
+    const onMidtermStrategyChange = jest.fn();
+    render(
+      <StrategyStoryPreview
+        story={story}
+        finalized={false}
+        companyName="テスト株式会社"
+        midtermStrategy={midterm}
+        isEditMode
+        onMidtermStrategyChange={onMidtermStrategyChange}
+      />,
+    );
+    const concept = screen.getByDisplayValue('成長領域へ資源を集中する') as HTMLTextAreaElement;
+
+    fireEvent.change(concept, { target: { value: '' } });
+
+    expect(onMidtermStrategyChange).toHaveBeenLastCalledWith({ midtermConcept: '' });
+  });
+});
