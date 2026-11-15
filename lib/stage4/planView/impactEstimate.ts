@@ -75,6 +75,9 @@ export type ImpactEstimate =
 export type HypothesisValues = Partial<Record<ParamKey, number>>;
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+const fiscalYearOrNull = (v: number | null): number | null =>
+  v !== null && Number.isInteger(v) && v >= 2000 && v <= 2100 ? v : null;
 const roundMil = (v: number): number => Math.round(v * 1_000_000) / 1_000_000;
 const fmt = (v: number): string => String(roundMil(v));
 const MONTHS_PER_YEAR = 12;
@@ -152,8 +155,8 @@ export function estimateProjectImpact(
     grossMarginPct: pick(e('grossMarginPct'), kpiMargin, textMargin, hyp.grossMarginPct ?? null),
     addCostMJPY: pick(e('addCostMJPY'), null, textAddCost, hyp.addCostMJPY ?? null),
     investmentMJPY: pick(e('investmentMJPY'), null, textInvest, hyp.investmentMJPY ?? null),
-    startYear: { value: e('startYear'), source: (e('startYear') !== null ? 'USER' : 'MISSING') as ParamSource },
-    endYear: { value: e('endYear'), source: (e('endYear') !== null ? 'USER' : 'MISSING') as ParamSource },
+    startYear: { value: fiscalYearOrNull(e('startYear')), source: (fiscalYearOrNull(e('startYear')) !== null ? 'USER' : 'MISSING') as ParamSource },
+    endYear: { value: fiscalYearOrNull(e('endYear')), source: (fiscalYearOrNull(e('endYear')) !== null ? 'USER' : 'MISSING') as ParamSource },
     currentCostMJPY: pick(e('currentCostMJPY'), num(a?.currentCostMJPY), null, null),
     reductionRatePct: pick(e('reductionRatePct'), num(a?.reductionRatePct), null, null),
     serviceRevenue: { value: e('serviceRevenue'), source: (e('serviceRevenue') !== null ? 'USER' : 'MISSING') as ParamSource },
@@ -310,7 +313,12 @@ export function estimateProjectImpact(
     formula: null,
     source: `計上年度：${SOURCE_LABEL[picks.startYear.source]}`,
     check: 'UNCONFIRMED',
-    note: sy === null ? '計上年度が未確認のため、年度別の業績としては表示しない' : null,
+    note:
+      sy !== null
+        ? null
+        : e('startYear') !== null
+          ? '計上年度は西暦4桁の年度で入力してください（例：2028）。年月（例：202704）は入力できません'
+          : '計上年度が未確認のため、年度別の業績としては表示しない',
   });
   if (sy === null) warnings.push('計上年度は未確認のため、年度別の業績としては表示しない');
   if (num(a?.currentCostMJPY) !== null || num(a?.reductionRatePct) !== null || num(project.impactOpIncomeMJPY) !== null) {

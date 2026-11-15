@@ -99,6 +99,16 @@ describe('estimateProjectImpact（STAGE3の前提からの参考試算）', () =
     expect(estimateProjectImpact(projectOf({ impactAssumptions: { currentCostMJPY: 200, reductionRatePct: 20 } })).status).toBe('NOT_CALCULATED');
   });
 
+  it('計上年度は西暦4桁の年度だけを使い、年月の値（202704）は未確認として扱う', () => {
+    const typed = (startYear: number, endYear: number) =>
+      calc(estimateProjectImpact(projectOf(), { edits: { 'impact:startYear': startYear, 'impact:endYear': endYear } }));
+    const bad = typed(202704, 202802);
+    expect(rowOf(bad, '計上期間').valueText).toBe('未確認');
+    expect(rowOf(bad, '計上期間').note).toContain('西暦4桁の年度');
+    const ok = typed(2028, 2028);
+    expect(rowOf(ok, '計上期間').valueText).toBe('2028年度〜2028年度');
+  });
+
   it('計算は入力の案件を変えない', () => {
     const p = projectOf();
     const before = JSON.parse(JSON.stringify(p));
