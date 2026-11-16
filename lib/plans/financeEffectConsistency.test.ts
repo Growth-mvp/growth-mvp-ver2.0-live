@@ -114,13 +114,13 @@ describe('確認済み財務効果：年度別の全社増分（STAGE6の試算�
 });
 
 describe('確認済み財務効果：計画書の表示（年額換算・全社試算の内訳）', () => {
-  it('プロジェクトの表示は、確認済みの効果だけを金額にし、未確認・未算定は理由を示す', () => {
+  it('プロジェクトの表示は、反映済みの効果だけを金額にし、未反映・未算定は理由を示す', () => {
     const p1 = projectFinanceSummary(departments[0].projects[0] as any);
-    expect(p1.revenueText).toBe('年額換算 +120百万円（確認済み）');
-    expect(p1.operatingText).toBe('年額換算 +30百万円（確認済み）');
+    expect(p1.revenueText).toBe('年額換算 +120百万円（STAGE6に反映）');
+    expect(p1.operatingText).toBe('年額換算 +30百万円（STAGE6に反映）');
 
     const p4 = projectFinanceSummary(departments[0].projects[3] as any);
-    expect(p4.revenueText).toBe('未確認（財務試算に含まない）');
+    expect(p4.revenueText).toBe('未反映（計算条件がそろうまで財務試算に含まない）');
     expect(p4.confirmedRevenueYen).toBeNull();
 
     const p5 = projectFinanceSummary(departments[0].projects[4] as any);
@@ -130,8 +130,8 @@ describe('確認済み財務効果：計画書の表示（年額換算・全社�
 
   it('複数効果の施策は、効果ごとの表示を並べ、売上の増分と費用削減を混ぜない', () => {
     const p3 = projectFinanceSummary(departments[0].projects[2] as any);
-    expect(p3.revenueText).toBe('一回限り +50百万円（確認済み）');
-    expect(p3.operatingText).toContain('年額換算 +12百万円（確認済み）');
+    expect(p3.revenueText).toBe('一回限り +50百万円（STAGE6に反映）');
+    expect(p3.operatingText).toContain('年額換算 +12百万円（STAGE6に反映）');
     expect(p3.operatingText).toContain('売上増の営業利益の増分は未算定');
     expect(p3.confirmedRevenueYen).toBe(50 * M);
   });

@@ -574,9 +574,9 @@ function Stage3ProjectBrowser({
     const confirmedNow = steps.some((s) => s.action === 'CONFIRM');
     const notice =
       pending.length > 0
-        ? `計画は保存しましたが、財務効果は未確認のままです（${pending.map((p) => `${p.label}：${p.reasons.join('、')}`).join('／')}）。条件がそろうと、「計画を保存」で確認されます。`
+        ? `計画は保存しました。財務効果は、次の条件がそろうと「計画を保存」でSTAGE6に反映されます（${pending.map((p) => `${p.label}：${p.reasons.join('、')}`).join('／')}）。`
         : confirmedNow
-          ? '計画と財務効果を保存し、確認しました。STAGE6に反映されます。'
+          ? '計画と財務効果を保存しました。STAGE6に反映されます。'
           : null;
     updateEntry(targetId, (e) => {
       const rest: FinanceAnswersByKind = { ...(e.finance ?? {}) };

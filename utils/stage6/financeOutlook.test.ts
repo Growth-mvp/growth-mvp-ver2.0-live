@@ -85,12 +85,12 @@ describe('財務試算（共通）：STAGE6とホームで同じ経路B', () => 
     expect(summary.operatingIncome.status).toBe('PLAN_UNKNOWN');
   });
 
-  it('未確認（確認待ち）の効果は試算に加算されない', () => {
+  it('保存時に反映されていない効果（旧データを含む）は試算に加算されない', () => {
     const o = outlookOf({
       departments: [dept([proj('新規開拓', { financeEffect: { ...revenueUp60, confirmed: false } })])],
     });
     expect(planOf(o, 2027).revenueYen).toBe(1_000 * M);
-    expect(o.effectTrial.excluded.map((e) => e.reason)).toEqual(['利用者が未確認（確認すると試算に入ります）']);
+    expect(o.effectTrial.excluded.map((e) => e.reason)).toEqual(['保存済みですが、計算条件（入力不足・重複の確認）がそろうまで未反映']);
   });
 
   it('入力不足の効果は未算定として除外し、0円扱いにしない', () => {

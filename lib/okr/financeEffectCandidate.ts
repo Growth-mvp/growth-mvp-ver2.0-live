@@ -95,7 +95,7 @@ export function candidateChecks(effect: FinanceEffect): CandidateCheck[] {
       key: 'meaning',
       label: 'AIの「対象顧客数」を、商談数として扱ってよいか',
       done: effect.meetingBasisConfirmed === true,
-      blocking: true,
+      blocking: false,
     });
   }
   if (effect.kind === 'REVENUE_UP') {
@@ -103,7 +103,7 @@ export function candidateChecks(effect: FinanceEffect): CandidateCheck[] {
       key: 'incremental',
       label: '既存の売上に対する追加効果か',
       done: effect.isIncremental === true,
-      blocking: aiProposed,
+      blocking: false,
     });
     checks.push({
       key: 'operatingIncome',
@@ -117,7 +117,7 @@ export function candidateChecks(effect: FinanceEffect): CandidateCheck[] {
       key: 'reduction',
       label: '実際に減らせる費用として確認できたか（費用配賦の見直し・作業時間短縮だけではない）',
       done: effect.reductionConfirmed === true,
-      blocking: true,
+      blocking: false,
     });
   }
   checks.push({ key: 'basis', label: '金額の単位（一回限り・月額・年額）', done: effect.amountBasis !== undefined, blocking: true });

@@ -110,7 +110,7 @@ describe('STAGE4→6 財務効果の条件付き試算（決算3月・架空企�
       [2028, 0, 1_200_000],
     ]);
     expect(t.excluded.map((e) => e.projectTitle)).toEqual(['下書き', '根拠なし', '社内向け']);
-    expect(t.excluded[0].reason).toContain('未確認');
+    expect(t.excluded[0].reason).toContain('未反映');
     expect(t.excluded[1].reason).toContain('算定根拠・出所');
     expect(t.excluded[2].reason).toContain('非財務');
   });
@@ -136,7 +136,7 @@ describe('STAGE4→6 財務効果の条件付き試算（決算3月・架空企�
     expect(after.included).toHaveLength(2);
   });
 
-  it('確認済みの金額を変更すると確認が解除され、試算から外れる（変更の反映）', () => {
+  it('保存済みの金額を変更すると試算から外れ、保存し直すまで反映されない', () => {
     const confirmed = { ...base, kind: 'COST_REDUCTION', method: 'DIRECT_AMOUNT', directAmountYen: 1_200_000, amountBasis: 'ANNUAL', startYm: '2026-04' };
     const released = guardFinanceEffectConfirmation(confirmed, { ...confirmed, directAmountYen: 2_400_000 });
     expect(released?.confirmed).toBe(false);
@@ -146,7 +146,7 @@ describe('STAGE4→6 財務効果の条件付き試算（決算3月・架空企�
       fiscalYears: FY,
     });
     expect(t.included).toEqual([]);
-    expect(t.excluded[0].reason).toContain('未確認');
+    expect(t.excluded[0].reason).toContain('未反映');
     expect(yearsOf(t).every(([, r, o]) => r === 0 && o === 0)).toBe(true);
   });
 

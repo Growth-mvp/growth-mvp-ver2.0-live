@@ -45,12 +45,12 @@ const yearTotals: FinanceEffectTrialYear[] = [
 const html = (projects: FinanceEffectProjectRow[]) => renderToStaticMarkup(<FinanceEffectProjectList projects={projects} years={yearTotals} />);
 
 describe('プロジェクト別の財務効果一覧', () => {
-  it('試算に反映された施策は金額を、未確認・入力不足は理由だけを表示し、0円とは書かない', () => {
-    const out = html([reflected(1), notReflected(2, 'DRAFT', '利用者が未確認（確認すると試算に入ります）'), notReflected(3, 'INCOMPLETE', '入力不足のため未算定：数量')]);
-    expect(out).toContain('試算に反映（確認済み）');
-    expect(out).toContain('未確認のため未反映');
+  it('試算に反映された施策は金額を、未反映・入力不足は理由だけを表示し、0円とは書かない', () => {
+    const out = html([reflected(1), notReflected(2, 'DRAFT', '保存済みですが、計算条件（入力不足・重複の確認）がそろうまで未反映'), notReflected(3, 'INCOMPLETE', '入力不足のため未算定：数量')]);
+    expect(out).toContain('保存済み・STAGE6に反映');
+    expect(out).toContain('未反映（入力不足・重複の確認待ち）');
     expect(out).toContain('入力不足のため未算定');
-    expect(out).toContain('利用者が未確認（確認すると試算に入ります）');
+    expect(out).toContain('保存済みですが、計算条件（入力不足・重複の確認）がそろうまで未反映');
     expect(out).toContain('2026年度〜');
   });
 

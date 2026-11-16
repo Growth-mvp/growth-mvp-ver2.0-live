@@ -137,7 +137,7 @@ function flowOf(effect: FinanceEffect, result: FinanceEffectResult, projectHasCo
 }
 
 const REASON: Record<Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, string> = {
-  DRAFT: '利用者が未確認（確認すると試算に入ります）',
+  DRAFT: '保存済みですが、計算条件（入力不足・重複の確認）がそろうまで未反映',
   INCOMPLETE: '入力不足のため未算定',
   NOT_FINANCIAL: '非財務の効果のため、財務試算には含めない',
 };

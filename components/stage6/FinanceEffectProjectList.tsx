@@ -7,8 +7,8 @@ const INITIAL_ROWS = 5;
 const MILLION = 1_000_000;
 
 const STATUS_LABEL: Record<FinanceEffectProjectStatus, { label: string; tone: string }> = {
-  REFLECTED: { label: '試算に反映（確認済み）', tone: 'bg-emerald-100 text-emerald-800' },
-  DRAFT: { label: '未確認のため未反映', tone: 'bg-amber-100 text-amber-800' },
+  REFLECTED: { label: '保存済み・STAGE6に反映', tone: 'bg-emerald-100 text-emerald-800' },
+  DRAFT: { label: '未反映（入力不足・重複の確認待ち）', tone: 'bg-amber-100 text-amber-800' },
   INCOMPLETE: { label: '入力不足のため未算定', tone: 'bg-amber-100 text-amber-800' },
   NOT_FINANCIAL: { label: '財務換算しない施策', tone: 'bg-slate-100 text-slate-600' },
   NOT_SET: { label: '財務効果の登録なし', tone: 'bg-slate-100 text-slate-600' },

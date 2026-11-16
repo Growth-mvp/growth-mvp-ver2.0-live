@@ -412,7 +412,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
             {doc.impact.financeLines.map((f) => (
               <li key={f.label}>
                 <span className={`plan-fin plan-fin-${f.status === 'NOT_CALCULATED' ? 'none' : 'some'}`}>
-                  {f.status === 'NOT_CALCULATED' ? '未試算' : f.status === 'CONFIRMED' ? '確認済み' : '参考試算（未確認）'}
+                  {f.status === 'NOT_CALCULATED' ? '未試算' : f.status === 'CONFIRMED' ? 'STAGE6に反映' : '参考試算（未反映）'}
                 </span>{' '}
                 {f.text}
               </li>

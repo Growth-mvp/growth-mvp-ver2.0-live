@@ -78,12 +78,11 @@ describe('AI算定前提から財務効果の候補を作る', () => {
   });
 });
 
-describe('AI提案の効果は、確認項目を済ませないと確認できない', () => {
-  it('AI提案の売上（FUNNEL）は、対象顧客数の意味と追加効果の確認が必須', () => {
+describe('AI提案の効果の確認項目は、計上の条件にしない', () => {
+  it('AI提案の売上（FUNNEL）は、対象顧客数の意味と追加効果が未チェックでも計上の条件を満たす', () => {
     const e: FinanceEffect = { ...revenueCandidate().effect, amountBasis: 'ANNUAL', startYm: '2026-04' };
-    expect(blockingChecksDone(e)).toBe(false);
-    expect(candidateChecks(e).filter((c) => c.blocking && !c.done).map((c) => c.key)).toEqual(['meaning', 'incremental']);
-    expect(blockingChecksDone({ ...e, meetingBasisConfirmed: true, isIncremental: true })).toBe(true);
+    expect(blockingChecksDone(e)).toBe(true);
+    expect(candidateChecks(e).filter((c) => c.blocking && !c.done)).toEqual([]);
   });
 
   it('利用者が入力した売上は、AI提案の確認項目を要求しない（期間などの必須項目のみ）', () => {

@@ -44,14 +44,14 @@ export function withBlankFinanceDrafts(drafts: FinanceEffectDraft[]): FinanceEff
 /* 財務効果の状態の要約（閉じているときも見える）。確認済みの売上増加額・営業利益貢献額を、算定できたものだけ示す */
 export function financeStatusSummary(saved: FinanceEffect[]): string {
   if (saved.length === 0) return '未設定';
-  if (saved.some((e) => e.confirmed !== true)) return '未確認';
+  if (saved.some((e) => e.confirmed !== true)) return '未反映（入力不足または重複の確認待ち）';
   const parts: string[] = [];
   for (const e of saved) {
     const r = computeFinanceEffect(e);
     if (e.kind === 'REVENUE_UP' && r.annualRevenueYen !== undefined) parts.push(`売上増加 ${formatYenScaled(r.annualRevenueYen)}`);
     if (r.annualOperatingEffectYen !== undefined) parts.push(`営業利益貢献 ${formatYenScaled(r.annualOperatingEffectYen)}`);
   }
-  return parts.length > 0 ? `確認済み（${parts.join('、')}／年額）` : '確認済み';
+  return parts.length > 0 ? `保存済み・STAGE6に反映（${parts.join('、')}／年額）` : '保存済み・STAGE6に反映';
 }
 
 export type FinanceAnswers = {
@@ -361,9 +361,6 @@ export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): str
   if (effect.amountBasis === 'TOTAL' && effect.endYm) {
     reasons.push('一回限りの金額は開始月に全額計上します（終了年月を入れると期間に按分されるため、終了年月を消してください）');
   }
-  if (effect.kind === 'REVENUE_UP' && !effect.revenueKind) {
-    reasons.push('売上の区分（有償開発・量産・サービス提供）が未確認');
-  }
   if (effect.kind === 'REVENUE_UP' && effect.operatingIncomeEffectYen !== undefined) {
     if (ctx.hasCostEffect && effect.opIncomeIncludesAddCost === undefined) {
       reasons.push('営業利益増分が、同じ案件の追加費用を差し引いた後の値か（含む／含まない）が未確認');
@@ -510,7 +507,7 @@ export function financeLinesOf(args: {
     const revenue = effect.kind === 'REVENUE_UP' ? `売上 ${yenTextOf(result.annualRevenueYen)}／` : '';
     const operating = `営業利益への効果 ${yenTextOf(result.annualOperatingEffectYen)}`;
     const confirmed = effect.confirmed === true && !unsaved;
-    const note = confirmed ? '' : '。未確認のため、正式な計画には加算しません';
+    const note = confirmed ? '' : '。計上条件がそろうまで、STAGE6の正式な計画には加算しません';
     lines.push({ label, status: confirmed ? 'CONFIRMED' : 'AI_ESTIMATE', text: `${label}：${revenue}${operating}（年額）${note}${suffix}` });
   }
   return lines;
@@ -594,7 +591,7 @@ export function financeSaveSteps(args: {
     if (savedOne?.confirmed && !isFinanceEffectInputChanged(savedOne, candidate)) continue;
     const unchanged = !!savedOne && !isFinanceEffectInputChanged(savedOne, candidate);
     if (!unchanged) steps.push({ kind: draft.kind, action: savedOne?.confirmed ? 'REVISE' : 'SAVE_DRAFT', candidate });
-    if (confirmBlockers(candidate, ctx).length === 0) steps.push({ kind: draft.kind, action: 'CONFIRM', candidate });
+    if (calcMissingOf(candidate).length === 0 && confirmBlockers(candidate, ctx).length === 0) steps.push({ kind: draft.kind, action: 'CONFIRM', candidate });
   }
   return steps;
 }
@@ -613,10 +610,15 @@ export function financePendingReasons(args: {
     if (savedOne?.confirmed) continue;
     const answers = args.answers[draft.kind] ?? (savedOne ? initialFinanceAnswers(draft, savedOne) : undefined);
     if (!answers) continue;
-    const reasons = confirmBlockers(applyFinanceAnswers(draft, answers), ctx);
+    const candidate = applyFinanceAnswers(draft, answers);
+    const reasons = [...calcMissingOf(candidate).map((m) => `${m}が未入力`), ...confirmBlockers(candidate, ctx)];
     if (reasons.length > 0) out.push({ label: draft.label, reasons });
   }
   return out;
+}
+
+function calcMissingOf(effect: FinanceEffect): string[] {
+  return computeFinanceEffect(effect).missing;
 }
 
 function isFinanceEffectInputChanged(prev: FinanceEffect, next: FinanceEffect): boolean {

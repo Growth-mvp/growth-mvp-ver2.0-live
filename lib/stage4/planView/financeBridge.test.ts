@@ -123,7 +123,7 @@ describe('財務効果の草案（参考試算から）', () => {
     expect(costDraft({ startYear: 2027 }).base).toMatchObject({ kind: 'COST_INCREASE', method: 'DIRECT_AMOUNT', directAmountYen: 6 * M, confirmed: false });
   });
 
-  it('AIの仮説の値を含む草案は AI_PROPOSED になり、商談数と追加効果の確認が要る', () => {
+  it('AIの仮説の値を含む草案は AI_PROPOSED になるが、AIの確認項目は計上の条件にしない', () => {
     const est = calculated(
       estimateProjectImpact(
         { ...PROJECT, impactAssumptions: undefined, impactRationale: '' },
@@ -133,10 +133,7 @@ describe('財務効果の草案（参考試算から）', () => {
     const revenue = buildFinanceEffectDrafts({ estimate: est, fiscalYearEnd: '3' }).find((d) => d.kind === 'REVENUE_UP')!;
     expect(revenue.base.source).toBe('AI_PROPOSED');
     const blockers = confirmBlockers(applyFinanceAnswers(revenue, { amountBasis: 'ANNUAL' }), ctx());
-    expect(blockers).toEqual(expect.arrayContaining([
-      expect.stringContaining('商談数として扱ってよいか'),
-      expect.stringContaining('既存の売上に対する追加効果か'),
-    ]));
+    expect(blockers.filter((b) => /商談数として扱ってよいか|既存の売上に対する追加効果か/.test(b))).toEqual([]);
   });
 
   it('参考試算が計算されていなければ草案は作らない', () => {
@@ -186,9 +183,9 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
     ]);
   });
 
-  it('売上の区分（有償開発・量産・サービス提供）が未確認なら、売上は確認しない', () => {
+  it('売上の区分は計算の必須条件にしない（未入力でも売上は計上でき、区分は入力した値を保つ）', () => {
     const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, revenueKind: undefined });
-    expect(confirmBlockers(rev, ctx())).toEqual([expect.stringContaining('売上の区分（有償開発・量産・サービス提供）が未確認')]);
+    expect(confirmBlockers(rev, ctx())).toEqual([]);
     const typed = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, revenueKind: 'MASS_PRODUCTION' });
     expect(typed.revenueKind).toBe('MASS_PRODUCTION');
     expect(confirmBlockers(typed, ctx())).toEqual([]);
@@ -420,11 +417,11 @@ describe('計画の保存で書く財務効果（financeSaveSteps）', () => {
     expect(steps[1].candidate.amountBasis).toBe('MONTHLY');
   });
 
-  it('AI提案の売上は、対象顧客数と追加効果の確認項目が自動では済まないため、確認しない', () => {
+  it('AI提案の売上も、AIの確認項目を計上の条件にせず、計算がそろえば保存と同時に反映する', () => {
     const d = revenueDraft();
     const aiDraft = { ...d, fromAi: true, base: { ...d.base, source: 'AI_PROPOSED' as const } };
     const steps = financeSaveSteps({ drafts: [aiDraft], answers: { REVENUE_UP: complete }, saved: [], overlapCount: 0 });
-    expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT']);
+    expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT', 'CONFIRM']);
   });
 
   it('確認済みの効果は、入力が変わっていなければ書き直さない', () => {
@@ -490,13 +487,13 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     expect(financeSaveSteps({ drafts: blanks, answers: {}, saved: [], overlapCount: 0 })).toEqual([]);
   });
 
-  it('財務効果の状態は、未設定・未確認・確認済みを示し、確認済みは売上増加と営業利益貢献を年額で示す', () => {
+  it('財務効果の状態は、未設定・未反映・STAGE6に反映を示し、反映済みは売上増加と営業利益貢献を年額で示す', () => {
     expect(financeStatusSummary([])).toBe('未設定');
     const base: FinanceEffect = applyFinanceAnswers(
       { kind: 'REVENUE_UP', label: '売上増加', fromAi: false, base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '見積書' } },
       { amountBasis: 'ANNUAL', startYm: '2027-04', endYm: '2028-03', directAmountYen: 12 * M, revenueKind: 'MASS_PRODUCTION', costRatePct: 70, sgaCostYen: 0, sgaSameAsAddCost: false },
     );
-    expect(financeStatusSummary([base])).toBe('未確認');
+    expect(financeStatusSummary([base])).toBe('未反映（入力不足または重複の確認待ち）');
     expect(financeStatusSummary([{ ...base, confirmed: true }])).toContain('売上増加');
   });
 
@@ -599,14 +596,28 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
       }
       return stored;
     };
-    const unconfirmed = save(base);
-    expect(unconfirmed?.confirmed).toBe(false);
-    expect(buildFinanceEffectTrial({ ...project(unconfirmed), fiscalYearEnd: '3', fiscalYears: [2028] }).years[0].revenueYen).toBe(0);
-    const confirmed = save({ ...base, revenueKind: 'MASS_PRODUCTION' }, unconfirmed);
-    expect(confirmed?.confirmed).toBe(true);
-    const trial = buildFinanceEffectTrial({ ...project(confirmed), fiscalYearEnd: '3', fiscalYears: [2028] });
+    const incomplete = save({ ...base, directAmountYen: undefined });
+    expect(incomplete?.confirmed).toBe(false);
+    expect(buildFinanceEffectTrial({ ...project(incomplete), fiscalYearEnd: '3', fiscalYears: [2028] }).years[0].revenueYen).toBe(0);
+    const reflected = save(base, incomplete);
+    expect(reflected?.confirmed).toBe(true);
+    const trial = buildFinanceEffectTrial({ ...project(reflected), fiscalYearEnd: '3', fiscalYears: [2028] });
     expect(trial.years[0].revenueYen).toBe(720_000);
     expect(trial.years[0].revenueOperatingIncomeYen).toBeCloseTo(188_000, 0);
+  });
+
+  it('計算の必須項目（直接金額）が未入力の間は、計画を保存しても反映されず、不足理由を示す', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（新規連携）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const answers = { REVENUE_UP: { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', costRatePct: 60 } };
+    expect(financeSaveSteps({ drafts: [draft], answers, saved: [], overlapCount: 0 }).map((s) => s.action)).toEqual(['SAVE_DRAFT']);
+    const pending = financePendingReasons({ drafts: [draft], answers, saved: [], overlapCount: 0 });
+    expect(pending[0].reasons).toEqual(expect.arrayContaining([expect.stringContaining('直接金額が未入力')]));
   });
 
   it('売上72万・粗利益28.8万・追加販売管理費10万は、STAGE4の計算・計画書の文章・STAGE6の集計で同じ数値になり、未確認は正式計画に入らない', () => {

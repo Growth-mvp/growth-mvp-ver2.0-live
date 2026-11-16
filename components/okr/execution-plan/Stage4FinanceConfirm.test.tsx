@@ -56,7 +56,7 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
     expect((screen.getByLabelText('追加費用の開始年月') as HTMLInputElement).value).toBe('2027-04');
   });
 
-  it('AIの仮説から作った売上は、確認項目が済むまで未確認の項目として示す', () => {
+  it('AIの仮説から作った売上も、確認項目は計上の条件にせず、計算がそろえば保存で反映できると示す', () => {
     const est = estimateProjectImpact(
       { ...project, impactAssumptions: undefined, impactRationale: '' },
       { edits: { 'impact:startYear': 2027, 'impact:endYear': 2028 }, hypothesis: { customers: 10, rate: 30, deal: 20 } },
@@ -64,8 +64,8 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
     const aiDrafts = buildFinanceEffectDrafts({ estimate: est, fiscalYearEnd: '3' });
     renderConfirm({ drafts: aiDrafts, answers: { REVENUE_UP: { amountBasis: 'ANNUAL', startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' } } });
     const card = screen.getByLabelText('売上増加（参考試算の売上）の財務効果');
-    expect(card.textContent).toContain('商談数として扱ってよいかが未確認');
-    expect(card.textContent).toContain('既存の売上に対する追加効果かが未確認');
+    expect(card.textContent).toContain('計算に必要な項目はそろっています');
+    expect(card.textContent).not.toContain('未確認');
   });
 
   it('直接金額入力でもサービス提供の売上区分を選べ、年額72万円・営業利益18.8万円を示す', () => {
@@ -82,11 +82,11 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
     expect(onAnswer).toHaveBeenCalledWith('REVENUE_UP', expect.objectContaining({ revenueKind: 'PAID_DEVELOPMENT' }));
   });
 
-  it('確認済みの効果は、STAGE6の試算に入る旨を表示し、入力は直接変えられる', () => {
+  it('保存済みで反映されている効果は、STAGE6に反映される旨を表示し、入力は直接変えられる', () => {
     const saved = [{ ...drafts().find((d) => d.kind === 'COST_INCREASE')!.base, amountBasis: 'ANNUAL', confirmed: true, confirmedAt: '2026-11-10T00:00:00.000Z' }] as any[];
     renderConfirm({ saved });
     const card = screen.getByLabelText('追加費用の財務効果');
-    expect(card.textContent).toContain('確認済み（STAGE6の試算に入ります）');
+    expect(card.textContent).toContain('保存済み・STAGE6に反映');
     card.querySelectorAll('select, input').forEach((el) => expect((el as HTMLInputElement).disabled).toBe(false));
   });
 
@@ -119,7 +119,7 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
 });
 
 
-describe('確認済みの財務効果の修正', () => {
+describe('保存済みの財務効果の修正', () => {
   const confirmedCost = (): FinanceEffect => ({
     kind: 'COST_INCREASE',
     method: 'DIRECT_AMOUNT',
@@ -141,10 +141,10 @@ describe('確認済みの財務効果の修正', () => {
     expect(screen.queryByRole('button', { name: '修正をやめる' })).toBeNull();
   });
 
-  it('確認済みの効果の入力を変えると、「計画を保存」で保存されると案内する', () => {
+  it('保存済みの効果の入力を変えると、「計画を保存」でSTAGE6に反映されると案内する', () => {
     renderConfirm({ saved: [confirmedCost()] });
     fireEvent.change(screen.getByLabelText('追加費用の開始年月'), { target: { value: '2027-10' } });
-    expect(screen.getByRole('note').textContent).toContain('「計画を保存」で保存されます');
+    expect(screen.getByRole('note').textContent).toContain('「計画を保存」でSTAGE6に反映されます');
   });
 });
 

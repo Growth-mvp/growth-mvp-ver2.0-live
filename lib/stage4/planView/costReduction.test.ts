@@ -47,10 +47,10 @@ describe('コスト削減型の財務効果（年間削減額と確認）', () =
     expect(e.directAmountYen).toBe(12_000_000);
   });
 
-  it('実際に減らせる費用として確認していなければ、確認に進めない', () => {
+  it('実際に減らせる費用の確認チェックは計上の条件にせず、未チェックでも計算がそろえば確認に進める', () => {
     const draft = costDraft({ currentCostMJPY: 120, reductionRatePct: 10, startYear: 2028, endYear: 2028 });
     const blockers = confirmBlockers(applyFinanceAnswers(draft, { ...ANSWERS, reductionConfirmed: false }), NO_CONTEXT);
-    expect(blockers.join('、')).toContain('実際に減らせる費用として確認できた');
+    expect(blockers).toEqual([]);
     const ok = confirmBlockers(applyFinanceAnswers(draft, ANSWERS), NO_CONTEXT);
     expect(ok).toEqual([]);
   });

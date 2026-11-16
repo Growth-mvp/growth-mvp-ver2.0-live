@@ -56,7 +56,7 @@ describe('プロジェクト別の財務効果：試算に入る施策だけを�
     }
   });
 
-  it('未確認・入力不足・非財務の施策は、金額を持たず（0ではなく）理由だけを持つ', () => {
+  it('未反映・入力不足・非財務の施策は、金額を持たず（0ではなく）理由だけを持つ', () => {
     const trial = trialOf([
       dept([
         { id: 'D', title: '未確認', financeEffect: eff({ kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', directAmountYen: 50 * M, amountBasis: 'ANNUAL', startYm: '2025-04', confirmed: false }) },
@@ -66,7 +66,7 @@ describe('プロジェクト別の財務効果：試算に入る施策だけを�
       ]),
     ]);
     expect(rowOf(trial, '未確認')).toMatchObject({ status: 'DRAFT', years: [] });
-    expect(rowOf(trial, '未確認').reason).toContain('未確認');
+    expect(rowOf(trial, '未確認').reason).toContain('未反映');
     expect(rowOf(trial, '入力不足')).toMatchObject({ status: 'INCOMPLETE', years: [] });
     expect(rowOf(trial, '入力不足').reason).toContain('入力不足');
     expect(rowOf(trial, '非財務')).toMatchObject({ status: 'NOT_FINANCIAL', years: [] });

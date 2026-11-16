@@ -51,7 +51,7 @@ export function projectFinanceSummary(project: Project): ProjectFinanceSummary {
 
     if (r.status !== 'CONFIRMED') {
       pendingCount++;
-      const note = r.status === 'DRAFT' ? '未確認（財務試算に含まない）' : `未算定（不足：${r.missing.join('、')}）`;
+      const note = r.status === 'DRAFT' ? '未反映（計算条件がそろうまで財務試算に含まない）' : `未算定（不足：${r.missing.join('、')}）`;
       if (isRevenue) revenueParts.push(note);
       operatingParts.push(note);
       continue;
@@ -62,11 +62,11 @@ export function projectFinanceSummary(project: Project): ProjectFinanceSummary {
     const operatingYen = r.annualOperatingEffectYen ?? r.oneTimeOperatingEffectYen ?? null;
     if (revenueYen !== null) {
       confirmedRevenueYen = (confirmedRevenueYen ?? 0) + revenueYen;
-      revenueParts.push(`${basis} ${signedMillion(revenueYen)}（確認済み）`);
+      revenueParts.push(`${basis} ${signedMillion(revenueYen)}（STAGE6に反映）`);
     }
     if (operatingYen !== null) {
       confirmedOperatingYen = (confirmedOperatingYen ?? 0) + operatingYen;
-      operatingParts.push(`${basis} ${signedMillion(operatingYen)}（確認済み）`);
+      operatingParts.push(`${basis} ${signedMillion(operatingYen)}（STAGE6に反映）`);
     } else if (isRevenue) {
       operatingParts.push('売上増の営業利益の増分は未算定');
     }

@@ -36,11 +36,14 @@ function formulaOf(draft: FinanceEffectDraft): string {
   return amountText(e.directAmountYen);
 }
 
-function statusOf(saved: FinanceEffect | undefined): string {
-  if (!saved) return '未保存（STAGE6の試算には入りません）';
-  if (saved.confirmed) return '確認済み（STAGE6の試算に入ります）';
-  return '草案（未確認のため、STAGE6の試算には入りません）';
+function statusOf(saved: FinanceEffect | undefined, changed: boolean, held: boolean): string {
+  if (!saved) return '未設定';
+  if (changed) return '未保存（入力を変更中）';
+  if (saved.confirmed) return '保存済み・STAGE6に反映';
+  return held ? '重複の可能性があるため計上保留' : '入力不足のため未算定';
 }
+
+const isOverlapReason = (reason: string): boolean => reason.includes('重複');
 
 function DraftCard({
   draft,
@@ -83,16 +86,19 @@ function DraftCard({
       <div>
         <strong>{draft.label}</strong>：{formulaOf(draft)}
       </div>
-      <div className="plan-note">状態：{statusOf(saved)}</div>
-      {!confirmedNow && blockers.length > 0 && (
-        <p className="plan-note">確認するには、次を入力して「計画を保存」を押してください：{blockers.join('、')}</p>
+      <div className="plan-note">状態：{statusOf(saved, differs, blockers.some(isOverlapReason))}</div>
+      {!confirmedNow && blockers.filter(isOverlapReason).length > 0 && (
+        <p className="plan-note">重複の可能性があるため計上保留：{blockers.filter(isOverlapReason).join('、')}</p>
+      )}
+      {!confirmedNow && blockers.some((b) => !isOverlapReason(b)) && (
+        <p className="plan-note">入力不足のため未算定：{blockers.filter((b) => !isOverlapReason(b)).join('、')}</p>
       )}
       {!confirmedNow && blockers.length === 0 && (
-        <p className="plan-note">必須項目はそろっています。「計画を保存」を押すと確認され、STAGE6に反映されます。</p>
+        <p className="plan-note">計算に必要な項目はそろっています。「計画を保存」でSTAGE6に反映されます。</p>
       )}
       {differs && (
         <p role="note" className="plan-note">
-          入力を変えています。「計画を保存」で保存されます。必須項目がそろえば確認し直してSTAGE6に反映され、足りなければ草案に戻ってSTAGE6から外れます。
+          入力を変えています（未保存）。「計画を保存」でSTAGE6に反映されます。
         </p>
       )}
       <div className="plan-note">金額の単位：円</div>
@@ -504,7 +510,7 @@ export function Stage4FinanceConfirm({
         財務効果（STAGE6へ反映）
       </h3>
       <p className="plan-note">
-        入力して「計画を保存」を押すと、財務効果もまとめて保存されます。必須項目がそろったものだけ確認済みとなり、STAGE6に反映されます。投資額は投資計画で扱うため、ここでは確認しません。
+        入力して「計画を保存」を押すと、財務効果もまとめて保存されます。計算に必要な項目がそろったものは、保存と同時にSTAGE6に反映されます。投資額は投資計画で扱うため、ここでは確認しません。
       </p>
       {planPeriod && (
         <p className="plan-note">
