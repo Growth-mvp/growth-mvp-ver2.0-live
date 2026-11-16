@@ -87,6 +87,17 @@ export function UnifiedPlPanel({ plan, trial }: { plan: UnifiedPl; trial: Financ
           ) : (
             <p className="mt-1">確認済みの営業利益改善はありません</p>
           )}
+          {plan.years.some((y) => y.grossProfitReferenceYen !== 0) && (
+            <ul className="mt-2 space-y-0.5 text-slate-700">
+              {plan.years
+                .filter((y) => y.grossProfitReferenceYen !== 0)
+                .map((y) => (
+                  <li key={`gp-${y.fiscalYear}`}>
+                    {y.fiscalYear}年度：粗利益の参考値 {valueOrUncalculated(y.grossProfitReferenceYen)} 百万円（営業利益には含めない）
+                  </li>
+                ))}
+            </ul>
+          )}
           {plan.years.some((y) => y.plan.operatingIncomeYen === null) && (
             <p className="mt-1 text-slate-600">
               全体の営業利益（条件付きPL）は、未算定の項目がある年度では計算していません（0とはみなしません）。未算定の理由は下に示します。

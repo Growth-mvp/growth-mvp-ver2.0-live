@@ -41,7 +41,7 @@ import PlanDocument from './PlanDocument';
 import StartConfirmation, { type StartInput } from './StartConfirmation';
 import { useSetStartMode } from './startMode';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
-import { estimateProjectImpact, hypothesisOf, IMPACT_EDIT_PREFIX, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import { estimateProjectImpact, hypothesisOf, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
 import {
   buildFinanceEffectDrafts,
   financeSaveSteps,
@@ -1023,11 +1023,6 @@ function ReadOnlyProject({
                 onDirectChange={(k, v) => onPlan((p) => setCommittedValue(p, k, v))}
                 impactEstimate={impactEstimate}
                 financeSection={financeSection}
-                onImpactEdit={
-                  remote && !entry.plan.started
-                    ? (k, v) => onPlan((p) => setCommittedValue(p, `${IMPACT_EDIT_PREFIX}${k}`, v === null ? undefined : v))
-                    : undefined
-                }
                 onEnterEdit={() => onPlan(enterEdit)}
                 onApply={() => onPlan(applyEdit)}
                 onDiscard={() => onPlan(discardEdit)}

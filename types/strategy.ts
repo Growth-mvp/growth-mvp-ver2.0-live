@@ -637,6 +637,11 @@ export type FinanceEffect = {
   reductionBaseYen?: number;
   /** コスト削減の計算根拠：想定削減率（%） */
   reductionRatePct?: number;
+  /** 売上増加の営業利益：追加販売管理費等（円、対象期間あたり）。粗利益の増分から差し引いて営業利益増分を算定する */
+  sgaCostYen?: number;
+  /** サービス提供型の計算根拠：顧客数（社）と1社当たり月間件数 */
+  serviceCustomers?: number;
+  servicePerCustomerCount?: number;
   /** AIの質問への回答（未回答と「まだ分からない」を区別する）。未設定の項目は既存フィールドから推定する */
   questionAnswers?: FinanceEffectQuestionAnswers;
 };

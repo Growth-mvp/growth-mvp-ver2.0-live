@@ -65,14 +65,12 @@ function DraftCard({
   const blockers = confirmBlockers(candidate, ctx);
   const isRevenue = draft.kind === 'REVENUE_UP';
   const isCost = draft.kind === 'COST_REDUCTION';
-  const isService = draft.base.method === 'QUANTITY_UNIT_PRICE';
+  const isService = candidate.method === 'QUANTITY_UNIT_PRICE';
+  const costRateMode = isCost && (answers.costInputMode ?? (candidate.reductionBaseYen !== undefined ? 'RATE' : 'DIRECT')) === 'RATE';
+  const costDirectMode = isCost && !costRateMode;
   const annual = computeFinanceEffect(candidate);
-  const opBasis = isService ? 'MONTHLY' : answers.amountBasis;
+  const opBasis = candidate.amountBasis;
   const opBasisText = opBasis ? FINANCE_EFFECT_BASIS_LABEL[opBasis] : '売上の単位を先に選ぶ';
-  const grossYen =
-    annual.annualRevenueYen !== undefined && candidate.costRatePct !== undefined
-      ? annual.annualRevenueYen * (1 - candidate.costRatePct / 100)
-      : undefined;
   const confirmedNow = saved?.confirmed === true;
   const disabled = !writable;
   const differs = confirmedNow && isFinanceEffectMaterialChange(saved, candidate);
@@ -91,7 +89,33 @@ function DraftCard({
         </p>
       )}
       <div className="plan-note">金額の単位：円</div>
-      {isCost && (
+      {(isRevenue || isCost) && (
+        <label>
+          計算方式
+          <select
+            aria-label={`${draft.label}の計算方式`}
+            value={isRevenue ? (candidate.method ?? '') : costRateMode ? 'RATE' : 'DIRECT'}
+            disabled={disabled}
+            onChange={(e) =>
+              set(isRevenue ? { method: e.target.value as FinanceEffect['method'] } : { costInputMode: e.target.value as 'RATE' | 'DIRECT' })
+            }
+          >
+            {isRevenue ? (
+              <>
+                <option value="DIRECT_AMOUNT">金額を直接入力</option>
+                <option value="FUNNEL">商談数×受注率×平均受注額</option>
+                <option value="QUANTITY_UNIT_PRICE">サービス提供（顧客数×件数×単価）</option>
+              </>
+            ) : (
+              <>
+                <option value="RATE">削減対象の費用×想定削減率</option>
+                <option value="DIRECT">年間削減額を直接入力</option>
+              </>
+            )}
+          </select>
+        </label>
+      )}
+      {costRateMode && (
         <>
           <label>
             削減対象の年間費用（百万円）
@@ -131,7 +155,86 @@ function DraftCard({
           </p>
         </>
       )}
-      {isRevenue && !isService && (
+      {costDirectMode && (
+        <label>
+          年間削減額（百万円）
+          <input
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min={0}
+            aria-label={`${draft.label}の年間削減額`}
+            disabled={disabled}
+            value={candidate.directAmountYen === undefined ? '' : candidate.directAmountYen / 1_000_000}
+            onChange={(e) => {
+              const n = numberOrUndefined(e.target.value);
+              set({ directAmountYen: n === undefined ? undefined : Math.round(n * 1_000_000) });
+            }}
+          />
+        </label>
+      )}
+      {isRevenue && candidate.method === 'DIRECT_AMOUNT' && (
+        <label>
+          売上の金額（百万円）
+          <input
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min={0}
+            aria-label={`${draft.label}の売上の金額`}
+            disabled={disabled}
+            value={candidate.directAmountYen === undefined ? '' : candidate.directAmountYen / 1_000_000}
+            onChange={(e) => {
+              const n = numberOrUndefined(e.target.value);
+              set({ directAmountYen: n === undefined ? undefined : Math.round(n * 1_000_000) });
+            }}
+          />
+        </label>
+      )}
+      {isRevenue && candidate.method === 'QUANTITY_UNIT_PRICE' && (
+        <>
+          <label>
+            顧客数（社）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              aria-label={`${draft.label}の顧客数`}
+              disabled={disabled}
+              value={candidate.serviceCustomers ?? ''}
+              onChange={(e) => set({ serviceCustomers: numberOrUndefined(e.target.value) })}
+            />
+          </label>
+          <label>
+            1社当たり月間件数
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              aria-label={`${draft.label}の1社当たり件数`}
+              disabled={disabled}
+              value={candidate.servicePerCustomerCount ?? ''}
+              onChange={(e) => set({ servicePerCustomerCount: numberOrUndefined(e.target.value) })}
+            />
+          </label>
+          <label>
+            1件当たり単価（円）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              aria-label={`${draft.label}の単価`}
+              disabled={disabled}
+              value={candidate.unitPriceYen ?? ''}
+              onChange={(e) => set({ unitPriceYen: numberOrUndefined(e.target.value) })}
+            />
+          </label>
+        </>
+      )}
+      {isRevenue && candidate.method === 'FUNNEL' && (
         <>
           <label>
             商談数（社）
@@ -180,12 +283,12 @@ function DraftCard({
       )}
       {isCost && <div className="plan-note">発生頻度：年額（削減対象は年間費用のため、年額で固定します）</div>}
       {isService && <div className="plan-note">発生頻度：月額（顧客数×1社当たり月間配送件数×1件当たり料金で計算します）</div>}
-      {!isCost && !isService && (
+      {!isCost && (
       <label>
         発生頻度（年度換算に使います）
         <select
           aria-label={`${draft.label}の発生頻度`}
-          value={answers.amountBasis ?? ''}
+          value={candidate.amountBasis ?? ''}
           disabled={disabled}
           onChange={(e) => {
             const basis = (e.target.value || undefined) as SpendAmountBasis | undefined;
@@ -222,22 +325,50 @@ function DraftCard({
         />
       </label>
       {isRevenue && (
-        <label>
-          営業利益増分（{opBasisText}・百万円・任意）
-          <input
-            type="number"
-            inputMode="decimal"
-            step="any"
-            aria-label={`${draft.label}の営業利益の増分`}
-            disabled={disabled}
-            value={answers.operatingIncomeEffectYen === undefined ? '' : answers.operatingIncomeEffectYen / 1_000_000}
-            onChange={(e) => {
-              const raw = e.target.value.trim();
-              const n = raw === '' ? undefined : Number(raw);
-              set({ operatingIncomeEffectYen: n === undefined || !Number.isFinite(n) ? undefined : n * 1_000_000 });
-            }}
-          />
-        </label>
+        <>
+          <label>
+            粗利率（%）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              max={100}
+              aria-label={`${draft.label}の粗利率`}
+              disabled={disabled}
+              value={candidate.costRatePct === undefined ? '' : 100 - candidate.costRatePct}
+              onChange={(e) => {
+                const n = numberOrUndefined(e.target.value);
+                set({ costRatePct: n === undefined || n > 100 ? undefined : 100 - n });
+              }}
+            />
+          </label>
+          <label>
+            追加販売管理費等（{opBasisText}・百万円）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              aria-label={`${draft.label}の追加販売管理費等`}
+              disabled={disabled}
+              value={candidate.sgaCostYen === undefined ? '' : candidate.sgaCostYen / 1_000_000}
+              onChange={(e) => {
+                const n = numberOrUndefined(e.target.value);
+                set({ sgaCostYen: n === undefined ? undefined : Math.round(n * 1_000_000) });
+              }}
+            />
+          </label>
+          <p className="plan-note">
+            {annual.annualGrossProfitYen === undefined
+              ? '粗利益（参考）：未算定（粗利率を入れると算定します）'
+              : `粗利益（参考・営業利益には含めない）：${amountText(annual.annualGrossProfitYen)}`}
+            {' ／ '}
+            {annual.annualOperatingEffectYen === undefined
+              ? '営業利益増分：未算定（粗利率と追加販売管理費等を入れると算定します。0とはみなしません）'
+              : `営業利益増分：${amountText(annual.annualOperatingEffectYen)}（粗利益 − 追加販売管理費等）`}
+          </p>
+        </>
       )}
       {isRevenue && isService && <div className="plan-note">売上の区分：サービス提供（役務）</div>}
       {isRevenue && !isService && (
@@ -255,11 +386,8 @@ function DraftCard({
           </select>
         </label>
       )}
-      {isRevenue && annual.annualOperatingEffectYen !== undefined && (
-        <p className="plan-note">
-          営業利益増分の年額：{amountText(annual.annualOperatingEffectYen)}（年額の売上 {amountText(annual.annualRevenueYen)}
-          {grossYen !== undefined ? `、売上の粗利 ${amountText(grossYen)}（原価率${candidate.costRatePct}%）` : ''}）
-        </p>
+      {isRevenue && annual.annualRevenueYen !== undefined && (
+        <p className="plan-note">年額の売上：{amountText(annual.annualRevenueYen)}</p>
       )}
       {isRevenue && answers.operatingIncomeEffectYen !== undefined && ctx.hasCostEffect && (
         <label>

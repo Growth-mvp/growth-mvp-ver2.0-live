@@ -98,7 +98,8 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
     render(<Stage4FinanceConfirm drafts={[revenue]} saved={[savedRevenue]} overlapCount={0} writable answers={{}} onAnswer={jest.fn()} />);
     expect((screen.getByLabelText('売上増加（参考試算の売上）の発生頻度') as HTMLSelectElement).value).toBe('ANNUAL');
     expect((screen.getByLabelText('売上増加（参考試算の売上）の開始年月') as HTMLInputElement).value).toBe('2026-12');
-    expect((screen.getByLabelText('売上増加（参考試算の売上）の営業利益の増分') as HTMLInputElement).value).toBe('9');
+    expect(screen.getByText(/営業利益増分：/)).toBeTruthy();
+    expect((screen.getByLabelText('売上増加（参考試算の売上）の追加販売管理費等') as HTMLInputElement).value).toBe('');
     expect((screen.getByLabelText('売上増加（参考試算の売上）の売上の区分') as HTMLSelectElement).value).toBe('PAID_DEVELOPMENT');
   });
 });

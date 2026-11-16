@@ -17,8 +17,8 @@ const reflected = (n: number, over: Partial<FinanceEffectProjectRow> = {}): Fina
   reason: null,
   operatingUnknown: false,
   years: [
-    { fiscalYear: 2026, revenueYen: 0, costReductionYen: 12 * M, costIncreaseYen: 0, revenueOperatingIncomeYen: 0, operatingIncomeYen: 12 * M },
-    { fiscalYear: 2027, revenueYen: 0, costReductionYen: 12 * M, costIncreaseYen: 0, revenueOperatingIncomeYen: 0, operatingIncomeYen: 12 * M },
+    { fiscalYear: 2026, revenueYen: 0, costReductionYen: 12 * M, costIncreaseYen: 0, revenueOperatingIncomeYen: 0, grossProfitYen: null, operatingIncomeYen: 12 * M },
+    { fiscalYear: 2027, revenueYen: 0, costReductionYen: 12 * M, costIncreaseYen: 0, revenueOperatingIncomeYen: 0, grossProfitYen: null, operatingIncomeYen: 12 * M },
   ],
   ...over,
 });
@@ -39,7 +39,7 @@ const notReflected = (n: number, status: FinanceEffectProjectRow['status'], reas
 });
 
 const yearTotals: FinanceEffectTrialYear[] = [
-  { fiscalYear: 2026, revenueYen: 0, costReductionYen: 12 * M, costIncreaseYen: 0, operatingEffectYen: 12 * M, revenueOperatingIncomeYen: 0 },
+  { fiscalYear: 2026, revenueYen: 0, costReductionYen: 12 * M, costIncreaseYen: 0, operatingEffectYen: 12 * M, revenueOperatingIncomeYen: 0, grossProfitYen: null },
 ];
 
 const html = (projects: FinanceEffectProjectRow[]) => renderToStaticMarkup(<FinanceEffectProjectList projects={projects} years={yearTotals} />);
@@ -55,7 +55,7 @@ describe('プロジェクト別の財務効果一覧', () => {
   });
 
   it('営業利益を算定できない年度は「未算定」と表示し、0にしない', () => {
-    const out = html([reflected(1, { operatingUnknown: true, years: [{ fiscalYear: 2026, revenueYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0, revenueOperatingIncomeYen: null, operatingIncomeYen: null }] })]);
+    const out = html([reflected(1, { operatingUnknown: true, years: [{ fiscalYear: 2026, revenueYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0, revenueOperatingIncomeYen: null, grossProfitYen: null, operatingIncomeYen: null }] })]);
     expect(out).toContain('未算定');
     expect(out).toContain('営業利益は算定できない年度を含みます');
   });

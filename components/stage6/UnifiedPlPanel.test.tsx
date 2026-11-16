@@ -23,8 +23,8 @@ const cells = (html: string) => [...html.matchAll(/<td class="px-2 py-1[^"]*">([
 describe('統一PLの表示', () => {
   it('費用削減のみ：営業費用は減り、営業利益は増える。効果の列は営業費用の増減で表す', () => {
     const years = [
-      { fiscalYear: 2027, revenueYen: 0, costReductionYen: 3 * M, costIncreaseYen: 0, operatingEffectYen: 3 * M, revenueOperatingIncomeYen: 0 },
-      { fiscalYear: 2028, revenueYen: 0, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: 0 },
+      { fiscalYear: 2027, revenueYen: 0, costReductionYen: 3 * M, costIncreaseYen: 0, operatingEffectYen: 3 * M, revenueOperatingIncomeYen: 0, grossProfitYen: null },
+      { fiscalYear: 2028, revenueYen: 0, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: 0, grossProfitYen: null },
     ];
     const plan = buildUnifiedPl({ baseline, effects: years, target: null });
     const html = renderToStaticMarkup(
@@ -37,8 +37,8 @@ describe('統一PLの表示', () => {
 
   it('売上増加の年度は、営業費用と営業利益を未算定と表示し、0と書かない', () => {
     const years = [
-      { fiscalYear: 2027, revenueYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: null },
-      { fiscalYear: 2028, revenueYen: 0, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: 0 },
+      { fiscalYear: 2027, revenueYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: null, grossProfitYen: null },
+      { fiscalYear: 2028, revenueYen: 0, costReductionYen: 0, costIncreaseYen: 0, operatingEffectYen: 0, revenueOperatingIncomeYen: 0, grossProfitYen: null },
     ];
     const plan = buildUnifiedPl({ baseline, effects: years, target: null });
     const html = renderToStaticMarkup(

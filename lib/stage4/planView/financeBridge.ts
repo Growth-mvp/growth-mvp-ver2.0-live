@@ -34,6 +34,18 @@ export type FinanceAnswers = {
   meetingsPerPeriod?: number;
   winRatePct?: number;
   averageDealYen?: number;
+  /** 計算方式（売上増加）と、コスト削減の計算方式（費用×削減率 / 直接入力） */
+  method?: FinanceEffect['method'];
+  costInputMode?: 'RATE' | 'DIRECT';
+  /** 直接入力の金額（円。売上増加・コスト削減） */
+  directAmountYen?: number;
+  /** 売上増加の粗利益（原価率＝100−粗利率）と追加販売管理費等（円） */
+  costRatePct?: number;
+  sgaCostYen?: number;
+  /** サービス提供型：顧客数・1社当たり月間件数・1件当たり単価（円） */
+  serviceCustomers?: number;
+  servicePerCustomerCount?: number;
+  unitPriceYen?: number;
   overlapNote?: string;
 };
 
@@ -175,14 +187,15 @@ const isNonNegativeNumber = (v: number | undefined): v is number => typeof v ===
 export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceAnswers): FinanceEffect {
   const e: FinanceEffect = { ...draft.base, confirmed: false };
   delete e.confirmedAt;
-  const serviceRevenue = draft.kind === 'REVENUE_UP' && draft.base.method === 'QUANTITY_UNIT_PRICE';
+  if (draft.kind === 'REVENUE_UP' && answers.method) e.method = answers.method;
+  const serviceRevenue = draft.kind === 'REVENUE_UP' && e.method === 'QUANTITY_UNIT_PRICE';
   if (draft.kind === 'COST_REDUCTION') {
     e.amountBasis = 'ANNUAL';
     if (answers.reductionConfirmed !== undefined) e.reductionConfirmed = answers.reductionConfirmed;
-  } else if (serviceRevenue) {
-    e.amountBasis = 'MONTHLY';
   } else if (answers.amountBasis) {
     e.amountBasis = answers.amountBasis;
+  } else if (serviceRevenue) {
+    e.amountBasis = 'MONTHLY';
   }
   e.startYm = answers.startYm || draft.base.startYm;
   if (e.startYm === undefined) delete e.startYm;
@@ -199,20 +212,42 @@ export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceA
     }
     if (serviceRevenue) e.revenueKind = 'SERVICE';
     else if (answers.revenueKind) e.revenueKind = answers.revenueKind;
-  }
-  if (draft.kind === 'COST_REDUCTION') {
-    const base = answers.reductionBaseYen ?? e.reductionBaseYen;
-    const rate = answers.reductionRatePct ?? e.reductionRatePct;
-    if (isNonNegativeNumber(base) && isNonNegativeNumber(rate) && rate <= 100) {
-      e.reductionBaseYen = base;
-      e.reductionRatePct = rate;
-      e.directAmountYen = Math.round((base * rate) / 100);
+    if (isNonNegativeNumber(answers.sgaCostYen)) e.sgaCostYen = answers.sgaCostYen;
+    if (isNonNegativeNumber(answers.costRatePct) && answers.costRatePct <= 100) e.costRatePct = answers.costRatePct;
+    if (e.method === 'DIRECT_AMOUNT' && isNonNegativeNumber(answers.directAmountYen)) e.directAmountYen = answers.directAmountYen;
+    if (e.method === 'FUNNEL') {
+      if (isNonNegativeNumber(answers.meetingsPerPeriod)) e.meetingsPerPeriod = answers.meetingsPerPeriod;
+      if (isNonNegativeNumber(answers.winRatePct) && answers.winRatePct <= 100) e.winRatePct = answers.winRatePct;
+      if (isNonNegativeNumber(answers.averageDealYen)) e.averageDealYen = answers.averageDealYen;
+    }
+    if (e.method === 'QUANTITY_UNIT_PRICE') {
+      const customers = answers.serviceCustomers ?? e.serviceCustomers;
+      const perCustomer = answers.servicePerCustomerCount ?? e.servicePerCustomerCount;
+      const price = answers.unitPriceYen ?? e.unitPriceYen;
+      if (isNonNegativeNumber(customers) && isNonNegativeNumber(perCustomer) && isNonNegativeNumber(price)) {
+        e.serviceCustomers = customers;
+        e.servicePerCustomerCount = perCustomer;
+        e.unitPriceYen = price;
+        e.quantity = customers * perCustomer;
+      }
     }
   }
-  if (draft.kind === 'REVENUE_UP' && draft.base.method === 'FUNNEL') {
-    if (isNonNegativeNumber(answers.meetingsPerPeriod)) e.meetingsPerPeriod = answers.meetingsPerPeriod;
-    if (isNonNegativeNumber(answers.winRatePct) && answers.winRatePct <= 100) e.winRatePct = answers.winRatePct;
-    if (isNonNegativeNumber(answers.averageDealYen)) e.averageDealYen = answers.averageDealYen;
+  if (draft.kind === 'COST_REDUCTION') {
+    const mode = answers.costInputMode ?? (e.reductionBaseYen !== undefined ? 'RATE' : 'DIRECT');
+    if (mode === 'DIRECT') {
+      delete e.reductionBaseYen;
+      delete e.reductionRatePct;
+      const direct = answers.directAmountYen ?? e.directAmountYen;
+      if (isNonNegativeNumber(direct)) e.directAmountYen = direct;
+    } else {
+      const base = answers.reductionBaseYen ?? e.reductionBaseYen;
+      const rate = answers.reductionRatePct ?? e.reductionRatePct;
+      if (isNonNegativeNumber(base) && isNonNegativeNumber(rate) && rate <= 100) {
+        e.reductionBaseYen = base;
+        e.reductionRatePct = rate;
+        e.directAmountYen = Math.round((base * rate) / 100);
+      }
+    }
   }
   if (answers.overlapNote?.trim()) e.overlapNote = answers.overlapNote.trim();
   return e;
@@ -392,6 +427,14 @@ export function initialFinanceAnswers(draft: FinanceEffectDraft, saved: FinanceE
     meetingsPerPeriod: saved.meetingsPerPeriod,
     winRatePct: saved.winRatePct,
     averageDealYen: saved.averageDealYen,
+    method: saved.method,
+    costInputMode: saved.kind === 'COST_REDUCTION' ? (saved.reductionBaseYen !== undefined ? 'RATE' : 'DIRECT') : undefined,
+    directAmountYen: saved.directAmountYen,
+    costRatePct: saved.costRatePct,
+    sgaCostYen: saved.sgaCostYen,
+    serviceCustomers: saved.serviceCustomers,
+    servicePerCustomerCount: saved.servicePerCustomerCount,
+    unitPriceYen: saved.unitPriceYen,
     overlapNote: saved.overlapNote,
   };
 }

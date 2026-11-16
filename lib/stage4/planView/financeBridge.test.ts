@@ -1,5 +1,5 @@
 import { financeSaveSteps, financeWriteReason } from './financeBridge';
-import { findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
+import { computeFinanceEffect, findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
 import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
@@ -467,6 +467,23 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     const draft = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL' });
     expect(planFinanceEffectWrite({ primary: draft, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW })).toEqual({ ok: true, outcome: 'unchanged', patch: {} });
     expect(planFinanceEffectWrite({ primary: undefined, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW }).ok).toBe(false);
+  });
+
+  it('売上増加の営業利益は、粗利益（売上×粗利率）から追加販売管理費等を引いて算定し、未入力なら未算定（0とはみなさない）', () => {
+    const d: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（直接入力）',
+      fromAi: false,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '見積書' },
+    };
+    const base = { method: 'DIRECT_AMOUNT' as const, amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', revenueKind: 'MASS_PRODUCTION' as const };
+    const withSga = computeFinanceEffect(applyFinanceAnswers(d, { ...base, directAmountYen: 12 * M, costRatePct: 70, sgaCostYen: 900_000 }));
+    expect(withSga.annualRevenueYen).toBe(12 * M);
+    expect(withSga.annualGrossProfitYen).toBeCloseTo(3.6 * M, 0);
+    expect(withSga.annualOperatingEffectYen).toBeCloseTo(2.7 * M, 0);
+    const withoutSga = computeFinanceEffect(applyFinanceAnswers(d, { ...base, directAmountYen: 12 * M, costRatePct: 70 }));
+    expect(withoutSga.annualGrossProfitYen).toBeCloseTo(3.6 * M, 0);
+    expect(withoutSga.annualOperatingEffectYen).toBeUndefined();
   });
 
   it('費用削減は、削減対象の年間費用と想定削減率から年間削減額を計算し、率を変えると確認し直す対象になる（100百万円×6％＝6百万円）', () => {

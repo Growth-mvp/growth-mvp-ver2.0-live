@@ -91,7 +91,8 @@ describe('宅配（サービス提供型：顧客数×件数×料金）の入力
     const revenue = draftOf(drafts, 'REVENUE_UP');
     expect(revenue.base).toMatchObject({ method: 'QUANTITY_UNIT_PRICE', quantity: 24, unitPriceYen: 2500, costRatePct: 60 });
     const saved = applyFinanceAnswers(revenue, { ...FY2028_ANSWERS, amountBasis: 'ANNUAL', revenueKind: 'MASS_PRODUCTION' });
-    expect(saved).toMatchObject({ amountBasis: 'MONTHLY', revenueKind: 'SERVICE' });
+    expect(saved).toMatchObject({ amountBasis: 'ANNUAL', revenueKind: 'SERVICE' });
+    expect(applyFinanceAnswers(revenue, { startYm: '2028-04' })).toMatchObject({ amountBasis: 'MONTHLY' });
 
     const funnel = draftsOf('REVENUE', { customers: 30, rate: 20, deal: 20, startYear: 2028, endYear: 2028 });
     expect(draftOf(funnel, 'REVENUE_UP').base.method).toBe('FUNNEL');

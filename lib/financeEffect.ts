@@ -64,8 +64,10 @@ export type FinanceEffectResult = {
   annualOperatingEffectYen?: number;
   /** 売上増加の年額（売上増加の施策のみ） */
   annualRevenueYen?: number;
-  /** 売上増加で原価率が入力された場合の参考原価（年額。利益へは差し引かない） */
+  /** 売上増加で原価率が入力された場合の参考原価（年額）。営業利益の算定には使わない */
   referenceCostYen?: number;
+  /** 売上増加の粗利益（年額。原価率が入力されたときだけ）。営業利益には、追加販売管理費等を引いたものだけを使う */
+  annualGrossProfitYen?: number;
   formula?: string;
 };
 
@@ -171,6 +173,7 @@ export function computeFinanceEffect(effect: FinanceEffect | null | undefined): 
     result.annualRevenueYen = annual;
     if (effect.costRatePct !== undefined && isFiniteNumber(effect.costRatePct)) {
       result.referenceCostYen = annual * (effect.costRatePct / 100);
+      result.annualGrossProfitYen = annual - result.referenceCostYen;
     }
     if (annualOperating !== undefined) result.annualOperatingEffectYen = annualOperating;
   } else {
@@ -179,10 +182,19 @@ export function computeFinanceEffect(effect: FinanceEffect | null | undefined): 
   return result;
 }
 
-/** 営業利益への効果（期間あたり・符号つき）。売上増加は利用者が入力した増分のみ使い、費用・原価からは推定しない */
+/** 売上増加の営業利益増分（期間あたり）。直接入力の増分があればそれを使い、無ければ粗利益から追加販売管理費等を引く。どちらも無ければ未算定（0とはみなさない） */
+export function revenueOperatingPerPeriodOf(effect: FinanceEffect, revenuePerPeriod: number): number | undefined {
+  if (isFiniteNumber(effect.operatingIncomeEffectYen)) return effect.operatingIncomeEffectYen;
+  if (isFiniteNumber(effect.costRatePct) && isFiniteNumber(effect.sgaCostYen)) {
+    return revenuePerPeriod * (1 - effect.costRatePct / 100) - effect.sgaCostYen;
+  }
+  return undefined;
+}
+
+/** 営業利益への効果（期間あたり・符号つき） */
 function operatingPerPeriodOf(effect: FinanceEffect, costEffectPerPeriod: number): number | undefined {
   if (effect.kind !== 'REVENUE_UP') return costEffectPerPeriod;
-  return isFiniteNumber(effect.operatingIncomeEffectYen) ? effect.operatingIncomeEffectYen : undefined;
+  return revenueOperatingPerPeriodOf(effect, costEffectPerPeriod);
 }
 
 /** 同じ効果種類で、対象範囲が同じ、または同じ算定方法で期間が重なる他施策（重複の可能性。自動では除外しない） */
@@ -249,6 +261,9 @@ export function normalizeFinanceEffect(raw: unknown): FinanceEffect | undefined 
     'operatingIncomeEffectYen',
     'reductionBaseYen',
     'reductionRatePct',
+    'sgaCostYen',
+    'serviceCustomers',
+    'servicePerCustomerCount',
   ] as const;
   for (const key of numericKeys) {
     if (isFiniteNumber(r[key])) out[key] = r[key] as number;
@@ -345,6 +360,9 @@ const CONFIRMATION_MATERIAL_KEYS = [
   'reductionConfirmed',
   'reductionBaseYen',
   'reductionRatePct',
+  'sgaCostYen',
+  'serviceCustomers',
+  'servicePerCustomerCount',
   'scopeNote',
   'sourceNote',
   'source',

@@ -24,6 +24,8 @@ export type FinanceEffectTrialYear = {
   operatingEffectYen: number;
   /** 売上増加に伴う営業利益の増分（円）。その年度に入る売上増加の施策に営業利益の入力がなければ null（未算定） */
   revenueOperatingIncomeYen: number | null;
+  /** 売上増加の粗利益（円。参考値で、営業利益には含めない）。原価率が未入力の施策があれば null */
+  grossProfitYen: number | null;
 };
 
 /** 試算への反映状態。REFLECTED 以外は年度別金額を持たない（0と区別する） */
@@ -36,6 +38,8 @@ export type FinanceEffectProjectYear = {
   costReductionYen: number | null;
   costIncreaseYen: number | null;
   revenueOperatingIncomeYen: number | null;
+  /** 売上増加の粗利益（参考値。営業利益には含めない）。原価率が未入力なら null */
+  grossProfitYen: number | null;
   /** 営業利益への効果（売上増加の営業利益の増分 + 費用削減 − 追加費用）。算定できない年度は null */
   operatingIncomeYen: number | null;
 };
@@ -83,17 +87,30 @@ type Flow = {
   startIdx: number;
   endIdx: number | null;
   perMonthYen: number;
-  /** 売上増加の施策のみ：営業利益の増分（月あたり）。入力がなければ null */
+  /** 売上増加の施策のみ：営業利益の増分（月あたり）。算定できなければ null */
   opPerMonthYen: number | null;
+  /** 売上増加の施策のみ：粗利益（月あたり、参考）。原価率が未入力なら null */
+  grossPerMonthYen: number | null;
 };
 
 const monthIndexOf = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
 
-function revenueOperatingPerMonthOf(effect: FinanceEffect, startIdx: number, endIdx: number | null): number | null {
+/* 売上増加の営業利益（月あたり）。直接入力の増分があればそれ、無ければ粗利益から追加販売管理費等を引く。どちらも無ければ null */
+function revenueOperatingPerMonthOf(effect: FinanceEffect, startIdx: number, endIdx: number | null, revenuePerMonth: number): number | null {
+  const monthly = (value: number) =>
+    effect.amountBasis === 'TOTAL' ? value / (endIdx === null ? 1 : endIdx - startIdx + 1) : effect.amountBasis === 'MONTHLY' ? value : value / 12;
   const value = effect.operatingIncomeEffectYen;
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  if (effect.amountBasis === 'TOTAL') return value / (endIdx === null ? 1 : endIdx - startIdx + 1);
-  return effect.amountBasis === 'MONTHLY' ? value : value / 12;
+  if (typeof value === 'number' && Number.isFinite(value)) return monthly(value);
+  const sga = effect.sgaCostYen;
+  if (typeof effect.costRatePct === 'number' && Number.isFinite(effect.costRatePct) && typeof sga === 'number' && Number.isFinite(sga)) {
+    return revenuePerMonth * (1 - effect.costRatePct / 100) - monthly(sga);
+  }
+  return null;
+}
+
+function revenueGrossPerMonthOf(effect: FinanceEffect, revenuePerMonth: number): number | null {
+  const rate = effect.costRatePct;
+  return typeof rate === 'number' && Number.isFinite(rate) ? revenuePerMonth * (1 - rate / 100) : null;
 }
 
 function flowOf(effect: FinanceEffect, result: FinanceEffectResult): Flow {
@@ -105,8 +122,9 @@ function flowOf(effect: FinanceEffect, result: FinanceEffectResult): Flow {
       ? result.totalYen! / (endIdx === null ? 1 : endIdx - startIdx + 1)
       : result.monthlyYen!;
   const flowEnd = effect.amountBasis === 'TOTAL' && endIdx === null ? startIdx : endIdx;
-  const opPerMonthYen = kind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx) : 0;
-  return { kind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen };
+  const opPerMonthYen = kind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx, perMonthYen) : 0;
+  const grossPerMonthYen = kind === 'REVENUE_UP' ? revenueGrossPerMonthOf(effect, perMonthYen) : null;
+  return { kind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen, grossPerMonthYen };
 }
 
 const REASON: Record<Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, string> = {
@@ -123,12 +141,15 @@ const sumYear = (fiscalYear: number, items: FinanceEffectProjectYear[]): Finance
   let costReductionYen = 0;
   let costIncreaseYen = 0;
   let revenueOperatingIncomeYen: number | null = 0;
+  let grossProfitYen: number | null = 0;
   for (const y of items) {
     revenueYen += y.revenueYen ?? 0;
     costReductionYen += y.costReductionYen ?? 0;
     costIncreaseYen += y.costIncreaseYen ?? 0;
     if (y.revenueOperatingIncomeYen === null) revenueOperatingIncomeYen = null;
     else if (revenueOperatingIncomeYen !== null) revenueOperatingIncomeYen += y.revenueOperatingIncomeYen;
+    if (y.grossProfitYen === null) grossProfitYen = null;
+    else if (grossProfitYen !== null) grossProfitYen += y.grossProfitYen;
   }
   return {
     fiscalYear,
@@ -137,6 +158,7 @@ const sumYear = (fiscalYear: number, items: FinanceEffectProjectYear[]): Finance
     costIncreaseYen,
     operatingEffectYen: costReductionYen - costIncreaseYen,
     revenueOperatingIncomeYen,
+    grossProfitYen,
   };
 };
 
@@ -217,6 +239,7 @@ export function buildFinanceEffectTrial(args: {
     let costReductionYen = 0;
     let costIncreaseYen = 0;
     let revenueOperatingIncomeYen: number | null = 0;
+    let grossProfitYen: number | null = 0;
     for (const flow of flows) {
       const from = Math.max(fyStart, flow.startIdx);
       const to = Math.min(fyEnd, flow.endIdx ?? Number.POSITIVE_INFINITY);
@@ -227,6 +250,8 @@ export function buildFinanceEffectTrial(args: {
         revenueYen += amount;
         if (flow.opPerMonthYen === null) revenueOperatingIncomeYen = null;
         else if (revenueOperatingIncomeYen !== null) revenueOperatingIncomeYen += months * flow.opPerMonthYen;
+        if (flow.grossPerMonthYen === null) grossProfitYen = null;
+        else if (grossProfitYen !== null) grossProfitYen += months * flow.grossPerMonthYen;
       } else if (flow.kind === 'COST_REDUCTION') costReductionYen += amount;
       else costIncreaseYen += amount;
     }
@@ -236,6 +261,7 @@ export function buildFinanceEffectTrial(args: {
       costReductionYen,
       costIncreaseYen,
       revenueOperatingIncomeYen,
+      grossProfitYen,
       operatingIncomeYen: revenueOperatingIncomeYen === null ? null : revenueOperatingIncomeYen + costReductionYen - costIncreaseYen,
     };
   };
