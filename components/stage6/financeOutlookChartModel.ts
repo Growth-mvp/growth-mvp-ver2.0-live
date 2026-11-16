@@ -10,10 +10,16 @@ export type OutlookChartPoint = {
   baselineMil: number | null;
   /** 施策効果を反映した見通し（百万円）。未算定は null（0にしない） */
   planMil: number | null;
+  /** 確認済みの営業利益改善（百万円）。営業利益の内訳だけで使う */
+  improvementMil: number | null;
+  /** 算定済み分の参考値（既存事業＋確認済みの改善、百万円）。未算定の項目は含まず、全体の確定見通しではない */
+  referenceMil: number | null;
 };
 
 export type OutlookChartMetric = {
   label: string;
+  /** 既存事業の見通しと、確認済みの改善を積み上げて示すか（営業利益だけ） */
+  breakdown: boolean;
   points: OutlookChartPoint[];
   targetMil: number | null;
   targetFiscalYear: number | null;
@@ -57,8 +63,9 @@ function metricOf(args: {
   summary: MetricSummary;
   points: OutlookChartPoint[];
   unknownReasonsByYear: Map<number, string>;
+  breakdown: boolean;
 }): OutlookChartMetric {
-  const { label, summary, points, unknownReasonsByYear } = args;
+  const { label, summary, points, unknownReasonsByYear, breakdown } = args;
   const targetMil = 'targetYen' in summary ? mil(summary.targetYen) : null;
   const targetFiscalYear = 'fiscalYear' in summary ? summary.fiscalYear : null;
   const forecastPoints = points.filter((p) => p.kind === 'FORECAST');
@@ -74,6 +81,7 @@ function metricOf(args: {
     headline: headlineOf(summary, label),
     unknownYears,
     unknownReasons,
+    breakdown,
   };
 }
 
@@ -86,6 +94,8 @@ export function buildOutlookCharts(outlook: FinanceOutlook, targetSummary: Targe
         kind: 'ACTUAL',
         baselineMil: mil(actual.revenue.value),
         planMil: mil(actual.revenue.value),
+        improvementMil: null,
+        referenceMil: null,
       }
     : null;
   const forecastRows = outlook.unifiedPl.years;
@@ -96,17 +106,30 @@ export function buildOutlookCharts(outlook: FinanceOutlook, targetSummary: Targe
       kind: 'FORECAST' as const,
       baselineMil: mil(r.baseline.revenueYen),
       planMil: mil(r.plan.revenueYen),
+      improvementMil: null,
+      referenceMil: null,
     })),
   ];
-  const operatingPoints = [
+  const operatingPoints: OutlookChartPoint[] = [
     ...(actual
-      ? [{ fiscalYear: actual.year, kind: 'ACTUAL' as const, baselineMil: mil(actual.operatingIncome.value), planMil: mil(actual.operatingIncome.value) }]
+      ? [
+          {
+            fiscalYear: actual.year,
+            kind: 'ACTUAL' as const,
+            baselineMil: mil(actual.operatingIncome.value),
+            planMil: mil(actual.operatingIncome.value),
+            improvementMil: 0,
+            referenceMil: mil(actual.operatingIncome.value),
+          },
+        ]
       : []),
     ...forecastRows.map((r) => ({
       fiscalYear: r.fiscalYear,
       kind: 'FORECAST' as const,
       baselineMil: mil(r.baseline.operatingIncomeYen),
       planMil: mil(r.plan.operatingIncomeYen),
+      improvementMil: mil(r.confirmedOperatingImprovementYen),
+      referenceMil: r.baseline.operatingIncomeYen === null ? null : mil(r.baseline.operatingIncomeYen + r.confirmedOperatingImprovementYen),
     })),
   ];
   const reasonsOf = (pick: (r: (typeof forecastRows)[number]) => number | null) =>
@@ -124,12 +147,14 @@ export function buildOutlookCharts(outlook: FinanceOutlook, targetSummary: Targe
       summary: targetSummary.revenue,
       points: revenuePoints,
       unknownReasonsByYear: reasonsOf((r) => r.plan.revenueYen),
+      breakdown: false,
     }),
     operatingIncome: metricOf({
       label: '営業利益',
       summary: targetSummary.operatingIncome,
       points: operatingPoints,
       unknownReasonsByYear: reasonsOf((r) => r.plan.operatingIncomeYen),
+      breakdown: true,
     }),
   };
 }

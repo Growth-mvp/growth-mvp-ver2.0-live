@@ -68,12 +68,12 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
     expect(card.textContent).toContain('既存の売上に対する追加効果かが未確認');
   });
 
-  it('確認済みの効果は、STAGE6の試算に入る旨を表示し、入力を変えられない', () => {
+  it('確認済みの効果は、STAGE6の試算に入る旨を表示し、入力は直接変えられる', () => {
     const saved = [{ ...drafts().find((d) => d.kind === 'COST_INCREASE')!.base, amountBasis: 'ANNUAL', confirmed: true, confirmedAt: '2026-11-10T00:00:00.000Z' }] as any[];
     renderConfirm({ saved });
     const card = screen.getByLabelText('追加費用の財務効果');
     expect(card.textContent).toContain('確認済み（STAGE6の試算に入ります）');
-    card.querySelectorAll('select, input').forEach((el) => expect((el as HTMLInputElement).disabled).toBe(true));
+    card.querySelectorAll('select, input').forEach((el) => expect((el as HTMLInputElement).disabled).toBe(false));
   });
 
   it('書き込めない状態では入力を無効にし、理由を出す', () => {
@@ -118,31 +118,18 @@ describe('確認済みの財務効果の修正', () => {
     sourceNote: '第5章の参考試算',
   });
 
-  it('確認済みの効果は、修正する・確認を解除するを出し、入力欄は固定される', () => {
-    const onStartRevise = jest.fn();
-    const onUnconfirm = jest.fn();
-    renderConfirm({ saved: [confirmedCost()], onStartRevise, onUnconfirm });
-    expect((screen.getByLabelText('追加費用の発生頻度') as HTMLSelectElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: '修正する' }));
-    expect(onStartRevise).toHaveBeenCalledWith('COST_INCREASE');
-    fireEvent.click(screen.getByRole('button', { name: '確認を解除する' }));
-    expect(onUnconfirm).toHaveBeenCalledWith('COST_INCREASE');
-  });
-
-  it('修正中は入力欄が開き、状態は確認済みの内容のままと示し、修正をやめるを出す', () => {
-    const onCancelRevise = jest.fn();
-    renderConfirm({ saved: [confirmedCost()], revising: ['COST_INCREASE'], onCancelRevise });
+  it('確認済みの効果も入力欄は開いたままで、修正する・確認を解除するは出さない', () => {
+    renderConfirm({ saved: [confirmedCost()] });
     expect((screen.getByLabelText('追加費用の発生頻度') as HTMLSelectElement).disabled).toBe(false);
-    expect(screen.getByLabelText('追加費用の財務効果').textContent).toContain('修正中（保存するまで、確認済みの内容のままです）');
-    expect(screen.queryByRole('button', { name: '修正する' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '修正をやめる' }));
-    expect(onCancelRevise).toHaveBeenCalledWith('COST_INCREASE');
-  });
-
-  it('草案の効果には、修正する・確認を解除するを出さない', () => {
-    renderConfirm({ saved: [{ ...confirmedCost(), confirmed: false }], onStartRevise: jest.fn() });
     expect(screen.queryByRole('button', { name: '修正する' })).toBeNull();
     expect(screen.queryByRole('button', { name: '確認を解除する' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '修正をやめる' })).toBeNull();
+  });
+
+  it('確認済みの効果の入力を変えると、「計画を保存」で保存されると案内する', () => {
+    renderConfirm({ saved: [confirmedCost()] });
+    fireEvent.change(screen.getByLabelText('追加費用の開始年月'), { target: { value: '2027-10' } });
+    expect(screen.getByRole('note').textContent).toContain('「計画を保存」で保存されます');
   });
 });
 

@@ -96,6 +96,34 @@ describe('STAGE6 経年グラフ：共通の財務試算と同じ値を示す', 
     expect(c.operatingIncome.achievementPct).toBeCloseTo((100 / 100) * 100, 6);
   });
 
+  it('売上増加の営業利益が未算定でも、確認済みの費用削減は改善として積み、参考値は既存事業＋改善（全体の確定値にはしない）', () => {
+    const cost = {
+      kind: 'COST_REDUCTION',
+      method: 'DIRECT_AMOUNT',
+      directAmountYen: 5 * M,
+      amountBasis: 'ANNUAL',
+      startYm: '2025-04',
+      reductionConfirmed: true,
+      sourceNote: '見積書（架空）',
+      source: 'USER_INPUT',
+      confirmed: true,
+    };
+    const o = outlookOf({
+      departments: [dept([{ id: 'p', title: '新規開拓', financeEffect: confirmedUp({ operatingIncomeEffectYen: undefined }) }, { id: 'q', title: '工程改善', financeEffect: cost }])],
+    });
+    const c = chartsOf(o);
+    expect(c.operatingIncome.breakdown).toBe(true);
+    expect(c.revenue.breakdown).toBe(false);
+    const fy26 = c.operatingIncome.points.find((p) => p.fiscalYear === 2026)!;
+    expect(fy26.baselineMil).toBe(70);
+    expect(fy26.improvementMil).toBe(5);
+    expect(fy26.referenceMil).toBe(75);
+    expect(fy26.planMil).toBeNull();
+    expect(c.operatingIncome.unknownYears).toContain(2026);
+    expect(c.operatingIncome.headline).toContain('未算定');
+    expect(renderToStaticMarkup(<FinanceOutlookCharts charts={c} />)).toContain('参考値は、未算定の項目');
+  });
+
   it('横ばい仮定は、設定がないことを明示する', () => {
     const c = chartsOf(outlookOf());
     expect(c.basis).toBe('FLAT');

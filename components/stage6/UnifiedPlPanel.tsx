@@ -75,7 +75,12 @@ export function UnifiedPlPanel({ plan, trial }: { plan: UnifiedPl; trial: Financ
                 .filter((y) => y.confirmedOperatingImprovementYen !== 0)
                 .map((y) => (
                   <li key={y.fiscalYear}>
-                    {y.fiscalYear}年度：{signedMil(y.confirmedOperatingImprovementYen)} 百万円
+                    {y.fiscalYear}年度：既存 {valueOrUncalculated(y.baseline.operatingIncomeYen)} ＋ 確認済みの改善{' '}
+                    {signedMil(y.confirmedOperatingImprovementYen)} ＝ 算定済み分の参考値{' '}
+                    {valueOrUncalculated(
+                      y.baseline.operatingIncomeYen === null ? null : y.baseline.operatingIncomeYen + y.confirmedOperatingImprovementYen
+                    )}{' '}
+                    百万円（未算定を含まない）
                   </li>
                 ))}
             </ul>

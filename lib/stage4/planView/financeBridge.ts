@@ -390,6 +390,7 @@ export function financeConfirmContext(
 export type FinanceSaveStep = { kind: FinanceDraftKind; action: FinanceWriteAction; candidate: FinanceEffect };
 
 /* 「計画を保存」で書く財務効果の手順。利用者が入力した効果だけを対象にする。
+ * 確認済みの効果も、入力を変えたときは修正内容で置き換えてから確認し直す（変えなければ書かない）。
  * 必須項目がそろった効果は、草案の保存のあとに確認（CONFIRM）まで行う。足りない効果は未確認の草案のまま残す。
  * 確認の判定は confirmBlockers（STAGE6へ反映する条件）と同じで、ここでは緩めない。 */
 export function financeSaveSteps(args: {
@@ -397,20 +398,21 @@ export function financeSaveSteps(args: {
   answers: FinanceAnswersByKind;
   saved: FinanceEffect[];
   overlapCount: number;
-  /** 修正中の効果。確認済みでも、修正内容で置き換えてから確認し直す */
-  revising?: FinanceDraftKind[];
 }): FinanceSaveStep[] {
   const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount, args.answers);
-  const revising = args.revising ?? [];
   const steps: FinanceSaveStep[] = [];
   for (const draft of args.drafts) {
     const answers = args.answers[draft.kind];
     if (!answers) continue;
-    const isRevising = revising.includes(draft.kind);
-    if (!isRevising && args.saved.find((e) => e.kind === draft.kind)?.confirmed) continue;
+    const savedOne = args.saved.find((e) => e.kind === draft.kind);
     const candidate = applyFinanceAnswers(draft, answers);
-    steps.push({ kind: draft.kind, action: isRevising ? 'REVISE' : 'SAVE_DRAFT', candidate });
+    if (savedOne?.confirmed && !isFinanceEffectInputChanged(savedOne, candidate)) continue;
+    steps.push({ kind: draft.kind, action: savedOne?.confirmed ? 'REVISE' : 'SAVE_DRAFT', candidate });
     if (confirmBlockers(candidate, ctx).length === 0) steps.push({ kind: draft.kind, action: 'CONFIRM', candidate });
   }
   return steps;
+}
+
+function isFinanceEffectInputChanged(prev: FinanceEffect, next: FinanceEffect): boolean {
+  return isFinanceEffectMaterialChange(prev, next) || (prev.overlapNote ?? '') !== (next.overlapNote ?? '');
 }

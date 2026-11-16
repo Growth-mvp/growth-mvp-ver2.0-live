@@ -6,6 +6,7 @@ import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
 import { estimateProjectImpact, type ImpactEstimate } from './impactEstimate';
 import {
   applyFinanceAnswers,
+  initialFinanceAnswers,
   buildFinanceEffectDrafts,
   confirmBlockers,
   fiscalYearEndYm,
@@ -417,10 +418,10 @@ describe('計画の保存で書く財務効果（financeSaveSteps）', () => {
     expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT']);
   });
 
-  it('確認済みの効果は、入力があっても書き直さない', () => {
+  it('確認済みの効果は、入力が変わっていなければ書き直さない', () => {
     const d = userDraft();
     const saved = [{ ...d.base, confirmed: true }];
-    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved, overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: initialFinanceAnswers(d, saved[0]) }, saved, overlapCount: 0 })).toEqual([]);
   });
 });
 
@@ -468,19 +469,19 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     expect(planFinanceEffectWrite({ primary: undefined, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW }).ok).toBe(false);
   });
 
-  it('修正しないで保存すると、確認済みの効果は書き直さない（確認を外さない）', () => {
+  it('入力を変えずに保存すると、確認済みの効果は書き直さない（確認を外さない）', () => {
     const d = userDraftOf(revenueDraft());
     const saved = [{ ...d.base, confirmed: true }];
-    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: { amountBasis: 'MONTHLY', startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' } }, saved, overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: initialFinanceAnswers(d, saved[0]) }, saved, overlapCount: 0 })).toEqual([]);
   });
 
-  it('修正中の効果は、REVISE のあとに、必須項目がそろえば確認し直す。足りなければ草案のまま', () => {
+  it('確認済みの効果の入力を変えて保存すると、修正内容で置き換えてから確認し直す。必須項目が足りなければ草案のまま', () => {
     const d = userDraftOf(revenueDraft());
     const saved = [{ ...d.base, confirmed: true }];
     const complete = { amountBasis: 'MONTHLY' as const, startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' as const };
-    const withRevising = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved, overlapCount: 0, revising: ['REVENUE_UP'] });
-    expect(withRevising.map((s) => s.action)).toEqual(['REVISE', 'CONFIRM']);
-    const incomplete = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved, overlapCount: 0, revising: ['REVENUE_UP'] });
+    const changed = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved, overlapCount: 0 });
+    expect(changed.map((s) => s.action)).toEqual(['REVISE', 'CONFIRM']);
+    const incomplete = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved, overlapCount: 0 });
     expect(incomplete.map((s) => s.action)).toEqual(['REVISE']);
   });
 });
