@@ -362,7 +362,7 @@ export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): str
     reasons.push('一回限りの金額は開始月に全額計上します（終了年月を入れると期間に按分されるため、終了年月を消してください）');
   }
   if (effect.kind === 'REVENUE_UP' && !effect.revenueKind) {
-    reasons.push('売上の区分（有償開発か量産か）が未確認');
+    reasons.push('売上の区分（有償開発・量産・サービス提供）が未確認');
   }
   if (effect.kind === 'REVENUE_UP' && effect.operatingIncomeEffectYen !== undefined) {
     if (ctx.hasCostEffect && effect.opIncomeIncludesAddCost === undefined) {
