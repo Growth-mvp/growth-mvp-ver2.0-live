@@ -41,12 +41,14 @@ import PlanDocument from './PlanDocument';
 import StartConfirmation, { type StartInput } from './StartConfirmation';
 import { useSetStartMode } from './startMode';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
-import { estimateProjectImpact, hypothesisOf, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
+import { estimateProjectImpact, hypothesisOf } from '@/lib/stage4/planView/impactEstimate';
 import {
   anchorDraftsToSaved,
   buildFinanceEffectDrafts,
+  financeLinesOf,
   financeStatusSummary,
   withBlankFinanceDrafts,
+  type FinanceLine,
   financeSaveSteps,
   financeWriteReason,
   periodOfLabel,
@@ -261,6 +263,12 @@ function Stage3ProjectBrowser({
   /* 保存済みの財務効果がある項目は、その値を基点にする（再生成された草案で上書きしない）。草案は未保存の項目だけに使う */
   const anchoredFinanceDrafts = anchorDraftsToSaved(withBlankFinanceDrafts(financeDrafts), financeSaved);
   const financeSummary = financeStatusSummary(financeSaved);
+  const financeLines = financeLinesOf({
+    drafts: anchoredFinanceDrafts,
+    saved: financeSaved,
+    answers: selectedEntry?.finance ?? {},
+    projectHasCostIncrease: financeSaved.some((e) => e.kind === 'COST_INCREASE' && e.confirmed === true),
+  });
   const financeOverlap = financePos ? findFinanceEffectOverlapCandidates(storeDepartmentsNow, financePos.dIdx, financePos.pIdx).length : 0;
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
   const financeReason = financeWriteReason({ scopeMatches: financeScopeMatches, planLoaded: !!selectedEntry });
@@ -722,9 +730,9 @@ function Stage3ProjectBrowser({
             key={view.key}
             view={view}
             companyLabel={companyLabel}
-            impactEstimate={impactEstimate}
             financeSection={financeSection}
             financeSummary={financeSummary}
+            financeLines={financeLines}
             stableId={sel.projectKey.startsWith('id:')}
             entry={entry}
             planView={planView}
@@ -783,9 +791,9 @@ function ReadOnlyProject({
   remote,
   onTransition,
   onStartPlan,
-  impactEstimate,
   financeSection,
   financeSummary,
+  financeLines,
   regen,
   onRegenStart,
   onRegenUse,
@@ -808,9 +816,9 @@ function ReadOnlyProject({
   remote: boolean;
   onTransition: (action: 'ADOPT' | 'UNADOPT' | 'RECORD_REGULATORY' | 'START' | 'UNSTART', regulatory?: unknown) => void;
   onStartPlan: (input: StartInput) => Promise<boolean>;
-  impactEstimate: ImpactEstimate | null;
   financeSection: ReactNode;
   financeSummary: string;
+  financeLines: FinanceLine[];
   regen: RegenState | undefined;
   onRegenStart: () => void;
   onRegenUse: () => void;
@@ -1030,9 +1038,9 @@ function ReadOnlyProject({
                 persisted={remote}
                 directEdit={remote}
                 onDirectChange={(k, v) => onPlan((p) => setCommittedValue(p, k, v))}
-                impactEstimate={impactEstimate}
                 financeSection={financeSection}
                 financeSummary={financeSummary}
+                financeLines={financeLines}
                 onEnterEdit={() => onPlan(enterEdit)}
                 onApply={() => onPlan(applyEdit)}
                 onDiscard={() => onPlan(discardEdit)}

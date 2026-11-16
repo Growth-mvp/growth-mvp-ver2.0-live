@@ -480,9 +480,43 @@ export function financeWriteReason(args: { scopeMatches: boolean; planLoaded: bo
 export function anchorDraftsToSaved(drafts: FinanceEffectDraft[], saved: FinanceEffect[]): FinanceEffectDraft[] {
   return drafts.map((draft) => {
     const savedOne = saved.find((e) => e.kind === draft.kind);
-    return savedOne ? { ...draft, base: { ...savedOne, confirmed: false } } : draft;
+    return savedOne ? { ...draft, blank: false, base: { ...savedOne, confirmed: false } } : draft;
   });
 }
+
+export type FinanceLine = { label: string; status: 'CONFIRMED' | 'AI_ESTIMATE' | 'NOT_CALCULATED'; text: string };
+
+/* 計画書の「財務効果の算定」の文章。保存済みの財務効果から作り、編集中の値は未保存と明示する（STAGE4の入力欄と同じ計算） */
+export function financeLinesOf(args: {
+  drafts: FinanceEffectDraft[];
+  saved: FinanceEffect[];
+  answers: FinanceAnswersByKind;
+  projectHasCostIncrease: boolean;
+}): FinanceLine[] {
+  const lines: FinanceLine[] = [];
+  for (const draft of args.drafts) {
+    const typed = args.answers[draft.kind];
+    const savedOne = args.saved.find((e) => e.kind === draft.kind);
+    if (!typed && !savedOne) continue;
+    const effect = typed ? applyFinanceAnswers(draft, typed) : savedOne!;
+    const unsaved = !!typed && (!savedOne || isFinanceEffectInputChanged(savedOne, effect));
+    const suffix = unsaved ? '（未保存の入力中の値）' : '';
+    const result = computeFinanceEffect(effect, { projectHasCostIncrease: args.projectHasCostIncrease });
+    const label = draft.label;
+    if (result.status === 'INCOMPLETE') {
+      lines.push({ label, status: 'NOT_CALCULATED', text: `${label}は、${result.missing.join('、')}が未入力のため未算定です${suffix}` });
+      continue;
+    }
+    const revenue = effect.kind === 'REVENUE_UP' ? `売上 ${yenTextOf(result.annualRevenueYen)}／` : '';
+    const operating = `営業利益への効果 ${yenTextOf(result.annualOperatingEffectYen)}`;
+    const confirmed = effect.confirmed === true && !unsaved;
+    const note = confirmed ? '' : '。未確認のため、正式な計画には加算しません';
+    lines.push({ label, status: confirmed ? 'CONFIRMED' : 'AI_ESTIMATE', text: `${label}：${revenue}${operating}（年額）${note}${suffix}` });
+  }
+  return lines;
+}
+
+const yenTextOf = (yen: number | undefined): string => (yen === undefined ? '未算定' : formatYenScaled(yen));
 
 export type FinanceAnswersByKind = Partial<Record<FinanceDraftKind, FinanceAnswers>>;
 

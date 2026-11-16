@@ -1,4 +1,4 @@
-import { anchorDraftsToSaved, financeSaveSteps, financeStatusSummary, financeWriteReason, withBlankFinanceDrafts } from './financeBridge';
+import { anchorDraftsToSaved, financeLinesOf, financeSaveSteps, financeStatusSummary, financeWriteReason, withBlankFinanceDrafts } from './financeBridge';
 import { computeFinanceEffect, findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
@@ -489,6 +489,63 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     );
     expect(financeStatusSummary([base])).toBe('未確認');
     expect(financeStatusSummary([{ ...base, confirmed: true }])).toContain('売上増加');
+  });
+
+  it('売上72万・粗利益28.8万・追加販売管理費10万は、STAGE4の計算・計画書の文章・STAGE6の集計で同じ数値になり、未確認は正式計画に入らない', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（新規連携）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const entered = applyFinanceAnswers(draft, {
+      method: 'DIRECT_AMOUNT',
+      amountBasis: 'ANNUAL',
+      startYm: '2027-04',
+      endYm: '2028-03',
+      directAmountYen: 720_000,
+      costRatePct: 60,
+      sgaCostYen: 100_000,
+      revenueKind: 'MASS_PRODUCTION',
+    });
+    const stored = normalizeFinanceEffect(JSON.parse(JSON.stringify({ ...entered, confirmed: true, confirmedAt: NOW })))!;
+    const anchored = anchorDraftsToSaved([draft], [stored]);
+    expect(anchored[0].blank).toBe(false);
+    const reopened = applyFinanceAnswers(anchored[0], initialFinanceAnswers(anchored[0], stored));
+    const stage4 = computeFinanceEffect(reopened);
+    expect(stage4.annualRevenueYen).toBe(720_000);
+    expect(stage4.annualGrossProfitYen).toBeCloseTo(288_000, 0);
+    expect(stage4.annualOperatingEffectYen).toBeCloseTo(188_000, 0);
+    const lines = financeLinesOf({ drafts: anchored, saved: [stored], answers: {}, projectHasCostIncrease: false });
+    expect(lines).toHaveLength(1);
+    expect(lines[0].status).toBe('CONFIRMED');
+    const project = (effect: FinanceEffect) =>
+      ({ departments: [{ id: 'd', name: '新規', projects: [{ id: 'p', title: '新規連携', financeEffect: effect }] }] as unknown as Department[] });
+    const trial = buildFinanceEffectTrial({ ...project(stored), fiscalYearEnd: '3', fiscalYears: [2028] });
+    expect(trial.years[0].revenueYen).toBe(720_000);
+    expect(trial.years[0].revenueOperatingIncomeYen).toBeCloseTo(188_000, 0);
+    const unconfirmed = normalizeFinanceEffect(JSON.parse(JSON.stringify({ ...entered, confirmed: false })))!;
+    expect(buildFinanceEffectTrial({ ...project(unconfirmed), fiscalYearEnd: '3', fiscalYears: [2028] }).years[0].revenueYen).toBe(0);
+    const draftLines = financeLinesOf({ drafts: anchorDraftsToSaved([draft], [unconfirmed]), saved: [unconfirmed], answers: {}, projectHasCostIncrease: false });
+    expect(draftLines[0].status).toBe('AI_ESTIMATE');
+    expect(draftLines[0].text).toContain('加算しません');
+  });
+
+  it('計画書の文章は、編集中の入力値を未保存と明示し、保存済みの値より優先して見せる', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const complete = { method: 'DIRECT_AMOUNT' as const, amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, revenueKind: 'MASS_PRODUCTION' as const };
+    const stored = normalizeFinanceEffect(JSON.parse(JSON.stringify({ ...applyFinanceAnswers(draft, complete), confirmed: true, confirmedAt: NOW })))!;
+    const typed = { ...complete, directAmountYen: 1_200_000 };
+    const lines = financeLinesOf({ drafts: anchorDraftsToSaved([draft], [stored]), saved: [stored], answers: { REVENUE_UP: typed }, projectHasCostIncrease: false });
+    expect(lines[0].status).toBe('AI_ESTIMATE');
+    expect(lines[0].text).toContain('未保存の入力中の値');
   });
 
   it('保存済みの財務効果は、再生成された草案で上書きされず、保存・再読込・再編集しても同じ値のまま（サービス提供型）', () => {

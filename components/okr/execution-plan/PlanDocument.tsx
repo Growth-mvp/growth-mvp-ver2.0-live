@@ -1,10 +1,8 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { buildDocModel, type CheckItem, type DocModel, type Edits, type EditValue } from '@/lib/stage4/planView/documentModel';
-import type { ImpactEstimate, ParamKey } from '@/lib/stage4/planView/impactEstimate';
+import { buildDocModel, type DocModel, type Edits, type EditValue } from '@/lib/stage4/planView/documentModel';
 import type { PlanMode } from '@/lib/stage4/planView/planState';
-import { ImpactEstimateBlock } from './ImpactEstimateBlock';
 import { PLAN_DOC_CSS, PLAN_FINANCE_FOLD_CSS } from './planDocStyles';
 
 type Mode = PlanMode;
@@ -17,10 +15,8 @@ export type PlanDocumentProps = {
   showAdoption?: boolean;
   /** 草案と採用・開始の記録が保存先（API）に残るか */
   persisted?: boolean;
-  /** STAGE3の前提からの参考試算（前提が無い案件は null）。第5章の中に出す */
-  impactEstimate?: ImpactEstimate | null;
-  /** 参考試算の前提の修正（保存は計画書の修正として行う）。無ければ修正欄を出さない */
-  onImpactEdit?: (key: ParamKey, value: number | null) => void;
+  /** 保存済みの財務効果から作った「財務効果の算定」の文章。無ければ計画書の草案の文章を使う */
+  financeLines?: DocModel['impact']['financeLines'];
   /** 第5章の下に出す財務効果の確認欄（STAGE6へ反映する操作）。計画書の保存状態とは別に扱う */
   financeSection?: ReactNode;
   /** 財務効果の状態の要約（未設定／未確認／確認済み）。閉じている見出しにも出す */
@@ -131,7 +127,11 @@ export default function PlanDocument(props: PlanDocumentProps) {
   const directEdit = props.directEdit === true && !readOnly;
   const mode: Mode = readOnly ? 'read' : directEdit ? 'edit' : props.mode;
   const edits = !directEdit && mode === 'edit' ? draft : committed;
-  const doc: DocModel = useMemo(() => buildDocModel(bundle, edits), [bundle, edits]);
+  const financeLines = props.financeLines;
+  const doc: DocModel = useMemo(() => {
+    const built = buildDocModel(bundle, edits);
+    return financeLines && financeLines.length > 0 ? { ...built, impact: { ...built.impact, financeLines } } : built;
+  }, [bundle, edits, financeLines]);
 
   const setEdit = (key: string, value: EditValue) => (directEdit ? props.onDirectChange?.(key, value) : props.onDraftChange(key, value));
   const editable = (key: string, label: string, original: string) => ({
@@ -405,14 +405,6 @@ export default function PlanDocument(props: PlanDocumentProps) {
                 {props.financeSummary && <span className="plan-finance-status">{props.financeSummary}</span>}
               </summary>
               <div className="plan-finance-body">{props.financeSection}</div>
-            </details>
-          )}
-          {props.impactEstimate && (
-            <details className="plan-supplement">
-              <summary>参考試算（任意・STAGE6には入りません）</summary>
-              <div className="plan-supplement-body">
-                <ImpactEstimateBlock estimate={props.impactEstimate} onEdit={props.onImpactEdit} />
-              </div>
             </details>
           )}
           <h3 className="plan-h3">財務効果の算定</h3>
