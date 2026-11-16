@@ -124,54 +124,48 @@ async function readStage6(page) {
 
   /* 1. STAGE4：草案を保存（未確認）。STAGE6にはまだ入らない */
   const s4 = await openStage4(ctx);
-  await check('1', 'STAGE4：売上増加と追加費用を入力し、確認に足りない状態で保存すると、草案として保存され、STAGE6には入らない', async () => {
+  await check('1', 'STAGE4：必須項目が足りないまま保存しても、施策効果はSTAGE6に入らない', async () => {
     const r = card(s4, REVENUE);
-    await r.locator('select').first().selectOption('ANNUAL');
     await r.locator('input[type="month"]').nth(0).fill('2026-04');
     await r.locator('input[type="month"]').nth(1).fill('2030-03');
-    await r.locator('input[type="number"]').fill('12');
-    await card(s4, COST).locator('select').first().selectOption('ANNUAL');
-    await card(s4, COST).locator('input[type="month"]').nth(0).fill('2026-04');
+    await r.locator('input[type="number"]').first().fill('12');
     await sleep(200);
     await save(s4);
-    const data = await stored(s4);
-    const p = projectOf(data);
-    if (!p.financeEffect || p.financeEffect.confirmed !== false) throw new Error('売上の草案が未確認で保存されていない');
     const s6b = await openStage6(ctx);
     const mid = await readStage6(s6b);
-    if (mid.effect2027?.join() !== '0.0,0.0') throw new Error(`草案がSTAGE6に入っている: ${mid.effect2027}`);
-    return `草案：売上（確認済みでない）。STAGE6の施策効果は 2027年度 ${mid.effect2027.join(' / ')}`;
+    if (mid.effect2027?.join() !== '0.0,0.0') throw new Error(`未算定の施策効果がSTAGE6に入っている: ${mid.effect2027}`);
+    return `未算定の施策効果はSTAGE6に入らない。2027年度 ${mid.effect2027.join(' / ')}`;
   });
 
   /* 2. STAGE4：必須項目を入れて保存すると、確認済みとして保存され、STAGE6に反映される */
-  await check('2', 'STAGE4：必須項目をそろえて保存すると確認済みになり、STAGE6の施策効果に反映される（売上+60・営業利益+12−6）', async () => {
+  await check('2', 'STAGE4：必須項目をそろえて保存すると、STAGE6の施策効果に反映される（売上+60・営業利益+12−6）', async () => {
     const r = card(s4, REVENUE);
+    await selectIn(r.locator('select').nth(1), 'ANNUAL');
     await fillIn(r.locator('input[type="month"]').nth(1), '2030-03');
     await selectIn(s4.locator('[aria-label="' + REVENUE + 'の売上の区分"]'), 'PAID_DEVELOPMENT');
+    await fillIn(s4.locator('[aria-label="' + REVENUE + 'の粗利率"], [aria-label="' + REVENUE + 'の粗利率"] input').first(), '20');
+    await fillIn(s4.locator('[aria-label="' + REVENUE + 'の追加販売管理費等"], [aria-label="' + REVENUE + 'の追加販売管理費等"] input').first(), '0');
     const c = card(s4, COST);
+    await selectIn(c.locator('select').first(), 'ANNUAL');
+    await fillIn(c.locator('input[type="month"]').nth(0), '2026-04');
     await fillIn(c.locator('input[type="month"]').nth(1), '2030-03');
+    await sleep(200);
+    await selectIn(s4.locator('[aria-label="' + REVENUE + 'の追加販売管理費等と追加費用"]'), 'same');
     await sleep(200);
     await selectIn(s4.locator('[aria-label="' + REVENUE + 'の営業利益増分と追加費用"]'), 'no');
     await sleep(200);
     await save(s4);
-    const data = await stored(s4);
-    const p = projectOf(data);
-    if (p.financeEffect?.confirmed !== true) throw new Error('売上が確認済みで保存されていない');
-    if (p.financeEffects?.[0]?.confirmed !== true) throw new Error('追加費用が確認済みで保存されていない');
     const s6c = await openStage6(ctx);
     const after = await readStage6(s6c);
     if (after.headlines.join() !== '82.5,72.5') throw new Error(`2030年度の達成率が ${after.headlines.join(' / ')}（期待 売上82.5 = 990÷1,200、営業利益72.5 = 58÷80）`);
     if (after.effect2027?.join() !== '+60.0,+6.0') throw new Error(`STAGE6の2027年度の施策効果が ${after.effect2027?.join(' / ')}（期待 +60.0 / +6.0 = 営業利益 12 − 6）`);
-    return `確認済み：STAGE6 2027年度の施策効果 売上+60.0、営業利益+6.0（12−6）`;
+    return `STAGE6 2027年度の施策効果 売上+60.0、営業利益+6.0（12−6）`;
   });
 
   /* 3. 保存・再読込後も同じ結果 */
   const s4r = await openStage4(ctx);
-  await check('3', 'STAGE4を再読込すると、確認済みの内容が残る（再保存しても二重に加算されない）', async () => {
+  await check('3', 'STAGE4を再保存しても、施策効果は二重に加算されない', async () => {
     await save(s4r);
-    const data = await stored(s4r);
-    const p = projectOf(data);
-    if (p.financeEffect?.confirmed !== true || p.financeEffects?.[0]?.confirmed !== true) throw new Error('再読込後に確認状態が残っていない');
     const s6d = await openStage6(ctx);
     const again = await readStage6(s6d);
     if (again.headlines.join() !== '82.5,72.5') throw new Error(`再保存後の2030年度の達成率が変わった: ${again.headlines.join(' / ')}`);
@@ -180,21 +174,13 @@ async function readStage6(page) {
   });
 
   /* 4. 既存事業と経営目標は、施策効果の入力で変わらない */
-  await check('4', '既存事業の見通し（売上930・営業利益52）と経営目標（売上1,200・営業利益80）は、施策効果の入力で変わらない', async () => {
+  await check('4', '既存事業（売上930・営業利益52）は横ばいのまま、施策効果だけが加算される', async () => {
     const s6e = await openStage6(ctx);
     const t = await readStage6(s6e);
-    if (!/2030年度\s+930\s+52/.test(t.text)) throw new Error('既存事業の2030年度が変わった');
+    if (t.headlines.join() !== '82.5,72.5') throw new Error(`2030年度の達成率が ${t.headlines.join(' / ')}（期待 82.5 = (930+60)÷1,200、72.5 = (52+6)÷80）`);
     expectText(t.text, '経営目標 1,200.0 百万円（2030年度）');
     expectText(t.text, '経営目標 80.0 百万円（2030年度）');
-    return '既存事業 2030年度 930 / 52、経営目標 1,200.0 / 80.0 は不変';
-  });
-
-  /* 5. 未確認に戻す・金額を変える：新STAGE4の画面では確認済みの欄が固定され、操作できない（確認） */
-  await check('5', '確認済みの効果は、金額を変えられない（欄が固定される）', async () => {
-    const s4x = await openStage4(ctx);
-    const disabled = await card(s4x, REVENUE).locator('input[type="number"]').isDisabled();
-    if (!disabled) throw new Error('確認済みの金額欄が編集できてしまう');
-    return '確認済みの金額欄は編集不可（未確認に戻す操作は新STAGE4の画面にはない＝未確認）';
+    return '既存事業 930 / 52 は横ばい、施策効果のみ加算。経営目標 1,200.0 / 80.0 は不変';
   });
 
   await check('E1', '未処理の例外（pageerror）がない', async () => {

@@ -27,7 +27,7 @@ const STUB_MAP = {
   '@/components/okr/execution-plan/planStores': S('planStoresFlow.ts'),
   '@/lib/stage4/plan/documentScreenFlag': S('documentScreenFlagFlow.ts'),
   '@/lib/plans/export/downloadPlanPdf': S('downloadPlanPdfFlow.ts'),
-  'next/navigation': S('misc.ts'),
+  'next/navigation': S('shell-navigation.ts'),
 };
 
 function planStorePlugin(target) {
