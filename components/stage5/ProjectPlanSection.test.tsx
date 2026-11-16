@@ -141,10 +141,10 @@ describe('STAGE5 のプロジェクトモーダル：実行開始済みの計画
   it('実行計画書のPDFは、ボタンを押したときだけ、保存済みの計画から作る', async () => {
     mockLoad = async (k) => ({ status: 'FOUND', record: { ...started, key: k } });
     render(createElement(ProjectPlanSection as never, props()));
-    const button = await screen.findByRole('button', { name: '実行計画書をPDFで開く' });
+    const button = await screen.findByRole('button', { name: 'PDFをダウンロード' });
     expect(mockDownload).not.toHaveBeenCalled();
     fireEvent.click(button);
-    await screen.findByRole('button', { name: '実行計画書をPDFで開く' });
+    await screen.findByRole('button', { name: 'PDFをダウンロード' });
     expect(mockDownload).toHaveBeenCalledTimes(1);
     const input = mockDownload.mock.calls[0][0] as { companyName: string; userEdits: Record<string, unknown>; startInfo: { version: number } };
     expect(input.companyName).toBe('架空株式会社');

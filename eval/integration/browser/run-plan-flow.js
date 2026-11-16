@@ -174,7 +174,7 @@ const projectOfStorage = (page, title) =>
   });
 
   await check('PDF：モーダルのボタンで開き、STAGE4で修正したKPIを含む計画書を作る（計画は変えない）', async () => {
-    await page.getByRole('button', { name: '実行計画書をPDFで開く' }).first().click();
+    await page.getByRole('button', { name: 'PDFをダウンロード' }).first().click();
     await page.waitForTimeout(500);
     const c = await counters(page);
     if (c.pdfDocs !== 1) throw new Error('PDFが作られていない: ' + c.pdfDocs);

@@ -184,7 +184,7 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
             disabled={pdfBusy}
             className="rounded-2xl border border-black/10 bg-white px-3 py-1.5 text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-50"
           >
-            {pdfBusy ? 'PDFを作成中…' : '実行計画書をPDFで開く'}
+            {pdfBusy ? 'PDFを作成中…' : 'PDFをダウンロード'}
           </button>
           {pdfError && (
             <span role="alert" className="text-xs text-rose-700">
