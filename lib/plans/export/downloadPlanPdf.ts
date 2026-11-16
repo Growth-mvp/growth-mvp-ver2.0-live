@@ -39,6 +39,7 @@ export async function downloadPlanPdf(doc: PlanExportDocument, fileName: string)
   ]);
   pdfMake.addVirtualFileSystem(vfs);
   pdfMake.addFonts(PDF_FONTS);
-  const blob = await pdfMake.createPdf(buildPlanPdfDefinition(doc)).getBlob();
-  saveBlob(blob, fileName);
+  const output = await pdfMake.createPdf(buildPlanPdfDefinition(doc)).getBlob();
+  if ((await output.slice(0, 5).text()) !== '%PDF-') throw new Error('PDFとして作れませんでした');
+  saveBlob(new Blob([output], { type: 'application/pdf' }), fileName);
 }
