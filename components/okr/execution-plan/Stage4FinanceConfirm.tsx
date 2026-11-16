@@ -84,6 +84,12 @@ function DraftCard({
         <strong>{draft.label}</strong>：{formulaOf(draft)}
       </div>
       <div className="plan-note">状態：{statusOf(saved)}</div>
+      {!confirmedNow && blockers.length > 0 && (
+        <p className="plan-note">確認するには、次を入力して「計画を保存」を押してください：{blockers.join('、')}</p>
+      )}
+      {!confirmedNow && blockers.length === 0 && (
+        <p className="plan-note">必須項目はそろっています。「計画を保存」を押すと確認され、STAGE6に反映されます。</p>
+      )}
       {differs && (
         <p role="note" className="plan-note">
           入力を変えています。「計画を保存」で保存されます。必須項目がそろえば確認し直してSTAGE6に反映され、足りなければ草案に戻ってSTAGE6から外れます。
@@ -466,7 +472,6 @@ function DraftCard({
           {periodNote}
         </p>
       )}
-      {blockers.length > 0 && <p className="plan-note">未確認の項目：{blockers.join('、')}</p>}
     </div>
   );
 }

@@ -1,4 +1,12 @@
-import { anchorDraftsToSaved, financeLinesOf, financeSaveSteps, financeStatusSummary, financeWriteReason, withBlankFinanceDrafts } from './financeBridge';
+import {
+  anchorDraftsToSaved,
+  financeLinesOf,
+  financeSaveSteps,
+  financeStatusSummary,
+  financeWriteReason,
+  planFinanceEffectWrite,
+  withBlankFinanceDrafts,
+} from './financeBridge';
 import { computeFinanceEffect, findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
@@ -489,6 +497,37 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     );
     expect(financeStatusSummary([base])).toBe('未確認');
     expect(financeStatusSummary([{ ...base, confirmed: true }])).toContain('売上増加');
+  });
+
+  it('確認は「計画を保存」で行われる。売上の区分が未入力の間は未確認のままSTAGE6に入らず、区分を入れて保存すると確認され正式集計に入る', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（新規連携）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const project = (effect: FinanceEffect | undefined) =>
+      ({ departments: [{ id: 'd', name: '新規', projects: [{ id: 'p', title: '新規連携', financeEffect: effect }] }] as unknown as Department[] });
+    const base = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, costRatePct: 60, sgaCostYen: 100_000 };
+    const save = (answers: Record<string, unknown>, current?: FinanceEffect): FinanceEffect | undefined => {
+      const drafts = [current ? anchorDraftsToSaved([draft], [current])[0] : draft];
+      const steps = financeSaveSteps({ drafts, answers: { REVENUE_UP: answers }, saved: current ? [current] : [], overlapCount: 0 });
+      let stored = current;
+      for (const s of steps) {
+        const plan = planFinanceEffectWrite({ primary: stored, additional: undefined, candidate: s.candidate, action: s.action, nowIso: NOW });
+        if (plan.ok) stored = plan.patch.financeEffect ?? stored;
+      }
+      return stored;
+    };
+    const unconfirmed = save(base);
+    expect(unconfirmed?.confirmed).toBe(false);
+    expect(buildFinanceEffectTrial({ ...project(unconfirmed), fiscalYearEnd: '3', fiscalYears: [2028] }).years[0].revenueYen).toBe(0);
+    const confirmed = save({ ...base, revenueKind: 'MASS_PRODUCTION' }, unconfirmed);
+    expect(confirmed?.confirmed).toBe(true);
+    const trial = buildFinanceEffectTrial({ ...project(confirmed), fiscalYearEnd: '3', fiscalYears: [2028] });
+    expect(trial.years[0].revenueYen).toBe(720_000);
+    expect(trial.years[0].revenueOperatingIncomeYen).toBeCloseTo(188_000, 0);
   });
 
   it('売上72万・粗利益28.8万・追加販売管理費10万は、STAGE4の計算・計画書の文章・STAGE6の集計で同じ数値になり、未確認は正式計画に入らない', () => {
