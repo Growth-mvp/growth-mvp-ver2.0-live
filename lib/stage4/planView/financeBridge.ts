@@ -587,15 +587,36 @@ export function financeSaveSteps(args: {
   const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount, args.answers);
   const steps: FinanceSaveStep[] = [];
   for (const draft of args.drafts) {
-    const answers = args.answers[draft.kind];
-    if (!answers) continue;
     const savedOne = args.saved.find((e) => e.kind === draft.kind);
+    const answers = args.answers[draft.kind] ?? (savedOne && !savedOne.confirmed ? initialFinanceAnswers(draft, savedOne) : undefined);
+    if (!answers) continue;
     const candidate = applyFinanceAnswers(draft, answers);
     if (savedOne?.confirmed && !isFinanceEffectInputChanged(savedOne, candidate)) continue;
-    steps.push({ kind: draft.kind, action: savedOne?.confirmed ? 'REVISE' : 'SAVE_DRAFT', candidate });
+    const unchanged = !!savedOne && !isFinanceEffectInputChanged(savedOne, candidate);
+    if (!unchanged) steps.push({ kind: draft.kind, action: savedOne?.confirmed ? 'REVISE' : 'SAVE_DRAFT', candidate });
     if (confirmBlockers(candidate, ctx).length === 0) steps.push({ kind: draft.kind, action: 'CONFIRM', candidate });
   }
   return steps;
+}
+
+/* 「計画を保存」の後に、確認できていない財務効果と、その不足理由（重複の確認を含む）。保存済みだけで成功と見せないために使う */
+export function financePendingReasons(args: {
+  drafts: FinanceEffectDraft[];
+  answers: FinanceAnswersByKind;
+  saved: FinanceEffect[];
+  overlapCount: number;
+}): { label: string; reasons: string[] }[] {
+  const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount, args.answers);
+  const out: { label: string; reasons: string[] }[] = [];
+  for (const draft of args.drafts) {
+    const savedOne = args.saved.find((e) => e.kind === draft.kind);
+    if (savedOne?.confirmed) continue;
+    const answers = args.answers[draft.kind] ?? (savedOne ? initialFinanceAnswers(draft, savedOne) : undefined);
+    if (!answers) continue;
+    const reasons = confirmBlockers(applyFinanceAnswers(draft, answers), ctx);
+    if (reasons.length > 0) out.push({ label: draft.label, reasons });
+  }
+  return out;
 }
 
 function isFinanceEffectInputChanged(prev: FinanceEffect, next: FinanceEffect): boolean {

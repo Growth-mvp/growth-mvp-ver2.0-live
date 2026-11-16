@@ -1,7 +1,9 @@
 import {
   anchorDraftsToSaved,
   financeLinesOf,
+  financePendingReasons,
   financeSaveSteps,
+  type FinanceSaveStep,
   financeStatusSummary,
   financeWriteReason,
   withBlankFinanceDrafts,
@@ -496,6 +498,84 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     );
     expect(financeStatusSummary([base])).toBe('未確認');
     expect(financeStatusSummary([{ ...base, confirmed: true }])).toContain('売上増加');
+  });
+
+  it('保存済みで未確認の効果は、再読込して編集せずに「計画を保存」しても確認条件を再評価し、そろっていれば確認済みになりSTAGE6に入る', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（新規連携）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const project = (effect: FinanceEffect | undefined) =>
+      ({ departments: [{ id: 'd', name: '新規', projects: [{ id: 'p', title: '新規連携', financeEffect: effect }] }] as unknown as Department[] });
+    const input = {
+      amountBasis: 'ANNUAL' as const,
+      startYm: '2027-04',
+      endYm: '2028-03',
+      directAmountYen: 720_000,
+      costRatePct: 60,
+      sgaCostYen: 100_000,
+      revenueKind: 'MASS_PRODUCTION' as const,
+    };
+    const writeAll = (steps: FinanceSaveStep[], current: FinanceEffect | undefined): FinanceEffect | undefined => {
+      let stored = current;
+      for (const s of steps) {
+        const plan = planFinanceEffectWrite({ primary: stored, additional: undefined, candidate: s.candidate, action: s.action, nowIso: NOW });
+        if (plan.ok) stored = plan.patch.financeEffect ?? stored;
+      }
+      return stored;
+    };
+    // 1回目：同じ種類の他の施策と重なるため、重複の説明が未入力で、まだ確認できない
+    const first = writeAll(
+      financeSaveSteps({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapCount: 1 }),
+      undefined,
+    );
+    expect(first?.confirmed).toBe(false);
+    // 再読込（保存値をJSONで往復させる）。編集せず、重複が解消した後に「計画を保存」する
+    const reloaded = normalizeFinanceEffect(JSON.parse(JSON.stringify(first)))!;
+    const anchored = anchorDraftsToSaved([draft], [reloaded]);
+    expect(financePendingReasons({ drafts: anchored, answers: {}, saved: [reloaded], overlapCount: 0 })).toEqual([]);
+    const second = writeAll(financeSaveSteps({ drafts: anchored, answers: {}, saved: [reloaded], overlapCount: 0 }), reloaded);
+    expect(second?.confirmed).toBe(true);
+    const trial = buildFinanceEffectTrial({ ...project(second), fiscalYearEnd: '3', fiscalYears: [2028] });
+    expect(trial.years[0].revenueYen).toBe(720_000);
+    expect(trial.years[0].revenueOperatingIncomeYen).toBeCloseTo(188_000, 0);
+  });
+
+  it('確認条件が不足している間は、不足理由（重複の確認を含む）を示し、確認済みにしない', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（新規連携）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const input = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, revenueKind: 'MASS_PRODUCTION' as const };
+    const pending = financePendingReasons({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapCount: 1 });
+    expect(pending).toHaveLength(1);
+    expect(pending[0].reasons.join('、')).toContain('重複していない理由');
+  });
+
+  it('サービス提供型は売上区分が自動でSERVICEになるため、売上区分の未回答を要求しない', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（サービス提供）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'QUANTITY_UNIT_PRICE', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const candidate = applyFinanceAnswers(draft, {
+      amountBasis: 'MONTHLY',
+      startYm: '2027-04',
+      endYm: '2028-03',
+      serviceCustomers: 10,
+      servicePerCustomerCount: 10,
+      unitPriceYen: 10_000,
+    });
+    expect(candidate.revenueKind).toBe('SERVICE');
+    expect(financePendingReasons({ drafts: [draft], answers: { REVENUE_UP: { amountBasis: 'MONTHLY', startYm: '2027-04', endYm: '2028-03', serviceCustomers: 10, servicePerCustomerCount: 10, unitPriceYen: 10_000 } }, saved: [], overlapCount: 0 })).toEqual([]);
   });
 
   it('確認は「計画を保存」で行われる。売上の区分が未入力の間は未確認のままSTAGE6に入らず、区分を入れて保存すると確認され正式集計に入る', () => {

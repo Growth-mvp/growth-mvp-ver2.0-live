@@ -46,6 +46,7 @@ import {
   anchorDraftsToSaved,
   buildFinanceEffectDrafts,
   financeLinesOf,
+  financePendingReasons,
   financeStatusSummary,
   withBlankFinanceDrafts,
   type FinanceLine,
@@ -555,7 +556,6 @@ function Stage3ProjectBrowser({
   /* 計画の保存のあとに、入力された財務効果を書く。必須項目がそろったものだけ確認する。途中で止まったら理由を残す */
   const saveFinance = async (sel: Stage3Selection, projectId: string, targetId: string, answers: FinanceAnswersByKind) => {
     const steps = financeSaveSteps({ drafts: anchoredFinanceDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
-    if (steps.length === 0) return;
     for (const step of steps) {
       const out = await writeFinanceEffectToProject({
         companyId: sel.companyId,
@@ -570,10 +570,18 @@ function Stage3ProjectBrowser({
       }
     }
     const written = steps.map((s) => s.kind);
+    const pending = financePendingReasons({ drafts: anchoredFinanceDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
+    const confirmedNow = steps.some((s) => s.action === 'CONFIRM');
+    const notice =
+      pending.length > 0
+        ? `計画は保存しましたが、財務効果は未確認のままです（${pending.map((p) => `${p.label}：${p.reasons.join('、')}`).join('／')}）。条件がそろうと、「計画を保存」で確認されます。`
+        : confirmedNow
+          ? '計画と財務効果を保存し、確認しました。STAGE6に反映されます。'
+          : null;
     updateEntry(targetId, (e) => {
       const rest: FinanceAnswersByKind = { ...(e.finance ?? {}) };
       for (const kind of written) delete rest[kind];
-      return { ...e, finance: rest };
+      return { ...e, finance: rest, ...(notice !== null ? { notice } : {}) };
     });
   };
 
