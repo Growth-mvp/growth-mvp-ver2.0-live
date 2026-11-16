@@ -7,6 +7,7 @@ import {
   type FinanceAnswers,
   type FinanceAnswersByKind,
   type FinanceEffectDraft,
+  type FinanceOverlapOf,
   type PlanPeriod,
 } from '@/lib/stage4/planView/financeBridge';
 import { computeFinanceEffect, FINANCE_EFFECT_BASIS_LABEL, isFinanceEffectMaterialChange } from '@/lib/financeEffect';
@@ -49,7 +50,8 @@ function DraftCard({
   draft,
   saved,
   answers,
-  ctx,
+  baseCtx,
+  overlapOf,
   planPeriod,
   writable,
   onChange,
@@ -58,7 +60,8 @@ function DraftCard({
   draft: FinanceEffectDraft;
   saved: FinanceEffect | undefined;
   answers: FinanceAnswers;
-  ctx: ReturnType<typeof financeConfirmContext>;
+  baseCtx: ReturnType<typeof financeConfirmContext>;
+  overlapOf: FinanceOverlapOf;
   planPeriod: PlanPeriod | null;
   writable: boolean;
   onChange: (answers: FinanceAnswers) => void;
@@ -66,6 +69,7 @@ function DraftCard({
   addCostYen?: number;
 }) {
   const candidate = applyFinanceAnswers(draft, answers);
+  const ctx: ReturnType<typeof financeConfirmContext> = { ...baseCtx, overlaps: overlapOf(candidate) };
   const blockers = confirmBlockers(candidate, ctx);
   const isRevenue = draft.kind === 'REVENUE_UP';
   const isCost = draft.kind === 'COST_REDUCTION';
@@ -444,16 +448,7 @@ function DraftCard({
       )}
       {isCost && (
         <>
-          <label>
-            <input
-              type="checkbox"
-              aria-label={`${draft.label}の削減の確認`}
-              checked={answers.reductionConfirmed === true}
-              disabled={disabled}
-              onChange={(e) => set({ reductionConfirmed: e.target.checked })}
-            />
-            実際に減らせる費用として確認できた（費用配賦の見直し・作業時間短縮だけでは計上しない）
-          </label>
+          <p className="plan-note">実際に削減できる費用を入力してください。費用配賦の見直しや作業時間の短縮だけでは計上しません。</p>
           <p className="plan-note">
             {addCostYen === undefined || candidate.directAmountYen === undefined
               ? '追加費用が未入力のため、年間利益改善額は算出しません（追加費用は別の効果として入力します）。'
@@ -461,11 +456,23 @@ function DraftCard({
           </p>
         </>
       )}
-      {(ctx.overlapCount > 0 || (isCost && ctx.revenueHasOperatingEffect === true)) && (
+      {ctx.overlaps.length > 0 && (
+        <div className="plan-note" aria-label={`${draft.label}の重複候補`}>
+          <p>重なる可能性のある他の施策（{ctx.overlaps.length}件）：</p>
+          <ul>
+            {ctx.overlaps.map((o, i) => (
+              <li key={`${o.deptName}|${o.projectTitle}|${i}`}>
+                {o.deptName} / {o.projectTitle}：{o.reason}（{o.holding ? '計上を保留中' : '注意'}）
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(ctx.overlaps.some((o) => o.holding) || (isCost && ctx.revenueHasOperatingEffect === true)) && (
         <label>
-          {isCost && ctx.overlapCount === 0
+          {isCost && !ctx.overlaps.some((o) => o.holding)
             ? '同じ案件の売上増加で営業利益増分を計上しています。コスト削減との重複がないことの説明'
-            : `同じ効果の可能性がある他の施策（${ctx.overlapCount}件）について、重複していない理由`}
+            : `同じ対象の可能性がある他の施策（${ctx.overlaps.filter((o) => o.holding).length}件）について、重複していない理由`}
           <textarea
             aria-label={`${draft.label}の重複の説明`}
             value={answers.overlapNote ?? ''}
@@ -486,23 +493,23 @@ function DraftCard({
 export function Stage4FinanceConfirm({
   drafts,
   saved,
-  overlapCount,
   planPeriod = null,
   writable,
   reasonNotWritable,
   answers,
+  overlapOf = () => [],
   onAnswer,
 }: {
   drafts: FinanceEffectDraft[];
   saved: FinanceEffect[];
-  overlapCount: number;
+  overlapOf?: FinanceOverlapOf;
   planPeriod?: PlanPeriod | null;
   writable: boolean;
   reasonNotWritable?: string;
   answers: FinanceAnswersByKind;
   onAnswer: (kind: FinanceEffectDraft['kind'], answers: FinanceAnswers) => void;
 }) {
-  const ctx = financeConfirmContext(drafts, saved, overlapCount, answers);
+  const baseCtx = financeConfirmContext(drafts, saved, answers);
   const addCostYen = drafts.find((d) => d.kind === 'COST_INCREASE')?.base.directAmountYen;
   return (
     <section aria-labelledby="stage4-finance-confirm" className="plan-impact-estimate">
@@ -526,7 +533,8 @@ export function Stage4FinanceConfirm({
             draft={draft}
             saved={savedOne}
             answers={answers[draft.kind] ?? initialFinanceAnswers(draft, savedOne)}
-            ctx={ctx}
+            baseCtx={baseCtx}
+            overlapOf={overlapOf}
             planPeriod={planPeriod}
             writable={writable}
             onChange={(a) => onAnswer(draft.kind, a)}

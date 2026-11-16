@@ -12,7 +12,7 @@ import type { FinanceEffect } from '@/types/strategy';
 
 const CONFIRMED_AT = '2026-11-10T00:00:00.000Z';
 const FY_END = '3';
-const NO_CONTEXT: ConfirmContext = { overlapCount: 0, hasCostEffect: false, costConfirmed: false, revenueOpIncludesAddCost: false };
+const NO_CONTEXT: ConfirmContext = { overlaps: [], hasCostEffect: false, costConfirmed: false, revenueOpIncludesAddCost: false };
 
 function costEstimate(edits: Record<string, number>) {
   return estimateProjectImpact({ role: 'COST', okrsV2: [] }, { edits: Object.fromEntries(Object.entries(edits).map(([k, v]) => [`impact:${k}`, v])) });
@@ -125,9 +125,9 @@ describe('保存の繰り返し（二重登録の防止）', () => {
   it('計画を保存すると草案の保存と確認が1回ずつ行われ、確認済みの効果は再保存で書き直さない', async () => {
     const { financeSaveSteps } = await import('./financeBridge');
     const draft = costDraft({ currentCostMJPY: 120, reductionRatePct: 10, startYear: 2028, endYear: 2028 });
-    const first = financeSaveSteps({ drafts: [draft], answers: { COST_REDUCTION: ANSWERS }, saved: [], overlapCount: 0 });
+    const first = financeSaveSteps({ drafts: [draft], answers: { COST_REDUCTION: ANSWERS }, saved: []});
     expect(first.map((s) => s.action)).toEqual(['SAVE_DRAFT', 'CONFIRM']);
     const saved = { ...applyFinanceAnswers(draft, ANSWERS), confirmed: true, confirmedAt: CONFIRMED_AT } as FinanceEffect;
-    expect(financeSaveSteps({ drafts: [draft], answers: { COST_REDUCTION: ANSWERS }, saved: [saved], overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: [draft], answers: { COST_REDUCTION: ANSWERS }, saved: [saved]})).toEqual([]);
   });
 });

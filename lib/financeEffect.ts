@@ -214,31 +214,70 @@ function operatingPerPeriodOf(effect: FinanceEffect, costEffectPerPeriod: number
   return revenueOperatingPerPeriodOf(effect, costEffectPerPeriod, projectHasCostIncrease);
 }
 
-/** 同じ効果種類で、対象範囲が同じ、または同じ算定方法で期間が重なる他施策（重複の可能性。自動では除外しない） */
-export function findFinanceEffectOverlapCandidates(departments: unknown, deptIdx: number, projIdx: number): string[] {
-  const depts = Array.isArray(departments) ? departments : [];
-  const entries: { label: string; effect: FinanceEffect | undefined; d: number; p: number }[] = [];
-  depts.forEach((dept: any, d) => {
-    const projects = Array.isArray(dept?.projects) ? dept.projects : [];
-    projects.forEach((proj: any, p: number) => {
-      const label = `${String(dept?.name ?? '').trim() || '部門未設定'} / ${String(proj?.title ?? proj?.name ?? '').trim() || '施策未設定'}`;
-      entries.push({ label, effect: normalizeFinanceEffect(proj?.financeEffect), d, p });
+export type FinanceEffectOverlap = {
+  deptName: string;
+  projectTitle: string;
+  /** 計上を保留する根拠がある。false は注意の表示だけで、計上は止めない */
+  holding: boolean;
+  reason: string;
+};
+
+type OverlapEntry = { d: number; p: number; deptName: string; projectTitle: string; rawTitle: string; effects: FinanceEffect[] };
+
+const recordOf = (v: unknown): Record<string, unknown> => (v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+const listOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+function overlapEntriesOf(departments: unknown): OverlapEntry[] {
+  const out: OverlapEntry[] = [];
+  listOf(departments).forEach((deptRaw, d) => {
+    const dept = recordOf(deptRaw);
+    const deptName = String(dept.name ?? '').trim() || '部門未設定';
+    listOf(dept.projects).forEach((projRaw, p) => {
+      const proj = recordOf(projRaw);
+      const rawTitle = String(proj.title ?? proj.name ?? '').trim();
+      const effects = [proj.financeEffect, ...listOf(proj.financeEffects)]
+        .map(normalizeFinanceEffect)
+        .filter((e): e is FinanceEffect => e !== undefined);
+      out.push({ d, p, deptName, projectTitle: rawTitle || '施策未設定', rawTitle, effects });
     });
   });
-  const self = entries.find((e) => e.d === deptIdx && e.p === projIdx)?.effect;
-  if (!self || !isFinancialKind(self.kind) || !isYm(self.startYm)) return [];
+  return out;
+}
 
+/**
+ * 保存しようとしている効果（self）と、同じ種類で期間が重なる他施策の効果を比べる。
+ * 計上を保留するのは、対象範囲が同じ、または同じ部門・同じ施策名で内容も同じ（二重登録の疑い）場合だけ。
+ * 同じ算定方法で期間が重なるだけの施策は、注意の表示にとどめる。
+ */
+export function findFinanceEffectOverlaps(departments: unknown, deptIdx: number, projIdx: number, self: FinanceEffect): FinanceEffectOverlap[] {
+  if (!isFinancialKind(self.kind) || !isYm(self.startYm)) return [];
+  const entries = overlapEntriesOf(departments);
+  const here = entries.find((e) => e.d === deptIdx && e.p === projIdx);
   const selfScope = nonEmpty(self.scopeNote) ? self.scopeNote.trim() : null;
-  return entries
-    .filter((e) => !(e.d === deptIdx && e.p === projIdx))
-    .filter((e) => {
-      const o = e.effect;
-      if (!o || o.kind !== self.kind || !isYm(o.startYm)) return false;
-      const sameScope = selfScope !== null && nonEmpty(o.scopeNote) && o.scopeNote.trim() === selfScope;
-      const sameMethod = o.method !== undefined && o.method === self.method;
-      return sameScope || (sameMethod && periodsOverlap(self, o));
-    })
-    .map((e) => e.label);
+  const out: FinanceEffectOverlap[] = [];
+  for (const e of entries) {
+    if (e === here) continue;
+    for (const o of e.effects) {
+      if (o.kind !== self.kind || !isYm(o.startYm) || !periodsOverlap(self, o)) continue;
+      const place = { deptName: e.deptName, projectTitle: e.projectTitle };
+      if (selfScope !== null && nonEmpty(o.scopeNote) && o.scopeNote.trim() === selfScope) {
+        out.push({ ...place, holding: true, reason: `対象範囲が同じです（${selfScope}）` });
+      } else if (here && here.rawTitle !== '' && e.d === here.d && e.rawTitle === here.rawTitle && !isFinanceEffectMaterialChange(o, self)) {
+        out.push({ ...place, holding: true, reason: '同じ部門に同じ施策名で、内容が同じ効果が登録されています' });
+      } else if (o.method !== undefined && o.method === self.method) {
+        out.push({ ...place, holding: false, reason: '同じ算定方法で期間が重なります（対象範囲は別、または未入力）' });
+      }
+    }
+  }
+  return out;
+}
+
+/** 保存済みの効果を基準にした候補の施策名（表示用）。保存前の判定には findFinanceEffectOverlaps を使う */
+export function findFinanceEffectOverlapCandidates(departments: unknown, deptIdx: number, projIdx: number): string[] {
+  const proj = recordOf(listOf(recordOf(listOf(departments)[deptIdx]).projects)[projIdx]);
+  const self = normalizeFinanceEffect(proj.financeEffect);
+  if (!self) return [];
+  return findFinanceEffectOverlaps(departments, deptIdx, projIdx, self).map((o) => `${o.deptName} / ${o.projectTitle}`);
 }
 
 function isFinancialKind(kind: FinanceEffectKind): boolean {

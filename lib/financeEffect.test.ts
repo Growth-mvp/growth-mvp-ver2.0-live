@@ -1,6 +1,7 @@
 import {
   computeFinanceEffect,
   findFinanceEffectOverlapCandidates,
+  findFinanceEffectOverlaps,
   financeEffectViewModel,
   normalizeFinanceEffect,
 } from './financeEffect';
@@ -155,6 +156,69 @@ describe('他施策との重複候補', () => {
 
   it('自分に財務効果が無ければ候補は空', () => {
     expect(findFinanceEffectOverlapCandidates([{ name: 'x', projects: [proj('a')] }], 0, 0)).toEqual([]);
+  });
+});
+
+describe('重複の判定：保存しようとしている効果を基準にし、計上を止めるのは対象が同じと判断できる場合だけ', () => {
+  const proj = (title: string, financeEffect?: FinanceEffect) => ({ title, financeEffect });
+  const delivery = (o: Partial<FinanceEffect> = {}): FinanceEffect =>
+    base({
+      kind: 'REVENUE_UP',
+      method: 'QUANTITY_UNIT_PRICE',
+      quantity: 24,
+      unitPriceYen: 2_500,
+      amountBasis: 'MONTHLY',
+      startYm: '2027-04',
+      endYm: '2028-03',
+      sourceNote: '見積書',
+      ...o,
+    });
+
+  it('別々の顧客に対する配送サービスは、同じ計算方法・期間でも計上保留の候補にしない（注意のみ）', () => {
+    const departments = [{ name: '営業部', projects: [proj('配送（A社）', delivery({ scopeNote: 'A社' })), proj('配送（B社）')] }];
+    expect(findFinanceEffectOverlaps(departments, 0, 1, delivery({ scopeNote: 'B社' }))).toEqual([
+      expect.objectContaining({ projectTitle: '配送（A社）', holding: false }),
+    ]);
+  });
+
+  it('対象範囲が同じ施策は、計上保留の候補になり、理由に対象範囲を示す', () => {
+    const departments = [{ name: '営業部', projects: [proj('配送（A社）', delivery({ scopeNote: 'A社' })), proj('配送（A社・追加）')] }];
+    expect(findFinanceEffectOverlaps(departments, 0, 1, delivery({ scopeNote: 'A社' }))).toEqual([
+      { deptName: '営業部', projectTitle: '配送（A社）', holding: true, reason: '対象範囲が同じです（A社）' },
+    ]);
+  });
+
+  it('同じ部門・同じ施策名で内容も同じ効果は二重登録として保留し、内容が違えば注意にとどめる', () => {
+    const same = delivery();
+    const departments = [{ name: '営業部', projects: [proj('配送サービス', same), proj('配送サービス')] }];
+    expect(findFinanceEffectOverlaps(departments, 0, 1, same)).toEqual([expect.objectContaining({ holding: true })]);
+    expect(findFinanceEffectOverlaps(departments, 0, 1, delivery({ quantity: 12 }))).toEqual([expect.objectContaining({ holding: false })]);
+  });
+
+  it('保存しようとしている効果を基準にする（保存済みの旧内容では判定しない）', () => {
+    const departments = [{ name: '営業部', projects: [proj('配送（A社）', delivery({ scopeNote: 'A社' })), proj('配送（既存の対象）', delivery({ scopeNote: 'A社' }))] }];
+    expect(findFinanceEffectOverlaps(departments, 0, 1, delivery({ scopeNote: 'B社' }))).toEqual([expect.objectContaining({ holding: false })]);
+  });
+
+  it('期間が重ならない施策は候補にしない', () => {
+    const departments = [
+      { name: '営業部', projects: [proj('配送（A社）', delivery({ scopeNote: 'A社', startYm: '2025-04', endYm: '2026-03' })), proj('配送（A社・次期）')] },
+    ];
+    expect(findFinanceEffectOverlaps(departments, 0, 1, delivery({ scopeNote: 'A社' }))).toEqual([]);
+  });
+
+  it('判定は既存データを書き換えない', () => {
+    const same = delivery({ scopeNote: 'A社' });
+    const departments = [{ name: '営業部', projects: [proj('配送（A社）', same), proj('配送（A社・追加）', delivery({ scopeNote: 'A社' }))] }];
+    const before = JSON.parse(JSON.stringify(departments));
+    findFinanceEffectOverlaps(departments, 0, 1, same);
+    expect(departments).toEqual(before);
+  });
+
+  it('別の部門の同じ施策名・同じ内容は、注意にとどめる', () => {
+    const same = delivery();
+    const departments = [{ name: '営業部', projects: [proj('配送サービス', same)] }, { name: '企画部', projects: [proj('配送サービス')] }];
+    expect(findFinanceEffectOverlaps(departments, 1, 0, same)).toEqual([expect.objectContaining({ deptName: '営業部', holding: false })]);
   });
 });
 

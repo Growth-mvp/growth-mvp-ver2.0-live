@@ -44,7 +44,7 @@ const draftOf = (drafts: FinanceEffectDraft[], kind: FinanceEffectDraft['kind'])
 };
 
 function confirmedOf(drafts: FinanceEffectDraft[], answers: FinanceAnswersByKind): FinanceEffect[] {
-  return financeSaveSteps({ drafts, answers, saved: [], overlapCount: 0 })
+  return financeSaveSteps({ drafts, answers, saved: []})
     .filter((s) => s.action === 'CONFIRM')
     .map((s) => ({ ...s.candidate, confirmed: true, confirmedAt: AT }));
 }
@@ -109,7 +109,7 @@ describe('営業利益増分の単位と追加費用の二重控除の防止', (
   it('売上の粗利（年額28.8万円）と追加費用（年額10万円）を差し引く前の値で入力すれば、確認できる', () => {
     const drafts = draftsOf('REVENUE', DELIVERY_EDITS);
     const answers = { ...DELIVERY_ANSWERS, ...costAnswers() };
-    const ctx = financeConfirmContext(drafts, [], 0, answers);
+    const ctx = financeConfirmContext(drafts, [], answers);
     expect(ctx.addCostAnnualYen).toBe(100_000);
     expect(confirmBlockers(applyFinanceAnswers(draftOf(drafts, 'REVENUE_UP'), answers.REVENUE_UP!), ctx)).toEqual([]);
   });
@@ -120,7 +120,7 @@ describe('営業利益増分の単位と追加費用の二重控除の防止', (
       REVENUE_UP: { ...FY2028_ANSWERS, operatingIncomeEffectYen: 188_000 / 12, opIncomeIncludesAddCost: false },
       ...costAnswers(),
     };
-    const blockers = confirmBlockers(applyFinanceAnswers(draftOf(drafts, 'REVENUE_UP'), answers.REVENUE_UP!), financeConfirmContext(drafts, [], 0, answers));
+    const blockers = confirmBlockers(applyFinanceAnswers(draftOf(drafts, 'REVENUE_UP'), answers.REVENUE_UP!), financeConfirmContext(drafts, [], answers));
     expect(blockers.join('、')).toContain('一致しません');
   });
 
@@ -130,7 +130,7 @@ describe('営業利益増分の単位と追加費用の二重控除の防止', (
       REVENUE_UP: { ...FY2028_ANSWERS, operatingIncomeEffectYen: 188_000 / 12, opIncomeIncludesAddCost: true },
       ...costAnswers(),
     };
-    expect(confirmBlockers(applyFinanceAnswers(draftOf(drafts, 'REVENUE_UP'), answers.REVENUE_UP!), financeConfirmContext(drafts, [], 0, answers))).toEqual([]);
+    expect(confirmBlockers(applyFinanceAnswers(draftOf(drafts, 'REVENUE_UP'), answers.REVENUE_UP!), financeConfirmContext(drafts, [], answers))).toEqual([]);
   });
 
   it('月額の売上に年額の営業利益増分を入れた（12倍になる）場合は、年額の売上を超えるため確認できない', () => {
@@ -139,7 +139,7 @@ describe('営業利益増分の単位と追加費用の二重控除の防止', (
       REVENUE_UP: { ...FY2028_ANSWERS, operatingIncomeEffectYen: 288_000, opIncomeIncludesAddCost: false },
       ...costAnswers(),
     };
-    const blockers = confirmBlockers(applyFinanceAnswers(draftOf(drafts, 'REVENUE_UP'), answers.REVENUE_UP!), financeConfirmContext(drafts, [], 0, answers));
+    const blockers = confirmBlockers(applyFinanceAnswers(draftOf(drafts, 'REVENUE_UP'), answers.REVENUE_UP!), financeConfirmContext(drafts, [], answers));
     expect(blockers.join('、')).toContain('年額の売上（');
   });
 });

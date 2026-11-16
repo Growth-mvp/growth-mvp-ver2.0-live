@@ -1,4 +1,4 @@
-import { computeFinanceEffect, isFinanceEffectMaterialChange } from '@/lib/financeEffect';
+import { computeFinanceEffect, isFinanceEffectMaterialChange, type FinanceEffectOverlap } from '@/lib/financeEffect';
 import { blockingChecksDone, candidateChecks, planCandidateWrite } from '@/lib/okr/financeEffectCandidate';
 import { parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { formatYenScaled } from '@/utils/yenScale';
@@ -89,8 +89,12 @@ export type FinanceAnswers = {
 };
 
 /** 確認の判定に使う、同じ案件の他の効果の状態 */
+/** 保存しようとしている効果について、同じ種類で期間が重なる他施策 */
+export type FinanceOverlapOf = (candidate: FinanceEffect) => FinanceEffectOverlap[];
+
 export type ConfirmContext = {
-  overlapCount: number;
+  /** 判定対象の効果に対する他施策の重なり（計上保留になるものは holding=true） */
+  overlaps: FinanceEffectOverlap[];
   hasCostEffect: boolean;
   costConfirmed: boolean;
   revenueOpIncludesAddCost: boolean;
@@ -349,7 +353,7 @@ function operatingIncomeConsistencyOf(effect: FinanceEffect, ctx: ConfirmContext
  * 確認できない理由（空なら確認できる）。
  * - 計上の終了年月が無い年額・月額は、後の年度まで両年度に計上されるため、終了年月の確認を要する
  * - 営業利益増分は、同じ案件の追加費用を差し引いた後かどうかが決まるまで確認しない（二重控除を防ぐ）
- * - 重複の可能性がある効果は、利用者の説明がないと保留する
+ * - 対象が同じと判断できる重複は、利用者の説明がないと保留する（同じ算定方法の重なりだけでは保留しない）
  */
 export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): string[] {
   const reasons = candidateChecks(effect)
@@ -377,8 +381,9 @@ export function confirmBlockers(effect: FinanceEffect, ctx: ConfirmContext): str
   if (effect.kind === 'COST_INCREASE' && ctx.revenueOpIncludesAddCost) {
     reasons.push('売上増加の営業利益増分に追加費用が含まれているため、この追加費用は別に確定しません');
   }
-  if (ctx.overlapCount > 0 && !effect.overlapNote?.trim()) {
-    reasons.push('同じ効果の可能性がある他の施策について、重複していない理由を入力する（重複が判定できないため保留）');
+  const holding = ctx.overlaps.filter((o) => o.holding);
+  if (holding.length > 0 && !effect.overlapNote?.trim()) {
+    reasons.push(`同じ対象の可能性がある他の施策（${holding.map((o) => o.projectTitle).join('、')}）について、重複していない理由を入力する（計上を保留）`);
   }
   return reasons;
 }
@@ -548,19 +553,14 @@ export function initialFinanceAnswers(draft: FinanceEffectDraft, saved: FinanceE
   };
 }
 
-export function financeConfirmContext(
-  drafts: FinanceEffectDraft[],
-  saved: FinanceEffect[],
-  overlapCount: number,
-  answers?: FinanceAnswersByKind,
-): ConfirmContext {
+export function financeConfirmContext(drafts: FinanceEffectDraft[], saved: FinanceEffect[], answers?: FinanceAnswersByKind): ConfirmContext {
   const revenueSaved = saved.find((e) => e.kind === 'REVENUE_UP');
   const costSaved = saved.find((e) => e.kind === 'COST_INCREASE');
   const costDraft = drafts.find((d) => d.kind === 'COST_INCREASE');
   const costAnswers = answers?.COST_INCREASE;
   const costEffect = costDraft && costAnswers ? applyFinanceAnswers(costDraft, costAnswers) : costSaved;
   return {
-    overlapCount,
+    overlaps: [],
     hasCostEffect: drafts.some((d) => d.kind === 'COST_INCREASE' && !d.blank) || !!costSaved,
     costConfirmed: costSaved?.confirmed === true,
     revenueOpIncludesAddCost: revenueSaved?.opIncomeIncludesAddCost === true && typeof revenueSaved.operatingIncomeEffectYen === 'number',
@@ -575,13 +575,9 @@ export type FinanceSaveStep = { kind: FinanceDraftKind; action: FinanceWriteActi
  * 確認済みの効果も、入力を変えたときは修正内容で置き換えてから確認し直す（変えなければ書かない）。
  * 必須項目がそろった効果は、草案の保存のあとに確認（CONFIRM）まで行う。足りない効果は未確認の草案のまま残す。
  * 確認の判定は confirmBlockers（STAGE6へ反映する条件）と同じで、ここでは緩めない。 */
-export function financeSaveSteps(args: {
-  drafts: FinanceEffectDraft[];
-  answers: FinanceAnswersByKind;
-  saved: FinanceEffect[];
-  overlapCount: number;
-}): FinanceSaveStep[] {
-  const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount, args.answers);
+export function financeSaveSteps(args: { drafts: FinanceEffectDraft[]; answers: FinanceAnswersByKind; saved: FinanceEffect[]; overlapOf?: FinanceOverlapOf }): FinanceSaveStep[] {
+  const base = financeConfirmContext(args.drafts, args.saved, args.answers);
+  const overlapOf = args.overlapOf ?? (() => []);
   const steps: FinanceSaveStep[] = [];
   for (const draft of args.drafts) {
     const savedOne = args.saved.find((e) => e.kind === draft.kind);
@@ -591,26 +587,30 @@ export function financeSaveSteps(args: {
     if (savedOne?.confirmed && !isFinanceEffectInputChanged(savedOne, candidate)) continue;
     const unchanged = !!savedOne && !isFinanceEffectInputChanged(savedOne, candidate);
     if (!unchanged) steps.push({ kind: draft.kind, action: savedOne?.confirmed ? 'REVISE' : 'SAVE_DRAFT', candidate });
+    const ctx: ConfirmContext = { ...base, overlaps: overlapOf(candidate) };
     if (calcMissingOf(candidate).length === 0 && confirmBlockers(candidate, ctx).length === 0) steps.push({ kind: draft.kind, action: 'CONFIRM', candidate });
   }
   return steps;
 }
 
-/* 「計画を保存」の後に、確認できていない財務効果と、その不足理由（重複の確認を含む）。保存済みだけで成功と見せないために使う */
+/* 「計画を保存」の後に、STAGE6へ反映できていない財務効果と、その不足理由（重複の確認を含む）。
+ * 確認済みの効果を入力で空欄にした場合も、未反映の理由を返す（保存済みの値だけで成功と見せない） */
 export function financePendingReasons(args: {
   drafts: FinanceEffectDraft[];
   answers: FinanceAnswersByKind;
   saved: FinanceEffect[];
-  overlapCount: number;
+  overlapOf?: FinanceOverlapOf;
 }): { label: string; reasons: string[] }[] {
-  const ctx = financeConfirmContext(args.drafts, args.saved, args.overlapCount, args.answers);
+  const base = financeConfirmContext(args.drafts, args.saved, args.answers);
+  const overlapOf = args.overlapOf ?? (() => []);
   const out: { label: string; reasons: string[] }[] = [];
   for (const draft of args.drafts) {
     const savedOne = args.saved.find((e) => e.kind === draft.kind);
-    if (savedOne?.confirmed) continue;
     const answers = args.answers[draft.kind] ?? (savedOne ? initialFinanceAnswers(draft, savedOne) : undefined);
     if (!answers) continue;
     const candidate = applyFinanceAnswers(draft, answers);
+    if (savedOne?.confirmed && !isFinanceEffectInputChanged(savedOne, candidate)) continue;
+    const ctx: ConfirmContext = { ...base, overlaps: overlapOf(candidate) };
     const reasons = [...calcMissingOf(candidate).map((m) => `${m}が未入力`), ...confirmBlockers(candidate, ctx)];
     if (reasons.length > 0) out.push({ label: draft.label, reasons });
   }

@@ -8,7 +8,7 @@ import {
   financeWriteReason,
   withBlankFinanceDrafts,
 } from './financeBridge';
-import { computeFinanceEffect, findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
+import { computeFinanceEffect, findFinanceEffectOverlapCandidates, normalizeFinanceEffect, type FinanceEffectOverlap } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
 import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
@@ -43,8 +43,11 @@ const PROJECT = {
 const NOW = '2026-11-10T00:00:00.000Z';
 const M = 1_000_000;
 
-const ctx = (overlapCount = 0, extra: Partial<ConfirmContext> = {}): ConfirmContext => ({
-  overlapCount,
+const HOLD: FinanceEffectOverlap = { deptName: '企画部', projectTitle: '工程B', holding: true, reason: '対象範囲が同じです（第1工場）' };
+const ATTENTION: FinanceEffectOverlap = { deptName: '企画部', projectTitle: '配送A社', holding: false, reason: '同じ算定方法で期間が重なります' };
+
+const ctx = (overlaps: FinanceEffectOverlap[] = [], extra: Partial<ConfirmContext> = {}): ConfirmContext => ({
+  overlaps,
   hasCostEffect: false,
   costConfirmed: false,
   revenueOpIncludesAddCost: false,
@@ -154,7 +157,7 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
 
   it('営業利益増分を入力すると、追加費用を差し引いた後かどうかが決まるまで確認しない', () => {
     const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, operatingIncomeEffectYen: 3 * M });
-    expect(confirmBlockers(rev, ctx(0, { hasCostEffect: true }))).toEqual([
+    expect(confirmBlockers(rev, ctx([], { hasCostEffect: true }))).toEqual([
       expect.stringContaining('追加費用を差し引いた後の値か'),
     ]);
   });
@@ -165,9 +168,9 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
       operatingIncomeEffectYen: 3 * M,
       opIncomeIncludesAddCost: true,
     });
-    expect(confirmBlockers(rev, ctx(0, { hasCostEffect: true }))).toEqual([]);
+    expect(confirmBlockers(rev, ctx([], { hasCostEffect: true }))).toEqual([]);
     const cost = applyFinanceAnswers(costDraft(), costAnswers);
-    expect(confirmBlockers(cost, ctx(0, { revenueOpIncludesAddCost: true }))).toEqual([
+    expect(confirmBlockers(cost, ctx([], { revenueOpIncludesAddCost: true }))).toEqual([
       expect.stringContaining('この追加費用は別に確定しません'),
     ]);
   });
@@ -178,7 +181,7 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
       operatingIncomeEffectYen: 3 * M,
       opIncomeIncludesAddCost: true,
     });
-    expect(confirmBlockers(rev, ctx(0, { hasCostEffect: true, costConfirmed: true }))).toEqual([
+    expect(confirmBlockers(rev, ctx([], { hasCostEffect: true, costConfirmed: true }))).toEqual([
       expect.stringContaining('追加費用は確定済み'),
     ]);
   });
@@ -214,10 +217,16 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
     expect(confirmBlockers(once, ctx())).toEqual([expect.stringContaining('開始月に全額計上')]);
   });
 
-  it('重複の可能性がある効果は、説明が無いと確認を保留する', () => {
+  it('対象が同じと判断できる重複は、説明が無いと確認を保留し、施策名を理由に出す', () => {
     const cost = applyFinanceAnswers(costDraft(), costAnswers);
-    expect(confirmBlockers(cost, ctx(1))).toEqual([expect.stringContaining('重複していない理由')]);
-    expect(confirmBlockers(applyFinanceAnswers(costDraft(), { ...costAnswers, overlapNote: '対象が別' }), ctx(1))).toEqual([]);
+    expect(confirmBlockers(cost, ctx([HOLD]))).toEqual([expect.stringContaining('工程B')]);
+    expect(confirmBlockers(cost, ctx([HOLD]))).toEqual([expect.stringContaining('重複していない理由')]);
+    expect(confirmBlockers(applyFinanceAnswers(costDraft(), { ...costAnswers, overlapNote: '対象が別' }), ctx([HOLD]))).toEqual([]);
+  });
+
+  it('同じ算定方法で期間が重なるだけの施策は注意にとどめ、確認を保留しない', () => {
+    const cost = applyFinanceAnswers(costDraft(), costAnswers);
+    expect(confirmBlockers(cost, ctx([ATTENTION]))).toEqual([]);
   });
 
   it('同じ種類・同じ算定方法で期間が重なる別の施策を、重複の候補として出す', () => {
@@ -403,16 +412,16 @@ describe('計画の保存で書く財務効果（financeSaveSteps）', () => {
   const complete = { amountBasis: 'MONTHLY' as const, startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' as const };
 
   it('入力の無い効果は触らない', () => {
-    expect(financeSaveSteps({ drafts: [userDraft()], answers: {}, saved: [], overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: [userDraft()], answers: {}, saved: []})).toEqual([]);
   });
 
   it('必須項目が足りない効果は、未確認の草案として保存し、確認はしない', () => {
-    const steps = financeSaveSteps({ drafts: [userDraft()], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved: [], overlapCount: 0 });
+    const steps = financeSaveSteps({ drafts: [userDraft()], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved: []});
     expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT']);
   });
 
   it('必須項目がそろった効果は、草案の保存のあとに確認まで行う', () => {
-    const steps = financeSaveSteps({ drafts: [userDraft()], answers: { REVENUE_UP: complete }, saved: [], overlapCount: 0 });
+    const steps = financeSaveSteps({ drafts: [userDraft()], answers: { REVENUE_UP: complete }, saved: []});
     expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT', 'CONFIRM']);
     expect(steps[1].candidate.amountBasis).toBe('MONTHLY');
   });
@@ -420,14 +429,14 @@ describe('計画の保存で書く財務効果（financeSaveSteps）', () => {
   it('AI提案の売上も、AIの確認項目を計上の条件にせず、計算がそろえば保存と同時に反映する', () => {
     const d = revenueDraft();
     const aiDraft = { ...d, fromAi: true, base: { ...d.base, source: 'AI_PROPOSED' as const } };
-    const steps = financeSaveSteps({ drafts: [aiDraft], answers: { REVENUE_UP: complete }, saved: [], overlapCount: 0 });
+    const steps = financeSaveSteps({ drafts: [aiDraft], answers: { REVENUE_UP: complete }, saved: []});
     expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT', 'CONFIRM']);
   });
 
   it('確認済みの効果は、入力が変わっていなければ書き直さない', () => {
     const d = userDraft();
     const saved = [{ ...d.base, confirmed: true }];
-    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: initialFinanceAnswers(d, saved[0]) }, saved, overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: initialFinanceAnswers(d, saved[0]) }, saved})).toEqual([]);
   });
 });
 
@@ -481,10 +490,10 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     expect(blanks.every((d) => d.blank === true)).toBe(true);
     const revenue = blanks.find((d) => d.kind === 'REVENUE_UP')!;
     const answers = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 12 * M, revenueKind: 'MASS_PRODUCTION' as const };
-    const steps = financeSaveSteps({ drafts: blanks, answers: { REVENUE_UP: answers }, saved: [], overlapCount: 0 });
+    const steps = financeSaveSteps({ drafts: blanks, answers: { REVENUE_UP: answers }, saved: []});
     expect(steps[0]).toMatchObject({ kind: 'REVENUE_UP', action: 'SAVE_DRAFT' });
     expect(computeFinanceEffect(applyFinanceAnswers(revenue, answers)).annualRevenueYen).toBe(12 * M);
-    expect(financeSaveSteps({ drafts: blanks, answers: {}, saved: [], overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: blanks, answers: {}, saved: []})).toEqual([]);
   });
 
   it('財務効果の状態は、未設定・未反映・STAGE6に反映を示し、反映済みは売上増加と営業利益貢献を年額で示す', () => {
@@ -524,17 +533,14 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
       }
       return stored;
     };
-    // 1回目：同じ種類の他の施策と重なるため、重複の説明が未入力で、まだ確認できない
-    const first = writeAll(
-      financeSaveSteps({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapCount: 1 }),
-      undefined,
-    );
+    // 1回目：対象が同じ他の施策があるため、重複の説明が未入力で、まだ確認できない
+    const first = writeAll(financeSaveSteps({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapOf: () => [HOLD] }), undefined);
     expect(first?.confirmed).toBe(false);
     // 再読込（保存値をJSONで往復させる）。編集せず、重複が解消した後に「計画を保存」する
     const reloaded = normalizeFinanceEffect(JSON.parse(JSON.stringify(first)))!;
     const anchored = anchorDraftsToSaved([draft], [reloaded]);
-    expect(financePendingReasons({ drafts: anchored, answers: {}, saved: [reloaded], overlapCount: 0 })).toEqual([]);
-    const second = writeAll(financeSaveSteps({ drafts: anchored, answers: {}, saved: [reloaded], overlapCount: 0 }), reloaded);
+    expect(financePendingReasons({ drafts: anchored, answers: {}, saved: [reloaded]})).toEqual([]);
+    const second = writeAll(financeSaveSteps({ drafts: anchored, answers: {}, saved: [reloaded]}), reloaded);
     expect(second?.confirmed).toBe(true);
     const trial = buildFinanceEffectTrial({ ...project(second), fiscalYearEnd: '3', fiscalYears: [2028] });
     expect(trial.years[0].revenueYen).toBe(720_000);
@@ -550,9 +556,67 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
       base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
     };
     const input = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, revenueKind: 'MASS_PRODUCTION' as const };
-    const pending = financePendingReasons({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapCount: 1 });
+    const pending = financePendingReasons({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapOf: () => [HOLD] });
     expect(pending).toHaveLength(1);
     expect(pending[0].reasons.join('、')).toContain('重複していない理由');
+  });
+
+  it('同じ算定方法の重なりだけでは保存を止めず、そのまま確認して反映する', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（配送A社）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const input = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, revenueKind: 'MASS_PRODUCTION' as const };
+    const steps = financeSaveSteps({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapOf: () => [ATTENTION] });
+    expect(steps.map((s) => s.action)).toEqual(['SAVE_DRAFT', 'CONFIRM']);
+    expect(financePendingReasons({ drafts: [draft], answers: { REVENUE_UP: input }, saved: [], overlapOf: () => [ATTENTION] })).toEqual([]);
+    let stored: FinanceEffect | undefined;
+    for (const s of steps) {
+      const plan = planFinanceEffectWrite({ primary: stored, additional: undefined, candidate: s.candidate, action: s.action, nowIso: NOW });
+      if (plan.ok) stored = plan.patch.financeEffect ?? stored;
+    }
+    const reloaded = normalizeFinanceEffect(JSON.parse(JSON.stringify(stored)))!;
+    const departments = [{ id: 'd1', name: '営業部', projects: [{ id: 'p-a', title: '配送A社', financeEffect: reloaded }] }] as unknown as Department[];
+    expect(buildFinanceEffectTrial({ departments, fiscalYearEnd: '3', fiscalYears: [2028] }).years[0].revenueYen).toBe(720_000);
+  });
+
+  it('確認済みの効果の必須項目を空欄にして保存すると、STAGE6から外れ、未反映の理由を返す', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（新規連携）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const full = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, costRatePct: 60, sgaCostYen: 100_000, revenueKind: 'MASS_PRODUCTION' as const };
+    const stored = confirmed(applyFinanceAnswers(draft, full));
+    const anchored = anchorDraftsToSaved([draft], [stored]);
+    const cleared = { ...full, directAmountYen: undefined };
+    const steps = financeSaveSteps({ drafts: anchored, answers: { REVENUE_UP: cleared }, saved: [stored] });
+    expect(steps.map((s) => s.action)).toEqual(['REVISE']);
+    const pending = financePendingReasons({ drafts: anchored, answers: { REVENUE_UP: cleared }, saved: [stored] });
+    expect(pending).toHaveLength(1);
+    expect(pending[0].reasons).toEqual(expect.arrayContaining([expect.stringContaining('直接金額が未入力')]));
+    const written = planFinanceEffectWrite({ primary: stored, additional: undefined, candidate: steps[0].candidate, action: 'REVISE', nowIso: NOW });
+    expect(written.ok && written.patch.financeEffect?.confirmed).toBe(false);
+    expect(financeStatusSummary(written.ok && written.patch.financeEffect ? [written.patch.financeEffect] : [])).toContain('未反映');
+  });
+
+  it('確認済みの効果を変えずに保存しても、未反映の理由は出さない', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（新規連携）',
+      fromAi: false,
+      blank: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    };
+    const full = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, costRatePct: 60, sgaCostYen: 100_000, revenueKind: 'MASS_PRODUCTION' as const };
+    const stored = confirmed(applyFinanceAnswers(draft, full));
+    const anchored = anchorDraftsToSaved([draft], [stored]);
+    expect(financePendingReasons({ drafts: anchored, answers: { REVENUE_UP: full }, saved: [stored] })).toEqual([]);
   });
 
   it('サービス提供型は売上区分が自動でSERVICEになるため、売上区分の未回答を要求しない', () => {
@@ -572,7 +636,7 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
       unitPriceYen: 10_000,
     });
     expect(candidate.revenueKind).toBe('SERVICE');
-    expect(financePendingReasons({ drafts: [draft], answers: { REVENUE_UP: { amountBasis: 'MONTHLY', startYm: '2027-04', endYm: '2028-03', serviceCustomers: 10, servicePerCustomerCount: 10, unitPriceYen: 10_000 } }, saved: [], overlapCount: 0 })).toEqual([]);
+    expect(financePendingReasons({ drafts: [draft], answers: { REVENUE_UP: { amountBasis: 'MONTHLY', startYm: '2027-04', endYm: '2028-03', serviceCustomers: 10, servicePerCustomerCount: 10, unitPriceYen: 10_000 } }, saved: []})).toEqual([]);
   });
 
   it('確認は「計画を保存」で行われる。売上の区分が未入力の間は未確認のままSTAGE6に入らず、区分を入れて保存すると確認され正式集計に入る', () => {
@@ -588,7 +652,7 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     const base = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 720_000, costRatePct: 60, sgaCostYen: 100_000 };
     const save = (answers: Record<string, unknown>, current?: FinanceEffect): FinanceEffect | undefined => {
       const drafts = [current ? anchorDraftsToSaved([draft], [current])[0] : draft];
-      const steps = financeSaveSteps({ drafts, answers: { REVENUE_UP: answers }, saved: current ? [current] : [], overlapCount: 0 });
+      const steps = financeSaveSteps({ drafts, answers: { REVENUE_UP: answers }, saved: current ? [current] : []});
       let stored = current;
       for (const s of steps) {
         const plan = planFinanceEffectWrite({ primary: stored, additional: undefined, candidate: s.candidate, action: s.action, nowIso: NOW });
@@ -615,8 +679,8 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
       base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
     };
     const answers = { REVENUE_UP: { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', costRatePct: 60 } };
-    expect(financeSaveSteps({ drafts: [draft], answers, saved: [], overlapCount: 0 }).map((s) => s.action)).toEqual(['SAVE_DRAFT']);
-    const pending = financePendingReasons({ drafts: [draft], answers, saved: [], overlapCount: 0 });
+    expect(financeSaveSteps({ drafts: [draft], answers, saved: []}).map((s) => s.action)).toEqual(['SAVE_DRAFT']);
+    const pending = financePendingReasons({ drafts: [draft], answers, saved: []});
     expect(pending[0].reasons).toEqual(expect.arrayContaining([expect.stringContaining('直接金額が未入力')]));
   });
 
@@ -698,7 +762,7 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     const stored = normalizeFinanceEffect(JSON.parse(JSON.stringify({ ...entered, confirmed: true, confirmedAt: NOW })))!;
     const regenerated = { ...draft, base: { ...draft.base, quantity: 24, serviceCustomers: 2, servicePerCustomerCount: 12, unitPriceYen: 2500, costRatePct: 60 } };
     const anchored = anchorDraftsToSaved([regenerated], [stored])[0];
-    expect(financeSaveSteps({ drafts: [anchored], answers: { REVENUE_UP: initialFinanceAnswers(anchored, stored) }, saved: [stored], overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: [anchored], answers: { REVENUE_UP: initialFinanceAnswers(anchored, stored) }, saved: [stored]})).toEqual([]);
     const reopened = applyFinanceAnswers(anchored, initialFinanceAnswers(anchored, stored));
     expect(reopened).toMatchObject({ quantity: 100, serviceCustomers: 10, servicePerCustomerCount: 10, unitPriceYen: 10_000, amountBasis: 'MONTHLY', costRatePct: 70, sgaCostYen: 400_000 });
     expect(computeFinanceEffect(reopened).annualRevenueYen).toBe(12 * M);
@@ -777,23 +841,23 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     const input = { reductionBaseYen: 100 * M, reductionRatePct: 6, reductionConfirmed: true, amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03' };
     expect(applyFinanceAnswers(d, input)).toMatchObject({ directAmountYen: 6 * M, reductionBaseYen: 100 * M, reductionRatePct: 6 });
     const saved = [confirmed(applyFinanceAnswers(d, { ...input, reductionRatePct: 5 }))];
-    const steps = financeSaveSteps({ drafts: [d], answers: { COST_REDUCTION: input }, saved, overlapCount: 0 });
+    const steps = financeSaveSteps({ drafts: [d], answers: { COST_REDUCTION: input }, saved});
     expect(steps[0]).toMatchObject({ kind: 'COST_REDUCTION', action: 'REVISE' });
   });
 
   it('入力を変えずに保存すると、確認済みの効果は書き直さない（確認を外さない）', () => {
     const d = userDraftOf(revenueDraft());
     const saved = [{ ...d.base, confirmed: true }];
-    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: initialFinanceAnswers(d, saved[0]) }, saved, overlapCount: 0 })).toEqual([]);
+    expect(financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: initialFinanceAnswers(d, saved[0]) }, saved})).toEqual([]);
   });
 
   it('確認済みの効果の入力を変えて保存すると、修正内容で置き換えてから確認し直す。必須項目が足りなければ草案のまま', () => {
     const d = userDraftOf(revenueDraft());
     const saved = [{ ...d.base, confirmed: true }];
     const complete = { amountBasis: 'MONTHLY' as const, startYm: '2027-04', endYm: '2028-03', revenueKind: 'PAID_DEVELOPMENT' as const };
-    const changed = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved, overlapCount: 0 });
+    const changed = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: complete }, saved});
     expect(changed.map((s) => s.action)).toEqual(['REVISE', 'CONFIRM']);
-    const incomplete = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved, overlapCount: 0 });
+    const incomplete = financeSaveSteps({ drafts: [d], answers: { REVENUE_UP: { startYm: '2027-04' } }, saved});
     expect(incomplete.map((s) => s.action)).toEqual(['REVISE']);
   });
 });

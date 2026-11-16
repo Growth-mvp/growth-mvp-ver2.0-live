@@ -54,9 +54,10 @@ import {
   financeWriteReason,
   periodOfLabel,
   type FinanceAnswersByKind,
+  type FinanceOverlapOf,
 } from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
-import { findFinanceEffectOverlapCandidates } from '@/lib/financeEffect';
+import { findFinanceEffectOverlaps } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
 import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
 import { RegenPanel, type RegenState } from './RegenPanel';
@@ -270,7 +271,8 @@ function Stage3ProjectBrowser({
     answers: selectedEntry?.finance ?? {},
     projectHasCostIncrease: financeSaved.some((e) => e.kind === 'COST_INCREASE' && e.confirmed === true),
   });
-  const financeOverlap = financePos ? findFinanceEffectOverlapCandidates(storeDepartmentsNow, financePos.dIdx, financePos.pIdx).length : 0;
+  const financeOverlapOf: FinanceOverlapOf = (candidate) =>
+    financePos && financeScopeMatches ? findFinanceEffectOverlaps(storeDepartmentsNow, financePos.dIdx, financePos.pIdx, candidate) : [];
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
   const financeReason = financeWriteReason({ scopeMatches: financeScopeMatches, planLoaded: !!selectedEntry });
 
@@ -555,7 +557,7 @@ function Stage3ProjectBrowser({
 
   /* 計画の保存のあとに、入力された財務効果を書く。必須項目がそろったものだけ確認する。途中で止まったら理由を残す */
   const saveFinance = async (sel: Stage3Selection, projectId: string, targetId: string, answers: FinanceAnswersByKind) => {
-    const steps = financeSaveSteps({ drafts: anchoredFinanceDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
+    const steps = financeSaveSteps({ drafts: anchoredFinanceDrafts, answers, saved: financeSaved, overlapOf: financeOverlapOf });
     for (const step of steps) {
       const out = await writeFinanceEffectToProject({
         companyId: sel.companyId,
@@ -570,7 +572,7 @@ function Stage3ProjectBrowser({
       }
     }
     const written = steps.map((s) => s.kind);
-    const pending = financePendingReasons({ drafts: anchoredFinanceDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
+    const pending = financePendingReasons({ drafts: anchoredFinanceDrafts, answers, saved: financeSaved, overlapOf: financeOverlapOf });
     const confirmedNow = steps.some((s) => s.action === 'CONFIRM');
     const notice =
       pending.length > 0
@@ -676,7 +678,7 @@ function Stage3ProjectBrowser({
     <Stage4FinanceConfirm
       drafts={anchoredFinanceDrafts}
       saved={financeSaved}
-      overlapCount={financeOverlap}
+      overlapOf={financeOverlapOf}
       planPeriod={periodOfLabel(planView?.d.period.label)}
       writable={!financeReason}
       reasonNotWritable={financeReason}

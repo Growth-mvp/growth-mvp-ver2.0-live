@@ -22,7 +22,7 @@ function drafts() {
 function renderConfirm(over: Partial<React.ComponentProps<typeof Stage4FinanceConfirm>> = {}) {
   const onAnswer = jest.fn();
   render(
-    <Stage4FinanceConfirm drafts={drafts()} saved={[]} overlapCount={0} writable answers={{}} onAnswer={onAnswer} {...over} />,
+    <Stage4FinanceConfirm drafts={drafts()} saved={[]} writable answers={{}} onAnswer={onAnswer} {...over} />,
   );
   return { onAnswer };
 }
@@ -109,7 +109,7 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
       revenueKind: 'PAID_DEVELOPMENT',
       confirmed: false,
     } as any;
-    render(<Stage4FinanceConfirm drafts={[revenue]} saved={[savedRevenue]} overlapCount={0} writable answers={{}} onAnswer={jest.fn()} />);
+    render(<Stage4FinanceConfirm drafts={[revenue]} saved={[savedRevenue]} writable answers={{}} onAnswer={jest.fn()} />);
     expect((screen.getByLabelText('売上増加（参考試算の売上）の発生頻度') as HTMLSelectElement).value).toBe('ANNUAL');
     expect((screen.getByLabelText('売上増加（参考試算の売上）の開始年月') as HTMLInputElement).value).toBe('2026-12');
     expect(screen.getByText(/営業利益増分：/)).toBeTruthy();
@@ -149,19 +149,42 @@ describe('保存済みの財務効果の修正', () => {
 });
 
 describe('Stage4FinanceConfirm（コスト削減型）', () => {
-  it('コスト削減は年額で固定し、確認の項目と年間利益改善額（削減 − 追加費用）を出す', () => {
+  it('コスト削減は年額で固定し、実際に削減できる費用の説明と年間利益改善額（削減 − 追加費用）を出す', () => {
     const est = estimateProjectImpact(
       { role: 'COST', okrsV2: [] },
       { edits: { 'impact:currentCostMJPY': 120, 'impact:reductionRatePct': 10, 'impact:addCostMJPY': 2, 'impact:startYear': 2027, 'impact:endYear': 2028 } },
     );
     const costDrafts = buildFinanceEffectDrafts({ estimate: est, fiscalYearEnd: '3' });
-    const onAnswer = jest.fn();
-    render(<Stage4FinanceConfirm drafts={costDrafts} saved={[]} overlapCount={0} writable answers={{}} onAnswer={onAnswer} />);
+    render(<Stage4FinanceConfirm drafts={costDrafts} saved={[]} writable answers={{}} onAnswer={jest.fn()} />);
     const card = screen.getByLabelText('削減効果（年間削減額）の財務効果');
     expect(card.textContent).toContain('発生頻度：年額');
     expect(screen.queryByLabelText('削減効果（年間削減額）の発生頻度')).toBeNull();
+    expect(card.textContent).toContain('実際に削減できる費用を入力してください');
     expect(card.textContent).toContain('年間利益改善額＝年間削減額 1,200万円 − 追加費用 200万円 ＝ 1,000万円');
-    fireEvent.click(screen.getByLabelText('削減効果（年間削減額）の削減の確認'));
-    expect(onAnswer).toHaveBeenCalledWith('COST_REDUCTION', expect.objectContaining({ reductionConfirmed: true }));
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByLabelText('削減効果（年間削減額）の削減の確認')).toBeNull();
+  });
+});
+
+describe('Stage4FinanceConfirm（重なる施策の表示）', () => {
+  const OVERLAP_NOTE = '売上増加（参考試算の売上）の重複の説明';
+  const attention = { deptName: '企画部', projectTitle: '配送A社', holding: false, reason: '同じ算定方法で期間が重なります（対象範囲は別、または未入力）' };
+  const hold = { deptName: '企画部', projectTitle: '工程B', holding: true, reason: '対象範囲が同じです（第1工場）' };
+
+  it('重なる施策は、部門名・施策名と候補の理由を示す。注意の候補だけでは重複の説明を求めない', () => {
+    render(<Stage4FinanceConfirm drafts={drafts()} saved={[]} writable answers={{}} onAnswer={jest.fn()} overlapOf={() => [attention]} />);
+    const list = screen.getByLabelText('売上増加（参考試算の売上）の重複候補');
+    expect(list.textContent).toContain('企画部 / 配送A社');
+    expect(list.textContent).toContain('同じ算定方法で期間が重なります');
+    expect(list.textContent).toContain('注意');
+    expect(screen.queryByLabelText(OVERLAP_NOTE)).toBeNull();
+  });
+
+  it('対象が同じと判断できる施策がある場合は計上を保留と示し、重複していない理由を求める', () => {
+    render(<Stage4FinanceConfirm drafts={drafts()} saved={[]} writable answers={{}} onAnswer={jest.fn()} overlapOf={() => [hold, attention]} />);
+    const list = screen.getByLabelText('売上増加（参考試算の売上）の重複候補');
+    expect(list.textContent).toContain('企画部 / 工程B');
+    expect(list.textContent).toContain('計上を保留中');
+    expect(screen.getByLabelText(OVERLAP_NOTE)).toBeTruthy();
   });
 });
