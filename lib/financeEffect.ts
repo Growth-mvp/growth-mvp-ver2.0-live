@@ -90,7 +90,10 @@ function yen(v: number): string {
 }
 
 /** 財務効果の算定。入力が不足・不正なら未算定（missing に理由を入れ、金額は返さない） */
-export function computeFinanceEffect(effect: FinanceEffect | null | undefined): FinanceEffectResult {
+export function computeFinanceEffect(
+  effect: FinanceEffect | null | undefined,
+  options: { projectHasCostIncrease?: boolean } = {}
+): FinanceEffectResult {
   if (!effect || !FINANCE_EFFECT_KINDS.includes(effect.kind)) {
     return { status: 'NOT_SET', missing: [] };
   }
@@ -155,7 +158,7 @@ export function computeFinanceEffect(effect: FinanceEffect | null | undefined): 
     amountYen: perPeriod,
     formula: `${formula}（${FINANCE_EFFECT_BASIS_LABEL[amountBasis]}）`,
   };
-  const operatingPerPeriod = operatingPerPeriodOf(effect, sign * perPeriod);
+  const operatingPerPeriod = operatingPerPeriodOf(effect, sign * perPeriod, options.projectHasCostIncrease === true);
 
   if (amountBasis === 'TOTAL') {
     result.totalYen = perPeriod;
@@ -182,19 +185,33 @@ export function computeFinanceEffect(effect: FinanceEffect | null | undefined): 
   return result;
 }
 
+/* 追加販売管理費等を、粗利益から差し引くか。同じ案件の追加費用（別の効果）と同じ費用なら、その効果で一度だけ差し引く。
+ * 同じかどうか未回答で、同じ案件に追加費用があれば、二重に差し引くおそれがあるため判定しない（未算定）。 */
+export function revenueSgaRuleOf(effect: FinanceEffect, projectHasCostIncrease: boolean): 'NONE' | 'DEDUCT' | 'UNKNOWN' {
+  if (effect.sgaSameAsAddCost === true) return 'NONE';
+  if (effect.sgaSameAsAddCost === false) return 'DEDUCT';
+  return projectHasCostIncrease ? 'UNKNOWN' : 'DEDUCT';
+}
+
 /** 売上増加の営業利益増分（期間あたり）。直接入力の増分があればそれを使い、無ければ粗利益から追加販売管理費等を引く。どちらも無ければ未算定（0とはみなさない） */
-export function revenueOperatingPerPeriodOf(effect: FinanceEffect, revenuePerPeriod: number): number | undefined {
+export function revenueOperatingPerPeriodOf(
+  effect: FinanceEffect,
+  revenuePerPeriod: number,
+  projectHasCostIncrease = false
+): number | undefined {
   if (isFiniteNumber(effect.operatingIncomeEffectYen)) return effect.operatingIncomeEffectYen;
-  if (isFiniteNumber(effect.costRatePct) && isFiniteNumber(effect.sgaCostYen)) {
-    return revenuePerPeriod * (1 - effect.costRatePct / 100) - effect.sgaCostYen;
-  }
+  if (!isFiniteNumber(effect.costRatePct)) return undefined;
+  const gross = revenuePerPeriod * (1 - effect.costRatePct / 100);
+  const rule = revenueSgaRuleOf(effect, projectHasCostIncrease);
+  if (rule === 'NONE') return gross;
+  if (rule === 'DEDUCT' && isFiniteNumber(effect.sgaCostYen)) return gross - effect.sgaCostYen;
   return undefined;
 }
 
 /** 営業利益への効果（期間あたり・符号つき） */
-function operatingPerPeriodOf(effect: FinanceEffect, costEffectPerPeriod: number): number | undefined {
+function operatingPerPeriodOf(effect: FinanceEffect, costEffectPerPeriod: number, projectHasCostIncrease: boolean): number | undefined {
   if (effect.kind !== 'REVENUE_UP') return costEffectPerPeriod;
-  return revenueOperatingPerPeriodOf(effect, costEffectPerPeriod);
+  return revenueOperatingPerPeriodOf(effect, costEffectPerPeriod, projectHasCostIncrease);
 }
 
 /** 同じ効果種類で、対象範囲が同じ、または同じ算定方法で期間が重なる他施策（重複の可能性。自動では除外しない） */
@@ -272,7 +289,7 @@ export function normalizeFinanceEffect(raw: unknown): FinanceEffect | undefined 
   for (const key of ['scopeNote', 'sourceNote', 'overlapNote', 'confirmedAt'] as const) {
     if (typeof r[key] === 'string') out[key] = r[key] as string;
   }
-  for (const key of ['isIncremental', 'meetingBasisConfirmed', 'opIncomeIncludesAddCost', 'reductionConfirmed'] as const) {
+  for (const key of ['isIncremental', 'meetingBasisConfirmed', 'opIncomeIncludesAddCost', 'reductionConfirmed', 'sgaSameAsAddCost'] as const) {
     if (typeof r[key] === 'boolean') out[key] = r[key] as boolean;
   }
   if (r.revenueKind === 'PAID_DEVELOPMENT' || r.revenueKind === 'MASS_PRODUCTION' || r.revenueKind === 'SERVICE') {
@@ -356,6 +373,7 @@ const CONFIRMATION_MATERIAL_KEYS = [
   'isIncremental',
   'meetingBasisConfirmed',
   'opIncomeIncludesAddCost',
+  'sgaSameAsAddCost',
   'revenueKind',
   'reductionConfirmed',
   'reductionBaseYen',

@@ -95,6 +95,31 @@ describe('統一PL：売上増加・費用削減・追加費用の符号と年�
     expect(p.years[3].effect).toEqual({ revenueUpYen: 60 * M, costReductionYen: 0, costIncreaseYen: 0, revenueOperatingIncomeYen: null });
   });
 
+  it('S12 追加販売管理費等と同じ案件の追加費用が同じ費用なら、営業利益で一度だけ差し引く。別の費用なら両方差し引く。未回答なら未算定', () => {
+    const revenueWith = (sgaSameAsAddCost?: boolean) =>
+      confirmed({
+        kind: 'REVENUE_UP',
+        method: 'DIRECT_AMOUNT',
+        directAmountYen: 12 * M,
+        amountBasis: 'ANNUAL',
+        startYm: '2025-04',
+        endYm: '2026-03',
+        costRatePct: 70,
+        sgaCostYen: 900_000,
+        sgaSameAsAddCost,
+      });
+    const addCost = confirmed({ kind: 'COST_INCREASE', method: 'DIRECT_AMOUNT', directAmountYen: 900_000, amountBasis: 'ANNUAL', startYm: '2025-04', endYm: '2026-03' });
+    const fy26 = (sgaSameAsAddCost?: boolean) => plan([dept('営業部', [proj('新規開拓', revenueWith(sgaSameAsAddCost), { financeEffects: [addCost] })])]).years[0];
+    const same = fy26(true);
+    expect(same.effect.revenueOperatingIncomeYen).toBeCloseTo(3.6 * M, 0);
+    expect(same.plan.operatingIncomeYen).toBeCloseTo(70 * M + 3.6 * M - 0.9 * M, 0);
+    const different = fy26(false);
+    expect(different.plan.operatingIncomeYen).toBeCloseTo(70 * M + 3.6 * M - 0.9 * M - 0.9 * M, 0);
+    const unanswered = fy26(undefined);
+    expect(unanswered.effect.revenueOperatingIncomeYen).toBeNull();
+    expect(unanswered.plan.operatingIncomeYen).toBeNull();
+  });
+
   it('S11 売上増加の営業利益が未算定でも、確認済みの費用削減は確定分の改善として示し、全体の営業利益は未算定のまま', () => {
     const p = plan([dept('営業部', [proj('新規開拓', revenueUp60)]), dept('製造部', [proj('工程改善', costReduction6)])]);
     expect(p.years[1].confirmedOperatingImprovementYen).toBe(3 * M);

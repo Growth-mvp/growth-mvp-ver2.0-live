@@ -1,5 +1,5 @@
 import type { Department, FinanceEffect, FinanceEffectKind } from '@/types/strategy';
-import { computeFinanceEffect, type FinanceEffectResult } from '@/lib/financeEffect';
+import { computeFinanceEffect, revenueSgaRuleOf, type FinanceEffectResult } from '@/lib/financeEffect';
 import { fiscalYearOf, parseFiscalYearEndMonth } from './investmentDemand';
 import type { CfAssumptions } from './cashflow';
 
@@ -96,15 +96,24 @@ type Flow = {
 const monthIndexOf = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
 
 /* 売上増加の営業利益（月あたり）。直接入力の増分があればそれ、無ければ粗利益から追加販売管理費等を引く。どちらも無ければ null */
-function revenueOperatingPerMonthOf(effect: FinanceEffect, startIdx: number, endIdx: number | null, revenuePerMonth: number): number | null {
+function revenueOperatingPerMonthOf(
+  effect: FinanceEffect,
+  startIdx: number,
+  endIdx: number | null,
+  revenuePerMonth: number,
+  projectHasCostIncrease: boolean,
+): number | null {
   const monthly = (value: number) =>
     effect.amountBasis === 'TOTAL' ? value / (endIdx === null ? 1 : endIdx - startIdx + 1) : effect.amountBasis === 'MONTHLY' ? value : value / 12;
   const value = effect.operatingIncomeEffectYen;
   if (typeof value === 'number' && Number.isFinite(value)) return monthly(value);
+  const rate = effect.costRatePct;
+  if (typeof rate !== 'number' || !Number.isFinite(rate)) return null;
+  const gross = revenuePerMonth * (1 - rate / 100);
+  const rule = revenueSgaRuleOf(effect, projectHasCostIncrease);
+  if (rule === 'NONE') return gross;
   const sga = effect.sgaCostYen;
-  if (typeof effect.costRatePct === 'number' && Number.isFinite(effect.costRatePct) && typeof sga === 'number' && Number.isFinite(sga)) {
-    return revenuePerMonth * (1 - effect.costRatePct / 100) - monthly(sga);
-  }
+  if (rule === 'DEDUCT' && typeof sga === 'number' && Number.isFinite(sga)) return gross - monthly(sga);
   return null;
 }
 
@@ -113,7 +122,7 @@ function revenueGrossPerMonthOf(effect: FinanceEffect, revenuePerMonth: number):
   return typeof rate === 'number' && Number.isFinite(rate) ? revenuePerMonth * (1 - rate / 100) : null;
 }
 
-function flowOf(effect: FinanceEffect, result: FinanceEffectResult): Flow {
+function flowOf(effect: FinanceEffect, result: FinanceEffectResult, projectHasCostIncrease: boolean): Flow {
   const kind = effect.kind as Flow['kind'];
   const startIdx = monthIndexOf(effect.startYm!);
   const endIdx = effect.endYm ? monthIndexOf(effect.endYm) : null;
@@ -122,7 +131,7 @@ function flowOf(effect: FinanceEffect, result: FinanceEffectResult): Flow {
       ? result.totalYen! / (endIdx === null ? 1 : endIdx - startIdx + 1)
       : result.monthlyYen!;
   const flowEnd = effect.amountBasis === 'TOTAL' && endIdx === null ? startIdx : endIdx;
-  const opPerMonthYen = kind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx, perMonthYen) : 0;
+  const opPerMonthYen = kind === 'REVENUE_UP' ? revenueOperatingPerMonthOf(effect, startIdx, endIdx, perMonthYen, projectHasCostIncrease) : 0;
   const grossPerMonthYen = kind === 'REVENUE_UP' ? revenueGrossPerMonthOf(effect, perMonthYen) : null;
   return { kind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen, grossPerMonthYen };
 }
@@ -200,10 +209,11 @@ export function buildFinanceEffectTrial(args: {
         return;
       }
 
+      const projectHasCostIncrease = effects.some((e) => e.kind === 'COST_INCREASE' && computeFinanceEffect(e).status === 'CONFIRMED');
       effects.forEach((effect, effectIndex) => {
         const effectBase = { ...base, effectIndex };
         const key = `${deptIndex}:${projectIndex}:${effectIndex}`;
-        const result = computeFinanceEffect(effect);
+        const result = computeFinanceEffect(effect, { projectHasCostIncrease });
         const kind = (effect.kind ?? null) as FinanceEffectKind | null;
         const startFy = effect.startYm ? fiscalYearOf(effect.startYm, endMonth) : null;
         const endFy = effect.endYm ? fiscalYearOf(effect.endYm, endMonth) : null;
@@ -216,11 +226,11 @@ export function buildFinanceEffectTrial(args: {
           return notReflected('INCOMPLETE', `${REASON.INCOMPLETE}：${result.missing.join('、')}`);
         }
         if (result.status === 'DRAFT') {
-          draftFlowsOf.set(key, flowOf(effect, result));
+          draftFlowsOf.set(key, flowOf(effect, result, projectHasCostIncrease));
           return notReflected('DRAFT', REASON.DRAFT);
         }
 
-        const flow = flowOf(effect, result);
+        const flow = flowOf(effect, result, projectHasCostIncrease);
         flowsOf.set(key, [flow]);
         rows.push({ ...effectBase, status: 'REFLECTED', kind, startFiscalYear: startFy, endFiscalYear: endFy, reason: null, years: [] });
         trial.included.push({ ...target, kind: flow.kind });

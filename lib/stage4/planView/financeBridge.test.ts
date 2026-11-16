@@ -469,6 +469,40 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     expect(planFinanceEffectWrite({ primary: undefined, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW }).ok).toBe(false);
   });
 
+  it('空欄に戻した粗利率・追加販売管理費等は、参考試算の初期値に戻らず、保存・再読込後も空欄のまま', () => {
+    const d: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（直接入力）',
+      fromAi: true,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', directAmountYen: 12 * M, costRatePct: 30, source: 'AI_PROPOSED', confirmed: false, sourceNote: '参考試算' },
+    };
+    const first = applyFinanceAnswers(d, { startYm: '2027-04' });
+    expect(first.costRatePct).toBe(30);
+    const cleared = applyFinanceAnswers(d, { startYm: '2027-04', costRatePct: undefined, sgaCostYen: undefined });
+    expect(cleared.costRatePct).toBeUndefined();
+    expect(cleared.sgaCostYen).toBeUndefined();
+    const saved = normalizeFinanceEffect(JSON.parse(JSON.stringify({ ...cleared, confirmed: false })))!;
+    const reloaded = applyFinanceAnswers(d, initialFinanceAnswers(d, saved));
+    expect(reloaded.costRatePct).toBeUndefined();
+    expect(reloaded.sgaCostYen).toBeUndefined();
+    expect(computeFinanceEffect(reloaded).annualOperatingEffectYen).toBeUndefined();
+  });
+
+  it('追加販売管理費等が同じ案件の追加費用と同じか未回答なら、二重に差し引かない（未回答は未算定）', () => {
+    const d: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（直接入力）',
+      fromAi: false,
+      base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '見積書' },
+    };
+    const input = { method: 'DIRECT_AMOUNT' as const, amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', revenueKind: 'MASS_PRODUCTION' as const, directAmountYen: 12 * M, costRatePct: 70, sgaCostYen: 900_000 };
+    const eff = (sgaSameAsAddCost?: boolean) => applyFinanceAnswers(d, { ...input, sgaSameAsAddCost });
+    expect(computeFinanceEffect(eff(true), { projectHasCostIncrease: true }).annualOperatingEffectYen).toBeCloseTo(3.6 * M, 0);
+    expect(computeFinanceEffect(eff(false), { projectHasCostIncrease: true }).annualOperatingEffectYen).toBeCloseTo(2.7 * M, 0);
+    expect(computeFinanceEffect(eff(undefined), { projectHasCostIncrease: true }).annualOperatingEffectYen).toBeUndefined();
+    expect(computeFinanceEffect(eff(undefined), { projectHasCostIncrease: false }).annualOperatingEffectYen).toBeCloseTo(2.7 * M, 0);
+  });
+
   it('売上増加の営業利益は、粗利益（売上×粗利率）から追加販売管理費等を引いて算定し、未入力なら未算定（0とはみなさない）', () => {
     const d: FinanceEffectDraft = {
       kind: 'REVENUE_UP',

@@ -642,6 +642,8 @@ export type FinanceEffect = {
   /** サービス提供型の計算根拠：顧客数（社）と1社当たり月間件数 */
   serviceCustomers?: number;
   servicePerCustomerCount?: number;
+  /** 追加販売管理費等が、同じ案件の追加費用（別の効果）と同じ費用か。true なら二重に差し引かない、false なら別の費用として差し引く */
+  sgaSameAsAddCost?: boolean;
   /** AIの質問への回答（未回答と「まだ分からない」を区別する）。未設定の項目は既存フィールドから推定する */
   questionAnswers?: FinanceEffectQuestionAnswers;
 };

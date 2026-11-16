@@ -42,6 +42,8 @@ export type FinanceAnswers = {
   /** 売上増加の粗利益（原価率＝100−粗利率）と追加販売管理費等（円） */
   costRatePct?: number;
   sgaCostYen?: number;
+  /** 追加販売管理費等が、同じ案件の追加費用と同じ費用か（未回答は undefined） */
+  sgaSameAsAddCost?: boolean;
   /** サービス提供型：顧客数・1社当たり月間件数・1件当たり単価（円） */
   serviceCustomers?: number;
   servicePerCustomerCount?: number;
@@ -183,6 +185,30 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
 
 /** 利用者の回答を草案に反映する。確認状態はここでは立てない（保存時のガードと確認操作で決める） */
 const isNonNegativeNumber = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+const isPercentage = (v: number): boolean => Number.isFinite(v) && v >= 0 && v <= 100;
+
+/* 入力欄に値が残っているか（空欄に戻した項目を含む）。残っていれば、その値をそのまま使う。 */
+const hasAnswer = (answers: FinanceAnswers, key: keyof FinanceAnswers): boolean => Object.prototype.hasOwnProperty.call(answers, key);
+
+type AnswerNumberKey =
+  | 'sgaCostYen'
+  | 'costRatePct'
+  | 'directAmountYen'
+  | 'meetingsPerPeriod'
+  | 'winRatePct'
+  | 'averageDealYen'
+  | 'serviceCustomers'
+  | 'servicePerCustomerCount'
+  | 'unitPriceYen'
+  | 'reductionBaseYen'
+  | 'reductionRatePct';
+
+/* 初期値（参考試算由来）は、入力欄に一度も値が入っていないときだけ使う。利用者が空欄にした値は、空欄のまま残す */
+function setAnswerNumber(e: FinanceEffect, answers: FinanceAnswers, key: AnswerNumberKey, valid: (v: number) => boolean): void {
+  const value = hasAnswer(answers, key) ? answers[key] : e[key];
+  if (typeof value === 'number' && valid(value)) e[key] = value;
+  else delete e[key];
+}
 
 export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceAnswers): FinanceEffect {
   const e: FinanceEffect = { ...draft.base, confirmed: false };
@@ -212,40 +238,44 @@ export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceA
     }
     if (serviceRevenue) e.revenueKind = 'SERVICE';
     else if (answers.revenueKind) e.revenueKind = answers.revenueKind;
-    if (isNonNegativeNumber(answers.sgaCostYen)) e.sgaCostYen = answers.sgaCostYen;
-    if (isNonNegativeNumber(answers.costRatePct) && answers.costRatePct <= 100) e.costRatePct = answers.costRatePct;
-    if (e.method === 'DIRECT_AMOUNT' && isNonNegativeNumber(answers.directAmountYen)) e.directAmountYen = answers.directAmountYen;
+    setAnswerNumber(e, answers, 'sgaCostYen', isNonNegativeNumber);
+    setAnswerNumber(e, answers, 'costRatePct', isPercentage);
+    if (hasAnswer(answers, 'sgaSameAsAddCost')) {
+      if (answers.sgaSameAsAddCost === undefined) delete e.sgaSameAsAddCost;
+      else e.sgaSameAsAddCost = answers.sgaSameAsAddCost;
+    }
+    if (e.method === 'DIRECT_AMOUNT') setAnswerNumber(e, answers, 'directAmountYen', isNonNegativeNumber);
     if (e.method === 'FUNNEL') {
-      if (isNonNegativeNumber(answers.meetingsPerPeriod)) e.meetingsPerPeriod = answers.meetingsPerPeriod;
-      if (isNonNegativeNumber(answers.winRatePct) && answers.winRatePct <= 100) e.winRatePct = answers.winRatePct;
-      if (isNonNegativeNumber(answers.averageDealYen)) e.averageDealYen = answers.averageDealYen;
+      setAnswerNumber(e, answers, 'meetingsPerPeriod', isNonNegativeNumber);
+      setAnswerNumber(e, answers, 'winRatePct', isPercentage);
+      setAnswerNumber(e, answers, 'averageDealYen', isNonNegativeNumber);
     }
     if (e.method === 'QUANTITY_UNIT_PRICE') {
-      const customers = answers.serviceCustomers ?? e.serviceCustomers;
-      const perCustomer = answers.servicePerCustomerCount ?? e.servicePerCustomerCount;
-      const price = answers.unitPriceYen ?? e.unitPriceYen;
-      if (isNonNegativeNumber(customers) && isNonNegativeNumber(perCustomer) && isNonNegativeNumber(price)) {
-        e.serviceCustomers = customers;
-        e.servicePerCustomerCount = perCustomer;
-        e.unitPriceYen = price;
-        e.quantity = customers * perCustomer;
+      setAnswerNumber(e, answers, 'serviceCustomers', isNonNegativeNumber);
+      setAnswerNumber(e, answers, 'servicePerCustomerCount', isNonNegativeNumber);
+      setAnswerNumber(e, answers, 'unitPriceYen', isNonNegativeNumber);
+      if (hasAnswer(answers, 'serviceCustomers') || hasAnswer(answers, 'servicePerCustomerCount')) {
+        if (e.serviceCustomers !== undefined && e.servicePerCustomerCount !== undefined) {
+          e.quantity = e.serviceCustomers * e.servicePerCustomerCount;
+        } else {
+          delete e.quantity;
+        }
       }
     }
   }
   if (draft.kind === 'COST_REDUCTION') {
-    const mode = answers.costInputMode ?? (e.reductionBaseYen !== undefined ? 'RATE' : 'DIRECT');
+    const mode = answers.costInputMode ?? (draft.base.reductionBaseYen !== undefined ? 'RATE' : 'DIRECT');
     if (mode === 'DIRECT') {
       delete e.reductionBaseYen;
       delete e.reductionRatePct;
-      const direct = answers.directAmountYen ?? e.directAmountYen;
-      if (isNonNegativeNumber(direct)) e.directAmountYen = direct;
+      setAnswerNumber(e, answers, 'directAmountYen', isNonNegativeNumber);
     } else {
-      const base = answers.reductionBaseYen ?? e.reductionBaseYen;
-      const rate = answers.reductionRatePct ?? e.reductionRatePct;
-      if (isNonNegativeNumber(base) && isNonNegativeNumber(rate) && rate <= 100) {
-        e.reductionBaseYen = base;
-        e.reductionRatePct = rate;
-        e.directAmountYen = Math.round((base * rate) / 100);
+      setAnswerNumber(e, answers, 'reductionBaseYen', isNonNegativeNumber);
+      setAnswerNumber(e, answers, 'reductionRatePct', isPercentage);
+      if (e.reductionBaseYen !== undefined && e.reductionRatePct !== undefined) {
+        e.directAmountYen = Math.round((e.reductionBaseYen * e.reductionRatePct) / 100);
+      } else {
+        delete e.directAmountYen;
       }
     }
   }
@@ -432,6 +462,7 @@ export function initialFinanceAnswers(draft: FinanceEffectDraft, saved: FinanceE
     directAmountYen: saved.directAmountYen,
     costRatePct: saved.costRatePct,
     sgaCostYen: saved.sgaCostYen,
+    sgaSameAsAddCost: saved.sgaSameAsAddCost,
     serviceCustomers: saved.serviceCustomers,
     servicePerCustomerCount: saved.servicePerCustomerCount,
     unitPriceYen: saved.unitPriceYen,

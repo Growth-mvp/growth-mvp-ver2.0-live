@@ -68,7 +68,7 @@ function DraftCard({
   const isService = candidate.method === 'QUANTITY_UNIT_PRICE';
   const costRateMode = isCost && (answers.costInputMode ?? (candidate.reductionBaseYen !== undefined ? 'RATE' : 'DIRECT')) === 'RATE';
   const costDirectMode = isCost && !costRateMode;
-  const annual = computeFinanceEffect(candidate);
+  const annual = computeFinanceEffect(candidate, { projectHasCostIncrease: ctx.costConfirmed });
   const opBasis = candidate.amountBasis;
   const opBasisText = opBasis ? FINANCE_EFFECT_BASIS_LABEL[opBasis] : '売上の単位を先に選ぶ';
   const confirmedNow = saved?.confirmed === true;
@@ -359,13 +359,28 @@ function DraftCard({
               }}
             />
           </label>
+          {ctx.hasCostEffect && candidate.sgaCostYen !== undefined && (
+            <label>
+              追加販売管理費等は、同じ案件の追加費用（別の効果）と同じ費用ですか
+              <select
+                aria-label={`${draft.label}の追加販売管理費等と追加費用`}
+                value={candidate.sgaSameAsAddCost === undefined ? '' : candidate.sgaSameAsAddCost ? 'same' : 'different'}
+                disabled={disabled}
+                onChange={(e) => set({ sgaSameAsAddCost: e.target.value === '' ? undefined : e.target.value === 'same' })}
+              >
+                <option value="">未回答</option>
+                <option value="same">同じ費用（追加費用の効果で差し引く。二重に差し引かない）</option>
+                <option value="different">別の費用（追加販売管理費等として別に差し引く）</option>
+              </select>
+            </label>
+          )}
           <p className="plan-note">
             {annual.annualGrossProfitYen === undefined
               ? '粗利益（参考）：未算定（粗利率を入れると算定します）'
               : `粗利益（参考・営業利益には含めない）：${amountText(annual.annualGrossProfitYen)}`}
             {' ／ '}
             {annual.annualOperatingEffectYen === undefined
-              ? '営業利益増分：未算定（粗利率と追加販売管理費等を入れると算定します。0とはみなしません）'
+              ? '営業利益増分：未算定（粗利率と追加販売管理費等を入れ、同じ案件の追加費用との関係を選ぶと算定します。0とはみなしません）'
               : `営業利益増分：${amountText(annual.annualOperatingEffectYen)}（粗利益 − 追加販売管理費等）`}
           </p>
         </>
