@@ -59,6 +59,9 @@ DEBUG_GUARD_CHANGES.md
 # development server logs
 /dev.log
 
+# Playwright MCP output (local only)
+.playwright-mcp/
+
 # cascade generation debug logs (re-created during API development)
 /cascade-debug/
 
