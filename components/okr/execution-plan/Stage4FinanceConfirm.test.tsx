@@ -68,6 +68,20 @@ describe('Stage4FinanceConfirm（財務効果の入力。保存は計画の保�
     expect(card.textContent).toContain('既存の売上に対する追加効果かが未確認');
   });
 
+  it('直接金額入力でもサービス提供の売上区分を選べ、年額72万円・営業利益18.8万円を示す', () => {
+    const { onAnswer } = renderConfirm({
+      answers: { REVENUE_UP: {
+        method: 'DIRECT_AMOUNT', directAmountYen: 720_000, amountBasis: 'ANNUAL',
+        startYm: '2027-04', endYm: '2028-03', costRatePct: 60, sgaCostYen: 100_000, revenueKind: 'SERVICE',
+      } },
+    });
+    const select = screen.getByLabelText('売上増加（参考試算の売上）の売上の区分') as HTMLSelectElement;
+    expect(select.value).toBe('SERVICE');
+    expect(screen.getByLabelText('売上増加（参考試算の売上）の財務効果').textContent).toContain('営業利益増分：18.8万円');
+    fireEvent.change(select, { target: { value: 'PAID_DEVELOPMENT' } });
+    expect(onAnswer).toHaveBeenCalledWith('REVENUE_UP', expect.objectContaining({ revenueKind: 'PAID_DEVELOPMENT' }));
+  });
+
   it('確認済みの効果は、STAGE6の試算に入る旨を表示し、入力は直接変えられる', () => {
     const saved = [{ ...drafts().find((d) => d.kind === 'COST_INCREASE')!.base, amountBasis: 'ANNUAL', confirmed: true, confirmedAt: '2026-11-10T00:00:00.000Z' }] as any[];
     renderConfirm({ saved });
