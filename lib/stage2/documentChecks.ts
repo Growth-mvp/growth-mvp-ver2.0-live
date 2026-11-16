@@ -54,6 +54,12 @@ function lastYearIn(clause: string): number | undefined {
   return years.length > 0 ? years[years.length - 1] : undefined;
 }
 
+/** 金額の記述より前の、同じ文の部分（「、」をまたぐ年度指定を拾うため） */
+function sentenceBefore(text: string, index: number): string {
+  const head = text.slice(0, index);
+  return head.slice(Math.max(head.lastIndexOf('。'), head.lastIndexOf('\n')) + 1);
+}
+
 /** 確定前の検査。内容は変更せず、利用者が確認すべき点だけを返す */
 export function runDocumentChecks(input: {
   chapters: StoryChapter[];
@@ -78,7 +84,7 @@ export function runDocumentChecks(input: {
         if (m[1] === '売上高' ? metric !== '売上' : m[1] !== metric) continue;
         const clause = clauseEndingAt(text, m.index ?? 0, m[0]);
         if (NOT_A_TARGET.test(clause)) continue;
-        const year = lastYearIn(clause);
+        const year = lastYearIn(clause) ?? lastYearIn(sentenceBefore(text, m.index ?? 0));
         if (year != null && row.dueYear != null && year !== row.dueYear) continue;
         const value = Number(m[3].replace(/,/g, ''));
         const oku = targetToOku(value, m[4]);

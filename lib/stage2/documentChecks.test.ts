@@ -115,6 +115,14 @@ describe('runDocumentChecks：年度と指標の区別', () => {
     expect(mismatchCount('2030年度の売上130億円を目指す。')).toBe(1);
   });
 
+  it('同じ文の中の実績年度（2025年度）の営業利益は、2030年度の目標と比べない', () => {
+    expect(mismatchCount('2025年度の売上160百万円、営業利益1.5百万円から、2030年度に売上120億円を目指す。')).toBe(0);
+  });
+
+  it('同じ年度の目標と矛盾する営業利益は、年度が「、」で区切られていても検出する', () => {
+    expect(mismatchCount('2030年度の売上120億円、営業利益1.5百万円を目指す。')).toBe(1);
+  });
+
   it('不一致の目標表示に年度を含める', () => {
     const issue = run('2030年度の売上130億円を目指す。').find((i) => i.kind === 'target_mismatch');
     expect(issue && issue.kind === 'target_mismatch' && issue.targetText).toBe('12,000 百万円（2030年度）');
