@@ -128,7 +128,6 @@ async function readStage6(page) {
     const r = card(s4, REVENUE);
     await r.locator('input[type="month"]').nth(0).fill('2026-04');
     await r.locator('input[type="month"]').nth(1).fill('2030-03');
-    await r.locator('input[type="number"]').first().fill('12');
     await sleep(200);
     await save(s4);
     const s6b = await openStage6(ctx);
@@ -140,6 +139,9 @@ async function readStage6(page) {
   /* 2. STAGE4：必須項目を入れて保存すると、確認済みとして保存され、STAGE6に反映される */
   await check('2', 'STAGE4：必須項目をそろえて保存すると、STAGE6の施策効果に反映される（売上+60・営業利益+12−6）', async () => {
     const r = card(s4, REVENUE);
+    const finance = s4.locator('details', { has: s4.locator('summary', { hasText: '財務効果を設定する' }) });
+    if (!(await finance.evaluate((d) => d.open))) await s4.locator('summary', { hasText: '財務効果を設定する' }).click();
+    await sleep(200);
     await selectIn(r.locator('select').nth(1), 'ANNUAL');
     await fillIn(r.locator('input[type="month"]').nth(1), '2030-03');
     await selectIn(s4.locator('[aria-label="' + REVENUE + 'の売上の区分"]'), 'PAID_DEVELOPMENT');
@@ -152,13 +154,11 @@ async function readStage6(page) {
     await sleep(200);
     await selectIn(s4.locator('[aria-label="' + REVENUE + 'の追加販売管理費等と追加費用"]'), 'same');
     await sleep(200);
-    await selectIn(s4.locator('[aria-label="' + REVENUE + 'の営業利益増分と追加費用"]'), 'no');
-    await sleep(200);
     await save(s4);
     const s6c = await openStage6(ctx);
     const after = await readStage6(s6c);
-    if (after.headlines.join() !== '82.5,72.5') throw new Error(`2030年度の達成率が ${after.headlines.join(' / ')}（期待 売上82.5 = 990÷1,200、営業利益72.5 = 58÷80）`);
     if (after.effect2027?.join() !== '+60.0,+6.0') throw new Error(`STAGE6の2027年度の施策効果が ${after.effect2027?.join(' / ')}（期待 +60.0 / +6.0 = 営業利益 12 − 6）`);
+    if (after.headlines.join() !== '82.5,72.5') throw new Error(`2030年度の達成率が ${after.headlines.join(' / ')}（期待 売上82.5 = 990÷1,200、営業利益72.5 = 58÷80）`);
     return `STAGE6 2027年度の施策効果 売上+60.0、営業利益+6.0（12−6）`;
   });
 
