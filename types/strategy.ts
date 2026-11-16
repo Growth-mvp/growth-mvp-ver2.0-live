@@ -633,6 +633,10 @@ export type FinanceEffect = {
   revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION' | 'SERVICE';
   /** コスト削減：実際に減らせる費用として確認できたか（費用配賦の見直し・作業時間短縮だけの効果は計上しない） */
   reductionConfirmed?: boolean;
+  /** コスト削減の計算根拠：削減対象の年間費用（円）。年間削減額 = これ × 想定削減率 */
+  reductionBaseYen?: number;
+  /** コスト削減の計算根拠：想定削減率（%） */
+  reductionRatePct?: number;
   /** AIの質問への回答（未回答と「まだ分からない」を区別する）。未設定の項目は既存フィールドから推定する */
   questionAnswers?: FinanceEffectQuestionAnswers;
 };

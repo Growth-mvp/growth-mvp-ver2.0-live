@@ -17,6 +17,13 @@ const BASES: SpendAmountBasis[] = ['TOTAL', 'MONTHLY', 'ANNUAL'];
 
 const amountText = (yen: number | undefined): string => (yen === undefined ? '未入力' : formatYenScaled(yen));
 
+const numberOrUndefined = (text: string): number | undefined => {
+  const t = text.trim();
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+};
+
 function formulaOf(draft: FinanceEffectDraft): string {
   const e = draft.base;
   if (e.kind === 'REVENUE_UP' && e.method === 'QUANTITY_UNIT_PRICE') {
@@ -84,6 +91,93 @@ function DraftCard({
         </p>
       )}
       <div className="plan-note">金額の単位：円</div>
+      {isCost && (
+        <>
+          <label>
+            削減対象の年間費用（百万円）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              aria-label={`${draft.label}の削減対象の年間費用`}
+              disabled={disabled}
+              value={candidate.reductionBaseYen === undefined ? '' : candidate.reductionBaseYen / 1_000_000}
+              onChange={(e) => {
+                const n = numberOrUndefined(e.target.value);
+                set({ reductionBaseYen: n === undefined ? undefined : Math.round(n * 1_000_000) });
+              }}
+            />
+          </label>
+          <label>
+            想定削減率（%）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              max={100}
+              aria-label={`${draft.label}の想定削減率`}
+              disabled={disabled}
+              value={candidate.reductionRatePct ?? ''}
+              onChange={(e) => set({ reductionRatePct: numberOrUndefined(e.target.value) })}
+            />
+          </label>
+          <p className="plan-note">
+            年間削減額＝
+            {candidate.reductionBaseYen === undefined || candidate.reductionRatePct === undefined
+              ? '未入力（削減対象の年間費用と想定削減率を入れると自動で計算します）'
+              : `${candidate.reductionBaseYen / 1_000_000}百万円 × ${candidate.reductionRatePct}% ＝ ${amountText(candidate.directAmountYen)}`}
+          </p>
+        </>
+      )}
+      {isRevenue && !isService && (
+        <>
+          <label>
+            商談数（社）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              aria-label={`${draft.label}の商談数`}
+              disabled={disabled}
+              value={candidate.meetingsPerPeriod ?? ''}
+              onChange={(e) => set({ meetingsPerPeriod: numberOrUndefined(e.target.value) })}
+            />
+          </label>
+          <label>
+            受注率（%）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              max={100}
+              aria-label={`${draft.label}の受注率`}
+              disabled={disabled}
+              value={candidate.winRatePct ?? ''}
+              onChange={(e) => set({ winRatePct: numberOrUndefined(e.target.value) })}
+            />
+          </label>
+          <label>
+            平均受注額（百万円）
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              aria-label={`${draft.label}の平均受注額`}
+              disabled={disabled}
+              value={candidate.averageDealYen === undefined ? '' : candidate.averageDealYen / 1_000_000}
+              onChange={(e) => {
+                const n = numberOrUndefined(e.target.value);
+                set({ averageDealYen: n === undefined ? undefined : Math.round(n * 1_000_000) });
+              }}
+            />
+          </label>
+        </>
+      )}
       {isCost && <div className="plan-note">発生頻度：年額（削減対象は年間費用のため、年額で固定します）</div>}
       {isService && <div className="plan-note">発生頻度：月額（顧客数×1社当たり月間配送件数×1件当たり料金で計算します）</div>}
       {!isCost && !isService && (

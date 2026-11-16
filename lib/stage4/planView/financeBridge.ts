@@ -27,6 +27,13 @@ export type FinanceAnswers = {
   opIncomeIncludesAddCost?: boolean;
   revenueKind?: 'PAID_DEVELOPMENT' | 'MASS_PRODUCTION' | 'SERVICE';
   reductionConfirmed?: boolean;
+  /** 費用削減の計算根拠（円・%）。年間削減額 = 削減対象の年間費用 × 想定削減率 */
+  reductionBaseYen?: number;
+  reductionRatePct?: number;
+  /** 売上増加（商談型）の計算根拠：商談数・受注率（%）・平均受注額（円） */
+  meetingsPerPeriod?: number;
+  winRatePct?: number;
+  averageDealYen?: number;
   overlapNote?: string;
 };
 
@@ -133,6 +140,8 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
       kind: 'COST_REDUCTION',
       method: 'DIRECT_AMOUNT',
       directAmountYen: Math.round((cost.value * reduction.value) / 100 * MILLION),
+      reductionBaseYen: Math.round(cost.value * MILLION),
+      reductionRatePct: reduction.value,
       amountBasis: 'ANNUAL',
       source: 'USER_INPUT',
       confirmed: false,
@@ -161,6 +170,8 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
 }
 
 /** 利用者の回答を草案に反映する。確認状態はここでは立てない（保存時のガードと確認操作で決める） */
+const isNonNegativeNumber = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
 export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceAnswers): FinanceEffect {
   const e: FinanceEffect = { ...draft.base, confirmed: false };
   delete e.confirmedAt;
@@ -188,6 +199,20 @@ export function applyFinanceAnswers(draft: FinanceEffectDraft, answers: FinanceA
     }
     if (serviceRevenue) e.revenueKind = 'SERVICE';
     else if (answers.revenueKind) e.revenueKind = answers.revenueKind;
+  }
+  if (draft.kind === 'COST_REDUCTION') {
+    const base = answers.reductionBaseYen ?? e.reductionBaseYen;
+    const rate = answers.reductionRatePct ?? e.reductionRatePct;
+    if (isNonNegativeNumber(base) && isNonNegativeNumber(rate) && rate <= 100) {
+      e.reductionBaseYen = base;
+      e.reductionRatePct = rate;
+      e.directAmountYen = Math.round((base * rate) / 100);
+    }
+  }
+  if (draft.kind === 'REVENUE_UP' && draft.base.method === 'FUNNEL') {
+    if (isNonNegativeNumber(answers.meetingsPerPeriod)) e.meetingsPerPeriod = answers.meetingsPerPeriod;
+    if (isNonNegativeNumber(answers.winRatePct) && answers.winRatePct <= 100) e.winRatePct = answers.winRatePct;
+    if (isNonNegativeNumber(answers.averageDealYen)) e.averageDealYen = answers.averageDealYen;
   }
   if (answers.overlapNote?.trim()) e.overlapNote = answers.overlapNote.trim();
   return e;
@@ -362,6 +387,11 @@ export function initialFinanceAnswers(draft: FinanceEffectDraft, saved: FinanceE
     opIncomeIncludesAddCost: saved.opIncomeIncludesAddCost,
     revenueKind: saved.revenueKind,
     reductionConfirmed: saved.reductionConfirmed,
+    reductionBaseYen: saved.reductionBaseYen,
+    reductionRatePct: saved.reductionRatePct,
+    meetingsPerPeriod: saved.meetingsPerPeriod,
+    winRatePct: saved.winRatePct,
+    averageDealYen: saved.averageDealYen,
     overlapNote: saved.overlapNote,
   };
 }

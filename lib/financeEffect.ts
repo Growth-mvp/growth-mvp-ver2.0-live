@@ -247,6 +247,8 @@ export function normalizeFinanceEffect(raw: unknown): FinanceEffect | undefined 
     'directAmountYen',
     'costRatePct',
     'operatingIncomeEffectYen',
+    'reductionBaseYen',
+    'reductionRatePct',
   ] as const;
   for (const key of numericKeys) {
     if (isFiniteNumber(r[key])) out[key] = r[key] as number;
@@ -341,6 +343,8 @@ const CONFIRMATION_MATERIAL_KEYS = [
   'opIncomeIncludesAddCost',
   'revenueKind',
   'reductionConfirmed',
+  'reductionBaseYen',
+  'reductionRatePct',
   'scopeNote',
   'sourceNote',
   'source',

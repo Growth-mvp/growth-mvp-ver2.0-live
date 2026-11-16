@@ -469,6 +469,20 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     expect(planFinanceEffectWrite({ primary: undefined, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW }).ok).toBe(false);
   });
 
+  it('費用削減は、削減対象の年間費用と想定削減率から年間削減額を計算し、率を変えると確認し直す対象になる（100百万円×6％＝6百万円）', () => {
+    const d: FinanceEffectDraft = {
+      kind: 'COST_REDUCTION',
+      label: '削減効果（年間削減額）',
+      fromAi: false,
+      base: { kind: 'COST_REDUCTION', method: 'DIRECT_AMOUNT', directAmountYen: 5 * M, reductionBaseYen: 100 * M, reductionRatePct: 5, source: 'USER_INPUT', confirmed: false, sourceNote: '参考試算' },
+    };
+    const input = { reductionBaseYen: 100 * M, reductionRatePct: 6, reductionConfirmed: true, amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03' };
+    expect(applyFinanceAnswers(d, input)).toMatchObject({ directAmountYen: 6 * M, reductionBaseYen: 100 * M, reductionRatePct: 6 });
+    const saved = [confirmed(applyFinanceAnswers(d, { ...input, reductionRatePct: 5 }))];
+    const steps = financeSaveSteps({ drafts: [d], answers: { COST_REDUCTION: input }, saved, overlapCount: 0 });
+    expect(steps[0]).toMatchObject({ kind: 'COST_REDUCTION', action: 'REVISE' });
+  });
+
   it('入力を変えずに保存すると、確認済みの効果は書き直さない（確認を外さない）', () => {
     const d = userDraftOf(revenueDraft());
     const saved = [{ ...d.base, confirmed: true }];

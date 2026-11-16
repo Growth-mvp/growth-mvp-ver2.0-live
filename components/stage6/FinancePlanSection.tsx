@@ -431,23 +431,31 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           </div>
         )}
 
-        <FinanceOutlookCharts charts={outlookCharts} />
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold text-slate-900">① 経営目標に届くか</h3>
+          <FinanceOutlookCharts charts={outlookCharts} />
+        </div>
 
-        <FinanceSummary
-          cash={cashSummary}
-          funding={fundingStatus}
-          requiredItem={requiredItem}
-          onNavigate={setTab}
-        />
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold text-slate-900">② どの施策が業績を改善するか</h3>
+          <FinanceEffectProjectList projects={effectTrial.projects} years={effectTrial.years} />
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold text-slate-900">③ 資金は足りるか</h3>
+          <FinanceSummary
+            cash={cashSummary}
+            funding={fundingStatus}
+            requiredItem={requiredItem}
+            onNavigate={setTab}
+          />
+          <p className="text-xs text-slate-600">投資・運転資金・借入返済・キャッシュフローの詳細は「詳しく確認する」にあります。</p>
+        </div>
       </section>
 
-      <section
-        aria-labelledby="finance-detail-title"
-        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-      >
-        <h2 id="finance-detail-title" className="text-lg font-bold text-slate-900">
-          詳しく確認する
-        </h2>
+      <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <summary className="cursor-pointer text-lg font-bold text-slate-900">詳しく確認する</summary>
+        <div className="mt-4 space-y-4">
         <div role="tablist" aria-label="財務計画の作業タブ" className="grid grid-cols-2 gap-2 md:grid-cols-5">
         {FINANCE_TABS.map((t) => {
           const active = tab === t.key;
@@ -498,9 +506,15 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
             <p className="text-xs leading-relaxed text-slate-600 break-keep">
               目標に至る補間の経路は「3. お金は足りるか」の参考情報にあります。
             </p>
-            <FinanceEffectProjectList projects={effectTrial.projects} years={effectTrial.years} />
             {companyId && strategyId && (
-              <Stage4ScenarioPanel companyId={companyId} strategyId={strategyId} departments={departments} />
+              <details className="rounded-xl border border-slate-200 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                  STAGE4の参考シナリオ（正式な財務効果とは別の参考）
+                </summary>
+                <div className="mt-3">
+                  <Stage4ScenarioPanel companyId={companyId} strategyId={strategyId} departments={departments} />
+                </div>
+              </details>
             )}
             <KrPlanActualPanel departments={departments} />
           </div>
@@ -562,8 +576,8 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           </div>
         )}
       </div>
-
-      </section>
+        </div>
+      </details>
     </div>
   );
 }
