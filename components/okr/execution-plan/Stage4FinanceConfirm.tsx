@@ -414,6 +414,7 @@ function DraftCard({
             <option value="">未回答</option>
             <option value="PAID_DEVELOPMENT">有償開発（開発費の受注）</option>
             <option value="MASS_PRODUCTION">量産（製品の販売）</option>
+            <option value="SERVICE">サービス提供（役務）</option>
           </select>
         </label>
       )}
