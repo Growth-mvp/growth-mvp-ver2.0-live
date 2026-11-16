@@ -1,4 +1,4 @@
-import { anchorDraftsToSaved, financeSaveSteps, financeWriteReason } from './financeBridge';
+import { anchorDraftsToSaved, financeSaveSteps, financeStatusSummary, financeWriteReason, withBlankFinanceDrafts } from './financeBridge';
 import { computeFinanceEffect, findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
@@ -467,6 +467,28 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     const draft = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL' });
     expect(planFinanceEffectWrite({ primary: draft, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW })).toEqual({ ok: true, outcome: 'unchanged', patch: {} });
     expect(planFinanceEffectWrite({ primary: undefined, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW }).ok).toBe(false);
+  });
+
+  it('参考試算がない新規プロジェクトにも空の財務効果の入力があり、入力して保存すると確認しない草案として残る', () => {
+    const blanks = withBlankFinanceDrafts([]);
+    expect(blanks.map((d) => d.kind)).toEqual(['REVENUE_UP', 'COST_REDUCTION', 'COST_INCREASE']);
+    expect(blanks.every((d) => d.blank === true)).toBe(true);
+    const revenue = blanks.find((d) => d.kind === 'REVENUE_UP')!;
+    const answers = { amountBasis: 'ANNUAL' as const, startYm: '2027-04', endYm: '2028-03', directAmountYen: 12 * M, revenueKind: 'MASS_PRODUCTION' as const };
+    const steps = financeSaveSteps({ drafts: blanks, answers: { REVENUE_UP: answers }, saved: [], overlapCount: 0 });
+    expect(steps[0]).toMatchObject({ kind: 'REVENUE_UP', action: 'SAVE_DRAFT' });
+    expect(computeFinanceEffect(applyFinanceAnswers(revenue, answers)).annualRevenueYen).toBe(12 * M);
+    expect(financeSaveSteps({ drafts: blanks, answers: {}, saved: [], overlapCount: 0 })).toEqual([]);
+  });
+
+  it('財務効果の状態は、未設定・未確認・確認済みを示し、確認済みは売上増加と営業利益貢献を年額で示す', () => {
+    expect(financeStatusSummary([])).toBe('未設定');
+    const base: FinanceEffect = applyFinanceAnswers(
+      { kind: 'REVENUE_UP', label: '売上増加', fromAi: false, base: { kind: 'REVENUE_UP', method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '見積書' } },
+      { amountBasis: 'ANNUAL', startYm: '2027-04', endYm: '2028-03', directAmountYen: 12 * M, revenueKind: 'MASS_PRODUCTION', costRatePct: 70, sgaCostYen: 0, sgaSameAsAddCost: false },
+    );
+    expect(financeStatusSummary([base])).toBe('未確認');
+    expect(financeStatusSummary([{ ...base, confirmed: true }])).toContain('売上増加');
   });
 
   it('保存済みの財務効果は、再生成された草案で上書きされず、保存・再読込・再編集しても同じ値のまま（サービス提供型）', () => {

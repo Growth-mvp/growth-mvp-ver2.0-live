@@ -25,6 +25,7 @@ const numberOrUndefined = (text: string): number | undefined => {
 };
 
 function formulaOf(draft: FinanceEffectDraft): string {
+  if (draft.blank) return '金額を入力してください';
   const e = draft.base;
   if (e.kind === 'REVENUE_UP' && e.method === 'QUANTITY_UNIT_PRICE') {
     return `${e.quantity}件（月額）× ${amountText(e.unitPriceYen)}`;
@@ -505,7 +506,6 @@ export function Stage4FinanceConfirm({
         </p>
       )}
       {!writable && reasonNotWritable && <p className="plan-note">{reasonNotWritable}</p>}
-      {drafts.length === 0 && <p className="plan-note">財務効果の案は、参考試算の数値がそろうと表示されます。</p>}
       {drafts.map((draft) => {
         const savedOne = saved.find((e) => e.kind === draft.kind);
         return (

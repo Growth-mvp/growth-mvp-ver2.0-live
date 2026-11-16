@@ -45,6 +45,8 @@ import { estimateProjectImpact, hypothesisOf, type ImpactEstimate } from '@/lib/
 import {
   anchorDraftsToSaved,
   buildFinanceEffectDrafts,
+  financeStatusSummary,
+  withBlankFinanceDrafts,
   financeSaveSteps,
   financeWriteReason,
   periodOfLabel,
@@ -257,7 +259,8 @@ function Stage3ProjectBrowser({
     ? [financePos.project.financeEffect, ...(financePos.project.financeEffects ?? [])].filter((e): e is FinanceEffect => !!e)
     : [];
   /* 保存済みの財務効果がある項目は、その値を基点にする（再生成された草案で上書きしない）。草案は未保存の項目だけに使う */
-  const anchoredFinanceDrafts = anchorDraftsToSaved(financeDrafts, financeSaved);
+  const anchoredFinanceDrafts = anchorDraftsToSaved(withBlankFinanceDrafts(financeDrafts), financeSaved);
+  const financeSummary = financeStatusSummary(financeSaved);
   const financeOverlap = financePos ? findFinanceEffectOverlapCandidates(storeDepartmentsNow, financePos.dIdx, financePos.pIdx).length : 0;
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
   const financeReason = financeWriteReason({ scopeMatches: financeScopeMatches, planLoaded: !!selectedEntry });
@@ -721,6 +724,7 @@ function Stage3ProjectBrowser({
             companyLabel={companyLabel}
             impactEstimate={impactEstimate}
             financeSection={financeSection}
+            financeSummary={financeSummary}
             stableId={sel.projectKey.startsWith('id:')}
             entry={entry}
             planView={planView}
@@ -781,6 +785,7 @@ function ReadOnlyProject({
   onStartPlan,
   impactEstimate,
   financeSection,
+  financeSummary,
   regen,
   onRegenStart,
   onRegenUse,
@@ -805,6 +810,7 @@ function ReadOnlyProject({
   onStartPlan: (input: StartInput) => Promise<boolean>;
   impactEstimate: ImpactEstimate | null;
   financeSection: ReactNode;
+  financeSummary: string;
   regen: RegenState | undefined;
   onRegenStart: () => void;
   onRegenUse: () => void;
@@ -1026,6 +1032,7 @@ function ReadOnlyProject({
                 onDirectChange={(k, v) => onPlan((p) => setCommittedValue(p, k, v))}
                 impactEstimate={impactEstimate}
                 financeSection={financeSection}
+                financeSummary={financeSummary}
                 onEnterEdit={() => onPlan(enterEdit)}
                 onApply={() => onPlan(applyEdit)}
                 onDiscard={() => onPlan(discardEdit)}

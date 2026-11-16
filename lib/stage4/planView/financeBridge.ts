@@ -15,7 +15,44 @@ export type FinanceEffectDraft = {
   label: string;
   fromAi: boolean;
   base: FinanceEffect;
+  /** 参考試算がなく、利用者が一から入力する空の草案 */
+  blank?: boolean;
 };
+
+const BLANK_DRAFT_LABEL: Record<FinanceDraftKind, string> = {
+  REVENUE_UP: '売上増加',
+  COST_REDUCTION: '削減効果（年間削減額）',
+  COST_INCREASE: '追加費用',
+};
+
+/* 参考試算の草案がない種類には、空の草案を補う。入力欄は常に出し、AI草案は未入力時の初期提案に限る */
+export function withBlankFinanceDrafts(drafts: FinanceEffectDraft[]): FinanceEffectDraft[] {
+  const out = [...drafts];
+  for (const kind of ['REVENUE_UP', 'COST_REDUCTION', 'COST_INCREASE'] as const) {
+    if (out.some((d) => d.kind === kind)) continue;
+    out.push({
+      kind,
+      label: BLANK_DRAFT_LABEL[kind],
+      fromAi: false,
+      blank: true,
+      base: { kind, method: 'DIRECT_AMOUNT', source: 'USER_INPUT', confirmed: false, sourceNote: '利用者が入力' },
+    });
+  }
+  return out;
+}
+
+/* 財務効果の状態の要約（閉じているときも見える）。確認済みの売上増加額・営業利益貢献額を、算定できたものだけ示す */
+export function financeStatusSummary(saved: FinanceEffect[]): string {
+  if (saved.length === 0) return '未設定';
+  if (saved.some((e) => e.confirmed !== true)) return '未確認';
+  const parts: string[] = [];
+  for (const e of saved) {
+    const r = computeFinanceEffect(e);
+    if (e.kind === 'REVENUE_UP' && r.annualRevenueYen !== undefined) parts.push(`売上増加 ${formatYenScaled(r.annualRevenueYen)}`);
+    if (r.annualOperatingEffectYen !== undefined) parts.push(`営業利益貢献 ${formatYenScaled(r.annualOperatingEffectYen)}`);
+  }
+  return parts.length > 0 ? `確認済み（${parts.join('、')}／年額）` : '確認済み';
+}
 
 export type FinanceAnswers = {
   amountBasis?: SpendAmountBasis;
@@ -493,7 +530,7 @@ export function financeConfirmContext(
   const costEffect = costDraft && costAnswers ? applyFinanceAnswers(costDraft, costAnswers) : costSaved;
   return {
     overlapCount,
-    hasCostEffect: drafts.some((d) => d.kind === 'COST_INCREASE') || !!costSaved,
+    hasCostEffect: drafts.some((d) => d.kind === 'COST_INCREASE' && !d.blank) || !!costSaved,
     costConfirmed: costSaved?.confirmed === true,
     revenueOpIncludesAddCost: revenueSaved?.opIncomeIncludesAddCost === true && typeof revenueSaved.operatingIncomeEffectYen === 'number',
     revenueHasOperatingEffect: !!revenueSaved && typeof revenueSaved.operatingIncomeEffectYen === 'number',

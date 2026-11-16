@@ -5,7 +5,7 @@ import { buildDocModel, type CheckItem, type DocModel, type Edits, type EditValu
 import type { ImpactEstimate, ParamKey } from '@/lib/stage4/planView/impactEstimate';
 import type { PlanMode } from '@/lib/stage4/planView/planState';
 import { ImpactEstimateBlock } from './ImpactEstimateBlock';
-import { PLAN_DOC_CSS } from './planDocStyles';
+import { PLAN_DOC_CSS, PLAN_FINANCE_FOLD_CSS } from './planDocStyles';
 
 type Mode = PlanMode;
 
@@ -23,6 +23,8 @@ export type PlanDocumentProps = {
   onImpactEdit?: (key: ParamKey, value: number | null) => void;
   /** 第5章の下に出す財務効果の確認欄（STAGE6へ反映する操作）。計画書の保存状態とは別に扱う */
   financeSection?: ReactNode;
+  /** 財務効果の状態の要約（未設定／未確認／確認済み）。閉じている見出しにも出す */
+  financeSummary?: string;
   /** 文章をクリックして、そのまま利用者の修正として書く（修正の反映の操作は無い。保存は計画書の「計画を保存」） */
   directEdit?: boolean;
   onDirectChange?: (key: string, value: EditValue) => void;
@@ -141,25 +143,11 @@ export default function PlanDocument(props: PlanDocumentProps) {
 
   const editCount = Object.keys(committed).length;
 
-  /* 開始前の確認の1行。判定条件は表示のみ。確認結果（確認済み）だけを利用者が記録する */
-  const checkRow = (t: CheckItem, hold: boolean) => (
-    <li key={`${hold ? 'reg' : 'pre'}-${t.key}`}>
-      {t.title}
-      {hold && <span className="plan-tag plan-tag-hold">開始前に確認</span>}{' '}
-      {mode === 'edit' ? (
-        <label className="plan-check">
-          <input type="checkbox" checked={t.done} aria-label={`${t.title}を確認済みにする`} onChange={(e) => setEdit(t.key, e.target.checked)} />
-          確認済みにする
-        </label>
-      ) : (
-        <span className="plan-note">{t.done ? '（確認済みと記録）' : '（未確認）'}</span>
-      )}
-    </li>
-  );
 
   return (
     <div className="plan-page">
       <style>{PLAN_DOC_CSS}</style>
+      <style>{PLAN_FINANCE_FOLD_CSS}</style>
       {!readOnly && !directEdit && (
       <div className="plan-toolbar" role="toolbar" aria-label="計画書の操作">
         <div className="plan-toolbar-actions">
@@ -387,11 +375,19 @@ export default function PlanDocument(props: PlanDocumentProps) {
               </li>
             ))}
           </ul>
-          <h3 className="plan-h3">実行開始の前に確認すること</h3>
-          <ol className="plan-list plan-ordered">
-            {doc.impact.regulatory.map((t) => checkRow(t, true))}
-            {doc.organization.beforeStart.map((t) => checkRow(t, false))}
-          </ol>
+          {doc.impact.regulatory.length + doc.organization.beforeStart.length > 0 && (
+            <>
+              <h3 className="plan-h3">実行開始の前の留意事項</h3>
+              <ul className="plan-list">
+                {doc.impact.regulatory.map((t) => (
+                  <li key={`reg-${t.key}`}>{t.title}（法令・安全などの重要事項）</li>
+                ))}
+                {doc.organization.beforeStart.map((t) => (
+                  <li key={`pre-${t.key}`}>{t.title}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
 
         <section className="plan-section" aria-labelledby="sec5">
@@ -403,10 +399,13 @@ export default function PlanDocument(props: PlanDocumentProps) {
           <h3 className="plan-h3">自社の売上・利益への貢献</h3>
           <EditableBlock {...editable(doc.impact.companyResult.key, '自社の売上・利益への貢献', doc.impact.companyResult.text)} />
           {props.financeSection && (
-            <div className="plan-finance">
-              <h3 className="plan-h3">財務効果（STAGE6に反映）</h3>
-              {props.financeSection}
-            </div>
+            <details className="plan-finance">
+              <summary className="plan-finance-summary">
+                <span className="plan-finance-title">財務効果を設定する（STAGE6へ反映）</span>
+                {props.financeSummary && <span className="plan-finance-status">{props.financeSummary}</span>}
+              </summary>
+              <div className="plan-finance-body">{props.financeSection}</div>
+            </details>
           )}
           {props.impactEstimate && (
             <details className="plan-supplement">

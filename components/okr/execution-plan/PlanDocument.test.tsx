@@ -83,11 +83,23 @@ describe('PlanDocument（直接編集の文書）', () => {
     expect(p.onOpenStart).toHaveBeenCalledTimes(1);
   });
 
-  it('財務効果の入力欄は、開く操作なしで最初から表示される', () => {
-    const { container } = render(<PlanDocument {...props({ financeSection: <p>財務効果の入力欄</p> })} />);
+  it('財務効果は「財務効果を設定する（STAGE6へ反映）」の見出しで閉じて始まり、状態を見出しに示す', () => {
+    const { container } = render(
+      <PlanDocument {...props({ financeSection: <p>財務効果の入力欄</p>, financeSummary: '未設定' })} />,
+    );
+    const fold = container.querySelector('details.plan-finance') as HTMLDetailsElement | null;
+    expect(fold).not.toBeNull();
+    expect(fold?.open).toBe(false);
+    expect(fold?.querySelector('summary')?.textContent).toContain('財務効果を設定する（STAGE6へ反映）');
+    expect(fold?.querySelector('summary')?.textContent).toContain('未設定');
     expect(screen.getByText('財務効果の入力欄')).toBeTruthy();
-    expect(container.querySelector('details.plan-finance-toggle')).toBeNull();
-    expect(screen.queryByText('財務効果を設定する')).toBeNull();
+  });
+
+  it('実行開始の前の確認はチェックボックスを出さず、留意事項として文章で残す', () => {
+    const { container } = render(<PlanDocument {...props()} />);
+    expect(screen.queryByRole('checkbox', { name: /確認済みにする/ })).toBeNull();
+    expect(screen.queryByText('実行開始の前に確認すること')).toBeNull();
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
   });
 
   it('開始の操作が渡されたら、「実行を開始する」の代わりに計画書の下部へそれを出す', () => {
