@@ -186,9 +186,9 @@ describe('確認の判定（営業利益増分・計上期間・重複）', () =
     ]);
   });
 
-  it('売上の区分（有償開発か量産か）が未確認なら、売上は確認しない', () => {
+  it('売上の区分（有償開発・量産・サービス提供）が未確認なら、売上は確認しない', () => {
     const rev = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, revenueKind: undefined });
-    expect(confirmBlockers(rev, ctx())).toEqual([expect.stringContaining('売上の区分（有償開発か量産か）が未確認')]);
+    expect(confirmBlockers(rev, ctx())).toEqual([expect.stringContaining('売上の区分（有償開発・量産・サービス提供）が未確認')]);
     const typed = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { ...revAnswers, revenueKind: 'MASS_PRODUCTION' });
     expect(typed.revenueKind).toBe('MASS_PRODUCTION');
     expect(confirmBlockers(typed, ctx())).toEqual([]);
