@@ -120,6 +120,8 @@ export function buildFinanceEffectDrafts(args: { estimate: ImpactEstimate; fisca
       kind: 'REVENUE_UP',
       method: 'QUANTITY_UNIT_PRICE',
       quantity: customers.value * perCustomer.value,
+      serviceCustomers: customers.value,
+      servicePerCustomerCount: perCustomer.value,
       unitPriceYen: yenPerCase,
       source: fromAiOf(ps) ? 'AI_PROPOSED' : 'USER_INPUT',
       confirmed: false,
@@ -435,6 +437,14 @@ export function financeWriteReason(args: { scopeMatches: boolean; planLoaded: bo
   if (!args.scopeMatches) return '表示中の会社・戦略が切り替わったため、ここからは保存できません。画面を読み込み直してください。';
   if (!args.planLoaded) return '計画書を読み込んでいます。';
   return undefined;
+}
+
+/* 保存済みの財務効果がある種類は、草案の代わりにその保存値を基点にする（入力欄・保存の両方で同じ基点を使う） */
+export function anchorDraftsToSaved(drafts: FinanceEffectDraft[], saved: FinanceEffect[]): FinanceEffectDraft[] {
+  return drafts.map((draft) => {
+    const savedOne = saved.find((e) => e.kind === draft.kind);
+    return savedOne ? { ...draft, base: { ...savedOne, confirmed: false } } : draft;
+  });
 }
 
 export type FinanceAnswersByKind = Partial<Record<FinanceDraftKind, FinanceAnswers>>;

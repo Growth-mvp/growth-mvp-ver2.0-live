@@ -1,4 +1,4 @@
-import { financeSaveSteps, financeWriteReason } from './financeBridge';
+import { anchorDraftsToSaved, financeSaveSteps, financeWriteReason } from './financeBridge';
 import { computeFinanceEffect, findFinanceEffectOverlapCandidates, normalizeFinanceEffect } from '@/lib/financeEffect';
 import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow, FinanceEffect } from '@/types/strategy';
 import { buildFinanceEffectTrial } from '@/utils/stage6/financeEffectPlan';
@@ -467,6 +467,45 @@ describe('確認済みの財務効果の修正（REVISE・UNCONFIRM）', () => {
     const draft = applyFinanceAnswers(revenueDraft({ startYear: 2027, endYear: 2027 }), { amountBasis: 'ANNUAL' });
     expect(planFinanceEffectWrite({ primary: draft, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW })).toEqual({ ok: true, outcome: 'unchanged', patch: {} });
     expect(planFinanceEffectWrite({ primary: undefined, additional: undefined, candidate: draft, action: 'UNCONFIRM', nowIso: NOW }).ok).toBe(false);
+  });
+
+  it('保存済みの財務効果は、再生成された草案で上書きされず、保存・再読込・再編集しても同じ値のまま（サービス提供型）', () => {
+    const draft: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（サービス提供型）',
+      fromAi: true,
+      base: { kind: 'REVENUE_UP', method: 'QUANTITY_UNIT_PRICE', quantity: 24, serviceCustomers: 2, servicePerCustomerCount: 12, unitPriceYen: 2500, costRatePct: 60, source: 'AI_PROPOSED', confirmed: false, sourceNote: '参考試算' },
+    };
+    const entered = applyFinanceAnswers(draft, {
+      amountBasis: 'MONTHLY',
+      startYm: '2027-04',
+      endYm: '2028-03',
+      revenueKind: 'SERVICE',
+      serviceCustomers: 10,
+      servicePerCustomerCount: 10,
+      unitPriceYen: 10_000,
+      costRatePct: 70,
+      sgaCostYen: 400_000,
+    });
+    const stored = normalizeFinanceEffect(JSON.parse(JSON.stringify({ ...entered, confirmed: true, confirmedAt: NOW })))!;
+    const regenerated = { ...draft, base: { ...draft.base, quantity: 24, serviceCustomers: 2, servicePerCustomerCount: 12, unitPriceYen: 2500, costRatePct: 60 } };
+    const anchored = anchorDraftsToSaved([regenerated], [stored])[0];
+    expect(financeSaveSteps({ drafts: [anchored], answers: { REVENUE_UP: initialFinanceAnswers(anchored, stored) }, saved: [stored], overlapCount: 0 })).toEqual([]);
+    const reopened = applyFinanceAnswers(anchored, initialFinanceAnswers(anchored, stored));
+    expect(reopened).toMatchObject({ quantity: 100, serviceCustomers: 10, servicePerCustomerCount: 10, unitPriceYen: 10_000, amountBasis: 'MONTHLY', costRatePct: 70, sgaCostYen: 400_000 });
+    expect(computeFinanceEffect(reopened).annualRevenueYen).toBe(12 * M);
+  });
+
+  it('追加販売管理費等は売上の単位（月額）に従い、年額換算して差し引く（月額40万円は年額480万円）', () => {
+    const d: FinanceEffectDraft = {
+      kind: 'REVENUE_UP',
+      label: '売上増加（サービス提供型）',
+      fromAi: false,
+      base: { kind: 'REVENUE_UP', method: 'QUANTITY_UNIT_PRICE', quantity: 100, unitPriceYen: 10_000, source: 'USER_INPUT', confirmed: false, sourceNote: '見積書' },
+    };
+    const e = applyFinanceAnswers(d, { amountBasis: 'MONTHLY', startYm: '2027-04', endYm: '2028-03', costRatePct: 70, sgaCostYen: 400_000 });
+    expect(computeFinanceEffect(e).annualRevenueYen).toBe(12 * M);
+    expect(computeFinanceEffect(e).annualOperatingEffectYen).toBeCloseTo(12 * M * 0.3 - 4.8 * M, 0);
   });
 
   it('空欄に戻した粗利率・追加販売管理費等は、参考試算の初期値に戻らず、保存・再読込後も空欄のまま', () => {

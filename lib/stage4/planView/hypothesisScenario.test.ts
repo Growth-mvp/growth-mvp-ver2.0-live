@@ -89,7 +89,7 @@ describe('宅配（サービス提供型：顧客数×件数×料金）の入力
   it('下書きは件数×単価（月額）として作り、売上の区分はサービス提供にする。通常の新規売上型は変えない', () => {
     const drafts = draftsOf('REVENUE', DELIVERY_EDITS);
     const revenue = draftOf(drafts, 'REVENUE_UP');
-    expect(revenue.base).toMatchObject({ method: 'QUANTITY_UNIT_PRICE', quantity: 24, unitPriceYen: 2500, costRatePct: 60 });
+    expect(revenue.base).toMatchObject({ method: 'QUANTITY_UNIT_PRICE', quantity: 24, unitPriceYen: 2500, costRatePct: 60, serviceCustomers: 2, servicePerCustomerCount: 12 });
     const saved = applyFinanceAnswers(revenue, { ...FY2028_ANSWERS, amountBasis: 'ANNUAL', revenueKind: 'MASS_PRODUCTION' });
     expect(saved).toMatchObject({ amountBasis: 'ANNUAL', revenueKind: 'SERVICE' });
     expect(applyFinanceAnswers(revenue, { startYm: '2028-04' })).toMatchObject({ amountBasis: 'MONTHLY' });

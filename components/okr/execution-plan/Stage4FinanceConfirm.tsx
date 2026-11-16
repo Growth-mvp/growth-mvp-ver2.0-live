@@ -359,6 +359,15 @@ function DraftCard({
               }}
             />
           </label>
+          {candidate.sgaCostYen !== undefined && (
+            <p className="plan-note">
+              {candidate.amountBasis === 'MONTHLY'
+                ? `追加販売管理費等は月額${amountText(candidate.sgaCostYen)}（年額${amountText(candidate.sgaCostYen * 12)}として営業利益を計算）`
+                : candidate.amountBasis === 'TOTAL'
+                  ? `追加販売管理費等は一回限り（${amountText(candidate.sgaCostYen)}）として営業利益を計算`
+                  : `追加販売管理費等は年額${amountText(candidate.sgaCostYen)}として営業利益を計算`}
+            </p>
+          )}
           {ctx.hasCostEffect && candidate.sgaCostYen !== undefined && (
             <label>
               追加販売管理費等は、同じ案件の追加費用（別の効果）と同じ費用ですか

@@ -43,6 +43,7 @@ import { useSetStartMode } from './startMode';
 import { currentPlanStoreKind, identityApiFor, planStoreFor, remotePlanOps } from './planStores';
 import { estimateProjectImpact, hypothesisOf, type ImpactEstimate } from '@/lib/stage4/planView/impactEstimate';
 import {
+  anchorDraftsToSaved,
   buildFinanceEffectDrafts,
   financeSaveSteps,
   financeWriteReason,
@@ -255,6 +256,8 @@ function Stage3ProjectBrowser({
   const financeSaved: FinanceEffect[] = financePos
     ? [financePos.project.financeEffect, ...(financePos.project.financeEffects ?? [])].filter((e): e is FinanceEffect => !!e)
     : [];
+  /* 保存済みの財務効果がある項目は、その値を基点にする（再生成された草案で上書きしない）。草案は未保存の項目だけに使う */
+  const anchoredFinanceDrafts = anchorDraftsToSaved(financeDrafts, financeSaved);
   const financeOverlap = financePos ? findFinanceEffectOverlapCandidates(storeDepartmentsNow, financePos.dIdx, financePos.pIdx).length : 0;
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
   const financeReason = financeWriteReason({ scopeMatches: financeScopeMatches, planLoaded: !!selectedEntry });
@@ -540,7 +543,7 @@ function Stage3ProjectBrowser({
 
   /* 計画の保存のあとに、入力された財務効果を書く。必須項目がそろったものだけ確認する。途中で止まったら理由を残す */
   const saveFinance = async (sel: Stage3Selection, projectId: string, targetId: string, answers: FinanceAnswersByKind) => {
-    const steps = financeSaveSteps({ drafts: financeDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
+    const steps = financeSaveSteps({ drafts: anchoredFinanceDrafts, answers, saved: financeSaved, overlapCount: financeOverlap });
     if (steps.length === 0) return;
     for (const step of steps) {
       const out = await writeFinanceEffectToProject({
@@ -652,7 +655,7 @@ function Stage3ProjectBrowser({
   }, [setStartMode, startSelected]);
   const financeSection: ReactNode = selected ? (
     <Stage4FinanceConfirm
-      drafts={financeDrafts}
+      drafts={anchoredFinanceDrafts}
       saved={financeSaved}
       overlapCount={financeOverlap}
       planPeriod={periodOfLabel(planView?.d.period.label)}
