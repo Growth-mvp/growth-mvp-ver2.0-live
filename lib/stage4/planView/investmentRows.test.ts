@@ -1,5 +1,5 @@
 import type { ExecutionHumanInvestment } from '@/types/strategy';
-import { checkInvestmentRow, investmentRowOf, newInvestmentRow, upsertInvestmentRecords, type InvestmentRowDraft } from './investmentRows';
+import { checkInvestmentRow, investmentRowOf, newInvestmentRow, removeInvestmentRecords, upsertInvestmentRecords, type InvestmentRowDraft } from './investmentRows';
 
 const base = (overrides: Partial<InvestmentRowDraft>): InvestmentRowDraft => ({ ...newInvestmentRow('rec-1'), ...overrides });
 
@@ -115,5 +115,26 @@ describe('upsertInvestmentRecords', () => {
 
   it('既存の明細がないときは追加だけする', () => {
     expect(upsertInvestmentRecords(undefined, [{ id: 'n', type: 'OTHER', name: 'n', amount: 1, spend: { category: 'CAPEX' } }])).toHaveLength(1);
+  });
+});
+
+describe('removeInvestmentRecords', () => {
+  const capex = (id: string): ExecutionHumanInvestment => ({ id, type: 'OTHER', name: `設備${id}`, amount: 1, spend: { category: 'CAPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: '2026-09' } });
+  const opex = (id: string): ExecutionHumanInvestment => ({ id, type: 'OTHER', name: `外注${id}`, amount: 2, spend: { category: 'OPEX', recurrence: 'ONE_TIME', amountBasis: 'TOTAL', paymentYm: '2026-10', opexRelation: 'NOT_IN_PLAN' } });
+
+  it('指定IDの投資明細だけを取り除き、他の明細と並び順は変えない', () => {
+    const list = [capex('a'), opex('b'), capex('c')];
+    expect(removeInvestmentRecords(list, ['b']).map((r) => r.id)).toEqual(['a', 'c']);
+    expect(list).toHaveLength(3);
+  });
+
+  it('投資明細として扱えないもの（名称・区分のない既存の明細）は、同じIDでも取り除かない', () => {
+    const legacy = { id: 'x', type: 'TRAINING', amount: 5, spend: undefined } as unknown as ExecutionHumanInvestment;
+    expect(removeInvestmentRecords([legacy], ['x'])).toEqual([legacy]);
+  });
+
+  it('該当IDがなければ、何も取り除かない（削除済みの再実行で他の明細を消さない）', () => {
+    expect(removeInvestmentRecords([capex('a')], ['zzz']).map((r) => r.id)).toEqual(['a']);
+    expect(removeInvestmentRecords(undefined, ['a'])).toEqual([]);
   });
 });

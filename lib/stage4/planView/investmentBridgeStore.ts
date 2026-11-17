@@ -2,7 +2,7 @@ import { applyProjectImpactPatch } from '@/lib/okr/projectImpactPatch';
 import { useStrategyStore } from '@/store/strategyStore';
 import type { ExecutionHumanInvestment } from '@/types/strategy';
 import { findProjectPositionById } from './financeBridgeStore';
-import { upsertInvestmentRecords } from './investmentRows';
+import { removeInvestmentRecords, upsertInvestmentRecords } from './investmentRows';
 import { isPlanApproved } from '@/utils/stage6/investmentDemand';
 
 export type InvestmentWriteResult = { ok: true } | { ok: false; message: string };
@@ -18,6 +18,8 @@ export async function writeInvestmentsToProject(args: {
   strategyId: string;
   projectId: string;
   records: ExecutionHumanInvestment[];
+  /** 削除する投資明細のID（対象の案件の投資明細だけを取り除く。他の明細・財務実績は変えない） */
+  removeIds?: readonly string[];
 }): Promise<InvestmentWriteResult> {
   const before = useStrategyStore.getState() as any;
   if (before.pendingCompanyId || before.companyId !== args.companyId || before.strategyId !== args.strategyId) {
@@ -30,7 +32,8 @@ export async function writeInvestmentsToProject(args: {
   }
 
   const prevDepartments = before.departments;
-  const executionHumanInvestments = upsertInvestmentRecords(found.project.executionHumanInvestments, args.records);
+  const upserted = upsertInvestmentRecords(found.project.executionHumanInvestments, args.records);
+  const executionHumanInvestments = removeInvestmentRecords(upserted, args.removeIds ?? []);
   useStrategyStore.setState((st: any) =>
     applyProjectImpactPatch(st, found.dIdx, found.pIdx, { executionHumanInvestments }),
   );

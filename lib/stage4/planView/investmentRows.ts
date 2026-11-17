@@ -135,3 +135,12 @@ export function upsertInvestmentRecords(
   }
   return next;
 }
+
+/** 指定IDの投資明細だけを取り除く。投資以外の明細と、他の投資明細は変えない */
+export function removeInvestmentRecords(
+  list: ExecutionHumanInvestment[] | undefined,
+  removeIds: readonly string[],
+): ExecutionHumanInvestment[] {
+  const ids = new Set(removeIds);
+  return (list ?? []).filter((r) => !(ids.has(String(r.id)) && isInvestmentRecord(r)));
+}

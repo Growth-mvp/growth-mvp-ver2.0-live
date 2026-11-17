@@ -158,4 +158,18 @@ describe('登録が途中・計画が保留・照合できない場合', () => {
   it('決算月が無い場合は、照合を行わない', () => {
     expect(planActualProjectsOf(dept([{ id: 'p8', financeActuals: [actual('EFFECT:COST_REDUCTION', '2026-06', 1)] }]), undefined)).toEqual([]);
   });
+
+  it('主財務効果が空で追加の財務効果だけある場合も、種類で対応づけて計画を取得する（回帰）', () => {
+    const extra = { ...confirmed, kind: 'COST_REDUCTION', method: 'DIRECT_AMOUNT', directAmountYen: 5_000_000, amountBasis: 'ANNUAL', startYm: '2027-04', endYm: '2028-03' } as FinanceEffect;
+    const departments = dept([
+      { id: 'p9', title: '追加のみ', financeEffect: undefined, financeEffects: [extra], financeActuals: [actual('EFFECT:COST_REDUCTION', '2026-12', 400_000)] },
+    ]);
+    const item = itemOf(planActualProjectsOf(departments, FY_END)[0].items, 'EFFECT:COST_REDUCTION');
+    expect(item.planState).toBe('PLANNED');
+    expect(item.plan.map((p) => [p.fiscalYear, p.amountYen])).toEqual([[2028, 5_000_000]]);
+    expect(planActualYearRowsOf(item, 'OPERATING', END_MONTH)).toEqual([
+      { fiscalYear: 2027, label: '2027年3月期', planYen: null, actualYen: null, outOfPeriodYen: 400_000, differenceYen: null, status: 'OUT_OF_PERIOD' },
+      { fiscalYear: 2028, label: '2028年3月期', planYen: 5_000_000, actualYen: null, outOfPeriodYen: null, differenceYen: null, status: 'NO_ACTUAL' },
+    ]);
+  });
 });

@@ -30,16 +30,52 @@ function savedTimingText(record: ExecutionHumanInvestment): string {
   return `${spend.startYm ?? '未設定'}〜${spend.endYm ?? '未設定'}・${basis}`;
 }
 
-function SavedRow({ record, onEdit, disabled }: { record: ExecutionHumanInvestment; onEdit: () => void; disabled: boolean }) {
+function SavedRow({
+  record,
+  pendingRemoval,
+  onEdit,
+  onRemove,
+  onCancelRemove,
+  disabled,
+  editDisabled,
+}: {
+  record: ExecutionHumanInvestment;
+  pendingRemoval: boolean;
+  onEdit: () => void;
+  onRemove?: () => void;
+  onCancelRemove: () => void;
+  disabled: boolean;
+  /** 同じ明細を入力中のときは編集を止める（削除は入力中の内容を捨てて行える） */
+  editDisabled: boolean;
+}) {
   const category = record.spend?.category === 'OPEX' ? 'OPEX' : 'CAPEX';
   const relation = category === 'OPEX' && record.spend?.opexRelation ? RELATION_LABEL[record.spend.opexRelation] : null;
   return (
     <li className="plan-note">
       <strong>{record.name}</strong>（{CATEGORY_LABEL[category]}）：{formatYenScaled(record.amount ?? 0)}・{savedTimingText(record)}
       {relation && <>・{relation}</>}{' '}
-      <button type="button" onClick={onEdit} disabled={disabled}>
-        編集
-      </button>
+      {pendingRemoval ? (
+        <>
+          <span role="status">削除予定（「計画を保存」で削除します。登録済みの月次実績は残り、STAGE6では計画なしとして確認できます）</span>{' '}
+          <button type="button" onClick={onCancelRemove} disabled={disabled}>
+            取り消し
+          </button>
+        </>
+      ) : (
+        <>
+          <button type="button" onClick={onEdit} disabled={disabled || editDisabled}>
+            編集
+          </button>
+          {onRemove && (
+            <>
+              {' '}
+              <button type="button" onClick={onRemove} disabled={disabled}>
+                削除
+              </button>
+            </>
+          )}
+        </>
+      )}
     </li>
   );
 }
@@ -172,6 +208,8 @@ export function Stage4InvestmentInput({
   writable,
   reasonNotWritable,
   addCostConfirmed = false,
+  pendingRemovals = [],
+  onChangeRemovals,
   onChange,
   newRecordId,
 }: {
@@ -181,11 +219,15 @@ export function Stage4InvestmentInput({
   reasonNotWritable?: string;
   /** 同じ案件に確認済みの追加費用（COST_INCREASE）があるか。OPEXとの同一費用の確認に使う */
   addCostConfirmed?: boolean;
+  /** 削除予定の投資明細のID。「計画を保存」で削除する */
+  pendingRemovals?: string[];
+  onChangeRemovals?: (ids: string[]) => void;
   onChange: (rows: InvestmentRowDraft[]) => void;
   newRecordId: () => string;
 }) {
   const disabled = !writable;
   const editingIds = new Set(rows.map((r) => r.recordId));
+  const pendingIds = new Set(pendingRemovals);
   return (
     <section aria-labelledby="stage4-investment-input" className="plan-impact-estimate">
       <h3 id="stage4-investment-input" className="plan-h3">
@@ -197,14 +239,29 @@ export function Stage4InvestmentInput({
       {!writable && reasonNotWritable && <p className="plan-note">{reasonNotWritable}</p>}
       {saved.length > 0 && (
         <ul aria-label="保存済みの投資・追加費用">
-          {saved.map((record) => (
-            <SavedRow
-              key={String(record.id)}
-              record={record}
-              disabled={disabled || editingIds.has(String(record.id))}
-              onEdit={() => onChange([...rows, investmentRowOf(record)])}
-            />
-          ))}
+          {saved.map((record) => {
+            const id = String(record.id);
+            const pending = pendingIds.has(id);
+            return (
+              <SavedRow
+                key={id}
+                record={record}
+                pendingRemoval={pending}
+                disabled={disabled}
+                editDisabled={editingIds.has(id) && !pending}
+                onEdit={() => onChange([...rows, investmentRowOf(record)])}
+                onRemove={
+                  onChangeRemovals
+                    ? () => {
+                        onChangeRemovals([...pendingRemovals, id]);
+                        onChange(rows.filter((r) => r.recordId !== id));
+                      }
+                    : undefined
+                }
+                onCancelRemove={() => onChangeRemovals?.(pendingRemovals.filter((x) => x !== id))}
+              />
+            );
+          })}
         </ul>
       )}
       {rows.map((row) => (

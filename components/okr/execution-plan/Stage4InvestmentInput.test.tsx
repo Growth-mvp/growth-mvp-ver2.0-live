@@ -3,7 +3,7 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ExecutionHumanInvestment } from '@/types/strategy';
-import type { InvestmentRowDraft } from '@/lib/stage4/planView/investmentRows';
+import { newInvestmentRow, type InvestmentRowDraft } from '@/lib/stage4/planView/investmentRows';
 import { Stage4InvestmentInput } from './Stage4InvestmentInput';
 
 const savedOpex: ExecutionHumanInvestment = {
@@ -98,6 +98,50 @@ describe('Stage4InvestmentInput', () => {
     renderInput({ rows: [row], addCostConfirmed: true });
     const select = screen.getByLabelText('投資・追加費用の営業利益との関係') as HTMLSelectElement;
     expect([...select.options].map((o) => o.value)).toEqual(['', 'IN_PLAN', 'NOT_IN_PLAN', 'SAME_AS_ADD_COST', 'DIFFERENT_FROM_ADD_COST']);
+  });
+
+  it('保存済みの明細の削除は、削除予定にし、入力中の同じ明細の内容は捨てる（保存は「計画を保存」まで行わない）', () => {
+    const onChange = jest.fn();
+    const onChangeRemovals = jest.fn();
+    const draft: InvestmentRowDraft = { ...newInvestmentRow('rec-opex'), name: '編集中の名前', category: 'OPEX' };
+    render(
+      <Stage4InvestmentInput
+        saved={[savedOpex]}
+        rows={[draft, newInvestmentRow('rec-other')]}
+        writable
+        onChange={onChange}
+        onChangeRemovals={onChangeRemovals}
+        newRecordId={() => 'rec-new'}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '削除' }));
+    expect(onChangeRemovals).toHaveBeenCalledWith(['rec-opex']);
+    expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ recordId: 'rec-other' })]);
+  });
+
+  it('削除予定の明細は「削除予定」と表示し、取り消すと予定から外す', () => {
+    const onChangeRemovals = jest.fn();
+    render(
+      <Stage4InvestmentInput
+        saved={[savedOpex]}
+        rows={[]}
+        writable
+        pendingRemovals={['rec-opex']}
+        onChange={jest.fn()}
+        onChangeRemovals={onChangeRemovals}
+        newRecordId={() => 'rec-new'}
+      />,
+    );
+    expect(screen.getByRole('status').textContent).toContain('削除予定');
+    expect(screen.getByText(/登録済みの月次実績は残り/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '削除' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '取り消し' }));
+    expect(onChangeRemovals).toHaveBeenCalledWith([]);
+  });
+
+  it('削除の処理が渡されていなければ、削除ボタンを出さない', () => {
+    render(<Stage4InvestmentInput saved={[savedOpex]} rows={[]} writable onChange={jest.fn()} newRecordId={() => 'rec-new'} />);
+    expect(screen.queryByRole('button', { name: '削除' })).toBeNull();
   });
 
   it('書き込めない状態では入力を止め、理由を表示する', () => {

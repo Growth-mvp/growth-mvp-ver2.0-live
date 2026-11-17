@@ -185,9 +185,9 @@ export function planActualProjectsOf(departments: Department[] | null | undefine
           items.push(ambiguousItem({ ...base, itemKey, kind, label }));
           continue;
         }
-        const { effect, index } = matches[0];
+        const { effect } = matches[0];
         const row = trial.projects.find(
-          (r) => r.deptIndex === deptIndex && r.projectIndex === projectIndex && r.effectIndex === index && r.source === undefined,
+          (r) => r.deptIndex === deptIndex && r.projectIndex === projectIndex && r.kind === kind && r.source === undefined,
         );
         const planState: PlanActualPlanState = row?.status === 'REFLECTED' ? 'PLANNED' : row?.status === 'DRAFT' ? 'DRAFT' : 'NOT_CALCULATED';
         const startYm = isYmText(effect.startYm) ? effect.startYm : null;

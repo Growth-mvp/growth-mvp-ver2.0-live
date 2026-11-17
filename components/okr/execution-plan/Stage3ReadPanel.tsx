@@ -593,24 +593,35 @@ function Stage3ProjectBrowser({
   };
 
   /* 投資・追加費用は、そろった行だけ書く。未入力の行は理由を残して入力欄に残す（0円や未入力を確定しない） */
-  const saveInvestments = async (sel: Stage3Selection, projectId: string, targetId: string, rows: InvestmentRowDraft[]) => {
+  const saveInvestments = async (
+    sel: Stage3Selection,
+    projectId: string,
+    targetId: string,
+    rows: InvestmentRowDraft[],
+    removeIds: string[],
+  ) => {
     const checks = rows.map((row) => checkInvestmentRow(row));
     const ready = checks.flatMap((c) => (c.ok ? [c.record] : []));
-    if (ready.length === 0) {
+    const incomplete = checks.length - ready.length;
+    if (ready.length === 0 && removeIds.length === 0) {
       if (rows.length > 0) updateEntry(targetId, (e) => ({ ...e, notice: '未入力の項目があるため、投資・追加費用は保存していません。' }));
       return;
     }
-    const out = await writeInvestmentsToProject({ companyId: sel.companyId, strategyId: sel.strategyId, projectId, records: ready });
+    const out = await writeInvestmentsToProject({ companyId: sel.companyId, strategyId: sel.strategyId, projectId, records: ready, removeIds });
     if (!out.ok) {
       updateEntry(targetId, (e) => ({ ...e, notice: `計画は保存しましたが、投資・追加費用は保存できませんでした：${out.message}` }));
       return;
     }
     const savedIds = new Set(ready.map((r) => String(r.id)));
-    const incomplete = checks.length - ready.length;
+    const notes = [
+      ...(removeIds.length > 0 ? [`投資・追加費用を${removeIds.length}件削除しました（登録済みの月次実績は残ります）。`] : []),
+      ...(incomplete > 0 ? [`投資・追加費用のうち${incomplete}件は未入力の項目があるため保存していません（欄の理由を確認してください）。`] : []),
+    ];
     updateEntry(targetId, (e) => ({
       ...e,
       investments: rows.filter((r) => !savedIds.has(r.recordId)),
-      ...(incomplete > 0 ? { notice: `投資・追加費用のうち${incomplete}件は未入力の項目があるため保存していません（欄の理由を確認してください）。` } : {}),
+      investmentRemovals: [],
+      ...(notes.length > 0 ? { notice: notes.join('') } : {}),
     }));
   };
 
@@ -662,7 +673,7 @@ function Stage3ProjectBrowser({
     setEntries((p) => (p[targetId] ? { ...p, [targetId]: entryAfterPersist(p[targetId], result) } : p));
     if (result.status === 'SAVED') {
       await saveFinance(sel, projectId as string, targetId, entry.finance ?? {});
-      await saveInvestments(sel, projectId as string, targetId, entry.investments ?? []);
+      await saveInvestments(sel, projectId as string, targetId, entry.investments ?? [], entry.investmentRemovals ?? []);
     }
   };
 
@@ -722,6 +733,8 @@ function Stage3ProjectBrowser({
         writable={!financeReason}
         reasonNotWritable={financeReason}
         addCostConfirmed={hasConfirmedAddCost(financeSaved)}
+        pendingRemovals={entry?.investmentRemovals ?? []}
+        onChangeRemovals={(ids) => id && updateEntry(id, (e) => ({ ...e, investmentRemovals: ids }))}
         newRecordId={newStableId}
         onChange={(rows) => id && updateEntry(id, (e) => ({ ...e, investments: rows }))}
       />

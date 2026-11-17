@@ -42,6 +42,8 @@ export type PlanDocEntry = {
   finance?: FinanceAnswersByKind;
   /** 利用者が入力中の投資・追加費用（「計画を保存」で、そろった行だけ保存する） */
   investments?: InvestmentRowDraft[];
+  /** 削除予定の投資明細のID（「計画を保存」で削除する。保存に失敗したら予定のまま残す） */
+  investmentRemovals?: string[];
   /** 保存済みの版（未保存なら null） */
   stored: StoredState | null;
   plan: ProjectPlanState;
