@@ -81,6 +81,25 @@ describe('Stage4InvestmentInput', () => {
     expect(screen.getByText('入力がそろいました。「計画を保存」で保存されます。')).toBeTruthy();
   });
 
+  it('確認済みの追加費用がある案件では、同じ費用・別の費用の選択肢を出す', () => {
+    const row: InvestmentRowDraft = {
+      key: 'k',
+      recordId: 'rec-new',
+      name: '外注費',
+      category: 'OPEX',
+      amount: '500000',
+      recurrence: 'ONE_TIME',
+      paymentYm: '2026-06',
+      startYm: '',
+      endYm: '',
+      amountBasis: '',
+      opexRelation: '',
+    };
+    renderInput({ rows: [row], addCostConfirmed: true });
+    const select = screen.getByLabelText('投資・追加費用の営業利益との関係') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual(['', 'IN_PLAN', 'NOT_IN_PLAN', 'SAME_AS_ADD_COST', 'DIFFERENT_FROM_ADD_COST']);
+  });
+
   it('書き込めない状態では入力を止め、理由を表示する', () => {
     renderInput({ writable: false, reasonNotWritable: '計画書を読み込んでいます。' });
     expect((screen.getByRole('button', { name: '+ 投資・追加費用を追加' }) as HTMLButtonElement).disabled).toBe(true);

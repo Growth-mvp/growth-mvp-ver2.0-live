@@ -2,8 +2,8 @@ import type { CompanyTarget, Department, FinanceBSRow, FinancePLRow } from '@/ty
 import { isOperatingIncomeLabel, isRevenueLabel, northStarValueToMJPY } from './compute';
 import { buildCashFlowPlan, DEFAULT_HORIZON, type CashFlowPlan, type CfAssumptions } from './cashflow';
 import { buildConditionalCashFlow, type ConditionalCf } from './conditionalCf';
-import { buildFinanceEffectTrial, withNotInPlanOpex, withoutTargetPath, type FinanceEffectTrial } from './financeEffectPlan';
-import { notInPlanOpexByFiscalYear, type InvestmentDemandSummary } from './investmentDemand';
+import { buildFinanceEffectTrial, withoutTargetPath, type FinanceEffectTrial } from './financeEffectPlan';
+import type { InvestmentDemandSummary } from './investmentDemand';
 import { computeStage6FinancePlan } from './financePlanPipeline';
 import type { FinancePlanDomain } from './financePlanSnapshot';
 import { buildUnifiedPl, type PlTarget, type UnifiedPl } from './unifiedPl';
@@ -132,10 +132,7 @@ export function buildFinanceOutlook(input: FinanceOutlookInput): FinanceOutlook 
       revenueYen: y.revenue.value,
       operatingIncomeYen: y.operatingIncome.value,
     })),
-    effects: withNotInPlanOpex(
-      effectTrial.years,
-      notInPlanOpexByFiscalYear(departments, fiscalYearEnd).filter((o) => baselineForecastYears.some((y) => y.year === o.fiscalYear)),
-    ),
+    effects: effectTrial.years,
     target,
   });
   const conditionalCf = buildConditionalCashFlow({ baseline: baselinePlan, unified: unifiedPl });

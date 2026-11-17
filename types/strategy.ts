@@ -668,8 +668,12 @@ export type SpendSchedule = {
   /** RECURRING の開始月・終了月（YYYY-MM、両端を含む） */
   startYm?: Ym;
   endYm?: Ym;
-  /** OPEX：営業利益計画に既に含まれるか。NOT_IN_PLAN のときだけ STAGE6 の営業利益から控除する（未設定は従来どおり控除しない） */
-  opexRelation?: 'IN_PLAN' | 'NOT_IN_PLAN';
+  /**
+   * OPEX：営業利益との関係。未設定は従来どおり差し引かない。
+   * NOT_IN_PLAN は、同じ案件に確認済みの追加費用（COST_INCREASE）があると、同じ費用か確認するまで保留する。
+   * SAME_AS_ADD_COST は確認済みの追加費用に含まれ、DIFFERENT_FROM_ADD_COST は追加費用とは別に差し引く。
+   */
+  opexRelation?: 'IN_PLAN' | 'NOT_IN_PLAN' | 'SAME_AS_ADD_COST' | 'DIFFERENT_FROM_ADD_COST';
   duplicateReview?: {
     decision: SpendDuplicateDecision;
     /** SAME_DUPLICATE の場合、集計対象とする明細の itemId */

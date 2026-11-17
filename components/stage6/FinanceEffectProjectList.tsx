@@ -9,6 +9,7 @@ const MILLION = 1_000_000;
 const STATUS_LABEL: Record<FinanceEffectProjectStatus, { label: string; tone: string }> = {
   REFLECTED: { label: '保存済み・STAGE6に反映', tone: 'bg-emerald-100 text-emerald-800' },
   DRAFT: { label: '未反映（入力不足・重複の確認待ち）', tone: 'bg-amber-100 text-amber-800' },
+  HELD: { label: '確認待ち（同じ費用か未確認のため未反映）', tone: 'bg-amber-100 text-amber-800' },
   INCOMPLETE: { label: '入力不足のため未算定', tone: 'bg-amber-100 text-amber-800' },
   NOT_FINANCIAL: { label: '財務換算しない施策', tone: 'bg-slate-100 text-slate-600' },
   NOT_SET: { label: '財務効果の登録なし', tone: 'bg-slate-100 text-slate-600' },
@@ -60,6 +61,7 @@ function ProjectRow({ row }: { row: FinanceEffectProjectRow }) {
       <div className="min-w-0">
         <div className="truncate font-medium text-slate-900">{row.projectTitle}</div>
         <div className="truncate text-xs text-slate-500">{row.deptName}</div>
+        {row.source === 'OPEX' && <div className="text-[11px] text-slate-500">営業費用（OPEX・営業利益に含まれない費用）</div>}
       </div>
       <div className="text-xs text-slate-700">{row.status === 'REFLECTED' || row.startFiscalYear !== null ? periodText(row) : '—'}</div>
       <div>{row.status === 'REFLECTED' ? <AmountCell years={row.years} pick="revenue" /> : <span className="block text-right text-xs text-slate-400">—</span>}</div>
@@ -78,7 +80,8 @@ function ProjectRow({ row }: { row: FinanceEffectProjectRow }) {
 export function FinanceEffectProjectList({ projects, years }: { projects: FinanceEffectProjectRow[]; years: FinanceEffectTrialYear[] }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? projects : projects.slice(0, INITIAL_ROWS);
-  const reflected = projects.filter((p) => p.status === 'REFLECTED').length;
+  const effectRows = projects.filter((p) => p.source !== 'OPEX');
+  const reflected = effectRows.filter((p) => p.status === 'REFLECTED').length;
 
   return (
     <section aria-label="プロジェクト別の財務効果" className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
@@ -124,7 +127,7 @@ export function FinanceEffectProjectList({ projects, years }: { projects: Financ
             <div className="text-right">営業利益への効果</div>
             <div>反映状態</div>
           </div>
-          <p className="text-[11px] text-slate-500">反映済み {reflected}件 ／ 全{projects.length}件</p>
+          <p className="text-[11px] text-slate-500">反映済み {reflected}件 ／ 全{effectRows.length}件（財務効果）</p>
           <ul className="divide-y divide-slate-100">
             {visible.map((row) => (
               <ProjectRow key={`${row.deptIndex}:${row.projectIndex}:${row.effectIndex}`} row={row} />

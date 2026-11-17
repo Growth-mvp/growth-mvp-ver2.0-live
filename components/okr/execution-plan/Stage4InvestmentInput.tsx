@@ -1,4 +1,4 @@
-import { checkInvestmentRow, investmentRowOf, newInvestmentRow, type InvestmentRowDraft } from '@/lib/stage4/planView/investmentRows';
+import { checkInvestmentRow, investmentRowOf, newInvestmentRow, type InvestmentRowDraft, type OpexRelation } from '@/lib/stage4/planView/investmentRows';
 import type { ExecutionHumanInvestment, SpendAmountBasis } from '@/types/strategy';
 import { formatYenScaled } from '@/utils/yenScale';
 
@@ -15,9 +15,11 @@ const CATEGORY_LABEL: Record<'CAPEX' | 'OPEX', string> = {
   OPEX: '人件費・外注費等（OPEX）',
 };
 
-const RELATION_LABEL: Record<'IN_PLAN' | 'NOT_IN_PLAN', string> = {
-  IN_PLAN: '営業利益に含まれている（既存の計画や同じ案件の追加費用に計上済み）',
+const RELATION_LABEL: Record<OpexRelation, string> = {
+  IN_PLAN: '営業利益に含まれている（既存の計画に計上済み）',
   NOT_IN_PLAN: '営業利益に含まれていない（STAGE6で営業利益から差し引く）',
+  SAME_AS_ADD_COST: '同じ案件の確認済みの追加費用と同じ費用（二重に差し引かない）',
+  DIFFERENT_FROM_ADD_COST: '同じ案件の確認済みの追加費用とは別の費用（営業利益から差し引く）',
 };
 
 function savedTimingText(record: ExecutionHumanInvestment): string {
@@ -45,11 +47,13 @@ function SavedRow({ record, onEdit, disabled }: { record: ExecutionHumanInvestme
 function DraftRow({
   row,
   disabled,
+  addCostConfirmed,
   onChange,
   onRemove,
 }: {
   row: InvestmentRowDraft;
   disabled: boolean;
+  addCostConfirmed: boolean;
   onChange: (next: InvestmentRowDraft) => void;
   onRemove: () => void;
 }) {
@@ -145,8 +149,13 @@ function DraftRow({
             <option value="">選んでください</option>
             <option value="IN_PLAN">{RELATION_LABEL.IN_PLAN}</option>
             <option value="NOT_IN_PLAN">{RELATION_LABEL.NOT_IN_PLAN}</option>
+            {addCostConfirmed && <option value="SAME_AS_ADD_COST">{RELATION_LABEL.SAME_AS_ADD_COST}</option>}
+            {addCostConfirmed && <option value="DIFFERENT_FROM_ADD_COST">{RELATION_LABEL.DIFFERENT_FROM_ADD_COST}</option>}
           </select>
         </label>
+      )}
+      {row.category === 'OPEX' && addCostConfirmed && (
+        <p className="plan-note">この案件には確認済みの追加費用があります。同じ費用かどうかを選ぶまで、二重には差し引きません。</p>
       )}
       {!check.ok && <p className="plan-note">未入力のため保存されません：{check.reasons.join('、')}</p>}
       {check.ok && <p className="plan-note">入力がそろいました。「計画を保存」で保存されます。</p>}
@@ -162,6 +171,7 @@ export function Stage4InvestmentInput({
   rows,
   writable,
   reasonNotWritable,
+  addCostConfirmed = false,
   onChange,
   newRecordId,
 }: {
@@ -169,6 +179,8 @@ export function Stage4InvestmentInput({
   rows: InvestmentRowDraft[];
   writable: boolean;
   reasonNotWritable?: string;
+  /** 同じ案件に確認済みの追加費用（COST_INCREASE）があるか。OPEXとの同一費用の確認に使う */
+  addCostConfirmed?: boolean;
   onChange: (rows: InvestmentRowDraft[]) => void;
   newRecordId: () => string;
 }) {
@@ -200,6 +212,7 @@ export function Stage4InvestmentInput({
           key={row.key}
           row={row}
           disabled={disabled}
+          addCostConfirmed={addCostConfirmed}
           onChange={(next) => onChange(rows.map((r) => (r.key === row.key ? next : r)))}
           onRemove={() => onChange(rows.filter((r) => r.key !== row.key))}
         />

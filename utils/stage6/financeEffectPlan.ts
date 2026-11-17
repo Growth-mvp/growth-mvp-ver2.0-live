@@ -1,26 +1,12 @@
 import type { Department, FinanceEffect, FinanceEffectKind } from '@/types/strategy';
 import { computeFinanceEffect, revenueSgaRuleOf, type FinanceEffectResult } from '@/lib/financeEffect';
 import { fiscalYearOf, parseFiscalYearEndMonth } from './investmentDemand';
+import { opexDeductionOfProjects } from './opexDeduction';
 import type { CfAssumptions } from './cashflow';
 
 /** 経営目標への補間（目標経路）を外した前提。目標を入れていても現状延長（基準年度の横置き）になる */
 export function withoutTargetPath(assumptions: CfAssumptions): CfAssumptions {
   return { ...assumptions, targetRevenueYen: null, targetOperatingIncomeYen: null, targetYear: null };
-}
-
-/** 営業利益計画に含まれないOPEXを、年度別の追加費用として足す（財務効果の追加費用とは別の明細。同じ費用は IN_PLAN で入力する） */
-export function withNotInPlanOpex(
-  years: FinanceEffectTrialYear[],
-  opex: { fiscalYear: number; amountYen: number }[],
-): FinanceEffectTrialYear[] {
-  if (opex.length === 0) return years;
-  const byFiscalYear = new Map(opex.map((o) => [o.fiscalYear, o.amountYen]));
-  return years.map((y) => {
-    const add = byFiscalYear.get(y.fiscalYear) ?? 0;
-    if (add === 0) return y;
-    const costIncreaseYen = y.costIncreaseYen + add;
-    return { ...y, costIncreaseYen, operatingEffectYen: y.costReductionYen - costIncreaseYen };
-  });
 }
 
 export type FinanceEffectTrialTarget = { deptName: string; projectTitle: string };
@@ -44,7 +30,7 @@ export type FinanceEffectTrialYear = {
 };
 
 /** 試算への反映状態。REFLECTED 以外は年度別金額を持たない（0と区別する） */
-export type FinanceEffectProjectStatus = 'REFLECTED' | 'DRAFT' | 'INCOMPLETE' | 'NOT_FINANCIAL' | 'NOT_SET';
+export type FinanceEffectProjectStatus = 'REFLECTED' | 'DRAFT' | 'HELD' | 'INCOMPLETE' | 'NOT_FINANCIAL' | 'NOT_SET';
 
 /** 施策ごとの年度別金額。null は未算定（0ではない） */
 export type FinanceEffectProjectYear = {
@@ -81,6 +67,8 @@ export type FinanceEffectProjectRow = {
   scenarioYears?: FinanceEffectProjectYear[] | null;
   /** DRAFT の参考金額に含めない理由（正式に反映済みの同じ種類の効果と重なる等） */
   scenarioNote?: string | null;
+  /** OPEX（営業利益計画に含まれない費用）による行。財務効果の種類ではなく、施策の営業費用の差し引き */
+  source?: 'OPEX';
 };
 
 export type FinanceEffectTrial = {
@@ -151,7 +139,7 @@ function flowOf(effect: FinanceEffect, result: FinanceEffectResult, projectHasCo
   return { kind, startIdx, endIdx: flowEnd, perMonthYen, opPerMonthYen, grossPerMonthYen };
 }
 
-const REASON: Record<Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET'>, string> = {
+const REASON: Record<Exclude<FinanceEffectProjectStatus, 'REFLECTED' | 'NOT_SET' | 'HELD'>, string> = {
   DRAFT: '保存済みですが、計算条件（入力不足・重複の確認）がそろうまで未反映',
   INCOMPLETE: '入力不足のため未算定',
   NOT_FINANCIAL: '非財務の効果のため、財務試算には含めない',
@@ -298,6 +286,39 @@ export function buildFinanceEffectTrial(args: {
     row.operatingUnknown = row.years.some((y) => y.operatingIncomeYen === null);
   }
 
+  for (const d of opexDeductionOfProjects(args.departments, args.fiscalYearEnd)) {
+    const deducted = new Map(d.byFiscalYear.map((y) => [y.fiscalYear, y.amountYen]));
+    const applies = d.byFiscalYear.length > 0;
+    const years: FinanceEffectProjectYear[] = args.fiscalYears.map((fiscalYear) => {
+      const amount = deducted.get(fiscalYear) ?? 0;
+      return {
+        fiscalYear,
+        revenueYen: 0,
+        costReductionYen: 0,
+        costIncreaseYen: amount,
+        revenueOperatingIncomeYen: 0,
+        grossProfitYen: 0,
+        operatingIncomeYen: -amount,
+      };
+    });
+    const held = d.held.length > 0 ? `確認待ち：${d.held.map((h) => `${h.label}（${h.reason}）`).join('、')}` : null;
+    rows.push({
+      deptIndex: d.deptIndex,
+      projectIndex: d.projectIndex,
+      effectIndex: -1,
+      deptName: d.deptName,
+      projectTitle: d.projectTitle,
+      status: applies ? 'REFLECTED' : 'HELD',
+      kind: null,
+      startFiscalYear: applies ? Math.min(...d.byFiscalYear.map((y) => y.fiscalYear)) : null,
+      endFiscalYear: applies ? Math.max(...d.byFiscalYear.map((y) => y.fiscalYear)) : null,
+      reason: held,
+      operatingUnknown: false,
+      years: applies ? years : [],
+      source: 'OPEX',
+    });
+  }
+
   trial.years = args.fiscalYears.map((fiscalYear) =>
     sumYear(
       fiscalYear,
@@ -342,7 +363,8 @@ export function buildFinanceEffectTrial(args: {
 const STATUS_ORDER: Record<FinanceEffectProjectStatus, number> = {
   REFLECTED: 0,
   DRAFT: 1,
-  INCOMPLETE: 2,
-  NOT_FINANCIAL: 3,
-  NOT_SET: 4,
+  HELD: 2,
+  INCOMPLETE: 3,
+  NOT_FINANCIAL: 4,
+  NOT_SET: 5,
 };

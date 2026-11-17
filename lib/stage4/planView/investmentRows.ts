@@ -1,4 +1,6 @@
-import type { ExecutionHumanInvestment, SpendAmountBasis } from '@/types/strategy';
+import type { ExecutionHumanInvestment, SpendAmountBasis, SpendSchedule } from '@/types/strategy';
+
+export type OpexRelation = NonNullable<SpendSchedule['opexRelation']>;
 
 export type InvestmentRowDraft = {
   key: string;
@@ -13,7 +15,7 @@ export type InvestmentRowDraft = {
   startYm: string;
   endYm: string;
   amountBasis: SpendAmountBasis | '';
-  opexRelation: 'IN_PLAN' | 'NOT_IN_PLAN' | '';
+  opexRelation: OpexRelation | '';
 };
 
 export type InvestmentRowCheck = { ok: true; record: ExecutionHumanInvestment } | { ok: false; reasons: string[] };
@@ -106,7 +108,7 @@ export function checkInvestmentRow(row: InvestmentRowDraft): InvestmentRowCheck 
     type: 'OTHER',
     name,
     amount,
-    spend: isOpex ? { ...spend, opexRelation: row.opexRelation as 'IN_PLAN' | 'NOT_IN_PLAN' } : spend,
+    spend: isOpex ? { ...spend, opexRelation: row.opexRelation as OpexRelation } : spend,
   };
   return { ok: true, record };
 }
