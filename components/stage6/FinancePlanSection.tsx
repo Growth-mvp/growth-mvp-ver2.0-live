@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } from '@/store/strategyStore';
-import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
+import { buildInvestmentDemandSummary, notInPlanOpexByFiscalYear, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
 import { buildFinanceOutlook, forecastHorizonOf } from '@/utils/stage6/financeOutlook';
@@ -142,6 +142,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
     () => buildInvestmentDemandSummary(departments, fiscalYearEnd),
     [departments, fiscalYearEnd],
   );
+  const opexNotInPlan = useMemo(() => notInPlanOpexByFiscalYear(departments, fiscalYearEnd), [departments, fiscalYearEnd]);
   const fiscalYearEndSet = parseFiscalYearEndMonth(fiscalYearEnd) !== null;
   const assumptions = useMemo(
     () => ({ ...toCashFlowAssumptions(cfForm), baseScenario: toBaseScenario(scenarioForm) }),
@@ -267,6 +268,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           candidateYen: investment.candidateYen,
           basisPendingYen: investment.basisPendingYen,
           yearlyByCategory: investment.yearlyByCategory,
+          opexNotInPlanYearly: opexNotInPlan.length > 0 ? opexNotInPlan : undefined,
         },
         fiscalYearEnd: fiscalYearEnd || undefined,
       }),
@@ -279,7 +281,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
       },
       computedAt,
     }),
-    [companyId, basePlan.baseYear, basePlan.bsBaseYear, currentDomain, financePL, financeBS, investment, fiscalYearEnd, computedAt],
+    [companyId, basePlan.baseYear, basePlan.bsBaseYear, currentDomain, financePL, financeBS, investment, opexNotInPlan, fiscalYearEnd, computedAt],
   );
 
   useEffect(() => {

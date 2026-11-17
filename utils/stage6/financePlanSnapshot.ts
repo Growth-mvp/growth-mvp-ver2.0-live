@@ -273,6 +273,8 @@ export type SourceSummary = {
     candidateYen: number;
     basisPendingYen: number;
     yearlyByCategory: { fiscalYear: number; CAPEX: number; OPEX: number; OTHER: number }[];
+    /** 営業利益計画に含まれないOPEXの年度別金額。無い場合は undefined（既存の識別子を変えないため） */
+    opexNotInPlanYearly?: { fiscalYear: number; amountYen: number }[];
   };
   /** 未設定は undefined にして識別子から除外する（既存の保存済み前提の識別子を変えないため） */
   fiscalYearEnd?: string;

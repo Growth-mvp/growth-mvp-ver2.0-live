@@ -57,9 +57,12 @@ import {
   type FinanceOverlapOf,
 } from '@/lib/stage4/planView/financeBridge';
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
+import { writeInvestmentsToProject } from '@/lib/stage4/planView/investmentBridgeStore';
+import { checkInvestmentRow, isInvestmentRecord, type InvestmentRowDraft } from '@/lib/stage4/planView/investmentRows';
 import { findFinanceEffectOverlaps } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
 import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
+import { Stage4InvestmentInput } from './Stage4InvestmentInput';
 import { RegenPanel, type RegenState } from './RegenPanel';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
 import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
@@ -275,6 +278,7 @@ function Stage3ProjectBrowser({
     financePos && financeScopeMatches ? findFinanceEffectOverlaps(storeDepartmentsNow, financePos.dIdx, financePos.pIdx, candidate) : [];
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
   const financeReason = financeWriteReason({ scopeMatches: financeScopeMatches, planLoaded: !!selectedEntry });
+  const savedInvestments = (financePos?.project.executionHumanInvestments ?? []).filter(isInvestmentRecord);
 
   const titleOf = (projectKey: string): string | null => {
     for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
@@ -587,6 +591,28 @@ function Stage3ProjectBrowser({
     });
   };
 
+  /* 投資・追加費用は、そろった行だけ書く。未入力の行は理由を残して入力欄に残す（0円や未入力を確定しない） */
+  const saveInvestments = async (sel: Stage3Selection, projectId: string, targetId: string, rows: InvestmentRowDraft[]) => {
+    const checks = rows.map((row) => checkInvestmentRow(row));
+    const ready = checks.flatMap((c) => (c.ok ? [c.record] : []));
+    if (ready.length === 0) {
+      if (rows.length > 0) updateEntry(targetId, (e) => ({ ...e, notice: '未入力の項目があるため、投資・追加費用は保存していません。' }));
+      return;
+    }
+    const out = await writeInvestmentsToProject({ companyId: sel.companyId, strategyId: sel.strategyId, projectId, records: ready });
+    if (!out.ok) {
+      updateEntry(targetId, (e) => ({ ...e, notice: `計画は保存しましたが、投資・追加費用は保存できませんでした：${out.message}` }));
+      return;
+    }
+    const savedIds = new Set(ready.map((r) => String(r.id)));
+    const incomplete = checks.length - ready.length;
+    updateEntry(targetId, (e) => ({
+      ...e,
+      investments: rows.filter((r) => !savedIds.has(r.recordId)),
+      ...(incomplete > 0 ? { notice: `投資・追加費用のうち${incomplete}件は未入力の項目があるため保存していません（欄の理由を確認してください）。` } : {}),
+    }));
+  };
+
   /* 保存：IDのないプロジェクトは、ここで一度だけ既存の戦略保存（競合制御つき）で ID を付ける */
   const save = async (sel: Stage3Selection) => {
     const id = selectionKey(sel);
@@ -633,7 +659,10 @@ function Stage3ProjectBrowser({
       stored: entry.stored,
     });
     setEntries((p) => (p[targetId] ? { ...p, [targetId]: entryAfterPersist(p[targetId], result) } : p));
-    if (result.status === 'SAVED') await saveFinance(sel, projectId as string, targetId, entry.finance ?? {});
+    if (result.status === 'SAVED') {
+      await saveFinance(sel, projectId as string, targetId, entry.finance ?? {});
+      await saveInvestments(sel, projectId as string, targetId, entry.investments ?? []);
+    }
   };
 
   /* 競合の解決：項目ごとに選んだ内容で、最新の版に保存し直す */
@@ -675,16 +704,26 @@ function Stage3ProjectBrowser({
     setStartMode?.(startSelected);
   }, [setStartMode, startSelected]);
   const financeSection: ReactNode = selected ? (
-    <Stage4FinanceConfirm
-      drafts={anchoredFinanceDrafts}
-      saved={financeSaved}
-      overlapOf={financeOverlapOf}
-      planPeriod={periodOfLabel(planView?.d.period.label)}
-      writable={!financeReason}
-      reasonNotWritable={financeReason}
-      answers={entry?.finance ?? {}}
-      onAnswer={(kind, a) => id && updateEntry(id, (e) => ({ ...e, finance: { ...(e.finance ?? {}), [kind]: a } }))}
-    />
+    <>
+      <Stage4FinanceConfirm
+        drafts={anchoredFinanceDrafts}
+        saved={financeSaved}
+        overlapOf={financeOverlapOf}
+        planPeriod={periodOfLabel(planView?.d.period.label)}
+        writable={!financeReason}
+        reasonNotWritable={financeReason}
+        answers={entry?.finance ?? {}}
+        onAnswer={(kind, a) => id && updateEntry(id, (e) => ({ ...e, finance: { ...(e.finance ?? {}), [kind]: a } }))}
+      />
+      <Stage4InvestmentInput
+        saved={savedInvestments}
+        rows={entry?.investments ?? []}
+        writable={!financeReason}
+        reasonNotWritable={financeReason}
+        newRecordId={newStableId}
+        onChange={(rows) => id && updateEntry(id, (e) => ({ ...e, investments: rows }))}
+      />
+    </>
   ) : undefined;
 
   return (

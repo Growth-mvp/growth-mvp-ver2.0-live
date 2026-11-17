@@ -524,7 +524,7 @@ function buildProjectItems(
       source: 'HUMAN_INVESTMENT',
       recordIndex: i,
       recordId,
-      label: `${typeLabel}${inv?.team ? `（${inv.team}）` : ''}`,
+      label: inv?.name?.trim() || `${typeLabel}${inv?.team ? `（${inv.team}）` : ''}`,
       sourceField: 'executionHumanInvestments.amount',
       amount: resolveAmount(inv?.amount, YEN),
       spend: inv?.spend,
@@ -869,6 +869,26 @@ export function applyDuplicateDecision(
       }),
     ),
   );
+}
+
+/** 営業利益計画に含まれないOPEXの年度別金額。STAGE6の営業利益から控除する（確定・集計対象の明細だけ） */
+export function notInPlanOpexByFiscalYear(
+  departments: Department[] | null | undefined,
+  fiscalYearEnd?: string,
+): { fiscalYear: number; amountYen: number }[] {
+  const endMonth = parseFiscalYearEndMonth(fiscalYearEnd);
+  if (endMonth === null) return [];
+  const byFiscalYear = new Map<number, number>();
+  for (const item of buildInvestmentItems(departments)) {
+    if (!item.ready || item.category !== 'OPEX' || item.spend?.opexRelation !== 'NOT_IN_PLAN') continue;
+    for (const alloc of item.allocation) {
+      const fy = fiscalYearOf(alloc.ym, endMonth);
+      byFiscalYear.set(fy, (byFiscalYear.get(fy) ?? 0) + alloc.amountYen);
+    }
+  }
+  return [...byFiscalYear.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([fiscalYear, amountYen]) => ({ fiscalYear, amountYen }));
 }
 
 export function buildItemsForProject(

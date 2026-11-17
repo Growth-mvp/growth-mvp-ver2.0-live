@@ -1,13 +1,22 @@
 import { applyProjectImpactPatch } from '@/lib/okr/projectImpactPatch';
 import { useStrategyStore } from '@/store/strategyStore';
-import type { FinanceEffect } from '@/types/strategy';
+import type { ExecutionHumanInvestment, FinanceEffect } from '@/types/strategy';
 import { planFinanceEffectWrite, type FinanceWriteAction } from './financeBridge';
 
 export type FinanceWriteResult =
   | { ok: true; outcome: string; revision?: number }
   | { ok: false; message: string };
 
-type Found = { dIdx: number; pIdx: number; project: { financeEffect?: FinanceEffect; financeEffects?: FinanceEffect[] } };
+type Found = {
+  dIdx: number;
+  pIdx: number;
+  project: {
+    financeEffect?: FinanceEffect;
+    financeEffects?: FinanceEffect[];
+    executionHumanInvestments?: ExecutionHumanInvestment[];
+    planStatus?: string;
+  };
+};
 
 /** 安定IDで施策の位置を探す。同じIDが複数ある場合は特定できないため null */
 export function findProjectPositionById(departments: unknown, projectId: string): Found | null {

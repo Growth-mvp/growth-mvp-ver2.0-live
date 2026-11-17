@@ -1,6 +1,7 @@
 /* 画面に出す1件の草案の状態。保存・読み込み・採用・開始・競合の結果を、ここで画面の状態へ変換する（純粋関数）。 */
 import type { UserEdits } from '@/lib/stage4/plan/mergeUserEdits';
 import type { FinanceAnswersByKind } from '@/lib/stage4/planView/financeBridge';
+import type { InvestmentRowDraft } from '@/lib/stage4/planView/investmentRows';
 import type { PersistResult, StoredState } from '@/lib/stage4/plan/persistDraft';
 import type { AdoptionInfo, PlanDocEvent, PlanDocRecord, StartInfo } from '@/lib/stage4/plan/planDocumentStore';
 import { EMPTY_REGULATORY, regulatoryComplete, type RegulatoryRecord } from '@/lib/stage4/planView/model';
@@ -39,6 +40,8 @@ export type PlanDocEntry = {
   aiDraft: Record<string, unknown>;
   /** 利用者が入力した財務効果（「計画を保存」で一緒に書く。未入力の効果は無い） */
   finance?: FinanceAnswersByKind;
+  /** 利用者が入力中の投資・追加費用（「計画を保存」で、そろった行だけ保存する） */
+  investments?: InvestmentRowDraft[];
   /** 保存済みの版（未保存なら null） */
   stored: StoredState | null;
   plan: ProjectPlanState;

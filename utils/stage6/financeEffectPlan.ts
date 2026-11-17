@@ -8,6 +8,21 @@ export function withoutTargetPath(assumptions: CfAssumptions): CfAssumptions {
   return { ...assumptions, targetRevenueYen: null, targetOperatingIncomeYen: null, targetYear: null };
 }
 
+/** 営業利益計画に含まれないOPEXを、年度別の追加費用として足す（財務効果の追加費用とは別の明細。同じ費用は IN_PLAN で入力する） */
+export function withNotInPlanOpex(
+  years: FinanceEffectTrialYear[],
+  opex: { fiscalYear: number; amountYen: number }[],
+): FinanceEffectTrialYear[] {
+  if (opex.length === 0) return years;
+  const byFiscalYear = new Map(opex.map((o) => [o.fiscalYear, o.amountYen]));
+  return years.map((y) => {
+    const add = byFiscalYear.get(y.fiscalYear) ?? 0;
+    if (add === 0) return y;
+    const costIncreaseYen = y.costIncreaseYen + add;
+    return { ...y, costIncreaseYen, operatingEffectYen: y.costReductionYen - costIncreaseYen };
+  });
+}
+
 export type FinanceEffectTrialTarget = { deptName: string; projectTitle: string };
 
 export type FinanceEffectTrialExclusion = FinanceEffectTrialTarget & { reason: string };

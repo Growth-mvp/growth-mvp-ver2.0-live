@@ -668,6 +668,8 @@ export type SpendSchedule = {
   /** RECURRING の開始月・終了月（YYYY-MM、両端を含む） */
   startYm?: Ym;
   endYm?: Ym;
+  /** OPEX：営業利益計画に既に含まれるか。NOT_IN_PLAN のときだけ STAGE6 の営業利益から控除する（未設定は従来どおり控除しない） */
+  opexRelation?: 'IN_PLAN' | 'NOT_IN_PLAN';
   duplicateReview?: {
     decision: SpendDuplicateDecision;
     /** SAME_DUPLICATE の場合、集計対象とする明細の itemId */
@@ -721,6 +723,8 @@ export type ExecutionHumanInvestment = {
   amount?: number;
   /** 実行時期（YYYY-MM）。支出月として使うかは spend.paymentYm で利用者が指定する */
   timingYm?: Ym;
+  /** 項目名・内容（STAGE4の投資・追加費用の入力で保存する） */
+  name?: string;
   /** 支出条件（Phase 1.5） */
   spend?: SpendSchedule;
   /** 人数 */
