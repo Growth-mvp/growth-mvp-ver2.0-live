@@ -1,6 +1,7 @@
 import type { Department, FinanceEffect } from '@/types/strategy';
+import type { OpexRelation } from '@/lib/stage4/planView/investmentRows';
 import { computeFinanceEffect } from '@/lib/financeEffect';
-import { buildInvestmentItems, fiscalYearOf, parseFiscalYearEndMonth } from './investmentDemand';
+import { buildInvestmentItems, fiscalYearOf, parseFiscalYearEndMonth, type InvestmentSource } from './investmentDemand';
 
 export type OpexHold = { label: string; reason: string };
 
@@ -13,6 +14,25 @@ export type OpexProjectDeduction = {
   byFiscalYear: { fiscalYear: number; amountYen: number }[];
   /** 同じ費用か確認できず、差し引きを保留した明細 */
   held: OpexHold[];
+};
+
+export type OpexDecisionStatus = 'DEDUCTED' | 'HELD' | 'NOT_DEDUCTED' | 'NOT_READY';
+
+/** OPEX明細ごとの営業利益への判定。計画（支出額）と、差し引くかどうかを同じ規則で表す */
+export type OpexDecision = {
+  deptIndex: number;
+  projectIndex: number;
+  deptName: string;
+  projectTitle: string;
+  source: InvestmentSource;
+  recordId: string | null;
+  label: string;
+  relation: OpexRelation | undefined;
+  status: OpexDecisionStatus;
+  reason: string | null;
+  /** 集計対象の支出（年月と円）。計画が未確定の明細は空 */
+  allocation: { ym: string; amountYen: number }[];
+  byFiscalYear: { fiscalYear: number; amountYen: number }[];
 };
 
 const HOLD_SAME_WITHOUT_ADD_COST = '同じ案件の確認済み追加費用がないため、同じ費用か確認できません';
@@ -29,14 +49,14 @@ export function hasConfirmedAddCost(effects: readonly FinanceEffect[]): boolean 
 }
 
 /**
- * 営業利益計画に含まれないOPEXを、施策ごとに差し引く。
+ * OPEX明細ごとの判定。
  * - IN_PLAN：営業利益に含まれているため差し引かない
  * - NOT_IN_PLAN：確認済みの追加費用が無い案件だけ差し引く。ある案件は同じ費用かを確認するまで保留
  * - SAME_AS_ADD_COST：確認済みの追加費用に含まれるため差し引かない（追加費用が無ければ保留）
  * - DIFFERENT_FROM_ADD_COST：追加費用とは別の費用として差し引く
- * 未確定（集計対象外）の明細と、営業利益との関係が無い既存の明細は対象外。
+ * 関係が未確認の既存の明細は差し引かない。金額・時期がそろっていない明細は計画に含めない。
  */
-export function opexDeductionOfProjects(departments: Department[] | null | undefined, fiscalYearEnd: string | undefined): OpexProjectDeduction[] {
+export function opexDecisionsOf(departments: Department[] | null | undefined, fiscalYearEnd: string | undefined): OpexDecision[] {
   const endMonth = parseFiscalYearEndMonth(fiscalYearEnd);
   if (endMonth === null) return [];
 
@@ -47,30 +67,80 @@ export function opexDeductionOfProjects(departments: Department[] | null | undef
     });
   });
 
-  const byProject = new Map<string, OpexProjectDeduction & { amounts: Map<number, number> }>();
+  const decisions: OpexDecision[] = [];
   for (const item of buildInvestmentItems(departments)) {
+    if (item.category !== 'OPEX') continue;
     const relation = item.spend?.opexRelation;
-    if (item.category !== 'OPEX' || relation === undefined || !item.ready) continue;
-    const key = `${item.ref.deptIndex}:${item.ref.projectIndex}`;
+    const hasAddCost = addCostOf.get(`${item.ref.deptIndex}:${item.ref.projectIndex}`) === true;
+
+    let status: OpexDecisionStatus;
+    let reason: string | null = null;
+    if (!item.ready) {
+      status = 'NOT_READY';
+      reason = '金額・支出時期がそろっていないため、計画に含めていません';
+    } else if (relation === undefined) {
+      status = 'NOT_DEDUCTED';
+      reason = '営業利益との関係が未確認のため、差し引いていません';
+    } else if (relation === 'IN_PLAN') {
+      status = 'NOT_DEDUCTED';
+      reason = '営業利益に既に含まれるため、差し引いていません';
+    } else if (relation === 'SAME_AS_ADD_COST') {
+      if (hasAddCost) {
+        status = 'NOT_DEDUCTED';
+        reason = '確認済みの追加費用に含まれるため、差し引いていません（二重控除を防ぐため）';
+      } else {
+        status = 'HELD';
+        reason = HOLD_SAME_WITHOUT_ADD_COST;
+      }
+    } else if (relation === 'NOT_IN_PLAN' && hasAddCost) {
+      status = 'HELD';
+      reason = HOLD_NOT_IN_PLAN_WITH_ADD_COST;
+    } else {
+      status = 'DEDUCTED';
+    }
+
+    const allocation = item.ready ? item.allocation.map((a) => ({ ym: a.ym, amountYen: a.amountYen })) : [];
+    const amounts = new Map<number, number>();
+    for (const a of allocation) {
+      const fy = fiscalYearOf(a.ym, endMonth);
+      amounts.set(fy, (amounts.get(fy) ?? 0) + a.amountYen);
+    }
+    decisions.push({
+      deptIndex: item.ref.deptIndex,
+      projectIndex: item.ref.projectIndex,
+      deptName: item.deptName,
+      projectTitle: item.projectTitle,
+      source: item.source,
+      recordId: item.ref.recordId,
+      label: item.label,
+      relation,
+      status,
+      reason,
+      allocation,
+      byFiscalYear: [...amounts.entries()].sort(([a], [b]) => a - b).map(([fiscalYear, amountYen]) => ({ fiscalYear, amountYen })),
+    });
+  }
+  return decisions;
+}
+
+/**
+ * 営業利益計画に含まれないOPEXを、施策ごとに差し引く（判定は opexDecisionsOf と同じ）。
+ */
+export function opexDeductionOfProjects(departments: Department[] | null | undefined, fiscalYearEnd: string | undefined): OpexProjectDeduction[] {
+  const byProject = new Map<string, OpexProjectDeduction & { amounts: Map<number, number> }>();
+  for (const d of opexDecisionsOf(departments, fiscalYearEnd)) {
+    if (d.status !== 'DEDUCTED' && d.status !== 'HELD') continue;
+    const key = `${d.deptIndex}:${d.projectIndex}`;
     let entry = byProject.get(key);
     if (!entry) {
-      entry = { deptIndex: item.ref.deptIndex, projectIndex: item.ref.projectIndex, deptName: item.deptName, projectTitle: item.projectTitle, byFiscalYear: [], held: [], amounts: new Map() };
+      entry = { deptIndex: d.deptIndex, projectIndex: d.projectIndex, deptName: d.deptName, projectTitle: d.projectTitle, byFiscalYear: [], held: [], amounts: new Map() };
       byProject.set(key, entry);
     }
-    const hasAddCost = addCostOf.get(key) === true;
-    if (relation === 'IN_PLAN') continue;
-    if (relation === 'SAME_AS_ADD_COST') {
-      if (!hasAddCost) entry.held.push({ label: item.label, reason: HOLD_SAME_WITHOUT_ADD_COST });
+    if (d.status === 'HELD') {
+      entry.held.push({ label: d.label, reason: d.reason ?? '' });
       continue;
     }
-    if (relation === 'NOT_IN_PLAN' && hasAddCost) {
-      entry.held.push({ label: item.label, reason: HOLD_NOT_IN_PLAN_WITH_ADD_COST });
-      continue;
-    }
-    for (const alloc of item.allocation) {
-      const fy = fiscalYearOf(alloc.ym, endMonth);
-      entry.amounts.set(fy, (entry.amounts.get(fy) ?? 0) + alloc.amountYen);
-    }
+    for (const y of d.byFiscalYear) entry.amounts.set(y.fiscalYear, (entry.amounts.get(y.fiscalYear) ?? 0) + y.amountYen);
   }
 
   return [...byProject.values()]

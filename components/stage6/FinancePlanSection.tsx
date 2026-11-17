@@ -33,7 +33,7 @@ import { FinanceSummary } from './FinanceSummary';
 import { FinanceOutlookCharts } from './FinanceOutlookCharts';
 import { FinanceEffectProjectList } from './FinanceEffectProjectList';
 import Stage4ScenarioPanel from './Stage4ScenarioPanel';
-import { KrPlanActualPanel } from './KrPlanActualPanel';
+import { PlanActualByProject } from './PlanActualByProject';
 import { buildOutlookCharts } from './financeOutlookChartModel';
 import { FundingDemandSection } from './FundingDemandSection';
 import { BaseScenarioPanel } from './BaseScenarioPanel';
@@ -442,6 +442,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
         <div className="space-y-2">
           <h3 className="text-sm font-bold text-slate-900">② どの施策が業績を改善するか</h3>
           <FinanceEffectProjectList projects={effectTrial.projects} years={effectTrial.years} />
+          <PlanActualByProject departments={departments} fiscalYearEnd={fiscalYearEnd} />
         </div>
 
         <div className="space-y-2">
@@ -519,7 +520,6 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
                 </div>
               </details>
             )}
-            <KrPlanActualPanel departments={departments} />
           </div>
         )}
 
