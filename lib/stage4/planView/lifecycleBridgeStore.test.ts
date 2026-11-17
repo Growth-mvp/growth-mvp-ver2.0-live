@@ -1,7 +1,17 @@
-/* STAGE4からの「計画から外す」「中止する」の書き込みを、ストア実体で確認する（Supabase と認証のみモック）。
- * 会社・戦略・案件の照合、承認済み・実行中・未開始の拒否、保存成功、保存失敗時の巻き戻しを確かめる。 */
+/* STAGE4からの「計画から外す」「中止する」の画面側の処理を確かめる。
+ * 書き込みはサーバーの経路（authFetchJson）に任せ、ここでは呼び出しの内容、会社・戦略の照合、
+ * サーバーの拒否理由の表示、成功時に保存後の版と部門を画面に反映することを確かめる。 */
 
 export {};
+
+const mockFetch = jest.fn();
+jest.mock('@/utils/authFetch', () => {
+  const actual = jest.requireActual('@/utils/authFetch');
+  return {
+    ...actual,
+    authFetchJson: (...args: unknown[]) => mockFetch(...args),
+  };
+});
 
 jest.mock('@/store/userStore', () => ({
   useUserStore: {
@@ -26,110 +36,119 @@ jest.mock('@/utils/supabase/strategy', () => {
   };
 });
 
+import { AuthFetchError } from '@/utils/authFetch';
 import { useStrategyStore } from '@/store/strategyStore';
 import { writeProjectLifecycleToProject } from './lifecycleBridgeStore';
 
-const NOW = '2026-11-17T00:00:00.000Z';
 const TARGET = { id: 'p-target', title: '保守契約の更新', planStatus: 'draft' };
 const OTHER = { id: 'p-other', title: '他社の施策' };
+const DEPARTMENTS = [
+  { id: 'd1', name: '営業部', projects: [{ ...TARGET }, { ...OTHER }] },
+  { id: 'd2', name: '企画部', projects: [] as unknown[] },
+];
 
-function setStore(saveResult: unknown = { ok: true, revision: 8 }) {
-  const save = jest.fn(async () => saveResult);
-  const departments = [
-    { id: 'd1', name: '営業部', projects: [{ ...TARGET }, { ...OTHER }] },
-    { id: 'd2', name: '企画部', projects: [] as unknown[] },
-  ];
+function setStore(over: Record<string, unknown> = {}) {
+  const syncPartialSave = jest.fn(() => true);
   useStrategyStore.setState({
     companyId: 'co-jnc',
     strategyId: 'st-1',
     pendingCompanyId: null,
-    departments,
-    saveStrategyData: save,
+    departments: DEPARTMENTS,
+    revision: 5,
+    syncPartialSave,
+    ...over,
   } as never);
-  return { save, departments };
+  return { syncPartialSave };
 }
 
 const base = {
   companyId: 'co-jnc',
   strategyId: 'st-1',
   projectId: TARGET.id,
-  nowIso: NOW,
-  actorUserId: 'user-1',
+  facts: { executing: false, started: false },
 };
 
-describe('計画から外す・中止する（STAGE4の書き込み）', () => {
-  beforeEach(() => jest.clearAllMocks());
+const serverRefusal = (error: string, status = 409) =>
+  new AuthFetchError(`HTTP error: ${status}`, 'HTTP_ERROR', { status, bodyText: JSON.stringify({ ok: false, error }) });
 
-  it('会社・戦略が一致しなければ、保存も書き込みもしない', async () => {
-    const { save, departments } = setStore();
-    const r = await writeProjectLifecycleToProject({ ...base, companyId: 'co-other', action: 'EXCLUDE', facts: { executing: false, started: false } });
+describe('計画から外す・中止する（STAGE4の画面側）', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('会社・戦略が一致しなければ、サーバーへ送らない', async () => {
+    setStore();
+    const r = await writeProjectLifecycleToProject({ ...base, companyId: 'co-other', action: 'EXCLUDE' });
     expect(r.ok).toBe(false);
-    expect(save).not.toHaveBeenCalled();
-    expect(useStrategyStore.getState().departments).toBe(departments);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('施策が特定できなければ、保存しない', async () => {
-    const { save } = setStore();
-    const r = await writeProjectLifecycleToProject({ ...base, projectId: 'missing', action: 'EXCLUDE', facts: { executing: false, started: false } });
+  it('施策が特定できなければ、サーバーへ送らない', async () => {
+    setStore();
+    const r = await writeProjectLifecycleToProject({ ...base, projectId: 'missing', action: 'EXCLUDE' });
     expect(r.ok).toBe(false);
-    expect(save).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('承認済みの計画は、計画から外せない（保存しない）', async () => {
-    const { save } = setStore();
-    useStrategyStore.setState({
-      departments: [{ id: 'd1', name: '営業部', projects: [{ ...TARGET, planStatus: 'approved' }] }],
-    } as never);
-    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE', facts: { executing: false, started: false } });
+  it('画面の判定で明らかに外せない（承認済み）なら、サーバーへ送らず理由を出す', async () => {
+    setStore({ departments: [{ id: 'd1', name: '営業部', projects: [{ ...TARGET, planStatus: 'approved' }] }] });
+    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
     expect(r).toEqual({ ok: false, message: '承認済みの計画は、計画から外せません。承認を解除してから操作してください。' });
-    expect(save).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('採用済み・実行中の計画は計画から外せず、中止にしてもらう（保存しない）', async () => {
-    const { save } = setStore();
-    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE', facts: { executing: true, started: true } });
-    expect(r.ok).toBe(false);
-    expect(save).not.toHaveBeenCalled();
-  });
-
-  it('実行を開始していない計画は中止できない（保存しない）', async () => {
-    const { save } = setStore();
-    const r = await writeProjectLifecycleToProject({ ...base, action: 'STOP', facts: { executing: false, started: false } });
-    expect(r.ok).toBe(false);
-    expect(save).not.toHaveBeenCalled();
-  });
-
-  it('計画から外すは、その施策だけに状態を付け、他の施策と位置は変えない', async () => {
-    const { save } = setStore({ ok: true, revision: 8 });
-    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE', facts: { executing: false, started: false } });
+  it('成功すると、版と送られた部門の状態を、画面の状態に反映する（書き込み前の版で送る）', async () => {
+    const { syncPartialSave } = setStore();
+    const departments = [{ id: 'd1', name: '営業部', projects: [{ ...TARGET, lifecycle: { status: 'EXCLUDED' } }, { ...OTHER }] }];
+    mockFetch.mockResolvedValueOnce({ ok: true, revision: 6, departments });
+    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
     expect(r).toEqual({ ok: true });
-    expect(save).toHaveBeenCalledWith({ reason: 'stage4_project_lifecycle', force: true });
-    const depts = useStrategyStore.getState().departments as Array<{ projects: Array<Record<string, unknown>> }>;
-    expect(depts[0].projects[0]).toMatchObject({ id: 'p-target', lifecycle: { status: 'EXCLUDED', changedAt: NOW, changedBy: 'user-1' } });
-    expect(depts[0].projects[1]).toEqual(OTHER);
-    expect(depts[1].projects).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/stage4/project-lifecycle',
+      expect.objectContaining({
+        method: 'POST',
+        json: { companyId: 'co-jnc', strategyId: 'st-1', projectId: TARGET.id, action: 'EXCLUDE', expectedRevision: 5 },
+      }),
+    );
+    expect(syncPartialSave).toHaveBeenCalledWith({ departments, revision: 6 });
   });
 
-  it('中止は、中止時期を保持して、実行中の計画を止める', async () => {
-    setStore({ ok: true, revision: 8 });
+  it('サーバーが管理者・管理職以外と判定したら、その理由を出し、画面を変えない', async () => {
+    const { syncPartialSave } = setStore();
+    mockFetch.mockRejectedValueOnce(serverRefusal('insufficient_role', 403));
+    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
+    expect(r).toEqual({ ok: false, message: '計画から外す・中止は、管理者と管理職だけが行えます。' });
+    expect(syncPartialSave).not.toHaveBeenCalled();
+  });
+
+  it('版が変わっていれば（他の人が先に変更）、読み直しを案内する', async () => {
+    const { syncPartialSave } = setStore();
+    mockFetch.mockRejectedValueOnce(serverRefusal('revision_changed'));
+    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
+    expect(r).toEqual({ ok: false, message: '他の人が先に変更しました。画面を読み直してから、もう一度お試しください。' });
+    expect(syncPartialSave).not.toHaveBeenCalled();
+  });
+
+  it('サーバーが実行中と判定したら、中止を案内する', async () => {
+    setStore();
+    mockFetch.mockRejectedValueOnce(serverRefusal('executing'));
+    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
+    expect(r).toEqual({ ok: false, message: '採用済み・実行中の計画は、計画から外せません。「プロジェクトを中止する」を使ってください。' });
+  });
+
+  it('中止はサーバーに送り、成功したら画面に反映する', async () => {
+    const { syncPartialSave } = setStore();
+    const departments = [{ id: 'd1', name: '営業部', projects: [{ ...TARGET, lifecycle: { status: 'STOPPED' } }] }];
+    mockFetch.mockResolvedValueOnce({ ok: true, revision: 6, departments });
     const r = await writeProjectLifecycleToProject({ ...base, action: 'STOP', facts: { executing: true, started: true } });
     expect(r).toEqual({ ok: true });
-    const depts = useStrategyStore.getState().departments as Array<{ projects: Array<Record<string, unknown>> }>;
-    expect(depts[0].projects[0].lifecycle).toEqual({ status: 'STOPPED', changedAt: NOW, changedBy: 'user-1', stoppedAt: NOW });
+    expect(mockFetch.mock.calls[0][1].json.action).toBe('STOP');
+    expect(syncPartialSave).toHaveBeenCalledWith({ departments, revision: 6 });
   });
 
-  it('保存に失敗したら、画面の状態を書き込み前に戻す（除外していない状態に戻る）', async () => {
-    const { departments } = setStore({ ok: false, reason: 'api_error', error: 'boom' });
-    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE', facts: { executing: false, started: false } });
-    expect(r.ok).toBe(false);
-    expect(useStrategyStore.getState().departments).toBe(departments);
-    expect((useStrategyStore.getState().departments as Array<{ projects: Array<Record<string, unknown>> }>)[0].projects[0].lifecycle).toBeUndefined();
-  });
-
-  it('版の競合（他の人が先に保存した）は、保存できなかったことを伝え、画面を戻す', async () => {
-    const { departments } = setStore({ ok: false, reason: 'revision_conflict_persist', error: 'conflict', code: 'REVISION_CONFLICT' });
-    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE', facts: { executing: false, started: false } });
-    expect(r.ok).toBe(false);
-    expect(useStrategyStore.getState().departments).toBe(departments);
+  it('予期しない失敗は、保存できなかったことだけを伝える（画面は変えない）', async () => {
+    const { syncPartialSave } = setStore();
+    mockFetch.mockRejectedValueOnce(new Error('network down'));
+    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
+    expect(r).toEqual({ ok: false, message: '計画の変更を保存できませんでした。もう一度お試しください。' });
+    expect(syncPartialSave).not.toHaveBeenCalled();
   });
 });

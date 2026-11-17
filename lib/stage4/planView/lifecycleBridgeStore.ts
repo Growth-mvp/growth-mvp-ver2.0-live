@@ -1,31 +1,61 @@
-import { lifecycleActionRefusal, setProjectLifecycle, type LifecycleAction } from '@/lib/cascade/projectLifecycle';
+import { lifecycleActionRefusal, type LifecycleAction } from '@/lib/cascade/projectLifecycle';
+import { AuthFetchError, authFetchJson } from '@/utils/authFetch';
 import { useStrategyStore } from '@/store/strategyStore';
 import { findProjectPositionById } from './financeBridgeStore';
 
 export type LifecycleWriteResult = { ok: true } | { ok: false; message: string };
 
-type SaveOutcome = { ok?: boolean; skipped?: boolean; reason?: string };
 type StoreView = {
   pendingCompanyId?: unknown;
   companyId?: string | null;
   strategyId?: string | null;
   departments?: unknown[];
-  saveStrategyData: (opts: { reason: string; force: boolean }) => Promise<SaveOutcome>;
+  revision?: number;
+  syncPartialSave: (result: { departments: unknown[]; revision: number }) => boolean;
 };
 const storeNow = () => useStrategyStore.getState() as unknown as StoreView;
 
-const CHANGED = '会社または戦略が切り替わったため、保存されませんでした。画面を読み込み直してから、もう一度お試しください。';
+type LifecycleResponse = { ok: true; revision: number; departments: unknown[] };
 
-const REFUSAL_MESSAGE: Record<string, string> = {
-  ALREADY_OUT: 'この施策は、すでに計画から外れています。一覧を読み直してください。',
-  APPROVED: '承認済みの計画は、計画から外せません。承認を解除してから操作してください。',
-  EXECUTING: '採用済み・実行中の計画は、計画から外せません。「プロジェクトを中止する」を使ってください。',
-  NOT_STARTED: '実行を開始していない計画は、中止できません。計画から外してください。',
+const CHANGED = '会社または戦略が切り替わったため、保存されませんでした。画面を読み込み直してから、もう一度お試しください。';
+const NOT_FOUND = '対象の施策を特定できないため、保存しませんでした。一覧を読み直してください。';
+const DEFAULT = '計画の変更を保存できませんでした。もう一度お試しください。';
+
+const MESSAGE: Record<string, string> = {
+  insufficient_role: '計画から外す・中止は、管理者と管理職だけが行えます。',
+  revision_changed: '他の人が先に変更しました。画面を読み直してから、もう一度お試しください。',
+  forbidden: CHANGED,
+  strategy_mismatch: CHANGED,
+  project_missing: NOT_FOUND,
+  project_ambiguous: NOT_FOUND,
+  department_ambiguous: NOT_FOUND,
+  already_out: 'この施策は、すでに計画から外れています。一覧を読み直してください。',
+  approved: '承認済みの計画は、計画から外せません。承認を解除してから操作してください。',
+  executing: '採用済み・実行中の計画は、計画から外せません。「プロジェクトを中止する」を使ってください。',
+  not_started: '実行を開始していない計画は、中止できません。計画から外してください。',
 };
 
+const REFUSAL_KEY = {
+  ALREADY_OUT: 'already_out',
+  APPROVED: 'approved',
+  EXECUTING: 'executing',
+  NOT_STARTED: 'not_started',
+} as const;
+
+function errorCodeOf(e: unknown): string | null {
+  if (!(e instanceof AuthFetchError) || !e.bodyText) return null;
+  try {
+    const parsed = JSON.parse(e.bodyText) as { error?: unknown };
+    return typeof parsed.error === 'string' ? parsed.error : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * 施策を「計画から外す（EXCLUDE）」または「中止する（STOP）」。STAGE3の確定と同じ状態変更（setProjectLifecycle）を使い、
- * 既存の保存（saveStrategyData）で書く。物理削除はしない。保存に失敗したら、画面の状態を書き込み前に戻す。
+ * 施策を「計画から外す（EXCLUDE）」または「中止する（STOP）」。書き込みは サーバーの経路（/api/stage4/project-lifecycle）で行い、
+ * 管理者・管理職の確認、会社・戦略・案件の照合、版（revision）の確認、計画の採用・開始の読み直しを、サーバーで行う。
+ * 画面側の判定は先に分かりやすく伝えるためだけに使う。成功したら、保存後の版と部門を画面に反映する。物理削除はしない。
  */
 export async function writeProjectLifecycleToProject(args: {
   companyId: string;
@@ -33,42 +63,34 @@ export async function writeProjectLifecycleToProject(args: {
   projectId: string;
   action: LifecycleAction;
   facts: { executing: boolean; started: boolean };
-  nowIso: string;
-  actorUserId: string | null;
 }): Promise<LifecycleWriteResult> {
   const before = storeNow();
   if (before.pendingCompanyId || before.companyId !== args.companyId || before.strategyId !== args.strategyId) {
     return { ok: false, message: CHANGED };
   }
   const found = findProjectPositionById(before.departments, args.projectId);
-  if (!found) return { ok: false, message: '対象の施策を特定できないため、保存しませんでした。一覧を読み直してください。' };
+  if (!found) return { ok: false, message: NOT_FOUND };
   const refusal = lifecycleActionRefusal(found.project, args.action, args.facts);
-  if (refusal) return { ok: false, message: REFUSAL_MESSAGE[refusal] };
+  if (refusal) return { ok: false, message: MESSAGE[REFUSAL_KEY[refusal]] };
+  if (typeof before.revision !== 'number') return { ok: false, message: '画面を読み直してから、もう一度お試しください。' };
 
-  const next = setProjectLifecycle(before.departments ?? [], {
-    projectId: args.projectId,
-    status: args.action === 'EXCLUDE' ? 'EXCLUDED' : 'STOPPED',
-    changedAt: args.nowIso,
-    changedBy: args.actorUserId,
-    stoppedAt: args.nowIso,
-  });
-  if (!next.ok) return { ok: false, message: '対象の施策を特定できないため、保存しませんでした。一覧を読み直してください。' };
-
-  const prevDepartments = before.departments;
-  useStrategyStore.setState({ departments: next.departments } as never);
-  const result = await storeNow().saveStrategyData({ reason: 'stage4_project_lifecycle', force: true });
-
-  if (result?.ok) return { ok: true };
-
-  const now = storeNow();
-  if (!result?.skipped && now.companyId === args.companyId && now.strategyId === args.strategyId) {
-    useStrategyStore.setState({ departments: prevDepartments } as never);
+  try {
+    const res = await authFetchJson<LifecycleResponse>('/api/stage4/project-lifecycle', {
+      method: 'POST',
+      json: {
+        companyId: args.companyId,
+        strategyId: args.strategyId,
+        projectId: args.projectId,
+        action: args.action,
+        expectedRevision: before.revision,
+      },
+    });
+    const now = storeNow();
+    if (now.companyId !== args.companyId || now.strategyId !== args.strategyId) return { ok: false, message: CHANGED };
+    if (!now.syncPartialSave({ departments: res.departments, revision: res.revision })) return { ok: false, message: CHANGED };
+    return { ok: true };
+  } catch (e) {
+    const code = errorCodeOf(e);
+    return { ok: false, message: (code && MESSAGE[code]) || DEFAULT };
   }
-  if (result?.skipped) {
-    if (result.reason === 'scope_changed' || result.reason === 'company_switching' || result.reason === 'company_scope_missing') {
-      return { ok: false, message: CHANGED };
-    }
-    return { ok: false, message: '保存されませんでした。もう一度お試しください。' };
-  }
-  return { ok: false, message: '計画の変更を保存できませんでした。もう一度お試しください。' };
 }

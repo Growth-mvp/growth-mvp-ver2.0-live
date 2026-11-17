@@ -66,7 +66,8 @@ import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
 import { Stage4InvestmentInput } from './Stage4InvestmentInput';
 import { RegenPanel, type RegenState } from './RegenPanel';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
-import { ALLOWED_ROLES, resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
+import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
+import { canAdoptCandidate } from '@/lib/cascade/stage3Candidates';
 import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdits';
 import { buildDocModel } from '@/lib/stage4/planView/documentModel';
 import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
@@ -226,9 +227,9 @@ function Stage3ProjectBrowser({
   const [lifecycleTarget, setLifecycleTarget] = useState<{ sel: Stage3Selection; projectId: string; title: string; action: LifecycleAction; facts: PlanFacts } | null>(null);
   const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
-  /* 計画から外す・中止は、所属の役割が許す人だけ。最終的な書き込みの権限は保存の経路（認証・RLS）で判定される */
+  /* 計画から外す・中止は管理者・管理職だけ。書き込みの時にもサーバーで同じ判定を行う */
   const canChangeLifecycle = source.memberships.some(
-    (m) => m.company_id === (source.strategies[0]?.company_id ?? '') && ALLOWED_ROLES.includes(m.role),
+    (m) => m.company_id === (source.strategies[0]?.company_id ?? '') && canAdoptCandidate(m.role),
   );
   const planFactsOf = async (sel: Stage3Selection): Promise<PlanFacts> => {
     const out = await store.load(actor, { companyId: sel.companyId, strategyId: sel.strategyId, projectId: sel.projectKey.slice(3) });
@@ -246,8 +247,6 @@ function Stage3ProjectBrowser({
       projectId,
       action,
       facts,
-      nowIso: new Date().toISOString(),
-      actorUserId: userId || null,
     });
     setLifecycleBusy(false);
     setLifecycleTarget(null);
