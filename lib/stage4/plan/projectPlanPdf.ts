@@ -35,6 +35,8 @@ const bullets = (lines: string[]): PlanBlock => ({
   type: 'list',
   items: lines.map((t) => ({ level: 0, ordered: false, runs: runs(t) })),
 });
+/* 「未設定」「2026年12月」などの短い語が途中で割れない最小幅 */
+const MIN_COLUMN_WEIGHT = 60;
 const table = (header: string[], rows: string[][]): PlanBlock => {
   const headerRuns = header.map(cell);
   const rowRuns = rows.map((r) => r.map(cell));
@@ -43,9 +45,11 @@ const table = (header: string[], rows: string[][]): PlanBlock => {
     align: header.map(() => 'left' as const),
     header: headerRuns,
     rows: rowRuns,
-    weights: displayColumnWeights({ header: headerRuns, rows: rowRuns }),
+    weights: displayColumnWeights({ header: headerRuns, rows: rowRuns }).map((w) => Math.max(w, MIN_COLUMN_WEIGHT)),
   };
 };
+
+const checkLine = (c: { title: string; done: boolean }) => `${tidy(c.title).replace(/。$/, '')}：${c.done ? '確認済み' : '未確認'}`;
 
 const dateJa = (iso: string) => {
   const d = new Date(iso);
@@ -98,7 +102,7 @@ function organizationBlocks(doc: DocModel): PlanBlock[] {
   }
   if (doc.organization.beforeStart.length > 0) {
     blocks.push(subhead('開始前の確認'));
-    blocks.push(bullets(doc.organization.beforeStart.map((c) => `${c.title}：${c.done ? '確認済み' : '未確認'}`)));
+    blocks.push(bullets(doc.organization.beforeStart.map(checkLine)));
   }
   return blocks;
 }
@@ -228,7 +232,7 @@ function riskBlocks(doc: DocModel): PlanBlock[] {
   blocks.push(subhead('規制・安全の確認'));
   blocks.push(
     items.length > 0
-      ? bullets(items.map((c) => `${c.title}：${c.done ? '確認済み' : '未確認'}`))
+      ? bullets(items.map(checkLine))
       : note('該当する確認事項はありません。'),
   );
   return blocks;
