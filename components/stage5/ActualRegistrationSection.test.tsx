@@ -153,6 +153,63 @@ describe('planRegistration（保存の前の検証）', () => {
     expect(r.steps[0]).toMatchObject({ args: { itemKey: 'OPEX:ac16', ym: '2026-11', amountYen: 50000, note: '請求書' } });
   });
 
+  it('登録済みの実績を読み込んだだけ（変更なし）では保存しない', () => {
+    const r = planRegistration(
+      { ym: '2026-10', finance: { 'OPEX:ac16': '900000' }, kr: {}, note: '' },
+      [opexItem],
+      [],
+      NOW,
+    );
+    expect(r).toEqual({ ok: false, error: '変更された実績がありません。新しい値を入力してください。' });
+  });
+
+  it('変更した項目だけを保存し、変更していない実績は保存しない', () => {
+    const r = planRegistration(
+      { ym: '2026-10', finance: { 'OPEX:ac16': '800000' }, kr: { 'kr-1': { value: '88', asOf: '2026-10-15' } }, note: '' },
+      [opexItem],
+      [kr('kr-1', '継続率', { value: 88, asOf: '2026-10-15', recordedAt: NOW })],
+      NOW,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.steps.map((s) => s.key)).toEqual(['OPEX:ac16']);
+  });
+
+  it('共通の根拠・補足が空欄なら、既存の項目別の補足を消さずに引き継ぐ', () => {
+    const r = planRegistration(
+      { ym: '2026-10', finance: { 'OPEX:ac16': '800000' }, kr: {}, note: '' },
+      [opexItem],
+      [],
+      NOW,
+    );
+    expect(r.ok && r.steps[0]).toMatchObject({ args: { amountYen: 800_000, note: '請求書' } });
+  });
+
+  it('共通の根拠・補足を入れたときは、変更した項目にそれを使う', () => {
+    const r = planRegistration(
+      { ym: '2026-10', finance: { 'OPEX:ac16': '800000' }, kr: {}, note: '見積書' },
+      [opexItem],
+      [],
+      NOW,
+    );
+    expect(r.ok && r.steps[0]).toMatchObject({ args: { amountYen: 800_000, note: '見積書' } });
+  });
+
+  it('0への変更は保存する（空欄とは区別する）。空欄への変更は保存しない', () => {
+    const zero = planRegistration({ ym: '2026-10', finance: { 'OPEX:ac16': '0' }, kr: {}, note: '' }, [opexItem], [], NOW);
+    expect(zero.ok && zero.steps[0]).toMatchObject({ args: { amountYen: 0 } });
+    const blank = planRegistration({ ym: '2026-10', finance: { 'OPEX:ac16': '' }, kr: {}, note: '' }, [opexItem], [], NOW);
+    expect(blank).toEqual({ ok: false, error: '保存する実績を入力してください。空欄の項目は保存されません。' });
+  });
+
+  it('KRは、同じ月の値と基準日が変わったときだけ保存し、既存の補足を残す', () => {
+    const current = { value: 88, asOf: '2026-10-15', recordedAt: NOW, note: '月次締め' };
+    const same = planRegistration({ ym: '2026-10', finance: {}, kr: { 'kr-1': { value: '88', asOf: '2026-10-15' } }, note: '' }, [], [kr('kr-1', '継続率', current)], NOW);
+    expect(same).toEqual({ ok: false, error: '変更された実績がありません。新しい値を入力してください。' });
+    const changed = planRegistration({ ym: '2026-10', finance: {}, kr: { 'kr-1': { value: '90', asOf: '2026-10-15' } }, note: '' }, [], [kr('kr-1', '継続率', current)], NOW);
+    expect(changed.ok && changed.steps[0]).toMatchObject({ actual: { value: 90, asOf: '2026-10-15', note: '月次締め' } });
+  });
+
   it('既存の実績の年月に合わせた入力欄は、基準日つきの実績を引き継ぐ', () => {
     const p = prefillFor('2026-10', [opexItem], [kr('kr-1', '継続率', { value: 88, asOf: '2026-10-15', recordedAt: NOW })]);
     expect(p.finance['OPEX:ac16']).toBe('900000');

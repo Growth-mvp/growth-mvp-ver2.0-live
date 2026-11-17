@@ -51,18 +51,23 @@ export function planRegistration(
 ): { ok: true; steps: RegistrationStep[] } | { ok: false; error: string } {
   if (!YM_PATTERN.test(draft.ym)) return { ok: false, error: '対象年月を選んでください。' };
   const steps: RegistrationStep[] = [];
+  let filled = 0;
 
   for (const item of items) {
     if (!item.recordable) continue;
     const amount = draft.finance[item.itemKey] ?? '';
     if (amount.trim() === '') continue;
+    filled += 1;
     const parsed = parseFinanceActualInput({ ym: draft.ym, amount, note: draft.note });
     if (!parsed.ok) return { ok: false, error: `${item.label}：${parsed.error}` };
+    const existing = item.actuals.find((a) => a.ym === draft.ym);
+    if (existing && existing.amountYen === parsed.amountYen) continue;
+    const note = parsed.note ?? existing?.note;
     steps.push({
       kind: 'FINANCE',
       key: item.itemKey,
       label: item.label,
-      args: { itemKey: item.itemKey, ym: parsed.ym, amountYen: parsed.amountYen, ...(parsed.note ? { note: parsed.note } : {}) },
+      args: { itemKey: item.itemKey, ym: parsed.ym, amountYen: parsed.amountYen, ...(note ? { note } : {}) },
     });
   }
 
@@ -70,12 +75,24 @@ export function planRegistration(
     if (typeof k.id !== 'string' || k.id === '') continue;
     const input = draft.kr[k.id];
     if (!input || input.value.trim() === '') continue;
+    filled += 1;
     const parsed = parseKrActualInput({ value: input.value, asOf: input.asOf, note: draft.note }, nowIso);
     if (!parsed.ok) return { ok: false, error: `${k.label}：${parsed.error}` };
-    steps.push({ kind: 'KR', key: k.id, label: k.label || '（名称未設定）', krId: k.id, actual: parsed.actual });
+    const current = k.actual;
+    const sameMonth = !!current && current.asOf.startsWith(draft.ym);
+    if (sameMonth && current && current.value === parsed.actual.value && current.asOf === parsed.actual.asOf) continue;
+    const note = parsed.actual.note ?? (sameMonth ? current?.note : undefined);
+    steps.push({
+      kind: 'KR',
+      key: k.id,
+      label: k.label || '（名称未設定）',
+      krId: k.id,
+      actual: { ...parsed.actual, ...(note ? { note } : {}) },
+    });
   }
 
-  if (steps.length === 0) return { ok: false, error: '保存する実績を入力してください。空欄の項目は保存されません。' };
+  if (filled === 0) return { ok: false, error: '保存する実績を入力してください。空欄の項目は保存されません。' };
+  if (steps.length === 0) return { ok: false, error: '変更された実績がありません。新しい値を入力してください。' };
   return { ok: true, steps };
 }
 

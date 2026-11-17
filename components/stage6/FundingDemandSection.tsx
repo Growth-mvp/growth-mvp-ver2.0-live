@@ -12,6 +12,7 @@ import {
   type InvestmentItem,
 } from '@/utils/stage6/investmentDemand';
 import { attentionSummary } from './financePlanStatus';
+import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 
 const EMPTY_DEPARTMENTS: Department[] = [];
 
@@ -95,9 +96,11 @@ export function FundingDemandSection() {
   const updateDepartments = useStrategyStore((s: StrategyState) => s.updateDepartments);
   const [openKey, setOpenKey] = useState<string | null>(null);
 
+  /* 集計は除外・中止を反映した写しから作る。書き戻しは保存データ（prev）に対して行い、施策の位置は一致している */
+  const plannedDepartments = useMemo(() => stage6PlanDepartments(departments) as Department[], [departments]);
   const summary = useMemo(
-    () => buildInvestmentDemandSummary(departments, fiscalYearEnd),
-    [departments, fiscalYearEnd],
+    () => buildInvestmentDemandSummary(plannedDepartments, fiscalYearEnd),
+    [plannedDepartments, fiscalYearEnd],
   );
   const attention = useMemo(() => attentionSummary(summary.items), [summary.items]);
 

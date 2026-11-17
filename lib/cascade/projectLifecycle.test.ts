@@ -181,7 +181,8 @@ describe('STAGE4〜6への反映（中止・除外）', () => {
     ];
     const plan = stage6PlanDepartments(departments);
     const projects = plan[0].projects as Array<Record<string, unknown>>;
-    expect(projects.map((p) => p.id)).toEqual(['p-keep', 'p-stop']);
+    expect(projects.map((p) => p.id)).toEqual(['p-keep', 'p-stop', 'p-out']);
+    expect(projects[2]).not.toHaveProperty('financeEffect');
 
     const stop = projects[1];
     expect((stop.financeEffects as Array<{ endYm: string }>).map((e) => e.endYm)).toEqual(['2027-09']);
@@ -196,12 +197,19 @@ describe('STAGE4〜6への反映（中止・除外）', () => {
   });
 
   it('STAGE6の試算：除外した施策は、試算の行に出ない', () => {
-    const departments = [sales([project('p-keep', { financeEffect: costEffect('2027-04', '2028-03') }), project('p-out', { lifecycle: { status: 'EXCLUDED', changedAt: NOW, changedBy: null } })])];
+    const departments = [
+      sales([
+        project('p-keep', { financeEffect: costEffect('2027-04', '2028-03') }),
+        project('p-out', { financeEffect: costEffect('2027-04', '2028-03'), lifecycle: { status: 'EXCLUDED', changedAt: NOW, changedBy: null } }),
+      ]),
+    ];
     const before = buildFinanceEffectTrial({ departments: departments as never, fiscalYearEnd: '3', fiscalYears: [2027] });
     const after = buildFinanceEffectTrial({ departments: stage6PlanDepartments(departments) as never, fiscalYearEnd: '3', fiscalYears: [2027] });
-    expect(before.projects.some((r) => r.projectTitle === '施策p-out')).toBe(true);
-    expect(after.projects.some((r) => r.projectTitle === '施策p-out')).toBe(false);
-    expect(after.projects.some((r) => r.projectTitle === '施策p-keep')).toBe(true);
+    const outBefore = before.projects.find((r) => r.projectTitle === '施策p-out');
+    const outAfter = after.projects.find((r) => r.projectTitle === '施策p-out');
+    expect(outBefore?.status).not.toBe('NOT_SET');
+    expect(outAfter?.status).toBe('NOT_SET');
+    expect(after.projects.find((r) => r.projectTitle === '施策p-keep')?.status).toBe(outBefore?.status);
   });
 
   it('STAGE4の一覧：除外した施策は出さず、中止した施策は中止時期つきで残す', () => {

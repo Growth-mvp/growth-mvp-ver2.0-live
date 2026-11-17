@@ -66,7 +66,7 @@ import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';
 import { Stage4InvestmentInput } from './Stage4InvestmentInput';
 import { RegenPanel, type RegenState } from './RegenPanel';
 import { KPI_STATE_LABEL } from '@/lib/stage4/planView/kpiLabels';
-import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
+import { ALLOWED_ROLES, resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdits';
 import { buildDocModel } from '@/lib/stage4/planView/documentModel';
 import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
@@ -226,6 +226,10 @@ function Stage3ProjectBrowser({
   const [lifecycleTarget, setLifecycleTarget] = useState<{ sel: Stage3Selection; projectId: string; title: string; action: LifecycleAction; facts: PlanFacts } | null>(null);
   const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  /* 計画から外す・中止は、所属の役割が許す人だけ。最終的な書き込みの権限は保存の経路（認証・RLS）で判定される */
+  const canChangeLifecycle = source.memberships.some(
+    (m) => m.company_id === (source.strategies[0]?.company_id ?? '') && ALLOWED_ROLES.includes(m.role),
+  );
   const planFactsOf = async (sel: Stage3Selection): Promise<PlanFacts> => {
     const out = await store.load(actor, { companyId: sel.companyId, strategyId: sel.strategyId, projectId: sel.projectKey.slice(3) });
     if (out.status === 'FOUND') return { executing: out.record.adopted === true || out.record.startInfo != null, started: out.record.startInfo != null };
@@ -815,7 +819,7 @@ function Stage3ProjectBrowser({
                           <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{p.role ? ROLE_LABEL[p.role] ?? p.role : '役割 未設定'}</div>
                           {p.stoppedAt && <div className="text-rose-700">中止（{p.stoppedAt.slice(0, 10)}）</div>}
                         </button>
-                        {projectId && (
+                        {projectId && canChangeLifecycle && (
                           <ProjectLifecycleMenu
                             title={p.projectTitle}
                             loadFacts={() => planFactsOf(key)}
