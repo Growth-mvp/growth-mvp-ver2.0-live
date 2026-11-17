@@ -13,6 +13,7 @@ import { normalizeApprovalWording } from '@/lib/plans/approvalWording';
 import { investmentInputMismatches, projectInvestmentLabels } from '@/lib/plans/projectInvestment';
 import { formatHistoricalAmount, historicalUnitLabel } from '@/lib/plans/historicalDisplay';
 import { bankFinancialPlanForRow, withBankFinancialPlan } from '@/utils/stage6/bankFinancialPlan';
+import { activeProjectsOnly, stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { bankFinancialPromptText, finalizeBankPlanText, type BankFinanceCheck } from '@/lib/plans/bankFinancialText';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { logAuditEvent } from '@/lib/server/auditLog';
@@ -173,7 +174,7 @@ export async function POST(
     // DB 行を StrategyData 型に変換
     let strategyState;
     try {
-      strategyState = dbRowToStrategyData(strategyRow.data);    } catch (err) {
+      strategyState = activeProjectsOnly(dbRowToStrategyData(strategyRow.data));    } catch (err) {
       console.error('[Plan Gen Step 4] dbRowToStrategyData failed', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -199,7 +200,7 @@ export async function POST(
     let bankFinancialPlan;
     if (audience === 'bank') {
       bankFinancialPlan = bankFinancialPlanForRow({
-        row: strategyRow.data,
+        row: { ...strategyRow.data, departments: stage6PlanDepartments(strategyRow.data?.departments) },
         companyId: body.companyId,
         now: new Date(),
       });

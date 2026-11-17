@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import type { YearlyPL } from '@/utils/financeSimulation';
 import type { BridgeKR } from '@/utils/simulationBridge';
 import type { KRStructured, Department } from '@/types/strategy';
@@ -67,9 +68,10 @@ const EMPTY_ARR: ReadonlyArray<never> = Object.freeze([]);
 export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   // ===== Store selectors =====
   const companyName = useStrategyStore((s: StrategyState) => s.companyName ?? '会社名未設定');
-  const departments = useStrategyStore((s: StrategyState) =>
+  const storedDepartments = useStrategyStore((s: StrategyState) =>
     Array.isArray(s.departments) ? s.departments : (EMPTY_ARR as any),
   ) as Department[];
+  const departments = useMemo(() => stage6PlanDepartments(storedDepartments) as Department[], [storedDepartments]);
   const financePL = useStrategyStore((s: StrategyState) => (Array.isArray(s.financePL) ? s.financePL : (EMPTY_ARR as any)));
   const csvFinanceData = useStrategyStore((s: StrategyState) => s.csvFinanceData ?? (EMPTY_OBJ as any));
   const revision = useStrategyStore((s: StrategyState) => s.revision);

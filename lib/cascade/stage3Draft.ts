@@ -1,5 +1,6 @@
 import { collectPlanUnits, departmentKeyOf, projectIdOf } from '@/lib/cascade/stage3Adjustment';
-import type { DeptProposal } from '@/lib/cascade/stage3Candidates';
+import { isProjectActive } from '@/lib/cascade/projectLifecycle';
+import { pickAdoptableProject, type DeptProposal } from '@/lib/cascade/stage3Candidates';
 import type { DraftDepartment, NewProjectCandidate, ProjectSelection, Selection } from '@/lib/cascade/stage3StrategyBook';
 
 type DraftProject = DraftDepartment['projects'][number];
@@ -140,6 +141,12 @@ export function newProjectCandidatesFrom(
       if (project.hypothesis === undefined && typeof project.reason === 'string') project.hypothesis = project.reason;
       out.push({ departmentKey: key, candidateId, project });
     }
+    for (const p of Array.isArray(d.projects) ? (d.projects as AnyRecord[]) : []) {
+      const linked = typeof p.sourceCandidateId === 'string' ? p.sourceCandidateId : null;
+      if (!linked || isProjectActive(p) || seen.has(linked)) continue;
+      seen.add(linked);
+      out.push({ departmentKey: key, candidateId: linked, project: pickAdoptableProject(p) });
+    }
   }
   return out;
 }
@@ -158,11 +165,18 @@ export function projectSelectionsFrom(
       .map((d) => [departmentKeyOf(d), String(d.name)]),
   );
   const decided = new Map(previous.map((s) => [s.candidateId, s.decision]));
+  const activeLinked = new Set(
+    official.flatMap((d) =>
+      (Array.isArray(d?.projects) ? (d.projects as AnyRecord[]) : [])
+        .filter((p) => typeof p.sourceCandidateId === 'string' && isProjectActive(p))
+        .map((p) => p.sourceCandidateId as string),
+    ),
+  );
   return candidates.map((c) => ({
     departmentKey: c.departmentKey,
     departmentName: names.get(c.departmentKey) ?? c.departmentKey,
     candidateId: c.candidateId,
     title: String(c.project.title).trim(),
-    decision: decided.get(c.candidateId) ?? 'pending',
+    decision: decided.get(c.candidateId) ?? (activeLinked.has(c.candidateId) ? 'applied' : 'pending'),
   }));
 }

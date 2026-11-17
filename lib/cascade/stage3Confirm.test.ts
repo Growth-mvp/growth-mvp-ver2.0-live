@@ -1,6 +1,10 @@
-import { planConfirm, type ConfirmChange } from './stage3Confirm';
-import { draftDepartmentsFrom, selectionsFrom } from './stage3Draft';
+import { planConfirm as planConfirmCore, type ConfirmChange } from './stage3Confirm';
+import { draftDepartmentsFrom, newProjectCandidatesFrom, projectSelectionsFrom, selectionsFrom } from './stage3Draft';
 import { buildDeptProposals } from './stage3Candidates';
+
+const NOW = '2026-11-17T00:00:00.000Z';
+type ConfirmArgs = Omit<Parameters<typeof planConfirmCore>[0], 'nowIso' | 'actorUserId'>;
+const planConfirm = (args: ConfirmArgs) => planConfirmCore({ nowIso: NOW, actorUserId: 'u-admin', ...args });
 
 const official = () => [
   {
@@ -102,6 +106,7 @@ describe('planConfirm（一括確定の検証）', () => {
         {
           departmentKey: 'id:d-sales',
           departmentName: '営業部',
+          candidateId: 'np-00000001',
           project: { id: 'cand-1', title: '新しい案', reason: '理由', approvedAt: 'x', okrs: [{ id: 'o1', objective: 'o', keyResults: ['k'] }] },
         },
       ],
@@ -111,7 +116,7 @@ describe('planConfirm（一括確定の検証）', () => {
     if (!plan.ok) return;
     const projects = plan.departments[0].projects as Array<Record<string, unknown>>;
     expect(projects[0]).toEqual(official()[0].projects[0]);
-    expect(projects[1]).toMatchObject({ id: 'p-test-1', title: '新しい案', reason: '理由' });
+    expect(projects[1]).toMatchObject({ id: 'p-test-1', title: '新しい案', reason: '理由', sourceCandidateId: 'np-00000001' });
     expect(projects[1]).not.toHaveProperty('approvedAt');
     expect((projects[1].okrs as Array<Record<string, unknown>>)[0]).not.toHaveProperty('id');
     expect(plan.adoptedProjectIds).toEqual(['p-test-1']);
@@ -121,7 +126,7 @@ describe('planConfirm（一括確定の検証）', () => {
     const plan = planConfirm({
       departments: official(),
       changes: [],
-      adoptions: [{ departmentKey: 'id:d-sales', departmentName: '営業部', project: { id: 'c', title: '  ' } }],
+      adoptions: [{ departmentKey: 'id:d-sales', departmentName: '営業部', candidateId: 'np-00000002', project: { id: 'c', title: '  ' } }],
       mintId: sequence(),
     });
     expect(plan).toMatchObject({ ok: false, error: 'invalid_project' });
@@ -227,11 +232,21 @@ describe('planConfirm（既存プロジェクトの編集と計画から外す�
     expect(plan).toEqual({ ok: false, error: 'project_changed', departmentName: '営業部', item: 'project' });
   });
 
-  it('計画から外すと、そのプロジェクトだけが正式データから消え、他は残る', () => {
+  it('計画から外すと、削除はせず無効化する。他の施策は変えない', () => {
     const plan = run({ projectRemovals: [removal] });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect((plan.departments[0].projects as Array<{ id: string }>).map((p) => p.id)).toEqual(['p-1']);
+    const projects = plan.departments[0].projects as Array<{ id: string; lifecycle?: unknown }>;
+    expect(projects.map((p) => p.id)).toEqual(['p-1', 'p-2']);
+    expect(projects[1].lifecycle).toEqual({ status: 'EXCLUDED', changedAt: NOW, changedBy: 'u-admin' });
+    expect(projects[0].lifecycle).toBeUndefined();
+    expect(plan.excludedProjectIds).toEqual(['p-2']);
+  });
+
+  it('承認済みの計画は、確定の計画から外さず止める', () => {
+    const approved = [{ id: 'd-sales', name: '営業部', projects: [{ ...baseProject, planStatus: 'approved' }] }];
+    const plan = planConfirm({ departments: approved, changes: [], projectRemovals: [{ ...removal, projectId: 'p-1', base: { title: baseProject.title } }], mintId: () => 'p-new' });
+    expect(plan).toEqual({ ok: false, error: 'project_approved', departmentName: '営業部', item: 'project' });
   });
 
   it('参照のある計画は、外さずに止める', () => {
@@ -243,7 +258,9 @@ describe('planConfirm（既存プロジェクトの編集と計画から外す�
     const plan = run({ projectEdits: [{ ...edit, projectId: 'p-2', base: { ...baseText, title: '別の施策', reason: null, hypothesis: null, description: null }, fields: { ...baseText, title: '別の施策', reason: null, hypothesis: null, description: null } }], projectRemovals: [removal] });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect((plan.departments[0].projects as Array<{ id: string }>).map((p) => p.id)).toEqual(['p-1']);
+    const projects = plan.departments[0].projects as Array<{ id: string; title: string; lifecycle?: { status: string } }>;
+    expect(projects.map((p) => p.id)).toEqual(['p-1', 'p-2']);
+    expect(projects[1]).toMatchObject({ title: '別の施策', lifecycle: { status: 'EXCLUDED' } });
   });
 
   it('存在しないプロジェクトの編集・削除は、全体を止める', () => {

@@ -23,6 +23,7 @@ const before = () => [
 const adoption: ConfirmAdoption = {
   departmentKey: 'id:d-sales',
   departmentName: '営業部',
+  candidateId: 'np-0000abcd',
   project: {
     id: 'cand-temp',
     title: '6問を反映した新しい案',
@@ -38,7 +39,7 @@ const listing = (departments: unknown[]) =>
   });
 
 describe('確定後のSTAGE4への引き継ぎ', () => {
-  const plan = planConfirm({ departments: before(), changes: [], adoptions: [adoption], mintId: () => 'p-new-1' });
+  const plan = planConfirm({ departments: before(), changes: [], adoptions: [adoption], mintId: () => 'p-new-1', nowIso: '2026-11-17T00:00:00.000Z', actorUserId: 'u-admin' });
   if (!plan.ok) throw new Error('adoption must succeed in this fixture');
   const after = plan.departments;
 

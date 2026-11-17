@@ -554,6 +554,17 @@ export type SkillRequirements = {
  */
 export type PlanStatus = 'draft' | 'review' | 'approved';
 
+/** 施策の有効状態。EXCLUDED：計画から外した（無効化）／STOPPED：実行中の施策を中止した（中止時期を保持し、過去の実績は残す） */
+export type ProjectLifecycleStatus = 'EXCLUDED' | 'STOPPED';
+
+export type ProjectLifecycle = {
+  status: ProjectLifecycleStatus;
+  changedAt: string;
+  changedBy: string | null;
+  /** STOPPED の中止時期（YYYY-MM-DD などISO）。この月以降の予定を将来の財務効果・投資から外す */
+  stoppedAt?: string | null;
+};
+
 /**
  * スキル育成方法
  */
@@ -826,6 +837,12 @@ export type Project = {
 
   /** ★施策の一意ID（北極星の金額行の紐づけ用）。名前・並び順に依存しない。金額を初めて登録したときに付与 */
   projectUid?: string;
+
+  /** 採用の元になった候補ID（STAGE3の新規候補）。採用・不採用・再採用の対応づけに使う。旧データには無い */
+  sourceCandidateId?: string;
+
+  /** 計画の有効状態。未設定は有効。EXCLUDED は計画から外した（無効化）、STOPPED は実行中の施策を中止した（中止時期を保持） */
+  lifecycle?: ProjectLifecycle;
 
   /** ★Phase 1：プロジェクトオーナー（ユーザーID） */
   ownerUserId?: string | null;

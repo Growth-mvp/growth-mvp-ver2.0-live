@@ -1,6 +1,7 @@
 // /app/execution/page.tsx
 'use client';
 import StrategyGuard from '@/app/StrategyGuard';
+import { isProjectActive } from '@/lib/cascade/projectLifecycle';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -2091,7 +2092,7 @@ function ExecutionPageContent() {
           })(),
           projForCard: { ...(proj as any), title: strictProj.title },
         };
-      });
+      }).filter((p) => isProjectActive(p.projForCard));
 
       return {
         di,

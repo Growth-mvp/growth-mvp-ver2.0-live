@@ -16,6 +16,7 @@ import {
 } from '@/lib/cascade/stage3Adjustment';
 import { DEPT_PROPOSAL_ITEMS, currentItemValues, type DeptProposal, type DeptProposalItem } from '@/lib/cascade/stage3Candidates';
 import { draftDepartmentsFrom, newProjectCandidatesFrom, projectSelectionsFrom, selectionsFrom } from '@/lib/cascade/stage3Draft';
+import { isProjectActive } from '@/lib/cascade/projectLifecycle';
 import {
   departmentDeleteBlockers,
   editCandidateProject,
@@ -232,6 +233,15 @@ const ERROR_MESSAGE: Record<string, string> = {
 };
 
 const DEFAULT_ERROR = '処理に失敗しました。時間をおいて再度お試しください。';
+
+function linkedProjectOf(departments: readonly unknown[], candidateId: string): AnyRecord | undefined {
+  for (const dept of departments) {
+    const list = (dept as AnyRecord | null)?.projects;
+    const hit = Array.isArray(list) ? list.find((p) => (p as AnyRecord | null)?.sourceCandidateId === candidateId) : undefined;
+    if (hit) return hit as AnyRecord;
+  }
+  return undefined;
+}
 
 function errorCode(e: unknown): string | null {
   if (!(e instanceof AuthFetchError)) return null;
@@ -557,7 +567,10 @@ export function StrategyBookDesk({
         kind,
         version: nextDraftVersion(state),
         createdAt: new Date().toISOString(),
-        departments: draftDepartmentsFrom(official, candidateMap),
+        departments: draftDepartmentsFrom(
+          official.map((d) => ({ ...d, projects: Array.isArray(d.projects) ? (d.projects as AnyRecord[]).filter((p) => isProjectActive(p)) : d.projects })),
+          candidateMap,
+        ),
         newProjects: newProjectCandidatesFrom(official, candidateMap),
         generatedDepartmentKeys: Object.keys(generated),
       };
@@ -898,26 +911,10 @@ export function StrategyBookDesk({
     }
   };
 
-  /* 既存プロジェクトを「計画から外す」。参照されている計画は外さず、理由を出す。確定するまで正式データは変わらない。 */
+  /* 既存プロジェクトを「計画から外す」。物理削除はせず、確定時に無効化する。実行中・採用済みの計画は、確定時に止めて中止にしてもらう。 */
   const removeProject = async (key: string, projectId: string, title: string) => {
     const g = gate();
     if (!g) return;
-    let references: Record<string, string[]>;
-    try {
-      const res = await authFetchJson<{ ok: true; references: Record<string, string[]> }>('/api/stage3/strategy-book/project-references', {
-        method: 'POST',
-        json: { companyId: g.companyId, strategyId: g.strategyId, projectIds: [projectId] },
-      });
-      references = res.references;
-    } catch {
-      setNotice('参照を確認できなかったため、計画から外せません。時間をおいて再度お試しください。');
-      return;
-    }
-    const reasons = references[projectId] ?? [];
-    if (reasons.length > 0) {
-      setNotice(`「${title}」は${reasons.join('、')}ため、計画から外せません。計画は残したまま、取り組み内容や仮説を直すことはできます。`);
-      return;
-    }
     const dept = departments.find((d) => departmentKeyOf(d as unknown as AnyRecord) === key);
     const official = dept?.projects?.find((p) => stableIdText((p as unknown as AnyRecord).id) === projectId);
     if (!official) {
@@ -935,7 +932,7 @@ export function StrategyBookDesk({
     );
     if (ok) {
       setDocDraft((prev) => (prev ? { ...prev, projects: Object.fromEntries(Object.entries(prev.projects).filter(([id]) => id !== projectId)) } : prev));
-      setNotice(`「${title}」を計画から外す予定にしました（作業版・未確定）。確定すると、正式データから外れます。`);
+      setNotice(`「${title}」を計画から外す予定にしました（作業版・未確定）。確定すると、正式データから外れます（削除はせず、無効化します）。採用済みや実行中の計画は確定時に外せないため、STAGE4で中止してください。`);
     }
   };
 
@@ -1207,7 +1204,7 @@ export function StrategyBookDesk({
     const latestRegen = progress.hasRegen ? [...state.drafts].reverse().find((d) => d.kind === 'regenerated' && (d.generatedDepartmentKeys ?? []).includes(key)) : undefined;
     const initialDept = latestInitial?.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
     const projs = state.projectSelections.filter((p) => p.departmentKey === key);
-    const officialProjects = (dept.projects ?? []) as unknown as AnyRecord[];
+    const officialProjects = ((dept.projects ?? []) as unknown as AnyRecord[]).filter((p) => isProjectActive(p));
     /* 文書に出るのは採用（反映）された変更だけ。それ以外の項目は、正式データの現在の値を表示する */
     const selOf = (item: DeptProposalItem) => state.selections.find((s) => s.departmentKey === key && s.item === item && s.decision === 'applied');
     const baseOf = (item: DeptProposalItem) => currentItemValues(dept as unknown as AnyRecord, item);
@@ -1604,16 +1601,23 @@ export function StrategyBookDesk({
                 const c = latest?.newProjects.find((np) => np.candidateId === p.candidateId);
                 const summary = projectSummaryOf(state, p.candidateId);
                 const editing = candEdit?.candidateId === p.candidateId;
+                const linked = linkedProjectOf(departments, p.candidateId);
+                const linkedActive = !!linked && isProjectActive(linked);
+                const linkedExcluded = !!linked && !linkedActive;
                 return (
                   <div key={p.candidateId} className="space-y-2 rounded-xl border border-zinc-200 p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold">{p.title}</span>
-                      <Chip tone={p.decision === 'applied' ? 'ok' : 'neutral'}>
-                        {p.decision === 'pending'
-                          ? '未選択（確定時は保留として残ります）'
-                          : p.decision === 'deferred'
-                            ? '保留（以前の判断）'
-                            : `新規の候補・${PROJECT_DECISION_LABEL[p.decision]}`}
+                      <Chip tone={linkedActive || p.decision === 'applied' ? 'ok' : 'neutral'}>
+                        {linkedActive
+                          ? '採用中（正式データに入っています）'
+                          : linkedExcluded
+                            ? '計画から外した施策（採用し直せます）'
+                            : p.decision === 'pending'
+                              ? '未選択（確定時は保留として残ります）'
+                              : p.decision === 'deferred'
+                                ? '保留（以前の判断）'
+                                : `新規の候補・${PROJECT_DECISION_LABEL[p.decision]}`}
                       </Chip>
                       {p.decision === 'applied' &&
                         state.projectSelections.some(

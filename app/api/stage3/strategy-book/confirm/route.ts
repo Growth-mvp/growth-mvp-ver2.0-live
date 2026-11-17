@@ -16,7 +16,8 @@ import { loadStrategyAccess } from '@/lib/server/stage3Adjustment';
 import { confirmAtomically, loadWorkspace } from '@/lib/server/stage3StrategyBook';
 import { verifyWorkspaceState, type NewProjectCandidate, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
 import { planConfirm, type ConfirmAdoption, type ConfirmProjectEdit, type ConfirmProjectRemoval } from '@/lib/cascade/stage3Confirm';
-import { findProjectReferences } from '@/lib/server/stage3ProjectReferences';
+import { findExecutingProjectIds } from '@/lib/server/stage3ProjectReferences';
+import { isProjectActive } from '@/lib/cascade/projectLifecycle';
 import { departmentKeyOf } from '@/lib/cascade/stage3Adjustment';
 import { settleLegacySelections } from '@/lib/cascade/stage3Settle';
 
@@ -36,6 +37,14 @@ const BodySchema = z.object({
 });
 
 const CONFIRM_ROLES = ['admin', 'manager'];
+
+function linkedProjectOf(departments: unknown, departmentKey: string, candidateId: string): AnyRecord | undefined {
+  const dept = (Array.isArray(departments) ? departments : []).find(
+    (d) => d && typeof d === 'object' && departmentKeyOf(d as AnyRecord) === departmentKey,
+  ) as AnyRecord | undefined;
+  const list = Array.isArray(dept?.projects) ? (dept.projects as AnyRecord[]) : [];
+  return list.find((p) => p && typeof p === 'object' && p.sourceCandidateId === candidateId);
+}
 
 function findCandidate(state: WorkspaceState, candidateId: string): NewProjectCandidate | undefined {
   for (let i = state.drafts.length - 1; i >= 0; i -= 1) {
@@ -81,7 +90,12 @@ export async function POST(req: Request) {
     for (const ps of current.projectSelections.filter((p) => p.decision === 'applied')) {
       const candidate = findCandidate(current, ps.candidateId);
       if (!candidate) return failResponse(409, 'candidate_missing');
-      adoptions.push({ departmentKey: ps.departmentKey, departmentName: ps.departmentName, project: candidate.project });
+      adoptions.push({
+        departmentKey: ps.departmentKey,
+        departmentName: ps.departmentName,
+        candidateId: ps.candidateId,
+        project: candidate.project,
+      });
     }
 
     const projectEdits: ConfirmProjectEdit[] = current.projectEdits.map((e) => ({
@@ -91,22 +105,34 @@ export async function POST(req: Request) {
       fields: e.fields,
       base: e.base,
     }));
-    const projectRemovals: ConfirmProjectRemoval[] = current.projectRemovals.map((r) => ({
+    const removalFromRecord = current.projectRemovals.map((r) => ({
       departmentKey: r.departmentKey,
       departmentName: departmentNameOf(who.departments, r.departmentKey),
       projectId: r.projectId,
       base: r.base,
     }));
+    const discardedExclusions: ConfirmProjectRemoval[] = [];
+    for (const ps of current.projectSelections.filter((p) => p.decision === 'discarded')) {
+      const linked = linkedProjectOf(who.departments, ps.departmentKey, ps.candidateId);
+      if (!linked || !isProjectActive(linked)) continue;
+      discardedExclusions.push({
+        departmentKey: ps.departmentKey,
+        departmentName: ps.departmentName,
+        projectId: String(linked.id),
+        base: { title: String(linked.title ?? '') },
+      });
+    }
+    const projectRemovals: ConfirmProjectRemoval[] = [...removalFromRecord, ...discardedExclusions];
     const referencedProjectKeys = new Set<string>();
     if (projectRemovals.length > 0) {
-      const refs = await findProjectReferences(admin, {
+      const executing = await findExecutingProjectIds(admin, {
         companyId: body.companyId,
         strategyId: body.strategyId,
         projectIds: projectRemovals.map((r) => r.projectId),
       });
-      if (!refs.ok) return failResponse(503, refs.error);
+      if (!executing.ok) return failResponse(503, executing.error);
       for (const r of projectRemovals) {
-        if ((refs.references[r.projectId] ?? []).length > 0) referencedProjectKeys.add(`${r.departmentKey} ${r.projectId}`);
+        if (executing.ids.has(r.projectId)) referencedProjectKeys.add(`${r.departmentKey} ${r.projectId}`);
       }
       if (referencedProjectKeys.size > 0) return failResponse(409, 'project_referenced');
     }
@@ -119,6 +145,8 @@ export async function POST(req: Request) {
       projectRemovals,
       referencedProjectKeys,
       mintId: () => `p-${randomUUID()}`,
+      nowIso: new Date().toISOString(),
+      actorUserId: who.userId,
     });
     if (!plan.ok) {
       return NextResponse.json(
@@ -130,8 +158,10 @@ export async function POST(req: Request) {
     const confirmedState: WorkspaceState = {
       ...current,
       status: 'confirmed',
-      // 採用しなかった新規候補は保留として残し、後から再検討できるようにする
-      projectSelections: current.projectSelections.map((p) => (p.decision === 'pending' ? { ...p, decision: 'deferred' } : p)),
+      // 確定した採否は正式データに反映済みのため保留に戻す。採用しなかった候補も、後から再検討できるよう保留として残す
+      projectSelections: current.projectSelections.map((p) =>
+        p.decision === 'deferred' ? p : { ...p, decision: 'deferred' },
+      ),
       projectEdits: [],
       projectRemovals: [],
       confirmed: { confirmedAt: new Date().toISOString(), appliedCount: plan.appliedCount },
@@ -159,6 +189,7 @@ export async function POST(req: Request) {
       metadata: {
         appliedCount: plan.appliedCount,
         adoptedProjectIds: plan.adoptedProjectIds,
+        excludedProjectIds: plan.excludedProjectIds,
         revision: saved.revision,
       },
     });
@@ -169,6 +200,7 @@ export async function POST(req: Request) {
       version: saved.version,
       appliedCount: plan.appliedCount,
       adoptedProjectIds: plan.adoptedProjectIds,
+      excludedProjectIds: plan.excludedProjectIds,
     });
   } catch {
     return failResponse(500, 'internal_error');

@@ -71,6 +71,9 @@ import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdit
 import { buildDocModel } from '@/lib/stage4/planView/documentModel';
 import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
 import { projectPlanFinanceOf, type ProjectPlanFinance } from '@/lib/stage4/plan/projectPlanFinance';
+import type { LifecycleAction } from '@/lib/cascade/projectLifecycle';
+import { writeProjectLifecycleToProject } from '@/lib/stage4/planView/lifecycleBridgeStore';
+import { ProjectLifecycleMenu, type PlanFacts } from '@/components/okr/execution-plan/ProjectLifecycleMenu';
 import {
   conflictRows,
   entryAfterPersist,
@@ -220,6 +223,41 @@ function Stage3ProjectBrowser({
   const [entries, setEntries] = useState<Record<string, PlanDocEntry>>({});
   const [loads, setLoads] = useState<Record<string, LoadState>>({});
   const [gen, setGen] = useState<Record<string, GenState>>({});
+  const [lifecycleTarget, setLifecycleTarget] = useState<{ sel: Stage3Selection; projectId: string; title: string; action: LifecycleAction; facts: PlanFacts } | null>(null);
+  const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const planFactsOf = async (sel: Stage3Selection): Promise<PlanFacts> => {
+    const out = await store.load(actor, { companyId: sel.companyId, strategyId: sel.strategyId, projectId: sel.projectKey.slice(3) });
+    if (out.status === 'FOUND') return { executing: out.record.adopted === true || out.record.startInfo != null, started: out.record.startInfo != null };
+    if (out.status === 'NONE') return { executing: false, started: false };
+    throw new Error('plan state unavailable');
+  };
+  const confirmLifecycle = async () => {
+    if (!lifecycleTarget) return;
+    const { sel, projectId, action, facts } = lifecycleTarget;
+    setLifecycleBusy(true);
+    const result = await writeProjectLifecycleToProject({
+      companyId: sel.companyId,
+      strategyId: sel.strategyId,
+      projectId,
+      action,
+      facts,
+      nowIso: new Date().toISOString(),
+      actorUserId: userId || null,
+    });
+    setLifecycleBusy(false);
+    setLifecycleTarget(null);
+    if (!result.ok) {
+      setLifecycleNotice(result.message);
+      return;
+    }
+    setLifecycleNotice(
+      action === 'EXCLUDE'
+        ? '計画から外しました。STAGE5の実行対象・STAGE6の将来の財務効果と投資から外れます（データは残ります）。'
+        : '中止しました。中止前の実績や支払は残り、中止した月以降の予定だけが将来の財務効果・投資から外れます。',
+    );
+    if (selected && selectionKey(selected) === selectionKey(sel)) setSelected(null);
+  };
   /* 確認済みの財務効果を修正中の種類（画面の状態。保存するまで STAGE6 には入らない） */
   const tree = useMemo(() => buildStage3Tree({ memberships: source.memberships, strategies: source.strategies }), [source]);
   const handoffProjectKey = handoff?.projectId ? `id:${handoff.projectId}` : null;
@@ -764,17 +802,30 @@ function Stage3ProjectBrowser({
                   {dept.projects.map((p) => {
                     const key: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
                     const isSelected = selected !== null && selectionKey(selected) === selectionKey(key);
+                    const projectId = p.projectKey.startsWith('id:') ? p.projectKey.slice(3) : null;
                     return (
-                      <button
-                        key={`${p.projectKey}|${p.departmentIndex}`}
-                        type="button"
-                        aria-pressed={isSelected}
-                        onClick={() => setSelected(key)}
-                        className={`block w-full rounded-lg px-2 py-1.5 text-left ${isSelected ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'}`}
-                      >
-                        <div className="font-semibold">{p.projectTitle}</div>
-                        <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{p.role ? ROLE_LABEL[p.role] ?? p.role : '役割 未設定'}</div>
-                      </button>
+                      <div key={`${p.projectKey}|${p.departmentIndex}`} className="flex items-start gap-1.5">
+                        <button
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => setSelected(key)}
+                          className={`block min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left ${isSelected ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'}`}
+                        >
+                          <div className="font-semibold">{p.projectTitle}</div>
+                          <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{p.role ? ROLE_LABEL[p.role] ?? p.role : '役割 未設定'}</div>
+                          {p.stoppedAt && <div className="text-rose-700">中止（{p.stoppedAt.slice(0, 10)}）</div>}
+                        </button>
+                        {projectId && (
+                          <ProjectLifecycleMenu
+                            title={p.projectTitle}
+                            loadFacts={() => planFactsOf(key)}
+                            onChoose={(action, facts) => {
+                              setLifecycleNotice(null);
+                              setLifecycleTarget({ sel: key, projectId, title: p.projectTitle, action, facts });
+                            }}
+                          />
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -782,6 +833,44 @@ function Stage3ProjectBrowser({
             ))
           )}
         </nav>
+        {lifecycleNotice && (
+          <p role="status" className="mt-3 rounded-lg bg-zinc-100 p-2 text-[12px] text-zinc-800">
+            {lifecycleNotice}
+          </p>
+        )}
+        {lifecycleTarget && (
+          <div role="dialog" aria-modal="true" aria-label="計画の操作の確認" className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+            <div className="w-full max-w-md rounded-xl bg-white p-5 text-[13px] text-zinc-800 shadow-xl">
+              <h3 className="text-sm font-semibold">
+                {lifecycleTarget.action === 'EXCLUDE' ? '計画から外しますか' : 'プロジェクトを中止しますか'}
+              </h3>
+              <p className="mt-2">「{lifecycleTarget.title}」</p>
+              <p className="mt-2 text-zinc-600">
+                {lifecycleTarget.action === 'EXCLUDE'
+                  ? '削除はせず、無効化します。STAGE3の重点プロジェクト・STAGE5の実行対象・STAGE6の将来の財務効果と投資から外れます。計画書や実績のデータは残ります。'
+                  : '中止時期を保持します。中止前の実績・支払済みの費用は残し、中止した月以降の予定だけを将来の財務効果・投資から外します。'}
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLifecycleTarget(null)}
+                  disabled={lifecycleBusy}
+                  className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700"
+                >
+                  やめる
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmLifecycle()}
+                  disabled={lifecycleBusy}
+                  className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  {lifecycleTarget.action === 'EXCLUDE' ? '計画から外す' : '中止する'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
       )}
 

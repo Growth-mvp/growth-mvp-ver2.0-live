@@ -1,4 +1,5 @@
 import { departmentKeyOf } from '@/lib/cascade/stage3Adjustment';
+import { exclusionRefusal, isProjectActive } from '@/lib/cascade/projectLifecycle';
 import type { ProjectTextFields } from '@/lib/cascade/stage3StrategyBook';
 import {
   collectProjectIds,
@@ -21,6 +22,7 @@ export type ConfirmChange = {
 export type ConfirmAdoption = {
   departmentKey: string;
   departmentName: string;
+  candidateId: string;
   project: AnyRecord;
 };
 
@@ -48,10 +50,11 @@ type ConfirmError =
   | 'invalid_project'
   | 'project_missing'
   | 'project_changed'
-  | 'project_referenced';
+  | 'project_referenced'
+  | 'project_approved';
 
 export type ConfirmPlan =
-  | { ok: true; departments: AnyRecord[]; appliedCount: number; adoptedProjectIds: string[] }
+  | { ok: true; departments: AnyRecord[]; appliedCount: number; adoptedProjectIds: string[]; excludedProjectIds: string[] }
   | { ok: false; error: ConfirmError; departmentName: string; item: string };
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null);
@@ -71,7 +74,8 @@ const sameProjectText = (a: ProjectTextFields, b: ProjectTextFields) => JSON.str
  * 確定する変更と採用するプロジェクトを、正式データの全体に対して先に検証し、すべて通った時だけ次の departments を返す。
  * 1件でも失敗すれば何も返さない（書き込みはしない）。入力は変えない。
  * 既存の計画には触れない（IDも内容も変えない）。採用する新規プロジェクトにだけ、既存と重ならない新しいIDを発行する。
- * 既存プロジェクトの編集は文章の項目だけを変え、KPI・OKR・IDは変えない。計画から外すのは、参照されていない時だけ。
+ * 既存プロジェクトの編集は文章の項目だけを変え、KPI・OKR・IDは変えない。
+ * 計画から外すのは物理削除ではなく無効化（lifecycle）。採用は候補IDで既存の施策と対応づけ、有効な施策は重複させず、除外中の施策は同じIDで復帰させる。
  */
 export function planConfirm(args: {
   departments: unknown[];
@@ -81,6 +85,8 @@ export function planConfirm(args: {
   projectRemovals?: ConfirmProjectRemoval[];
   referencedProjectKeys?: Set<string>;
   mintId: () => string;
+  nowIso: string;
+  actorUserId: string | null;
 }): ConfirmPlan {
   const original = args.departments as AnyRecord[];
   const next: AnyRecord[] = JSON.parse(JSON.stringify(original));
@@ -127,14 +133,19 @@ export function planConfirm(args: {
     list[at] = updated;
   }
 
+  const excludedProjectIds: string[] = [];
   for (const r of args.projectRemovals ?? []) {
     const fail = (error: ConfirmError) => ({ ok: false as const, error, departmentName: r.departmentName, item: 'project' });
     if (args.referencedProjectKeys?.has(`${r.departmentKey} ${r.projectId}`)) return fail('project_referenced');
     const { index, at } = findProject(r.departmentKey, r.projectId, r.departmentName);
     if (index < 0 || at < 0) return fail('project_missing');
     const list = next[index].projects as AnyRecord[];
-    if (r.base.title !== (textOrNull(list[at].title) ?? '')) return fail('project_changed');
-    list.splice(at, 1);
+    const project = list[at];
+    if (r.base.title !== (textOrNull(project.title) ?? '')) return fail('project_changed');
+    if (exclusionRefusal(project, { executing: false }) === 'APPROVED') return fail('project_approved');
+    if (!isProjectActive(project)) continue;
+    list[at] = { ...project, lifecycle: { status: 'EXCLUDED', changedAt: args.nowIso, changedBy: args.actorUserId } };
+    excludedProjectIds.push(r.projectId);
   }
 
   const taken = collectProjectIds(original);
@@ -143,15 +154,25 @@ export function planConfirm(args: {
     const fail = (error: ConfirmError) => ({ ok: false as const, error, departmentName: a.departmentName, item: 'project' });
     const index = original.findIndex((d) => d && typeof d === 'object' && departmentKeyOf(d) === a.departmentKey);
     if (index < 0) return fail('adoption_department_missing');
+    const list = Array.isArray(next[index].projects) ? (next[index].projects as AnyRecord[]) : [];
+    const linkedAt = list.findIndex((p) => p && typeof p === 'object' && (p as AnyRecord).sourceCandidateId === a.candidateId);
+    if (linkedAt >= 0) {
+      const linked = list[linkedAt];
+      if (isProjectActive(linked)) continue;
+      const restored: AnyRecord = { ...linked };
+      delete restored.lifecycle;
+      list[linkedAt] = restored;
+      adoptedProjectIds.push(String(restored.id));
+      continue;
+    }
     if (typeof a.project.title !== 'string' || a.project.title.trim() === '') return fail('invalid_project');
     const prepared = prepareAdoptedProject(a.project, args.mintId, taken);
     if (!prepared.ok) return fail('invalid_project');
     const id = String(prepared.project.id);
     taken.add(id);
     adoptedProjectIds.push(id);
-    const list = Array.isArray(next[index].projects) ? (next[index].projects as AnyRecord[]) : [];
-    next[index] = { ...next[index], projects: [...list, prepared.project] };
+    next[index] = { ...next[index], projects: [...list, { ...prepared.project, sourceCandidateId: a.candidateId }] };
   }
 
-  return { ok: true, departments: next, appliedCount: appliedChanges, adoptedProjectIds };
+  return { ok: true, departments: next, appliedCount: appliedChanges, adoptedProjectIds, excludedProjectIds };
 }

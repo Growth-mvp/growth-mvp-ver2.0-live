@@ -1,6 +1,8 @@
 /* 所属企業・戦略・プロジェクトの照合。DBの値は呼び出し側が読み、ここでは照合だけを行う（DBには触れない）。
  * ブラウザから届いた会社・戦略・プロジェクトの指定は、所属企業の中で一致するものだけを採る。 */
 
+import { lifecycleOf } from '@/lib/cascade/projectLifecycle';
+
 export type MembershipRow = { company_id: string; role: string };
 
 export type StrategyRow = { id: string; company_id: string; departments: unknown };
@@ -132,9 +134,11 @@ export type ProjectListing = {
   stableId: string | null;
   projectTitle: string;
   role: string | null;
+  /** 中止済み（STAGE4の一覧に残し、中止したことが分かるようにする） */
+  stoppedAt: string | null;
 };
 
-/** 画面の選択に使う一覧。所属している企業の、部門ごとのプロジェクトを、キーつきで返す */
+/** 画面の選択に使う一覧。所属している企業の、部門ごとのプロジェクトを、キーつきで返す。計画から外した施策は含めない */
 export function listAccessibleProjects(args: { memberships: MembershipRow[]; strategies: StrategyRow[] }): ProjectListing[] {
   const scope = accessibleStrategies(args.memberships, args.strategies);
   if (!scope.ok) return [];
@@ -142,6 +146,8 @@ export function listAccessibleProjects(args: { memberships: MembershipRow[]; str
   for (const strategy of scope.strategies) {
     for (const { dept, di } of departmentsOf(strategy)) {
       for (const { project, pi } of projectsOf(dept)) {
+        const life = lifecycleOf(project);
+        if (life?.status === 'EXCLUDED') continue;
         out.push({
           companyId: String(strategy.company_id),
           strategyId: String(strategy.id),
@@ -152,6 +158,7 @@ export function listAccessibleProjects(args: { memberships: MembershipRow[]; str
           stableId: stableIdOf(project),
           projectTitle: trimmed(project.title),
           role: typeof project.role === 'string' ? project.role : null,
+          stoppedAt: life?.status === 'STOPPED' ? (life.stoppedAt ?? life.changedAt ?? null) : null,
         });
       }
     }

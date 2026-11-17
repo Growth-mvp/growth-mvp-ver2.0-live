@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
@@ -90,9 +91,10 @@ export function FinancePlanSection() {
 }
 
 function FinancePlanContent({ companyId }: { companyId: string | null }) {
-  const departments = useStrategyStore((s: StrategyState) =>
+  const storedDepartments = useStrategyStore((s: StrategyState) =>
     Array.isArray(s.departments) ? s.departments : EMPTY_DEPARTMENTS,
   );
+  const departments = useMemo(() => stage6PlanDepartments(storedDepartments) as typeof storedDepartments, [storedDepartments]);
   const strategyId = useStrategyStore((s: StrategyState) => s.strategyId ?? null);
   const fiscalYearEnd = useStrategyStore((s: StrategyState) => s.fiscalYearEnd);
   const companyTargets = useStrategyStore((s: StrategyState) => s.companyTargets);
