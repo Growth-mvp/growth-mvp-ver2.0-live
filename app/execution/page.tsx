@@ -33,9 +33,8 @@ import { debugLog } from '@/utils/debug';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
-import { KrActualSection, type KrRecordResult } from '@/components/stage5/KrActualSection';
+import { ActualRegistrationSection, type FinanceActualRecordArgs, type FinanceActualRecordResult, type KrRecordResult } from '@/components/stage5/ActualRegistrationSection';
 import { krLocateMessage, recordKrActual, revertKrActual } from '@/lib/stage5/krActual';
-import { FinanceActualSection, type FinanceActualRecordResult, type FinanceActualSectionProps } from '@/components/stage5/FinanceActualSection';
 import { financeActualItemsOf, type FinanceActualItem } from '@/lib/stage5/financeActuals';
 import { writeFinanceActual } from '@/lib/stage5/financeActualStore';
 import { krSaveOutcome } from '@/lib/strategy/krSaveOutcome';
@@ -357,7 +356,7 @@ function ExecPanel(props: {
   krs?: KRStructured[];
   onRecordKrActual?: (krId: string, actual: KrActual) => KrRecordResult | Promise<KrRecordResult>;
   financeActualItems?: FinanceActualItem[];
-  onRecordFinanceActual?: FinanceActualSectionProps['onRecord'];
+  onRecordFinanceActual?: (args: FinanceActualRecordArgs) => Promise<FinanceActualRecordResult> | FinanceActualRecordResult;
 }) {
   const {
     open,
@@ -1514,20 +1513,16 @@ function ExecPanel(props: {
       <section className="space-y-2">
         <div className="text-xs font-semibold tracking-wide text-gray-500">補助情報（必要な時だけ開く）</div>
 
-        {props.onRecordKrActual ? (
+        {props.onRecordKrActual && props.onRecordFinanceActual ? (
           <details className="rounded-2xl border border-black/10 bg-white p-3">
-            <summary className="cursor-pointer text-sm font-medium text-gray-800">KPI・KR実績</summary>
+            <summary className="cursor-pointer text-sm font-medium text-gray-800">実績の登録（財務・KPI・KR）</summary>
             <div className="mt-3">
-              <KrActualSection krs={props.krs} onRecord={props.onRecordKrActual} />
-            </div>
-          </details>
-        ) : null}
-
-        {props.onRecordFinanceActual ? (
-          <details className="rounded-2xl border border-black/10 bg-white p-3">
-            <summary className="cursor-pointer text-sm font-medium text-gray-800">財務実績（月次）</summary>
-            <div className="mt-3">
-              <FinanceActualSection items={props.financeActualItems ?? []} onRecord={props.onRecordFinanceActual} />
+              <ActualRegistrationSection
+                items={props.financeActualItems ?? []}
+                krs={props.krs}
+                onRecordFinance={props.onRecordFinanceActual}
+                onRecordKr={props.onRecordKrActual}
+              />
             </div>
           </details>
         ) : null}

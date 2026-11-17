@@ -602,15 +602,15 @@ export const OPERATIONS: readonly OperationEntry[] = [
   {
     operationId: 'stage5.record-kr-actual',
     screenIds: ['stage5'],
-    label: '実績を記録',
-    source: { file: 'components/stage5/KrActualSection.tsx', line: 78 },
+    label: '実績を保存',
+    source: { file: 'components/stage5/ActualRegistrationSection.tsx', line: 302 },
     purpose:
-      'KR（目標指標）の現在の実績値を、基準日つきで記録する。チェックイン（進み具合）と同じ画面にあるが別の記録で、財務効果や北極星の金額には入らない。',
+      'KR（目標指標）の実績値を、基準日つきで記録する。財務実績と同じ「実績の登録」にまとめて保存する。チェックイン（進み具合）と同じ画面にあるが別の記録で、財務効果や北極星の金額には入らない。',
     steps: [
-      '実行支援を開き、対象のKRの「実績を記録」を押す（記録済みなら「実績を更新」）',
-      '「実績値（単位）」に数字を入れる（例（架空）：不良率の目標0.5に対し、実績0.8）',
-      '「基準日」を入れる（例：2026-10）。補足は任意',
-      '「保存」を押す',
+      '実行支援を開き、「実績の登録」を開いて「対象年月」を選ぶ（その年月の登録済みの実績が入力欄に出る）',
+      '対象のKRの「実績値（単位）」に数字を入れる（例（架空）：不良率の目標0.5に対し、実績0.8）。基準日は既存の日付を保つ',
+      '空欄の項目は保存されない。補足は任意（すべての実績に共通）',
+      '「実績を保存」を押す',
     ],
     conditions: 'KRに識別子（ID）がないと記録できない（STAGE4でKRを保存し直す）。上書きした前の実績は履歴に残る',
     permission: NONE_PERMISSION,

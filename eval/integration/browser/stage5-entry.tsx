@@ -1,8 +1,8 @@
-/* STAGE5 KR実績セクションの実コンポーネント（components/stage5/KrActualSection.tsx）をハーネスで描画する（評価専用）。
+/* STAGE5 実績の登録（components/stage5/ActualRegistrationSection.tsx）の KR 部分をハーネスで描画する（評価専用）。
  * 記録の処理は実コードの lib/stage5/krActual.ts（recordKrActual）を使う。DB・外部APIには接続しない。 */
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { KrActualSection } from '@/components/stage5/KrActualSection';
+import { ActualRegistrationSection } from '@/components/stage5/ActualRegistrationSection';
 import { recordKrActual, krLocateMessage } from '@/lib/stage5/krActual';
 
 const w = window as any;
@@ -16,9 +16,11 @@ function Harness() {
   const [krs, setKrs] = useState<any[]>(INITIAL);
   w.__krs = () => krs;
   return (
-    <KrActualSection
+    <ActualRegistrationSection
+      items={[]}
       krs={krs}
-      onRecord={(krId, actual) => {
+      onRecordFinance={async () => ({ ok: false as const, error: '評価ハーネスでは財務実績を扱いません' })}
+      onRecordKr={(krId, actual) => {
         const r = recordKrActual(krs, krId, actual);
         if (!r.ok) return { ok: false as const, error: krLocateMessage(r.reason) };
         setKrs(r.next);

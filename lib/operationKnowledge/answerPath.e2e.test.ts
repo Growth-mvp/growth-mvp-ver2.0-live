@@ -69,7 +69,7 @@ describe('プロンプト組み立て：操作質問には正しい画面の案�
   it('「KR実績はどこで入力する？」（STAGE5の画面）→ 実績を記録の操作を、実行画面の経路で渡す', () => {
     const { systemBase } = composeSystemPrompt(STAGE5, 'KR実績はどこで入力する？');
     expect(systemBase).toContain('【現在の画面】STAGE5 どうやって前に進めるか（/execution）');
-    expect(systemBase).toContain('「実績を記録」');
+    expect(systemBase).toContain('「実績を保存」');
     expect(systemBase).toContain('例（架空）');
   });
 
