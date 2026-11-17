@@ -1,6 +1,7 @@
 import { nextRecord, progressOf, sameProgress, type ActionProgressPatch } from '@/lib/stage5/actionProgress';
 import { recordKrActual } from '@/lib/stage5/krActual';
-import type { KrActual } from '@/types/strategy';
+import { upsertFinanceActual } from '@/lib/stage5/financeActuals';
+import type { FinanceActualEntry, KrActual } from '@/types/strategy';
 
 export type StoredRow = { id: string; revision: number; departments: unknown[] };
 
@@ -114,6 +115,21 @@ export function applyWorkProgressToDepartments(
       else next.workProgressPct = input.pct;
       return next;
     }),
+  };
+}
+
+export function applyFinanceActualToDepartments(
+  departments: unknown[],
+  input: { projectId: string; itemKey: string; ym: string; amountYen: number; note?: string; nowIso: string },
+): ApplyResult {
+  const loc = locateProject(departments, input.projectId);
+  if (!loc.ok) return loc;
+  return {
+    ok: true,
+    departments: replaceProject(departments, loc.di, loc.pi, (p) => ({
+      ...p,
+      financeActuals: upsertFinanceActual(p.financeActuals as FinanceActualEntry[] | undefined, input),
+    })),
   };
 }
 

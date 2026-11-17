@@ -648,6 +648,20 @@ export type FinanceEffect = {
   questionAnswers?: FinanceEffectQuestionAnswers;
 };
 
+/** STAGE5：財務項目の月次実績。財務項目キーは「EFFECT:売上増加などの種類」か「OPEX:執行明細ID」 */
+export type FinanceActualEntry = {
+  itemKey: string;
+  /** 対象年月（YYYY-MM） */
+  ym: Ym;
+  /** 実績金額（円）。0は「0円の実績」として記録する（未登録とは区別する） */
+  amountYen: number;
+  note?: string;
+  /** 登録・更新日時（ISO） */
+  recordedAt: string;
+  /** 初回登録日時（ISO） */
+  createdAt: string;
+};
+
 export type FinanceEffectQuestionAnswers = {
   /** 数字の妥当性：妥当 / 修正して確認 / まだ分からない */
   validity?: 'OK' | 'EDITED' | 'UNKNOWN';
@@ -824,6 +838,9 @@ export type Project = {
 
   /** 2つ目以降の財務効果（異なる種類の効果を同じ施策に保持する）。任意 */
   financeEffects?: FinanceEffect[];
+
+  /** STAGE5：財務効果・OPEXの月次実績（計画とは別に保持する）。同じ財務項目・同じ年月は1件 */
+  financeActuals?: FinanceActualEntry[];
 
   /** ★STAGE4 実行計画：スキルプラン（プロジェクト単位） */
   skillPlans?: SkillPlan[];

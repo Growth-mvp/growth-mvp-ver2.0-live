@@ -34,6 +34,9 @@ import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/t
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { KrActualSection, type KrRecordResult } from '@/components/stage5/KrActualSection';
 import { krLocateMessage, recordKrActual, revertKrActual } from '@/lib/stage5/krActual';
+import { FinanceActualSection, type FinanceActualRecordResult, type FinanceActualSectionProps } from '@/components/stage5/FinanceActualSection';
+import { financeActualItemsOf, type FinanceActualItem } from '@/lib/stage5/financeActuals';
+import { writeFinanceActual } from '@/lib/stage5/financeActualStore';
 import { krSaveOutcome } from '@/lib/strategy/krSaveOutcome';
 import type { KRStructured, KrActual } from '@/types/strategy';
 
@@ -352,6 +355,8 @@ function ExecPanel(props: {
   onActivitySaved?: (payload: { okrId: string; at: string }) => void;
   krs?: KRStructured[];
   onRecordKrActual?: (krId: string, actual: KrActual) => KrRecordResult | Promise<KrRecordResult>;
+  financeActualItems?: FinanceActualItem[];
+  onRecordFinanceActual?: FinanceActualSectionProps['onRecord'];
 }) {
   const {
     open,
@@ -1517,6 +1522,15 @@ function ExecPanel(props: {
           </details>
         ) : null}
 
+        {props.onRecordFinanceActual ? (
+          <details className="rounded-2xl border border-black/10 bg-white p-3">
+            <summary className="cursor-pointer text-sm font-medium text-gray-800">財務実績（月次）</summary>
+            <div className="mt-3">
+              <FinanceActualSection items={props.financeActualItems ?? []} onRecord={props.onRecordFinanceActual} />
+            </div>
+          </details>
+        ) : null}
+
         <details className="rounded-2xl border border-black/10 bg-white p-3">
           <summary className="cursor-pointer text-sm font-medium text-gray-800">社内の共有記録（全文）</summary>
           {sharedLogs.length === 0 ? (
@@ -2330,6 +2344,33 @@ function ExecutionPageContent() {
     [selectedDi, selectedPi],
   );
 
+  const selectedFinanceProject = useStrategyStore((st: any) =>
+    typeof selectedDi === 'number' && typeof selectedPi === 'number' ? st.departments?.[selectedDi]?.projects?.[selectedPi] : undefined,
+  );
+  const selectedFinanceActualItems = useMemo(() => financeActualItemsOf(selectedFinanceProject), [selectedFinanceProject]);
+
+  const recordFinanceActualFor = useCallback(
+    async (args: { itemKey: string; ym: string; amountYen: number; note?: string }): Promise<FinanceActualRecordResult> => {
+      const store = useStrategyStore.getState() as any;
+      const project =
+        typeof selectedDi === 'number' && typeof selectedPi === 'number' ? store.departments?.[selectedDi]?.projects?.[selectedPi] : undefined;
+      if (!project) return { ok: false, error: '施策が選択されていません。' };
+      const result = await writeFinanceActual({
+        companyId: String(store.companyId ?? ''),
+        strategyId: String(store.strategyId ?? ''),
+        projectId: String(project.id ?? '').trim(),
+        allowedItemKeys: financeActualItemsOf(project).filter((i) => i.recordable).map((i) => i.itemKey),
+        itemKey: args.itemKey,
+        ym: args.ym,
+        amountYen: args.amountYen,
+        note: args.note,
+        userId: String(useUserStore.getState().user?.id ?? ''),
+      });
+      return result.ok ? { ok: true } : { ok: false, error: result.message };
+    },
+    [selectedDi, selectedPi],
+  );
+
   const queryOkrId = (searchParams.get('okrId') ?? '').trim();
   const queryProjectId = (searchParams.get('projectId') ?? '').trim();
   const queryDepartmentId = (searchParams.get('departmentId') ?? '').trim();
@@ -2947,6 +2988,8 @@ function ExecutionPageContent() {
         pi={selected?.pi}
         krs={selectedKrs}
         onRecordKrActual={recordKrActualFor}
+        financeActualItems={selectedFinanceActualItems}
+        onRecordFinanceActual={recordFinanceActualFor}
         onActivitySaved={({ okrId, at }) => {
           setProjectActivityMap((prev) => {
             const before = prev[okrId];
