@@ -154,7 +154,7 @@ export function displayColumnWeights(block: { header: PlanInline[][]; rows: Plan
       textPt(joinText(block.header[col])),
       ...block.rows.map((row) => textPt(joinText(row[col] ?? [])))
     );
-    return Math.min(Math.max(longest + 4, 20), 200);
+    return Math.min(Math.max(longest + 4, 40), 200);
   });
 }
 
