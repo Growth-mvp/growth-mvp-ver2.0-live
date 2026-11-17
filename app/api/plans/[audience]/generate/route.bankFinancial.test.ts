@@ -323,8 +323,8 @@ describe('同一のモック企業データで銀行・株主・社員の3種類
 
   it('期待売上寄与が3種類で一致する', async () => {
     const r = await generateAll();
-    expect(r.shareholder.prompt).toContain('財務効果（売上）: 年額換算 +120百万円（確認済み）');
-    expect(r.employee.prompt).toContain('財務効果（売上）: 年額換算 +120百万円（確認済み）');
+    expect(r.shareholder.prompt).toContain('財務効果（売上）: 年額換算 +120百万円（STAGE6に反映）');
+    expect(r.employee.prompt).toContain('財務効果（売上）: 年額換算 +120百万円（STAGE6に反映）');
     expect(r.bank.text).toContain('| A社開拓 | 営業部 | 120.0 |');
     expect(r.shareholder.text).toContain('120百万円');
   });

@@ -580,7 +580,8 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       const storeApi = useStrategyStore.getState();
       const dirtyBefore = storeApi.dirty;
       console.log('[AutoSave][saveStrategyData-enter]', { timestamp, dirtyBefore });
-      await storeApi.saveStrategyData();
+      // 理由を省くと既定の 'manual' になり、未変更でも dirty・同一ハッシュの保存ガードを素通りして書き込む
+      await storeApi.saveStrategyData({ reason: 'autosave' });
       const dirtyAfter = useStrategyStore.getState().dirty;
       const doneTime = Date.now();
       console.log('[AutoSave][saveStrategyData-done]', { timestamp, dirtyBefore, dirtyAfter });

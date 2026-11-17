@@ -548,7 +548,7 @@ export function buildBankFinancialPlanBlock(args: {
         ready: it.ready,
         planStatus: it.planStatus,
       })),
-      note: 'CAPEX以外は営業利益計画に含まれている前提のため、営業CFで二重に控除していません。未確定の投資額は上記の未確定欄に分けて保持し、0円として扱っていません',
+      note: 'CAPEXは支出年度の投資CFに一度だけ反映しています。OPEXのうち「営業利益に含まれない」と登録されたものは統一PLの営業利益から差し引き済みのため、営業CFでは二重に控除していません。それ以外のOPEXは営業利益計画に含まれている前提です。未確定の投資額は上記の未確定欄に分けて保持し、0円として扱っていません',
     },
     cashFlow: {
       baseYear: plan.baseYear,

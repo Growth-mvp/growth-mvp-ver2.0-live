@@ -152,9 +152,18 @@ export function opexDeductionOfProjects(departments: Department[] | null | undef
     .sort((a, b) => a.deptIndex - b.deptIndex || a.projectIndex - b.projectIndex);
 }
 
-/** 全施策の差し引きを年度ごとに合計する（保存済み計画の鮮度判定に使う） */
+/** 全施策の差し引きを年度ごとに合計する */
 export function opexDeductionYearly(list: readonly OpexProjectDeduction[]): { fiscalYear: number; amountYen: number }[] {
   const totals = new Map<number, number>();
   for (const d of list) for (const y of d.byFiscalYear) totals.set(y.fiscalYear, (totals.get(y.fiscalYear) ?? 0) + y.amountYen);
   return [...totals.entries()].sort(([a], [b]) => a - b).map(([fiscalYear, amountYen]) => ({ fiscalYear, amountYen }));
+}
+
+/** 保存済み財務計画の識別子に入れる差し引き額。差し引きが無いときは undefined（既存の識別子を変えないため） */
+export function opexHashInputOf(
+  departments: Department[] | null | undefined,
+  fiscalYearEnd: string | undefined,
+): { fiscalYear: number; amountYen: number }[] | undefined {
+  const yearly = opexDeductionYearly(opexDeductionOfProjects(departments, fiscalYearEnd));
+  return yearly.length > 0 ? yearly : undefined;
 }

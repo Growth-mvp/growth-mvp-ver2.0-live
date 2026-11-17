@@ -427,7 +427,7 @@ export function buildCashFlowPlan(
     globalHolds.push('最低必要現預金が未入力のため、必要資金額・不足額は評価保留です');
   }
   globalHolds.push('STAGE4に登録のない通常の設備更新投資は未反映です');
-  globalHolds.push('営業CFにはその他の調整項目を含めていません（OPEXは営業利益計画に含まれている前提で、二重に控除していません）');
+  globalHolds.push('営業CFにはその他の調整項目を含めていません（OPEXは統一PLの営業利益に反映済みのものだけを差し引いており、営業CFで二重に控除していません）');
   if (Y !== null && !targetOn && !scenarioOn && !overrideOn) {
     globalHolds.push('売上高・営業利益は基準年度の横ばいとして推計しています（推計シナリオ未指定）');
   }

@@ -12,6 +12,7 @@ import {
   toSavedFinancePlan,
   type FinancePlanDomain,
 } from './financePlanSnapshot';
+import { opexHashInputOf } from './opexDeduction';
 
 export type Stage6ComputeInput = {
   financePL: FinancePLRow[];
@@ -138,6 +139,7 @@ export function computeStage6FinancePlan(input: Stage6ComputeInput): Stage6Compu
         candidateYen: investment.candidateYen,
         basisPendingYen: investment.basisPendingYen,
         yearlyByCategory: investment.yearlyByCategory,
+        opexNotInPlanYearly: opexHashInputOf(input.departments, input.fiscalYearEnd),
       },
       fiscalYearEnd: input.fiscalYearEnd || undefined,
     }),

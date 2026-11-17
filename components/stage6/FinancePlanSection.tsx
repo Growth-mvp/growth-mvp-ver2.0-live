@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
-import { opexDeductionOfProjects, opexDeductionYearly } from '@/utils/stage6/opexDeduction';
+import { opexHashInputOf } from '@/utils/stage6/opexDeduction';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
 import { buildFinanceOutlook, forecastHorizonOf } from '@/utils/stage6/financeOutlook';
@@ -143,7 +143,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
     () => buildInvestmentDemandSummary(departments, fiscalYearEnd),
     [departments, fiscalYearEnd],
   );
-  const opexNotInPlan = useMemo(() => opexDeductionYearly(opexDeductionOfProjects(departments, fiscalYearEnd)), [departments, fiscalYearEnd]);
+  const opexNotInPlanYearly = useMemo(() => opexHashInputOf(departments, fiscalYearEnd), [departments, fiscalYearEnd]);
   const fiscalYearEndSet = parseFiscalYearEndMonth(fiscalYearEnd) !== null;
   const assumptions = useMemo(
     () => ({ ...toCashFlowAssumptions(cfForm), baseScenario: toBaseScenario(scenarioForm) }),
@@ -269,7 +269,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           candidateYen: investment.candidateYen,
           basisPendingYen: investment.basisPendingYen,
           yearlyByCategory: investment.yearlyByCategory,
-          opexNotInPlanYearly: opexNotInPlan.length > 0 ? opexNotInPlan : undefined,
+          opexNotInPlanYearly,
         },
         fiscalYearEnd: fiscalYearEnd || undefined,
       }),
@@ -282,7 +282,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
       },
       computedAt,
     }),
-    [companyId, basePlan.baseYear, basePlan.bsBaseYear, currentDomain, financePL, financeBS, investment, opexNotInPlan, fiscalYearEnd, computedAt],
+    [companyId, basePlan.baseYear, basePlan.bsBaseYear, currentDomain, financePL, financeBS, investment, opexNotInPlanYearly, fiscalYearEnd, computedAt],
   );
 
   useEffect(() => {
