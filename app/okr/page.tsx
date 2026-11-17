@@ -42,7 +42,6 @@ import { OKRHeader } from '@/components/stage4/OKRHeader';
 import { ProjectListHeader } from '@/components/stage4/ProjectListHeader';
 import { ProjectSelectionPrompt } from '@/components/stage4/ProjectSelectionPrompt';
 import { DepartmentListItem } from '@/components/stage4/DepartmentListItem';
-import { useStage4PdfExport } from '@/hooks/useStage4PdfExport';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { ReflectionCandidatesSection, type OKRCandidate } from '@/components/stage4/ReflectionCandidatesSection';
 
@@ -412,7 +411,6 @@ function OKRPageContent() {
   );
 
   /* ===== PDF Export ===== */
-  const { exportToPdf: stage4ExportToPdf } = useStage4PdfExport();
 
   const searchParams = useSearchParams();
 
@@ -5421,7 +5419,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       )}
 
       {/* header */}
-      <OKRHeader isHydrating={isHydrating} exportToPdf={stage4ExportToPdf} />
+      <OKRHeader isHydrating={isHydrating} />
 
       {/* STAGE4 作業エリア：中央寄せ＆幅最適化 */}
       <div className="mx-auto max-w-6xl">
@@ -5602,7 +5600,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               top={
                 <>
                   <ReflectionCandidatesSection onDelete={handleDeleteOKRCandidate} />
-                  <OKRHeader isHydrating={isHydrating} exportToPdf={stage4ExportToPdf} />
+                  <OKRHeader isHydrating={isHydrating} />
                 </>
               }
             />

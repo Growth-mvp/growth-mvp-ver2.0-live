@@ -9,6 +9,7 @@ import { INITIAL_PLAN_STATE, type ProjectPlanState } from '@/lib/stage4/planView
 import type { Edits } from '@/lib/stage4/planView/documentModel';
 import { listEditableItems } from '@/lib/stage4/planView/regen';
 import type { ProjectPlanPdfInput } from '@/lib/stage4/plan/projectPlanPdf';
+import type { ProjectPlanFinance } from '@/lib/stage4/plan/projectPlanFinance';
 
 export const toEdits = (edits: UserEdits): Edits => edits as Edits;
 
@@ -169,12 +170,18 @@ export function isDirty(entry: PlanDocEntry): boolean {
 }
 
 /* PDFに出す内容は、保存済みの草案と保存済みの修正だけ。未保存の修正や未採用の案があるときは null（出力しない） */
-export function savedPdfInput(entry: PlanDocEntry, companyName: string, generatedAt: string): ProjectPlanPdfInput | null {
-  if (!entry.stored || isDirty(entry)) return null;
+export function savedPdfInput(
+  entry: PlanDocEntry,
+  companyName: string,
+  generatedAt: string,
+  finance: ProjectPlanFinance | null,
+): ProjectPlanPdfInput | null {
+  if (!entry.stored || isDirty(entry) || !finance) return null;
   return {
     aiDraft: entry.aiDraft,
     userEdits: toEdits(entry.stored.base),
     startInfo: entry.server?.startInfo ? { at: entry.server.startInfo.at, version: entry.server.startInfo.version } : null,
+    finance,
     companyName,
     generatedAt,
   };

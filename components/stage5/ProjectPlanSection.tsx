@@ -12,6 +12,7 @@ import type { Edits } from '@/lib/stage4/planView/documentModel';
 import { isStage4DocumentScreenEnabled } from '@/lib/stage4/plan/documentScreenFlag';
 import type { PlanDocActor, PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/planDocumentStore';
 import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
+import { projectPlanFinanceOf } from '@/lib/stage4/plan/projectPlanFinance';
 import { progressOf, type ActionProgressRecord } from '@/lib/stage5/actionProgress';
 import { startedPlanView, type StartedPlanView } from '@/lib/stage5/startedPlans';
 import { findDuplicateProjectIds } from '@/lib/strategy/projectIds';
@@ -61,6 +62,9 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
   const { companyId, strategyId, projectId, departmentName, projectTitle, userId, children } = props;
   const departments = useStrategyStore((st) => (st as unknown as { departments?: unknown }).departments);
   const companyName = useStrategyStore((st) => (st as unknown as { companyName?: string }).companyName ?? '');
+  const storeCompanyId = useStrategyStore((st) => (st as unknown as { companyId?: string | null }).companyId ?? null);
+  const storeStrategyId = useStrategyStore((st) => (st as unknown as { strategyId?: string | null }).strategyId ?? null);
+  const fiscalYearEnd = useStrategyStore((st) => (st as unknown as { fiscalYearEnd?: string }).fiscalYearEnd);
   const role = useUserStore((st) => st.role ?? '');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -151,6 +155,13 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
   const progress = progressFor(departments, projectId);
 
   const openPdf = async () => {
+    const finance = storeCompanyId === companyId && storeStrategyId === strategyId
+      ? projectPlanFinanceOf({ departments, fiscalYearEnd, projectId })
+      : null;
+    if (!finance) {
+      setPdfError('財務効果を読み込めないため、PDFを作成できません。画面を開き直してください。');
+      return;
+    }
     setPdfBusy(true);
     setPdfError(null);
     try {
@@ -158,6 +169,7 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
         aiDraft: record.aiDraft,
         userEdits: record.userEdits as Edits,
         startInfo: record.startInfo ? { at: record.startInfo.at, version: record.startInfo.version } : null,
+        finance,
         companyName,
         generatedAt: new Date().toISOString(),
       });

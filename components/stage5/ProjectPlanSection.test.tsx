@@ -140,15 +140,26 @@ describe('STAGE5 のプロジェクトモーダル：実行開始済みの計画
 
   it('実行計画書のPDFは、ボタンを押したときだけ、保存済みの計画から作る', async () => {
     mockLoad = async (k) => ({ status: 'FOUND', record: { ...started, key: k } });
+    mockStoreState.fiscalYearEnd = '3';
     render(createElement(ProjectPlanSection as never, props()));
     const button = await screen.findByRole('button', { name: 'PDFをダウンロード' });
     expect(mockDownload).not.toHaveBeenCalled();
     fireEvent.click(button);
     await screen.findByRole('button', { name: 'PDFをダウンロード' });
     expect(mockDownload).toHaveBeenCalledTimes(1);
-    const input = mockDownload.mock.calls[0][0] as { companyName: string; userEdits: Record<string, unknown>; startInfo: { version: number } };
+    const input = mockDownload.mock.calls[0][0] as { companyName: string; userEdits: Record<string, unknown>; startInfo: { version: number }; finance: unknown };
     expect(input.companyName).toBe('架空株式会社');
     expect(input.userEdits['action:1:title']).toBe('実施事項：更新案内の一斉送付');
     expect(input.startInfo.version).toBe(4);
+    expect(input.finance).toEqual({ effects: expect.any(Array), investments: expect.any(Array) });
+  });
+
+  it('会計年度末が無いときは、財務効果を読めないためPDFを作らず、理由を出す', async () => {
+    mockLoad = async (k) => ({ status: 'FOUND', record: { ...started, key: k } });
+    delete mockStoreState.fiscalYearEnd;
+    render(createElement(ProjectPlanSection as never, props()));
+    fireEvent.click(await screen.findByRole('button', { name: 'PDFをダウンロード' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(mockDownload).not.toHaveBeenCalled();
   });
 });

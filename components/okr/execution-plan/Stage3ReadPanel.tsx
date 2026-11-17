@@ -70,6 +70,7 @@ import { resolveProjectByKey } from '@/lib/stage4/plan/projectResolver';
 import { editsAfterReplace, type DroppedEdit } from '@/lib/stage4/plan/draftEdits';
 import { buildDocModel } from '@/lib/stage4/planView/documentModel';
 import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
+import { projectPlanFinanceOf, type ProjectPlanFinance } from '@/lib/stage4/plan/projectPlanFinance';
 import {
   conflictRows,
   entryAfterPersist,
@@ -280,6 +281,9 @@ function Stage3ProjectBrowser({
   const financeScopeMatches = !!selected && storeCompanyNow === selected.companyId && storeStrategyNow === selected.strategyId;
   const financeReason = financeWriteReason({ scopeMatches: financeScopeMatches, planLoaded: !!selectedEntry });
   const savedInvestments = (financePos?.project.executionHumanInvestments ?? []).filter(isInvestmentRecord);
+  const pdfProjectId = selected && selected.projectKey.startsWith('id:') ? selected.projectKey.slice(3) : null;
+  const pdfFinance: ProjectPlanFinance | null =
+    financeScopeMatches && pdfProjectId ? projectPlanFinanceOf({ departments: storeDepartmentsNow, fiscalYearEnd: storeFiscalYearEnd, projectId: pdfProjectId }) : null;
 
   const titleOf = (projectKey: string): string | null => {
     for (const s of tree) for (const d of s.departments) for (const p of d.projects) if (p.projectKey === projectKey) return p.projectTitle;
@@ -797,6 +801,7 @@ function Stage3ProjectBrowser({
             financeSection={financeSection}
             financeSummary={financeSummary}
             financeLines={financeLines}
+            pdfFinance={pdfFinance}
             stableId={sel.projectKey.startsWith('id:')}
             entry={entry}
             planView={planView}
@@ -858,6 +863,7 @@ function ReadOnlyProject({
   financeSection,
   financeSummary,
   financeLines,
+  pdfFinance,
   regen,
   onRegenStart,
   onRegenUse,
@@ -883,6 +889,7 @@ function ReadOnlyProject({
   financeSection: ReactNode;
   financeSummary: string;
   financeLines: FinanceLine[];
+  pdfFinance: ProjectPlanFinance | null;
   regen: RegenState | undefined;
   onRegenStart: () => void;
   onRegenUse: () => void;
@@ -1047,9 +1054,9 @@ function ReadOnlyProject({
               <button
                 type="button"
                 className="plan-btn-quiet"
-                disabled={!entry.stored || isDirty(entry)}
+                disabled={!entry.stored || isDirty(entry) || !pdfFinance}
                 onClick={() => {
-                  const input = savedPdfInput(entry, companyLabel, new Date().toISOString());
+                  const input = savedPdfInput(entry, companyLabel, new Date().toISOString(), pdfFinance);
                   if (!input) return;
                   void downloadProjectPlanPdf(input).catch((error: unknown) => {
                     console.error('[stage4-pdf] failed', error);
