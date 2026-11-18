@@ -373,3 +373,54 @@ describe('新規プロジェクトの採用で構造化KPI（okrsV2）を作る'
     expect(project.okrs[0].keyResults).toEqual(['購読継続率（％）', '課題解決世帯率（％）']);
   });
 });
+
+describe('既存の計画のKPI変更：ID・目標値・実績を保ち、STAGE4で重複しない（モックデータ）', () => {
+  const text = { title: '購読価値改善', reason: null, hypothesis: null, description: null };
+  const existing = () => [
+    {
+      id: 'd-news',
+      name: '新聞販売・配達事業',
+      projects: [
+        {
+          id: 'p-1',
+          title: '購読価値改善',
+          okrsV2: [
+            { id: 'kr-keep', label: '購読継続率（％）', target: 0.9, unit: '%', scope: 'DEPT', baseKey: 'NONE', actual: { value: 0.82, at: '2026-10' } },
+            { id: 'kr-2', label: '課題解決世帯率（％）', target: 0.5, unit: '%', scope: 'DEPT', baseKey: 'NONE' },
+          ],
+          okrs: [{ objective: '購読を続けてもらう', keyResults: ['購読継続率（％）', '課題解決世帯率（％）'] }],
+        },
+      ],
+    },
+  ];
+  const edit = {
+    departmentKey: 'id:d-news',
+    departmentName: '新聞販売・配達事業',
+    projectId: 'p-1',
+    fields: text,
+    base: text,
+    kpis: { base: ['購読継続率（％）', '課題解決世帯率（％）'], next: ['購読継続率（％）見直し後', '課題解決世帯率（％）'] },
+  };
+
+  it('文言だけが変わり、KPIのID・目標値・単位・実績は残る', () => {
+    const plan = planConfirm({ departments: existing(), changes: [], projectEdits: [edit], mintId: () => 'p-x' });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const project = (plan.departments[0].projects as Array<Record<string, any>>)[0];
+    const before = existing()[0].projects[0].okrsV2;
+    expect(project.okrsV2[0]).toEqual({ ...before[0], label: '購読継続率（％）見直し後' });
+    expect(project.okrsV2[1]).toEqual(before[1]);
+    expect(project.okrs[0].keyResults).toEqual(['購読継続率（％）見直し後', '課題解決世帯率（％）']);
+  });
+
+  it('STAGE4の読み取りで、変更後のKPIは1件ずつだけ読まれ、旧い文言は残らない', async () => {
+    const { readKpisOf } = await import('@/lib/stage4/plan/readModel');
+    const plan = planConfirm({ departments: existing(), changes: [], projectEdits: [edit], mintId: () => 'p-x' });
+    if (!plan.ok) throw new Error('plan');
+    const project = (plan.departments[0].projects as Array<Record<string, unknown>>)[0];
+    const kpis = readKpisOf(project);
+    expect(kpis.map((k) => k.label)).toEqual(['購読継続率（％）見直し後', '課題解決世帯率（％）']);
+    expect(kpis.every((k) => k.origin === 'OKRS_V2')).toBe(true);
+    expect(kpis[0].target).toBe(0.9);
+  });
+});
