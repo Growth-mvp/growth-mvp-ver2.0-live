@@ -83,7 +83,7 @@ type Props = {
   onNavigate: (tab: FinanceTab) => void;
 };
 
-const PROVISIONAL_CONCLUSION =
+export const PROVISIONAL_CONCLUSION =
   '売上増加に伴う運転資金・税率の前提が未確認のため、資金の安全性と返済可能性は確定判定しません。下の数値は暫定値です。';
 const PROVISIONAL_CF_NOTE =
   '条件付きCF（上の「3. お金は足りるか」）は、売上増加の年度の営業CFを未算定にしています。この判定は比率による推計を使うため、両者は一致しません。';

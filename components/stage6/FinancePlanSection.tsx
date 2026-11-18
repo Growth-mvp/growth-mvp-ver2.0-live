@@ -33,6 +33,8 @@ import { FinanceVerdictPanel } from './FinanceVerdictPanel';
 import { FinanceSummary } from './FinanceSummary';
 import { FinanceOutlookCharts } from './FinanceOutlookCharts';
 import { FinanceEffectProjectList } from './FinanceEffectProjectList';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
+import { FINANCE_CONSULT_OWNER, buildFinanceConsultFocus } from './financeConsultFocus';
 import Stage4ScenarioPanel from './Stage4ScenarioPanel';
 import { PlanActualByProject } from './PlanActualByProject';
 import { buildOutlookCharts } from './financeOutlookChartModel';
@@ -41,6 +43,7 @@ import { BaseScenarioPanel } from './BaseScenarioPanel';
 import {
   FINANCE_TABS,
   SAVE_STATUS_LABEL,
+  attentionSummary,
   buildUnconfirmedItems,
   deriveSaveStatus,
   provisionalFundingReasonsOf,
@@ -107,6 +110,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   const savedHash = useStrategyStore((s: StrategyState) => s.financePlanSavedHash);
   const setFinancePlanAssumptions = useStrategyStore((s: StrategyState) => s.setFinancePlanAssumptions);
   const saveStrategyData = useStrategyStore((s: StrategyState) => s.saveStrategyData);
+  const storeDirty = useStrategyStore((s: StrategyState) => s.dirty);
 
   const stored = useMemo(() => readStoredFinancePlan(storedRaw, companyId), [storedRaw, companyId]);
 
@@ -122,20 +126,27 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   );
   const [editVersion, setEditVersion] = useState(0);
   const [saveFailed, setSaveFailed] = useState(false);
+  /** 保存に成功した財務条件の版（内容のハッシュ）。入力が変わったら解除する（保存済みと確実に言えるときだけ値を持つ） */
+  const [savedPlanHash, setSavedPlanHash] = useState<string | null>(null);
+  /** 「詳しく確認する」が開いているか（相談文脈に、画面に出ている内容だけを含めるため） */
+  const [detailOpen, setDetailOpen] = useState(false);
   const setCfFormByUser: Dispatch<SetStateAction<CashFlowForm>> = (action) => {
     setCfForm(action);
     setEditVersion((v) => v + 1);
     setSaveFailed(false);
+    setSavedPlanHash(null);
   };
   const setScenarioFormByUser: Dispatch<SetStateAction<BaseScenarioForm>> = (action) => {
     setScenarioForm(action);
     setEditVersion((v) => v + 1);
     setSaveFailed(false);
+    setSavedPlanHash(null);
   };
   const setDebtFormByUser: Dispatch<SetStateAction<DebtForm>> = (action) => {
     setDebtForm(action);
     setEditVersion((v) => v + 1);
     setSaveFailed(false);
+    setSavedPlanHash(null);
   };
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -358,6 +369,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
         code?: string;
       };
       if (res?.ok || (res?.skipped && res.reason === 'same_hash')) {
+        setSavedPlanHash(currentMeta.assumptionsHash);
         return;
       }
       if (res?.skipped && res.reason === 'company_switching') {
@@ -393,6 +405,36 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   const requiredItem = requiredCount > 0 && firstRequired ? { count: requiredCount, tab: firstRequired.tab } : null;
   const hasStatusNote =
     saveNeedsAction || !!saveMessage || stored.kind === 'DIFFERENT_COMPANY' || stored.kind === 'INVALID';
+
+  // 相談文脈：保存済みと確実に言えるときだけ saved=true にする（再読込直後は保存の記録がないため false）
+  const formSaved = savedPlanHash !== null && savedPlanHash === currentMeta.assumptionsHash && !saving;
+  const planSaved = formSaved && !storeDirty;
+  useConsultFocus(
+    FINANCE_CONSULT_OWNER,
+    buildFinanceConsultFocus({
+      detailTab: detailOpen ? tab : null,
+      formSaved,
+      planSaved,
+      sourceSaved: !storeDirty,
+      charts: outlookCharts,
+      cash: cashSummary,
+      funding: fundingStatus,
+      forecastYears,
+      scenario: scenarioForm,
+      effect: { included: effectTrial.included.length, excluded: effectTrial.excluded.length },
+      investment,
+      attention: attentionSummary(investment.items),
+      cfForm,
+      debtForm,
+      reconciliation: schedule.reconciliation,
+      verdict: {
+        provisional: provisionalReasons.length > 0,
+        debtEntered,
+        years: fundingPlan.years.filter((y) => y.kind === 'FORECAST'),
+        fundingNeed,
+      },
+    }),
+  );
 
   return (
     <div className="space-y-6">
@@ -459,7 +501,10 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
         </div>
       </section>
 
-      <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <details
+        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        onToggle={(e) => setDetailOpen(e.currentTarget.open)}
+      >
         <summary className="cursor-pointer text-lg font-bold text-slate-900">詳しく確認する</summary>
         <div className="mt-4 space-y-4">
         <div role="tablist" aria-label="財務計画の作業タブ" className="grid grid-cols-2 gap-2 md:grid-cols-5">
