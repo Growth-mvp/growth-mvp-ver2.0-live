@@ -420,3 +420,56 @@ describe('構造化KPI（okrsV2）の文言変更', () => {
     expect(next).not.toHaveProperty('okrs');
   });
 });
+
+describe('再生成の計画変更案：草案の計画IDの対応づけ（A-03）', () => {
+  const official = [
+    {
+      id: 'dept_0',
+      name: '新聞販売・配達事業',
+      projects: [
+        {
+          id: 'p-51077a2e',
+          title: '新聞配達ルート別の採算',
+          okrsV2: [
+            { id: 'kr-1', label: '営業貢献額（円／ルート）' },
+            { id: 'kr-2', label: '定刻配達完了率（％）' },
+          ],
+          okrs: [{ keyResults: ['営業貢献額（円／ルート）', '定刻配達完了率（％）'] }],
+        },
+      ],
+    },
+  ];
+  const draftUnits: PlanUnit[] = [
+    {
+      departmentKey: 'id:dept_0',
+      departmentName: '新聞販売・配達事業',
+      scope: '事業単位',
+      projectId: 'id:proj-draft-1',
+      projectTitle: '新聞配達ルート別の採算',
+      summary: '',
+      kpis: [],
+    },
+  ];
+
+  it('草案の計画IDを、同じ部門の同名の正式な計画に対応づける', () => {
+    const raw = {
+      projects: [
+        {
+          departmentKey: 'id:dept_0',
+          projectId: 'id:proj-draft-1',
+          kpis: ['粗利（円／ルート）', '定刻配達完了率（％）'],
+          reason: '主KPIを粗利に変更する',
+        },
+      ],
+    };
+    const result = buildProjectChangeProposals(raw, official, new Set(['id:dept_0']), draftUnits);
+    expect(result.rejectedProjects).toBe(0);
+    expect(result.projects[0]).toMatchObject({ projectId: 'p-51077a2e', base: { kpis: ['営業貢献額（円／ルート）', '定刻配達完了率（％）'] } });
+    expect(result.projects[0].proposed.kpis).toEqual(['粗利（円／ルート）', '定刻配達完了率（％）']);
+  });
+
+  it('草案にも正式データにも対応する計画が無ければ採用しない', () => {
+    const raw = { projects: [{ departmentKey: 'id:dept_0', projectId: 'id:unknown', kpis: ['x'], reason: 'r' }] };
+    expect(buildProjectChangeProposals(raw, official, new Set(['id:dept_0']), draftUnits).rejectedProjects).toBe(1);
+  });
+});

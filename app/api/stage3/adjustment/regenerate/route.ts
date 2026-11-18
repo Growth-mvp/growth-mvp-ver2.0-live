@@ -80,7 +80,7 @@ export async function POST(req: Request) {
     // 変更案の基準は、保存済みの正式データ（apply 時に現在値と照合される）
     const departments = access.access.departments as Record<string, unknown>[];
     const result = buildRegenerationProposals(raw, departments, involved);
-    const projects = buildProjectChangeProposals(raw, departments, involved);
+    const projects = buildProjectChangeProposals(raw, departments, involved, units);
 
     await logAuditEvent({
       companyId: access.access.companyId,
