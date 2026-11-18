@@ -17,11 +17,11 @@ import { loadWorkspace } from '@/lib/server/stage3StrategyBook';
 import { sourceDepartments, verifyWorkspaceState } from '@/lib/cascade/stage3StrategyBook';
 import {
   buildAnalysisMessages,
-  collectPlanUnits,
   countDepartments,
   formatFinanceSummary,
   resolveCandidates,
 } from '@/lib/cascade/stage3Adjustment';
+import { adjustmentPlanUnits } from '@/lib/cascade/projectLifecycle';
 
 const BodySchema = z.object({
   companyId: z.string().uuid(),
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
     const source = sourceDepartments(check.state, body.draft ?? null, access.access.departments);
     if (!source.ok) return failResponse(409, source.error);
-    const units = collectPlanUnits(source.departments);
+    const units = adjustmentPlanUnits(source.departments);
     if (countDepartments(units) < 2) return failResponse(422, 'insufficient_departments');
 
     const completion = await openai.chat.completions.create({

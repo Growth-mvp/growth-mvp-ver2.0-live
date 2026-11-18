@@ -128,11 +128,15 @@ export async function buildConfirmPlan(
     if (referencedProjectKeys.size > 0) return { kind: 'error', status: 409, error: 'project_referenced' };
   }
 
+  // 計画から外す・不採用にする施策の文章変更は反映しない（外す判断が優先する）
+  const removedRefs = new Set(projectRemovals.map((r) => `${r.departmentKey} ${r.projectId}`));
+  const keptEdits = projectEdits.filter((e) => !removedRefs.has(`${e.departmentKey} ${e.projectId}`));
+
   const plan = planConfirm({
     departments,
     changes,
     adoptions,
-    projectEdits,
+    projectEdits: keptEdits,
     projectRemovals,
     referencedProjectKeys,
     mintId: () => `p-${randomUUID()}`,

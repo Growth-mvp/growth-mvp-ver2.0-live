@@ -1,4 +1,4 @@
-import { departmentKeyOf } from '@/lib/cascade/stage3Adjustment';
+import { collectPlanUnits, departmentKeyOf, type PlanUnit } from '@/lib/cascade/stage3Adjustment';
 import { computeFinanceEffect } from '@/lib/financeEffect';
 import type { FinanceEffect, ProjectLifecycle, ProjectLifecycleStatus } from '@/types/strategy';
 
@@ -264,6 +264,19 @@ function plannedProject(project: unknown): unknown {
   if (life.status === 'EXCLUDED') return clearPlan(project as AnyRecord);
   const stopYm = ymOf(life.stoppedAt ?? life.changedAt);
   return stopYm ? cutPlan(project as AnyRecord, stopYm) : clearPlan(project as AnyRecord);
+}
+
+/* 計画から外した・中止した施策を除いた部門の一覧（AIの部門間調整の入力に使う）。入力の departments は変えない。 */
+export function activePlanDepartments(departments: unknown): AnyRecord[] {
+  if (!Array.isArray(departments)) return [];
+  return (departments as AnyRecord[]).map((dept) =>
+    dept && Array.isArray(dept.projects) ? { ...dept, projects: (dept.projects as unknown[]).filter(isProjectActive) } : dept,
+  );
+}
+
+/* AIの部門間調整に渡す行動計画。対象外の施策は、分析・調整案・再検証のどれにも現れない。 */
+export function adjustmentPlanUnits(departments: unknown): PlanUnit[] {
+  return collectPlanUnits(activePlanDepartments(departments));
 }
 
 /* STAGE6の計算に渡す施策の一覧。施策の並びは変えず、除外した施策の予定を空にし、中止した施策は中止月以降の予定を外す。

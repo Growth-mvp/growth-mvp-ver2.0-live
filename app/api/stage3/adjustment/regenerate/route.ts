@@ -19,11 +19,11 @@ import {
   buildProjectChangeProposals,
   buildRegenerationMessages,
   buildRegenerationProposals,
-  collectPlanUnits,
   formatFinanceSummary,
   normalizeDialogue,
   verifyCandidates,
 } from '@/lib/cascade/stage3Adjustment';
+import { adjustmentPlanUnits } from '@/lib/cascade/projectLifecycle';
 
 const BodySchema = z.object({
   companyId: z.string().uuid(),
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
     const source = sourceDepartments(check.state, body.draft ?? null, access.access.departments);
     if (!source.ok) return failResponse(409, source.error);
-    const units = collectPlanUnits(source.departments);
+    const units = adjustmentPlanUnits(source.departments);
     const candidates = verifyCandidates(body.candidates, units);
     if (!candidates) return failResponse(400, 'invalid_candidates');
 

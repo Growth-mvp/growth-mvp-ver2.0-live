@@ -15,7 +15,8 @@ import { failResponse } from '@/lib/server/stage3DepartmentWrite';
 import { loadStrategyAccess, requireConfirmedStrategy } from '@/lib/server/stage3Adjustment';
 import { loadWorkspace } from '@/lib/server/stage3StrategyBook';
 import { sourceDepartments, verifyWorkspaceState } from '@/lib/cascade/stage3StrategyBook';
-import { buildProposalMessages, collectPlanUnits, resolveProposals, verifyCandidates } from '@/lib/cascade/stage3Adjustment';
+import { buildProposalMessages, resolveProposals, verifyCandidates } from '@/lib/cascade/stage3Adjustment';
+import { adjustmentPlanUnits } from '@/lib/cascade/projectLifecycle';
 
 const BodySchema = z.object({
   companyId: z.string().uuid(),
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
 
     const source = sourceDepartments(check.state, body.draft ?? null, access.access.departments);
     if (!source.ok) return failResponse(409, source.error);
-    const units = collectPlanUnits(source.departments);
+    const units = adjustmentPlanUnits(source.departments);
     const candidates = verifyCandidates(body.candidates, units);
     if (!candidates) return failResponse(400, 'invalid_candidates');
 

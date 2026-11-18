@@ -25,11 +25,11 @@ import {
 import { settleLegacySelections } from '@/lib/cascade/stage3Settle';
 import {
   buildAnalysisMessages,
-  collectPlanUnits,
   countDepartments,
   formatFinanceSummary,
   resolveCandidates,
 } from '@/lib/cascade/stage3Adjustment';
+import { adjustmentPlanUnits } from '@/lib/cascade/projectLifecycle';
 
 const BodySchema = z.object({
   companyId: z.string().uuid(),
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     const changeCount =
       plan.appliedCount + plan.editedProjectCount + plan.adoptedProjectIds.length + plan.excludedProjectIds.length;
 
-    const units = collectPlanUnits(plan.departments);
+    const units = adjustmentPlanUnits(plan.departments);
     let result: { candidates: Verification['candidates']; rejectedCandidates: number; rejectedReferences: number } = {
       candidates: [],
       rejectedCandidates: 0,
