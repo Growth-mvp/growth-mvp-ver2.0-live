@@ -37,8 +37,14 @@ function targetToOku(base: number, unit: string): number | null {
   return factor == null ? null : base * factor;
 }
 
-function sameOku(a: number, b: number): boolean {
-  return Math.abs(a - b) < 0.05;
+/** 本文の数値を、書かれた桁数で丸めた誤差（半単位）の中に目標があれば一致とみなす。1.8億円と175百万円（1.75億円）は一致する */
+function matchesWrittenPrecision(written: string, unit: string, targetOku: number): boolean {
+  const factor = UNIT_TO_OKU[unit.trim()];
+  if (factor == null) return true;
+  const value = Number(written.replace(/,/g, ''));
+  const decimals = (written.split('.')[1] ?? '').length;
+  const targetInUnit = targetOku / factor;
+  return Math.abs(value - targetInUnit) <= 0.5 * 10 ** -decimals + 1e-9;
 }
 
 /** 金額の記述を含む文の先頭から、その金額までの区切り（。、改行）内の文字列 */
@@ -86,9 +92,7 @@ export function runDocumentChecks(input: {
         if (NOT_A_TARGET.test(clause)) continue;
         const year = lastYearIn(clause) ?? lastYearIn(sentenceBefore(text, m.index ?? 0));
         if (year != null && row.dueYear != null && year !== row.dueYear) continue;
-        const value = Number(m[3].replace(/,/g, ''));
-        const oku = targetToOku(value, m[4]);
-        if (oku != null && !sameOku(oku, targetOku)) {
+        if (!matchesWrittenPrecision(m[3], m[4], targetOku)) {
           mentions.push(snippetAround(text, m.index ?? 0, m[0].length));
         }
       }

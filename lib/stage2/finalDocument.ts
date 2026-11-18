@@ -261,8 +261,9 @@ export function findUnconfirmedChanges(input: {
   const chapters = edited.length > 0 && !sameChapters(edited, confirmed);
 
   const snapshot = input.edits?.confirmed;
+  const conclusionNow = resolveConclusion(input.edits?.conclusion, input.aiGeneratedConclusion);
   const document = snapshot
-    ? resolveConclusion(input.edits?.conclusion, input.aiGeneratedConclusion) !== (snapshot.conclusion ?? '') ||
+    ? (conclusionNow !== '' && conclusionNow !== (snapshot.conclusion ?? '')) ||
       (!!input.edits?.assumptions &&
         stableStringify(normalizeAssumptions(input.edits.assumptions)) !==
           stableStringify(normalizeAssumptions(snapshot.assumptions ?? {})))
