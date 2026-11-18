@@ -4,6 +4,7 @@ import type { ProjectTextFields } from '@/lib/cascade/stage3StrategyBook';
 import {
   collectProjectIds,
   currentItemValues,
+  krRecordsFromKpis,
   prepareAdoptedProject,
   sameItemValues,
   validateProposalRequest,
@@ -95,6 +96,8 @@ export function planConfirm(args: {
   projectRemovals?: ConfirmProjectRemoval[];
   referencedProjectKeys?: Set<string>;
   mintId: () => string;
+  /** 構造化KPI（okrsV2）のKRのIDを作る。省略時は mintId と同じ方法 */
+  mintKrId?: () => string;
   nowIso: string;
   actorUserId: string | null;
 }): ConfirmPlan {
@@ -190,7 +193,8 @@ export function planConfirm(args: {
     const id = String(prepared.project.id);
     taken.add(id);
     adoptedProjectIds.push(id);
-    next[index] = { ...next[index], projects: [...list, { ...prepared.project, sourceCandidateId: a.candidateId }] };
+    const okrsV2 = krRecordsFromKpis(prepared.project, args.mintKrId ?? args.mintId);
+    next[index] = { ...next[index], projects: [...list, { ...prepared.project, ...(okrsV2.length > 0 ? { okrsV2 } : {}), sourceCandidateId: a.candidateId }] };
   }
 
   return {

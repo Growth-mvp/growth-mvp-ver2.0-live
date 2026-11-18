@@ -345,3 +345,31 @@ describe('採用したKPIの変更の確定（A-03）', () => {
     expect(plan).toEqual({ ok: false, error: 'project_changed', departmentName: '営業部', item: 'project' });
   });
 });
+
+describe('新規プロジェクトの採用で構造化KPI（okrsV2）を作る', () => {
+  it('採用した計画のKPIごとに、IDつきのKRを作り、KPIの文言は計画のKPIと一致させる', () => {
+    const plan = planConfirm({
+      departments: [{ id: 'd-news', name: '新聞販売・配達事業', projects: [] }],
+      changes: [],
+      adoptions: [
+        {
+          departmentKey: 'id:d-news',
+          departmentName: '新聞販売・配達事業',
+          candidateId: 'np-0000aaaa',
+          project: {
+            title: '購読価値改善',
+            okrs: [{ objective: '購読を続けてもらう', keyResults: ['購読継続率（％）', '課題解決世帯率（％）'] }],
+          },
+        },
+      ],
+      mintId: sequence(),
+      mintKrId: () => `kr-${Math.random().toString(36).slice(2, 8)}`,
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const project = (plan.departments[0].projects as Array<Record<string, any>>)[0];
+    expect(project.okrsV2.map((k: { label: string }) => k.label)).toEqual(['購読継続率（％）', '課題解決世帯率（％）']);
+    expect(new Set(project.okrsV2.map((k: { id: string }) => k.id)).size).toBe(2);
+    expect(project.okrs[0].keyResults).toEqual(['購読継続率（％）', '課題解決世帯率（％）']);
+  });
+});

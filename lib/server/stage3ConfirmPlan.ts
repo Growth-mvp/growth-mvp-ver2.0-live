@@ -136,6 +136,7 @@ export async function buildConfirmPlan(
     projectRemovals,
     referencedProjectKeys,
     mintId: () => `p-${randomUUID()}`,
+    mintKrId: () => randomUUID(),
     nowIso: new Date().toISOString(),
     actorUserId: args.actorUserId,
   });

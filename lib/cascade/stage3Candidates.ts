@@ -283,3 +283,21 @@ export function displayProposalValue(item: DeptProposalItem, values: AnyRecord):
   }
   return formatProposalPart(values[DEPT_PROPOSAL_ITEMS[item].keys[0]]);
 }
+
+/** 新規プロジェクトのKPIの文言（重複・空を除く）。目標・KRの文字列と旧形式のKPIの両方から取る。 */
+export function kpiLabelsOfProject(project: AnyRecord): string[] {
+  const okr0 = Array.isArray(project.okrs) ? (project.okrs[0] as AnyRecord | undefined) : undefined;
+  const fromOkr = Array.isArray(okr0?.keyResults) ? (okr0?.keyResults as unknown[]) : [];
+  const legacy = Array.isArray(project.kpis) ? (project.kpis as unknown[]) : [];
+  const text = (v: unknown): string => {
+    if (typeof v === 'string') return v.trim();
+    if (v && typeof v === 'object' && typeof (v as AnyRecord).statement === 'string') return ((v as AnyRecord).statement as string).trim();
+    return '';
+  };
+  return [...new Set([...fromOkr, ...legacy].map(text).filter(Boolean))];
+}
+
+/** 採用する新規プロジェクトの構造化KPI（okrsV2）。既存の仕様どおり、KPIの文言ごとにIDつきのKRにする。 */
+export function krRecordsFromKpis(project: AnyRecord, mintKrId: () => string): AnyRecord[] {
+  return kpiLabelsOfProject(project).map((label) => ({ id: mintKrId(), label }));
+}
