@@ -4332,7 +4332,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                               onChange={(e) => {
                                 const updated = [...editingStory];
                                 if (updated[chapterIndex]) {
-                                  updated[chapterIndex].body = e.target.value;
+                                  updated[chapterIndex] = { ...updated[chapterIndex], body: e.target.value };
                                 }
                                 setEditingStory(updated);
                                 setLastEditedDoc({ kind: 'chapter', index: chapterIndex });
