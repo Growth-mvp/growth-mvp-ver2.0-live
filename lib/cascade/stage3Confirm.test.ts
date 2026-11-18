@@ -424,3 +424,59 @@ describe('既存の計画のKPI変更：ID・目標値・実績を保ち、STAGE
     expect(kpis[0].target).toBe(0.9);
   });
 });
+
+describe('名称変更とSTAGE4の参照（関連テスト）', () => {
+  it('既存の計画の名称を変えても、計画のIDと構造化KPIのIDは変わらない', () => {
+    const departments = [
+      {
+        id: 'd-news',
+        name: '新聞販売・配達事業',
+        projects: [
+          {
+            id: 'p-rename',
+            title: '旧い名称',
+            okrsV2: [{ id: 'kr-r1', label: '定刻配達完了率（％）', target: 0.99, unit: '%', scope: 'DEPT', baseKey: 'NONE' }],
+          },
+        ],
+      },
+    ];
+    const text = { title: '旧い名称', reason: null, hypothesis: null, description: null };
+    const plan = planConfirm({
+      departments,
+      changes: [],
+      projectEdits: [
+        { departmentKey: 'id:d-news', departmentName: '新聞販売・配達事業', projectId: 'p-rename', fields: { ...text, title: '新しい名称' }, base: text },
+      ],
+      mintId: () => 'p-new',
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const project = (plan.departments[0].projects as Array<Record<string, any>>)[0];
+    expect(project.id).toBe('p-rename');
+    expect(project.title).toBe('新しい名称');
+    expect(project.okrsV2).toEqual(departments[0].projects[0].okrsV2);
+  });
+
+  it('採用した新規計画の構造化KPIは、STAGE4の読み取りで構造化KPIとして参照される', async () => {
+    const { readKpisOf } = await import('@/lib/stage4/plan/readModel');
+    const plan = planConfirm({
+      departments: [{ id: 'd-news', name: '新聞販売・配達事業', projects: [] }],
+      changes: [],
+      adoptions: [
+        {
+          departmentKey: 'id:d-news',
+          departmentName: '新聞販売・配達事業',
+          candidateId: 'np-0000bbbb',
+          project: { title: '購読価値改善', okrs: [{ objective: '購読を続けてもらう', keyResults: ['購読継続率（％）'] }] },
+        },
+      ],
+      mintId: sequence(),
+      mintKrId: () => 'kr-adopted-1',
+    });
+    if (!plan.ok) throw new Error('plan');
+    const project = (plan.departments[0].projects as Array<Record<string, unknown>>)[0];
+    const kpis = readKpisOf(project);
+    expect(kpis).toEqual([expect.objectContaining({ label: '購読継続率（％）', origin: 'OKRS_V2' })]);
+    expect(project.okrsV2).toEqual([{ id: 'kr-adopted-1', label: '購読継続率（％）' }]);
+  });
+});
