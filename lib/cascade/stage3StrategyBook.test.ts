@@ -2,6 +2,8 @@ import { collectPlanUnits, resolveCandidates } from './stage3Adjustment';
 import {
   emptyWorkspaceState,
   planBasisKey,
+  verificationFor,
+  workspaceSignature,
   WorkspaceStateSchema,
   sourceDepartments,
   verifyWorkspaceState,
@@ -259,5 +261,24 @@ describe('planBasisKey（保存の往復で並びが変わっても同じ値）'
     const a = { ...emptyWorkspaceState(), selections: [{ departmentKey: 'id:d', departmentName: '営業部', item: 'collab', proposed: { x: 1, y: 'a' }, base: {}, decision: 'applied' as const }] };
     const b = { ...emptyWorkspaceState(), selections: [{ decision: 'applied' as const, base: {}, proposed: { y: 'a', x: 1, z: undefined }, item: 'collab', departmentName: '営業部', departmentKey: 'id:d' }] };
     expect(planBasisKey(a as WorkspaceState)).toBe(planBasisKey(b as WorkspaceState));
+  });
+});
+
+describe('検証結果と最新の編集の整合（保存の競合）', () => {
+  const sel = { departmentKey: 'id:d', departmentName: '営業部', item: 'collab', proposed: { needsCollab: ['A'] }, base: {}, decision: 'applied' as const };
+  const withPlan = { ...emptyWorkspaceState(), selections: [sel] };
+  const verification = { basisKey: planBasisKey(withPlan), createdAt: '2026-11-18T00:00:00.000Z', changeCount: 1, rejectedCount: 0, candidates: [] };
+
+  it('計画が検証時と同じなら、その検証結果は最新の作業版に書ける。変わっていれば書かない', () => {
+    expect(verificationFor(withPlan, verification)).toEqual(verification);
+    const changed = { ...withPlan, selections: [{ ...sel, proposed: { needsCollab: ['B'] } }] };
+    expect(verificationFor(changed, verification)).toBeNull();
+  });
+
+  it('検証結果だけが違う版は同じ作業内容とみなし、それ以外の違いは別の内容とみなす', () => {
+    const verified = { ...withPlan, verification };
+    expect(workspaceSignature(verified)).toBe(workspaceSignature(withPlan));
+    const edited = { ...withPlan, dialogue: [{ candidateId: 'adj-1', topic: 't', result: '新しい話し合い' }] };
+    expect(workspaceSignature(edited)).not.toBe(workspaceSignature(withPlan));
   });
 });

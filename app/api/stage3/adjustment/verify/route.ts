@@ -16,7 +16,12 @@ import { failResponse } from '@/lib/server/stage3DepartmentWrite';
 import { loadStrategyAccess, requireConfirmedStrategy } from '@/lib/server/stage3Adjustment';
 import { buildConfirmPlan } from '@/lib/server/stage3ConfirmPlan';
 import { loadWorkspace, saveWorkspace } from '@/lib/server/stage3StrategyBook';
-import { planBasisKey, verifyWorkspaceState, type Verification } from '@/lib/cascade/stage3StrategyBook';
+import {
+  planBasisKey,
+  verifyWorkspaceState,
+  type Verification,
+  type WorkspaceState,
+} from '@/lib/cascade/stage3StrategyBook';
 import { settleLegacySelections } from '@/lib/cascade/stage3Settle';
 import {
   buildAnalysisMessages,
@@ -101,13 +106,31 @@ export async function POST(req: Request) {
       rejectedCount: result.rejectedCandidates + result.rejectedReferences,
       candidates: result.candidates,
     };
-    const saved = await saveWorkspace(admin, {
-      companyId: body.companyId,
-      strategyId: body.strategyId,
-      userId: access.access.userId,
-      expectedVersion: loaded.workspace.version,
-      state: { ...check.state, verification },
-    });
+    // 検証結果は、計画が検証時と同じままの最新の作業版にだけ書く。版が進んでいたら最新を読み直して書き直す（最新の編集を上書きしない）
+    let version = loaded.workspace.version;
+    let stored: WorkspaceState = check.state;
+    let persisted = false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const write = await saveWorkspace(admin, {
+        companyId: body.companyId,
+        strategyId: body.strategyId,
+        userId: access.access.userId,
+        expectedVersion: version,
+        state: { ...stored, verification },
+      });
+      if (write.ok) {
+        version = write.version;
+        stored = { ...stored, verification };
+        persisted = true;
+        break;
+      }
+      if (write.status !== 409) break;
+      const latest = await loadWorkspace(admin, body.strategyId);
+      if (!latest.ok || latest.workspace.state.status !== 'draft') break;
+      if (planBasisKey(latest.workspace.state) !== verification.basisKey) break;
+      version = latest.workspace.version;
+      stored = latest.workspace.state;
+    }
 
     await logAuditEvent({
       companyId: access.access.companyId,
@@ -121,14 +144,15 @@ export async function POST(req: Request) {
         rejectedCandidates: result.rejectedCandidates,
         rejectedReferences: result.rejectedReferences,
         planUnitCount: units.length,
-        persisted: saved.ok,
+        persisted,
       },
     });
 
     return NextResponse.json({
       ok: true,
-      persisted: saved.ok,
-      workspaceVersion: saved.ok ? saved.version : loaded.workspace.version,
+      persisted,
+      workspaceVersion: version,
+      state: persisted ? stored : null,
       verification,
     });
   } catch {

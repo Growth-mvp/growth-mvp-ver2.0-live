@@ -43,6 +43,8 @@ import type { SettleCounts } from '@/lib/cascade/stage3Settle';
 import { projectTextOf } from '@/lib/cascade/stage3Confirm';
 import {
   planBasisKey,
+  verificationFor,
+  workspaceSignature,
   stableIdText,
   type ProjectProposal,
   type ProjectTextFields,
@@ -191,6 +193,7 @@ type VerifyResponse = {
   ok: true;
   persisted: boolean;
   workspaceVersion: number;
+  state: WorkspaceState | null;
   verification: Verification;
 };
 type ConfirmResponse = { ok: true; revision: number; version: number; appliedCount: number; adoptedProjectIds: string[] };
@@ -697,19 +700,44 @@ export function StrategyBookDesk({
     }
   };
 
+  const putWorkspace = (g: { companyId: string; strategyId: string }, state: WorkspaceState, expectedVersion: number) =>
+    authFetchJson<SaveResponse>('/api/stage3/strategy-book', {
+      method: 'PUT',
+      json: { companyId: g.companyId, strategyId: g.strategyId, expectedVersion, state },
+    });
+
+  const fetchWorkspace = (g: { companyId: string; strategyId: string }) =>
+    authFetchJson<StateResponse>(
+      `/api/stage3/strategy-book?companyId=${encodeURIComponent(g.companyId)}&strategyId=${encodeURIComponent(g.strategyId)}`,
+      { method: 'GET' },
+    ).catch(() => null);
+
   const save = async (next: WorkspaceState): Promise<boolean> => {
     const g = gate();
     const expected = versionRef.current;
     if (!g || expected === null) return false;
     try {
-      const res = await authFetchJson<SaveResponse>('/api/stage3/strategy-book', {
-        method: 'PUT',
-        json: { companyId: g.companyId, strategyId: g.strategyId, expectedVersion: expected, state: next },
-      });
+      const res = await putWorkspace(g, next, expected);
       versionRef.current = res.version;
       setState(next);
       return true;
     } catch (e) {
+      // 自動の再検証が版を進めただけなら、最新の版に合わせて保存し直す（利用者の編集は上書きしない）
+      if (errorCode(e) === 'version_conflict') {
+        const latest = await fetchWorkspace(g);
+        if (latest && workspaceSignature(latest.state) === workspaceSignature(state)) {
+          const merged: WorkspaceState = { ...next, verification: verificationFor(next, latest.state.verification) };
+          try {
+            const res = await putWorkspace(g, merged, latest.version);
+            versionRef.current = res.version;
+            setState(merged);
+            return true;
+          } catch (retryError) {
+            setNotice(errorMessage(retryError));
+            return false;
+          }
+        }
+      }
       setNotice(errorMessage(e));
       return false;
     }
@@ -734,7 +762,8 @@ export function StrategyBookDesk({
       setNotice(blocker);
       return;
     }
-    if (!gate()) return;
+    const g = gate();
+    if (!g) return;
     setBusy(kind);
     setNotice('');
     try {
@@ -759,15 +788,23 @@ export function StrategyBookDesk({
         setNotice('作れませんでした。時間をおいて再度お試しください。');
         return;
       }
+      // 生成には時間がかかるため、結果は開始時の画面の状態ではなく、いま保存されている最新の状態の上に載せる
+      const latestWs = await fetchWorkspace(g);
+      if (!latestWs) {
+        setNotice('作業内容を読み込めませんでした。時間をおいて再度お試しください。');
+        return;
+      }
+      versionRef.current = latestWs.version;
+      const base = latestWs.state;
       const official = departments as unknown as AnyRecord[];
-      const previous = latestDraft(state);
+      const previous = latestDraft(base);
       const regenKeys = new Set(Object.keys(generated));
       const candidateMap: Record<string, AnyRecord[]> = { ...candidateProjectsOf(previous) };
       for (const [k, r] of Object.entries(generated)) candidateMap[k] = r.projects;
       const draft: StrategyDraft = {
         draftId: newDraftId(),
         kind,
-        version: nextDraftVersion(state),
+        version: nextDraftVersion(base),
         createdAt: new Date().toISOString(),
         departments: draftDepartmentsFrom(
           official.map((d) => ({ ...d, projects: Array.isArray(d.projects) ? (d.projects as AnyRecord[]).filter((p) => isProjectActive(p)) : d.projects })),
@@ -777,10 +814,10 @@ export function StrategyBookDesk({
         generatedDepartmentKeys: Object.keys(generated),
       };
       const proposals = Object.fromEntries(Object.entries(generated).map(([k, r]) => [k, r.proposals]));
-      const previousSelections = state.selections;
+      const previousSelections = base.selections;
       const next = reopen({
-        ...state,
-        drafts: [...state.drafts, draft].slice(-MAX_DRAFTS),
+        ...base,
+        drafts: [...base.drafts, draft].slice(-MAX_DRAFTS),
         analysis: null,
         candidateDecisions: {},
         adjustmentProposals: [],
@@ -790,7 +827,7 @@ export function StrategyBookDesk({
           ...selectionsFrom(official, proposals, previousSelections.filter((s) => regenKeys.has(s.departmentKey))),
           ...previousSelections.filter((s) => !regenKeys.has(s.departmentKey)),
         ],
-        projectSelections: projectSelectionsFrom(official, draft.newProjects, state.projectSelections),
+        projectSelections: projectSelectionsFrom(official, draft.newProjects, base.projectSelections),
       });
       if (!(await save(next))) return;
       setViewByDept((prev) => ({
@@ -1073,8 +1110,12 @@ export function StrategyBookDesk({
         method: 'POST',
         json: { companyId: g.companyId, strategyId: g.strategyId },
       });
-      versionRef.current = res.workspaceVersion;
-      setState((prev) => ({ ...prev, verification: res.verification }));
+      if (res.persisted && res.state) {
+        versionRef.current = res.workspaceVersion;
+        setState(res.state);
+      } else {
+        setState((prev) => ({ ...prev, verification: res.verification }));
+      }
       return true;
     } catch (e) {
       setNotice(errorMessage(e));

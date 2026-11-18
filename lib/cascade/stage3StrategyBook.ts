@@ -213,6 +213,20 @@ export function planBasisKey(state: WorkspaceState): string {
   return hash53(canonicalJson(basis));
 }
 
+/**
+ * 検証結果を、ある作業版に書いてよいかを決める。計画の内容が検証時と同じ場合だけ、その検証結果は有効。
+ * 計画が変わっていれば null（古い検証結果で最新の編集を上書きしない）。
+ */
+export function verificationFor(state: WorkspaceState, verification: Verification | null): Verification | null {
+  if (!verification) return null;
+  return planBasisKey(state) === verification.basisKey ? verification : null;
+}
+
+/** 作業版の内容の署名。検証結果だけを除いて比べ、自動の検証で版が進んだだけかを判定する。 */
+export function workspaceSignature(state: WorkspaceState): string {
+  return hash53(canonicalJson({ ...state, verification: null }));
+}
+
 /** キーの並び順と未定義の値に依存しない直列化（保存の往復で並びが変わっても同じ値にする） */
 function canonicalJson(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonicalJson(x))).join(',')}]`;
