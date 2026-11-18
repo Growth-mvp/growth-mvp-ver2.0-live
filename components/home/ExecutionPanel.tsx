@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
+import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { achievementPct, buildTargetSummary, formatPct, type MetricSummary } from '@/components/stage6/financeSummaryModel';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
@@ -372,12 +373,14 @@ export default function ExecutionPanel() {
     });
   };
 
+  const plannedDepartments = useMemo(() => stage6PlanDepartments(departments) as Department[], [departments]);
+
   const stage6Summary = useMemo(() => {
     const stored = readStoredFinancePlan(storedFinancePlan, strategyCompanyId);
     const outlook = buildFinanceOutlook({
       financePL,
       financeBS,
-      departments,
+      departments: plannedDepartments,
       fiscalYearEnd,
       companyTargets,
       domain: stored.kind === 'OK' ? stored.domain : null,
@@ -389,7 +392,7 @@ export default function ExecutionPanel() {
       revenue: metricViewOf(targetSummary.revenue, actualYear?.revenue.value ?? null),
       op: metricViewOf(targetSummary.operatingIncome, actualYear?.operatingIncome.value ?? null),
     };
-  }, [financePL, financeBS, departments, fiscalYearEnd, companyTargets, storedFinancePlan, strategyCompanyId]);
+  }, [financePL, financeBS, plannedDepartments, fiscalYearEnd, companyTargets, storedFinancePlan, strategyCompanyId]);
 
   return (
     <div className="space-y-3">

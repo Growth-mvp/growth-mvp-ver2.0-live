@@ -9,6 +9,7 @@ function makeRequestId() {
 }
 import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
+import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { resolveScreenContext } from '@/lib/screens/screenContext';
 import { consultBlockFor } from '@/lib/consult/consultFocus';
 import { loadExecutionScope, parseExecutionInput } from '@/lib/ceoChat/executionScope';
@@ -705,7 +706,7 @@ export async function POST(req: Request) {
             companyId,
             financePL: (strategy as any)?.financePL,
             financeBS: (strategy as any)?.financeBS,
-            departments: (strategy as any)?.departments,
+            departments: stage6PlanDepartments((strategy as any)?.departments),
             fiscalYearEnd: (strategy as any)?.fiscalYearEnd,
             currentYear: new Date().getFullYear(),
             companyTargets: (strategy as any)?.companyTargets,
