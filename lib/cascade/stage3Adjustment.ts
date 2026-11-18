@@ -302,7 +302,16 @@ function projectFieldsOf(project: AnyRecord): Omit<ProjectChangeFields, 'kpis'> 
   };
 }
 
+/** 構造化KPI（okrsV2）。読み取り側（STAGE4）が優先する正式な置き場。 */
+function okrsV2Of(project: AnyRecord): AnyRecord[] | null {
+  const list = Array.isArray(project.okrsV2) ? (project.okrsV2 as unknown[]) : [];
+  if (list.length === 0 || !list.every((k) => k && typeof k === 'object')) return null;
+  return list as AnyRecord[];
+}
+
 function kpiSourceOf(project: AnyRecord): unknown[] | null {
+  const v2 = okrsV2Of(project);
+  if (v2) return v2.map((k) => k.label);
   const okr0 = Array.isArray(project.okrs) ? (project.okrs[0] as AnyRecord | undefined) : undefined;
   if (Array.isArray(okr0?.keyResults) && okr0.keyResults.length > 0) return okr0.keyResults as unknown[];
   if (Array.isArray(project.kpis) && project.kpis.length > 0) return project.kpis as unknown[];
@@ -317,17 +326,25 @@ export function editableKpis(project: AnyRecord): string[] | null {
   return texts.every((t) => t !== '') ? texts : null;
 }
 
-/** KPIの文言だけを差し替える。件数は呼び出し側で揃えておく。先頭の目標（okrs[0]）の主要な成果指標に反映する。 */
+/**
+ * KPIの文言だけを差し替える。件数は呼び出し側で揃えておく。
+ * okrsV2 がある場合は、その label（KR の id・実績・目標はそのまま）を正とし、
+ * 旧形式の目標の投影（okrs[0].keyResults）も同じ文言にそろえる。片方だけ変えると、STAGE4 に旧い文言が重複して残るため。
+ */
 export function withKpis(project: AnyRecord, kpis: string[]): AnyRecord {
+  const v2 = okrsV2Of(project);
   const okrs = Array.isArray(project.okrs) ? (project.okrs as AnyRecord[]) : undefined;
   const okr0 = okrs?.[0];
+  const next: AnyRecord = v2 ? { ...project, okrsV2: v2.map((k, i) => ({ ...k, label: kpis[i] })) } : project;
   if (okrs && Array.isArray(okr0?.keyResults) && okr0.keyResults.length > 0) {
-    const keyResults = (okr0.keyResults as unknown[]).map((kr, i) =>
-      kr && typeof kr === 'object' ? { ...(kr as AnyRecord), statement: kpis[i] } : kpis[i],
-    );
-    return { ...project, okrs: [{ ...okr0, keyResults }, ...okrs.slice(1)] };
+    const keyResults = (okr0.keyResults as unknown[]).map((kr, i) => {
+      if (i >= kpis.length) return kr;
+      return kr && typeof kr === 'object' ? { ...(kr as AnyRecord), statement: kpis[i] } : kpis[i];
+    });
+    return { ...next, okrs: [{ ...okr0, keyResults }, ...okrs.slice(1)] };
   }
-  return { ...project, kpis };
+  if (v2) return next;
+  return { ...next, kpis };
 }
 
 function findProject(dept: AnyRecord, projectId: string): AnyRecord | undefined {

@@ -1,6 +1,8 @@
 import { collectPlanUnits, resolveCandidates } from './stage3Adjustment';
 import {
   emptyWorkspaceState,
+  planBasisKey,
+  WorkspaceStateSchema,
   sourceDepartments,
   verifyWorkspaceState,
   type WorkspaceState,
@@ -218,5 +220,36 @@ describe('verifyWorkspaceState（計画・KPIの変更候補）', () => {
       ok: false,
       error: 'project_proposal_duplicated',
     });
+  });
+});
+
+describe('planBasisKey（検証結果が古くなったかの判定）', () => {
+  const sel = {
+    departmentKey: 'id:d-sales',
+    departmentName: '営業部',
+    item: 'collab',
+    proposed: { needsCollab: ['連携A'] },
+    base: { needsCollab: [] },
+    decision: 'applied' as const,
+  };
+
+  it('計画の内容が同じなら同じキー。検証結果や対話の記録は含めない', () => {
+    const a = { ...emptyWorkspaceState(), selections: [sel] };
+    const b = { ...a, dialogue: [{ candidateId: 'adj-1', topic: 't', result: '話した' }], verification: null };
+    expect(planBasisKey(a)).toBe(planBasisKey(b));
+  });
+
+  it('採用した変更が変わればキーも変わる。未採用の変更は含めない', () => {
+    const base = { ...emptyWorkspaceState(), selections: [sel] };
+    const changed = { ...base, selections: [{ ...sel, proposed: { needsCollab: ['連携B'] } }] };
+    const pending = { ...base, selections: [{ ...sel, decision: 'pending' as const }] };
+    expect(planBasisKey(changed)).not.toBe(planBasisKey(base));
+    expect(planBasisKey(pending)).not.toBe(planBasisKey(base));
+    expect(planBasisKey({ ...emptyWorkspaceState() })).toBe(planBasisKey({ ...base, selections: [{ ...sel, decision: 'rejected' as never }] }));
+  });
+
+  it('検証結果を持たない古い保存データも読める（既定値は未検証）', () => {
+    const parsed = WorkspaceStateSchema.parse({ ...emptyWorkspaceState(), verification: undefined });
+    expect(parsed.verification).toBeNull();
   });
 });

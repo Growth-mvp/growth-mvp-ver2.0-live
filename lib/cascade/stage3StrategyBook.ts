@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   AdjustmentCandidateSchema,
   AdjustmentProposalSchema,
+  MAX_CANDIDATES,
   collectPlanUnits,
   departmentKeyOf,
   normalizeDialogue,
@@ -177,10 +178,54 @@ export const WorkspaceStateSchema = z.object({
   projectEdits: z.array(ProjectEditSchema).max(MAX_PROJECT_EDITS).default([]),
   projectRemovals: z.array(ProjectRemovalSchema).max(60).default([]),
   projectProposals: z.array(ProjectProposalSchema).max(40).default([]),
+  verification: z
+    .object({
+      basisKey: z.string().min(1).max(40),
+      createdAt: z.string().max(40),
+      changeCount: z.number().int().min(0).max(100_000),
+      rejectedCount: z.number().int().min(0).max(1000),
+      candidates: z.array(AdjustmentCandidateSchema).max(MAX_CANDIDATES),
+    })
+    .nullable()
+    .default(null),
   confirmed: z.object({ confirmedAt: z.string().max(40), appliedCount: z.number().int().min(0) }).nullable(),
 });
 
 export type WorkspaceState = z.infer<typeof WorkspaceStateSchema>;
+export type Verification = NonNullable<WorkspaceState['verification']>;
+
+/**
+ * 確定前の計画の内容を表すキー。検証結果がこのキーと一致する間だけ、検証結果は有効とみなす。
+ * 採用・編集・計画から外す等で計画の内容が変われば、キーも変わる。
+ */
+export function planBasisKey(state: WorkspaceState): string {
+  const basis = {
+    selections: state.selections
+      .filter((s) => s.decision === 'applied')
+      .map((s) => [s.departmentKey, s.item, s.proposed]),
+    projectSelections: state.projectSelections.filter((p) => p.decision === 'applied').map((p) => p.candidateId),
+    projectEdits: state.projectEdits.map((e) => [e.departmentKey, e.projectId, e.fields]),
+    projectRemovals: state.projectRemovals.map((r) => [r.departmentKey, r.projectId]),
+    projectProposals: state.projectProposals
+      .filter((p) => p.decision === 'adopted')
+      .map((p) => [p.departmentKey, p.projectId, p.proposed]),
+  };
+  return hash53(JSON.stringify(basis));
+}
+
+/** 文字列の短いハッシュ（同じ入力は常に同じ値。クライアントとサーバーで同じ結果になる） */
+function hash53(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
 
 export function emptyWorkspaceState(): WorkspaceState {
   return {
@@ -196,6 +241,7 @@ export function emptyWorkspaceState(): WorkspaceState {
     projectEdits: [],
     projectRemovals: [],
     projectProposals: [],
+    verification: null,
     confirmed: null,
   };
 }

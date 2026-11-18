@@ -63,6 +63,7 @@ export function pruneWorkspaceForDepartment(state: WorkspaceState, departmentKey
     selections: state.selections.filter((s) => s.departmentKey !== departmentKey),
     projectSelections: state.projectSelections.filter((p) => p.departmentKey !== departmentKey),
     projectProposals: analysisTouched ? [] : state.projectProposals.filter((p) => p.departmentKey !== departmentKey),
+    verification: null,
     analysis: analysisTouched ? null : state.analysis,
     candidateDecisions: analysisTouched ? {} : state.candidateDecisions,
     adjustmentProposals: analysisTouched ? [] : state.adjustmentProposals,

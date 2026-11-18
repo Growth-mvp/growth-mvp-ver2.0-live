@@ -392,3 +392,31 @@ describe('財務の概況・区分・計画とKPIの変更候補（A-03）', () 
     expect(editableKpis({ id: 'p-2', title: 'no kpi' })).toBeNull();
   });
 });
+
+describe('構造化KPI（okrsV2）の文言変更', () => {
+  const project = {
+    id: 'p-1',
+    title: '既存顧客の再受注施策',
+    okrsV2: [
+      { id: 'kr-1', kind: 'OUTCOME', label: '再受注率 40%', target: 0.45, unit: 'PERCENT', scope: 'DEPT', baseKey: 'NONE' },
+      { id: 'kr-2', kind: 'OUTCOME', label: '商談数 120件', target: 120, unit: 'COUNT', scope: 'DEPT', baseKey: 'NONE' },
+    ],
+    okrs: [{ objective: '再受注を増やす', keyResults: ['再受注率 40%', '商談数 120件'] }],
+  };
+
+  it('okrsV2の文言を読み、差し替えてもKRの識別子・目標・単位は残す。投影も同じ文言にそろえる', () => {
+    expect(editableKpis(project)).toEqual(['再受注率 40%', '商談数 120件']);
+    const next = withKpis(project, ['再受注率 45%', '商談数 120件']) as typeof project;
+    expect(next.okrsV2[0]).toEqual({ ...project.okrsV2[0], label: '再受注率 45%' });
+    expect(next.okrsV2[1]).toEqual(project.okrsV2[1]);
+    expect(next.okrs[0].keyResults).toEqual(['再受注率 45%', '商談数 120件']);
+  });
+
+  it('okrsV2だけの計画は、投影を作らずにokrsV2だけを変える', () => {
+    const v2Only = { id: 'p-2', title: 'x', okrsV2: [{ id: 'kr-9', kind: 'OUTCOME', label: '旧', unit: 'COUNT', scope: 'DEPT', baseKey: 'NONE' }] };
+    const next = withKpis(v2Only, ['新']) as typeof v2Only & { kpis?: unknown };
+    expect(next.okrsV2[0].label).toBe('新');
+    expect(next).not.toHaveProperty('kpis');
+    expect(next).not.toHaveProperty('okrs');
+  });
+});
