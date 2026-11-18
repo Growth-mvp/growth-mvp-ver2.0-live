@@ -23,7 +23,6 @@ import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import { swotBullets, swotItems } from '@/lib/stage2/swotPrompt';
 import { z } from 'zod';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { DX_AI_DISCOVERY_RULES_STAGE2 } from '@/lib/ai/dxAiDiscovery';
 import {
   DRAFT_AUDIT_WAIT_MS,
   DRAFT_TOTAL_BUDGET_MS,
@@ -574,7 +573,6 @@ function buildSystemPrompt(): string {
 - 根拠のない新規事業や、既存の強み・財務の実態とつながらない飛躍的な提案は避ける
 - 各勝ち筋に「やめること」「変えるルール」「優先順位の変更」のいずれかを含める
 - 既存KPI・既存投資・既存事業ポートフォリオのどこが過去の延長なのかを1つ指摘する
-${DX_AI_DISCOVERY_RULES_STAGE2}
 
 【断定の禁止（厳守）】
 - 入力にない具体数値（例：「重点顧客10社」）、制度・契約形態（例：「成果連動型契約の標準化」）、判断基準（例：「案件別ROIC基準」）、未保有の能力を確定事項として書かない

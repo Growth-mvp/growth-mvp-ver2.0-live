@@ -1,40 +1,30 @@
-import { DX_AI_DISCOVERY_RULE_STAGE3, DX_AI_DISCOVERY_RULES_STAGE2 } from './dxAiDiscovery';
+import { DX_AI_DISCOVERY_RULE_STAGE3 } from './dxAiDiscovery';
 
-describe('解決手段の思考プロセス（STAGE2・3の生成ルール）', () => {
-  it('STAGE2は、課題の特定から手段の反映までの6段階を順に示す', () => {
-    for (const step of ['A. 経営課題を特定する', 'B. 変えるべき業務を特定する', 'C. 現在、人が行っている作業を洗い出す', 'D. デジタル技術やAIによる代替・自動化・高度化の可能性を検討する', 'E. 費用対効果・実現可能性を判断する', 'F. 有効な手段を戦略に反映する']) {
-      expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain(step);
+describe('解決手段の思考プロセス（STAGE3の生成ルール）', () => {
+  it('計画は戦略と既存の計画の要件を主とし、その補助として次の順で確かめる', () => {
+    expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('計画を作る前に、戦略と既存の計画の要件を主とし、その実現を補うために次の順で確かめる');
+    for (const step of ['①経営課題', '②変えるべき業務', '③その業務で人が行っている作業', '④その作業をデジタル技術やAIで代替・自動化・高度化できるか', '⑤費用対効果と実現可能性', '⑥有効な手段を計画に反映する']) {
+      expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain(step);
     }
   });
 
-  it('STAGE2の解決手段の検討は補助であり、戦略の思考順序（①〜⑤）と番号が重ならない', () => {
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('（補助）');
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('「戦略の思考順序」で立てた戦略仮説に');
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('「戦略の思考順序」と「勝ち筋の品質基準」が主');
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).not.toMatch(/[①②③④⑤⑥]/);
-  });
-
-  it('STAGE2は、DX・AIを強制せず、業務改革でも人が行うことを前提にしない', () => {
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('DX・AIの提案は強制しない');
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('人がその業務を行うことを当然の前提にしない');
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('DX・AIが有効でなければ、業務改革・人材育成・組織連携');
-  });
-
-  it('STAGE2は、入力にない数値を作らず、書けない項目は未確認とする', () => {
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('入力にない金額・効果率・導入件数・期間を作らない');
-    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('「（未確認）」');
-  });
-
-  it('STAGE3は、計画の前に同じ順で確かめ、代替が有効な場合だけ変え方と検証指標を書く', () => {
-    expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('計画を作る前に、戦略と既存の計画の要件を主とし、その実現を補うために次の順で確かめる');
+  it('代替・高度化が有効だと入力から言える場合だけ、変え方と検証指標を書く', () => {
     expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('代替・高度化が有効だと入力から言える場合');
     expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('DX・AIの導入そのものを成果としない');
   });
 
+  it('有効でなければ業務改革・人材育成・組織連携を書き、業務改革でも人が行うことを前提にしない', () => {
+    expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('有効でなければ、業務改革・人材育成・組織連携');
+    expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('人が行うことを前提にしない');
+  });
+
+  it('入力にない効果・金額・導入件数を作らない', () => {
+    expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('入力に根拠がない効果・金額・導入件数は作らない');
+  });
+
   it('業種や部門を限定する語を含まない（汎用のルール）', () => {
-    const all = `${DX_AI_DISCOVERY_RULES_STAGE2}\n${DX_AI_DISCOVERY_RULE_STAGE3}`;
     for (const word of ['配送', '宅配', '新聞', 'ジャーナル']) {
-      expect(all).not.toContain(word);
+      expect(DX_AI_DISCOVERY_RULE_STAGE3).not.toContain(word);
     }
   });
 });
