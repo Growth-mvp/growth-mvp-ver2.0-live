@@ -6,6 +6,8 @@ import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import { useAutoSave } from '@/hooks/useAutoSave';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
+import { useSaveStatus } from '@/hooks/useSaveStatus';
 import { useStage1PdfExport } from '@/hooks/useStage1PdfExport';
 import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
 import StrategyGuard from '@/app/StrategyGuard';
@@ -100,6 +102,23 @@ function stableSerialize(value: unknown): string {
   } catch {
     return '';
   }
+}
+
+/* ===============================
+ * CEOチャットの相談文脈（画面に出ている値の整形）
+ * =============================== */
+type ConsultItem = { label: string; value: string; saved: boolean };
+
+/** 数値を表示用の文字列にする。数値でなければ空（未入力として扱われる） */
+function consultNumText(v: unknown, digits: number, unit: string): string {
+  return typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(digits)}${unit}` : '';
+}
+
+/** 財務データの対象年度（最小〜最大と年数）。データがなければ空 */
+function consultFinanceYearsText(rows: { year: number }[] | undefined): string {
+  const years = Array.from(new Set((rows ?? []).map((r) => r.year).filter((y) => Number.isFinite(y))));
+  if (years.length === 0) return '';
+  return `${Math.min(...years)}〜${Math.max(...years)}年度（${years.length}年分）`;
 }
 
 export default function Stage1Page() {
@@ -210,6 +229,49 @@ export default function Stage1Page() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveMessage, setSaveMessage] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('input');
+
+  // ===== CEOチャットの相談文脈（いま見ている入力・指標・論点） =====
+  // 保存状態は共通判定（useSaveStatus）を使う。「保存済み」以外（未保存・保存中・失敗）は未保存扱い。
+  const consultSaved = useSaveStatus().status === 'saved';
+  const consultSegments = useStrategyStore((s: StrategyState) => s.businessSegments);
+  const consultFinancePL = useStrategyStore((s: StrategyState) => s.financePL);
+  const consultIssues = useStrategyStore((s: StrategyState) => s.stage1Issues);
+  const consultVA = useStrategyStore((s: StrategyState) => s.valueAnalysis);
+
+  const consultItems: ConsultItem[] =
+    activeTab === 'input'
+      ? [
+          { label: '会社名', value: companyName, saved: consultSaved },
+          { label: '業種', value: industry, saved: consultSaved },
+          { label: '決算期', value: fiscalYearEnd, saved: consultSaved },
+          {
+            label: '事業セグメント',
+            value: (consultSegments ?? []).map((g) => g.name).filter(Boolean).join('、'),
+            saved: consultSaved,
+          },
+          { label: '上場区分', value: isListed ? '上場' : '非上場', saved: consultSaved },
+          { label: '証券コード', value: ticker, saved: consultSaved },
+          { label: '財務データの対象年度', value: consultFinanceYearsText(consultFinancePL), saved: consultSaved },
+        ]
+      : [
+          { label: '売上高成長率（CAGR）', value: consultNumText(consultVA?.revenueCagrPct, 1, '%'), saved: consultSaved },
+          { label: '営業利益率（最新年）', value: consultNumText(consultVA?.operatingMarginPctLatest, 1, '%'), saved: consultSaved },
+          { label: 'ROIC', value: consultNumText(consultVA?.roic, 2, '%'), saved: consultSaved },
+          { label: 'ROE', value: consultNumText(consultVA?.roe, 1, '%'), saved: consultSaved },
+          { label: 'PBR', value: consultNumText(consultVA?.pbr, 2, '倍'), saved: consultSaved },
+          ...(consultIssues ?? []).slice(0, 6).map((b, i) => ({
+            label: `論点${i + 1}`,
+            value: b.title ?? '',
+            saved: consultSaved,
+          })),
+        ];
+
+  useConsultFocus('stage1-page', {
+    stage: 1,
+    section: activeTab === 'input' ? '企業情報・財務データの入力' : '財務指標・論点整理',
+    // サーバーのスキーマ上限（value は1000字）を超えると文脈全体が捨てられるため、登録時に切り詰める
+    items: consultItems.map((i) => ({ ...i, value: i.value.slice(0, 500) })),
+  });
 
   const savingRef = useRef(false);
   const debounceRef = useRef<number | null>(null);
