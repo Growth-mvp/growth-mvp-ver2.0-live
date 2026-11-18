@@ -1,5 +1,5 @@
 import { planConfirm as planConfirmCore, type ConfirmChange } from './stage3Confirm';
-import { draftDepartmentsFrom, newProjectCandidatesFrom, projectSelectionsFrom, selectionsFrom } from './stage3Draft';
+import { draftDepartmentsFrom, newProjectCandidatesFrom, projectSelectionsFrom, regeneratedProjectProposalsFrom, selectionsFrom } from './stage3Draft';
 import { buildDeptProposals } from './stage3Candidates';
 
 const NOW = '2026-11-17T00:00:00.000Z';
@@ -478,5 +478,62 @@ describe('名称変更とSTAGE4の参照（関連テスト）', () => {
     const kpis = readKpisOf(project);
     expect(kpis).toEqual([expect.objectContaining({ label: '購読継続率（％）', origin: 'OKRS_V2' })]);
     expect(project.okrsV2).toEqual([{ id: 'kr-adopted-1', label: '購読継続率（％）' }]);
+  });
+});
+
+describe('再生成の改善内容を採用して確定する（既存の計画・IDとKPIを保つ）', () => {
+  const existing = () => [
+    {
+      id: 'd-news',
+      name: '新聞販売・配達事業',
+      projects: [
+        {
+          id: 'p-1',
+          title: '購読価値改善',
+          reason: '旧い選定理由',
+          okrsV2: [
+            { id: 'kr-keep', label: '購読継続率（％）', target: 0.9, unit: '%', scope: 'DEPT', baseKey: 'NONE', actual: { value: 0.82, at: '2026-10' } },
+            { id: 'kr-2', label: '課題解決世帯率（％）', target: 0.5, unit: '%', scope: 'DEPT', baseKey: 'NONE' },
+          ],
+        },
+      ],
+    },
+  ];
+  const regenerated = {
+    'id:d-news': [
+      {
+        title: '購読価値改善',
+        reason: '再生成の選定理由',
+        kpis: ['購読継続率（％）見直し後', '課題解決世帯率（％）'],
+      },
+    ],
+  };
+
+  it('採用した変更案は、IDと目標値・実績を保ったまま正式データに反映される', () => {
+    const [proposal] = regeneratedProjectProposalsFrom(existing(), regenerated);
+    expect(proposal).toBeDefined();
+    const kpiChanged = proposal.base.kpis.join('\n') !== proposal.proposed.kpis.join('\n');
+    const plan = planConfirm({
+      departments: existing(),
+      changes: [],
+      projectEdits: [
+        {
+          departmentKey: proposal.departmentKey,
+          departmentName: proposal.departmentName,
+          projectId: proposal.projectId,
+          fields: { title: proposal.proposed.title, reason: proposal.proposed.reason, hypothesis: proposal.proposed.hypothesis, description: proposal.proposed.description },
+          base: { title: proposal.base.title, reason: proposal.base.reason, hypothesis: proposal.base.hypothesis, description: proposal.base.description },
+          kpis: kpiChanged ? { base: proposal.base.kpis, next: proposal.proposed.kpis } : undefined,
+        },
+      ],
+      mintId: () => 'p-x',
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const project = (plan.departments[0].projects as Array<Record<string, any>>)[0];
+    expect(project.id).toBe('p-1');
+    expect(project.reason).toBe('再生成の選定理由');
+    expect(project.okrsV2[0]).toEqual({ ...existing()[0].projects[0].okrsV2[0], label: '購読継続率（％）見直し後' });
+    expect(project.okrsV2[1]).toEqual(existing()[0].projects[0].okrsV2[1]);
   });
 });

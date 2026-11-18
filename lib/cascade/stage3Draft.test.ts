@@ -1,4 +1,4 @@
-import { draftDepartmentsFrom, newProjectCandidatesFrom } from './stage3Draft';
+import { draftDepartmentsFrom, newProjectCandidatesFrom, regeneratedProjectProposalsFrom } from './stage3Draft';
 import { emptyWorkspaceState, verifyWorkspaceState, type WorkspaceState } from './stage3StrategyBook';
 
 const official = [
@@ -121,5 +121,91 @@ describe('再生成で既存の計画のIDを変えない', () => {
   it('同じ名前の計画は新規候補にならず、本当に新しい計画だけが候補になる', () => {
     const candidates = newProjectCandidatesFrom(official, regenerated);
     expect(candidates.map((c) => c.project.title)).toEqual(['新しい計画：ルート別の原価可視化']);
+  });
+});
+
+describe('再生成の改善内容を既存の計画に重ねる', () => {
+  const official = [
+    {
+      id: 'dept_0',
+      name: '営業部',
+      projects: [
+        {
+          id: 'p-keep',
+          title: '既存顧客の再発注を増やす',
+          reason: '旧い選定理由',
+          hypothesis: '旧い仮説',
+          description: '旧い説明',
+          okrsV2: [
+            { id: 'kr-1', label: '営業貢献額（円）', target: 100, actual: 40 },
+            { id: 'kr-2', label: '再発注率（％）', target: 30, actual: 12 },
+          ],
+        },
+        {
+          id: 'p-count',
+          title: 'KPIの件数が変わる計画',
+          reason: '旧い選定理由',
+          okrsV2: [{ id: 'kr-3', label: '件数（件）', target: 5, actual: 1 }],
+        },
+      ],
+    },
+  ];
+  const regenerated = {
+    'id:dept_0': [
+      {
+        title: '既存顧客の再発注を増やす',
+        reason: '再生成の選定理由',
+        hypothesis: '再生成の仮説',
+        description: '再生成の説明',
+        kpis: ['営業貢献額（円）', '再発注率（％）'],
+      },
+      {
+        title: 'KPIの件数が変わる計画',
+        reason: '再生成の選定理由',
+        kpis: ['件数（件）', '追加のKPI（件）'],
+      },
+    ],
+  };
+
+  it('同じ名前の計画は既存のIDのまま、再生成の文章とKPIを草案に表示する', () => {
+    const draft = draftDepartmentsFrom(official, regenerated);
+    const projects = draft[0].projects as Array<Record<string, unknown>>;
+    expect(projects.filter((p) => p.title === '既存顧客の再発注を増やす')).toHaveLength(1);
+    const kept = projects.find((p) => p.id === 'p-keep');
+    expect(kept).toMatchObject({
+      title: '既存顧客の再発注を増やす',
+      reason: '再生成の選定理由',
+      hypothesis: '再生成の仮説',
+      description: '再生成の説明',
+      kpis: ['営業貢献額（円）', '再発注率（％）'],
+    });
+  });
+
+  it('KPIの件数が変わる場合は、草案にも現行のKPIを表示する（KPIは保護する）', () => {
+    const draft = draftDepartmentsFrom(official, regenerated);
+    const projects = draft[0].projects as Array<Record<string, unknown>>;
+    const count = projects.find((p) => p.id === 'p-count');
+    expect(count).toMatchObject({ reason: '再生成の選定理由', kpis: ['件数（件）'] });
+  });
+
+  it('同じ名前の改善は変更案になり、件数が同じKPIだけ文言を差し替える', () => {
+    const proposals = regeneratedProjectProposalsFrom(official, regenerated);
+    expect(proposals.map((p) => p.projectId)).toEqual(['p-keep', 'p-count']);
+    expect(proposals[0]).toMatchObject({
+      departmentKey: 'id:dept_0',
+      projectId: 'p-keep',
+      projectTitle: '既存顧客の再発注を増やす',
+      decision: 'pending',
+      base: { title: '既存顧客の再発注を増やす', reason: '旧い選定理由', hypothesis: '旧い仮説', description: '旧い説明', kpis: ['営業貢献額（円）', '再発注率（％）'] },
+      proposed: { title: '既存顧客の再発注を増やす', reason: '再生成の選定理由', hypothesis: '再生成の仮説', description: '再生成の説明', kpis: ['営業貢献額（円）', '再発注率（％）'] },
+    });
+    expect(proposals[1].proposed.kpis).toEqual(['件数（件）']);
+  });
+
+  it('名前が違う計画や、内容が同じ計画には変更案を作らない', () => {
+    const renamed = { 'id:dept_0': [{ title: '別名の計画', reason: '旧い選定理由' }] };
+    expect(regeneratedProjectProposalsFrom(official, renamed)).toEqual([]);
+    const same = { 'id:dept_0': [{ title: '既存顧客の再発注を増やす', reason: '旧い選定理由', hypothesis: '旧い仮説', description: '旧い説明' }] };
+    expect(regeneratedProjectProposalsFrom(official, same)).toEqual([]);
   });
 });

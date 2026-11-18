@@ -17,7 +17,13 @@ import {
   type ProjectChangeProposal,
 } from '@/lib/cascade/stage3Adjustment';
 import { DEPT_PROPOSAL_ITEMS, currentItemValues, type DeptProposal, type DeptProposalItem } from '@/lib/cascade/stage3Candidates';
-import { draftDepartmentsFrom, newProjectCandidatesFrom, projectSelectionsFrom, selectionsFrom } from '@/lib/cascade/stage3Draft';
+import {
+  draftDepartmentsFrom,
+  newProjectCandidatesFrom,
+  projectSelectionsFrom,
+  regeneratedProjectProposalsFrom,
+  selectionsFrom,
+} from '@/lib/cascade/stage3Draft';
 import { isProjectActive } from '@/lib/cascade/projectLifecycle';
 import {
   departmentDeleteBlockers,
@@ -821,7 +827,7 @@ export function StrategyBookDesk({
         analysis: null,
         candidateDecisions: {},
         adjustmentProposals: [],
-        projectProposals: [],
+        projectProposals: regeneratedProjectProposalsFrom(official, candidateMap),
         dialogue: [],
         selections: [
           ...selectionsFrom(official, proposals, previousSelections.filter((s) => regenKeys.has(s.departmentKey))),

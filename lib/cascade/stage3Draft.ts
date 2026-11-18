@@ -1,4 +1,13 @@
-import { collectPlanUnits, departmentKeyOf, projectIdOf } from '@/lib/cascade/stage3Adjustment';
+import {
+  collectPlanUnits,
+  departmentKeyOf,
+  editableKpis,
+  projectIdOf,
+  type PlanUnit,
+  type ProjectChangeFields,
+  type ProjectChangeProposal,
+} from '@/lib/cascade/stage3Adjustment';
+import { projectTextOf } from '@/lib/cascade/stage3Confirm';
 import { isProjectActive } from '@/lib/cascade/projectLifecycle';
 import { pickAdoptableProject, type DeptProposal } from '@/lib/cascade/stage3Candidates';
 import type { DraftDepartment, NewProjectCandidate, ProjectSelection, Selection } from '@/lib/cascade/stage3StrategyBook';
@@ -12,6 +21,8 @@ const hasStableId = (v: AnyRecord) =>
 
 const clipped = (v: unknown, max: number): string | undefined =>
   typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, max) : undefined;
+
+const REGEN_PROPOSAL_REASON = '再生成で、この計画の内容に改善案が出ました。';
 
 /** 計画の詳細（選定理由・仮説・連携先・目標）を、保存の上限内で草案に残す。存在する項目だけを返す。 */
 function detailsOf(raw: AnyRecord | undefined): Partial<DraftProject> {
@@ -40,8 +51,43 @@ function detailsOf(raw: AnyRecord | undefined): Partial<DraftProject> {
   return out;
 }
 
+/** 同じ名前で再生成された計画の内容。計画名の比較は titleKey で行う。 */
+type Regenerated = { raw: AnyRecord; unit: PlanUnit };
+
+function regeneratedByTitle(departmentName: string, candidates: AnyRecord[]): Map<string, Regenerated> {
+  const out = new Map<string, Regenerated>();
+  for (const raw of candidates) {
+    if (!raw || typeof raw !== 'object' || typeof raw.title !== 'string') continue;
+    const [unit] = collectPlanUnits([{ name: departmentName, projects: [raw] }]);
+    if (!unit) continue;
+    const key = titleKey(unit.projectTitle);
+    if (!out.has(key)) out.set(key, { raw: raw as AnyRecord, unit });
+  }
+  return out;
+}
+
+const textOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, 2000) : null);
+
+/**
+ * 同じ名前の既存の計画に、再生成の改善内容を重ねた文章・KPI。KPIは件数が同じ時だけ差し替える（件数が違えば現行のKPIを残す）。
+ * 正式データは変えない。草案の表示と、採用時の変更案の両方がこの値を使う。
+ */
+function improvedFieldsOf(official: AnyRecord, re: Regenerated): ProjectChangeFields {
+  const base = projectTextOf(official);
+  const baseKpis = editableKpis(official) ?? [];
+  const nextKpis = editableKpis(re.raw);
+  return {
+    title: base.title,
+    reason: textOrNull(re.raw.reason) ?? base.reason,
+    hypothesis: textOrNull(re.raw.hypothesis) ?? base.hypothesis,
+    description: textOrNull(re.raw.description) ?? base.description,
+    kpis: baseKpis.length > 0 && nextKpis !== null && nextKpis.length === baseKpis.length ? nextKpis : baseKpis,
+  };
+}
+
 /**
  * 草案の部門データを作る。既存の計画（安定IDのあるもの）はそのまま、生成された候補の計画を追加する。
+ * 既存の計画と同じ名前の候補は、既存の計画の内容として重ねて表示する（IDは既存のまま）。
  * 既存の計画と同じ ID の候補は追加しない。元の部門データは変えない。
  */
 export function draftDepartmentsFrom(
@@ -62,19 +108,74 @@ export function draftDepartmentsFrom(
       for (const p of [...(Array.isArray(d.projects) ? d.projects : []), ...(candidateProjects[key] ?? [])]) {
         if (p && typeof p === 'object' && !rawById.has(projectIdOf(p as AnyRecord))) rawById.set(projectIdOf(p as AnyRecord), p as AnyRecord);
       }
-      const toDraft = (u: (typeof existing)[number]): DraftProject => ({
-        ...(u.projectId.startsWith('id:') ? { id: u.projectId.slice(3) } : {}),
-        title: u.projectTitle,
-        ...(u.summary ? { description: u.summary } : {}),
-        ...(u.kpis.length > 0 ? { kpis: u.kpis } : {}),
-        ...detailsOf(rawById.get(u.projectId)),
-      });
+      const regenerated = regeneratedByTitle(String(d.name), candidateProjects[key] ?? []);
+      const toDraft = (u: PlanUnit, raw: AnyRecord | undefined, re: Regenerated | undefined): DraftProject => {
+        const improved = raw && re ? improvedFieldsOf(raw, re) : undefined;
+        const details = detailsOf(raw);
+        const description = improved?.description ?? (u.summary || null);
+        const kpis = improved ? improved.kpis : u.kpis;
+        return {
+          ...(u.projectId.startsWith('id:') ? { id: u.projectId.slice(3) } : {}),
+          title: u.projectTitle,
+          ...(description ? { description } : {}),
+          ...(kpis.length > 0 ? { kpis } : {}),
+          ...details,
+          ...(improved?.reason ? { reason: improved.reason } : {}),
+          ...(improved?.hypothesis ? { hypothesis: improved.hypothesis } : {}),
+        };
+      };
       return {
         ...(hasStableId(d) ? { id: d.id as string | number } : {}),
         name: String(d.name),
-        projects: [...existing, ...extra].map(toDraft),
+        projects: [
+          ...existing.map((u) => {
+            const raw = rawById.get(u.projectId);
+            return toDraft(u, raw, raw ? regenerated.get(titleKey(u.projectTitle)) : undefined);
+          }),
+          ...extra.map((u) => toDraft(u, rawById.get(u.projectId), undefined)),
+        ],
       };
     });
+}
+
+/**
+ * 再生成で同じ名前の既存の計画に出た改善内容を、正式データへの変更案にする。
+ * 変更案は採用されるまで正式データを変えない。採用時は確定処理が base と照合して反映する。
+ */
+export function regeneratedProjectProposalsFrom(
+  official: AnyRecord[],
+  candidateProjects: Record<string, AnyRecord[]>,
+): Array<ProjectChangeProposal & { decision: 'pending' }> {
+  const out: Array<ProjectChangeProposal & { decision: 'pending' }> = [];
+  for (const d of official) {
+    if (!d || typeof d !== 'object' || typeof d.name !== 'string' || d.name.trim() === '') continue;
+    const key = departmentKeyOf(d);
+    const regenerated = regeneratedByTitle(String(d.name), candidateProjects[key] ?? []);
+    for (const p of Array.isArray(d.projects) ? (d.projects as AnyRecord[]) : []) {
+      if (!p || typeof p !== 'object' || !hasStableId(p) || !isProjectActive(p)) continue;
+      const re = regenerated.get(titleKey(typeof p.title === 'string' ? p.title : ''));
+      if (!re) continue;
+      const base = { ...projectTextOf(p), kpis: editableKpis(p) ?? [] };
+      const proposed = improvedFieldsOf(p, re);
+      const changed =
+        proposed.reason !== base.reason ||
+        proposed.hypothesis !== base.hypothesis ||
+        proposed.description !== base.description ||
+        proposed.kpis.join('\n') !== base.kpis.join('\n');
+      if (!changed) continue;
+      out.push({
+        departmentKey: key,
+        departmentName: String(d.name),
+        projectId: projectIdOf(p).replace(/^id:/, ''),
+        projectTitle: base.title,
+        reason: REGEN_PROPOSAL_REASON,
+        base: { title: base.title, reason: base.reason, hypothesis: base.hypothesis, description: base.description, kpis: base.kpis },
+        proposed,
+        decision: 'pending',
+      });
+    }
+  }
+  return out;
 }
 
 /**
