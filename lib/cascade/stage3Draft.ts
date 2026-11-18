@@ -54,8 +54,9 @@ export function draftDepartmentsFrom(
       const key = departmentKeyOf(d);
       const existing = collectPlanUnits([d]);
       const existingIds = new Set(existing.map((u) => u.projectId));
+      const existingTitles = new Set(existing.map((u) => titleKey(u.projectTitle)));
       const extra = collectPlanUnits([{ name: d.name, projects: candidateProjects[key] ?? [] }]).filter(
-        (u) => !existingIds.has(u.projectId),
+        (u) => !existingIds.has(u.projectId) && !existingTitles.has(titleKey(u.projectTitle)),
       );
       const rawById = new Map<string, AnyRecord>();
       for (const p of [...(Array.isArray(d.projects) ? d.projects : []), ...(candidateProjects[key] ?? [])]) {
@@ -107,6 +108,11 @@ export function selectionsFrom(
   return [...decided, ...pending];
 }
 
+/** 計画名の比較用の表記（空白と大文字小文字の違いを除く）。同じ名前の計画を既存として扱うために使う。 */
+export function titleKey(title: string): string {
+  return title.replace(/\s+/g, '').toLowerCase();
+}
+
 /** 名称から決まる安定した候補ID（同じ部門・同じ名称の案は、再生成しても同じIDになる）。 */
 export function candidateProjectId(departmentKey: string, title: string): string {
   let h = 0x811c9dc5;
@@ -129,13 +135,22 @@ export function newProjectCandidatesFrom(
   for (const d of official) {
     if (!d || typeof d !== 'object' || typeof d.name !== 'string' || d.name.trim() === '') continue;
     const key = departmentKeyOf(d);
-    const existingIds = new Set(collectPlanUnits([d]).map((u) => u.projectId));
+    const existingUnits = collectPlanUnits([d]);
+    const existingIds = new Set(existingUnits.map((u) => u.projectId));
+    const existingTitles = new Set(existingUnits.map((u) => titleKey(u.projectTitle)));
+    const linkedCandidateIds = new Set(
+      (Array.isArray(d.projects) ? (d.projects as AnyRecord[]) : [])
+        .map((p) => (typeof p.sourceCandidateId === 'string' ? p.sourceCandidateId : null))
+        .filter((x): x is string => x !== null),
+    );
     const seen = new Set<string>();
     for (const p of candidateProjects[key] ?? []) {
       if (typeof p.title !== 'string' || p.title.trim() === '') continue;
       const unitId = projectIdOf(p);
       const candidateId = candidateProjectId(key, p.title.trim());
-      if (existingIds.has(unitId) || seen.has(candidateId)) continue;
+      // 同じ名前の既存の計画は、新規候補にしない（採用済みの候補は、紐づいた計画として残す）
+      const sameAsExisting = existingTitles.has(titleKey(p.title)) && !linkedCandidateIds.has(candidateId);
+      if (existingIds.has(unitId) || sameAsExisting || seen.has(candidateId)) continue;
       seen.add(candidateId);
       const project = JSON.parse(JSON.stringify(p)) as AnyRecord;
       if (project.hypothesis === undefined && typeof project.reason === 'string') project.hypothesis = project.reason;

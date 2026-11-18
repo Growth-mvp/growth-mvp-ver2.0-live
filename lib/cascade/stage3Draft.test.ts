@@ -1,4 +1,4 @@
-import { draftDepartmentsFrom } from './stage3Draft';
+import { draftDepartmentsFrom, newProjectCandidatesFrom } from './stage3Draft';
 import { emptyWorkspaceState, verifyWorkspaceState, type WorkspaceState } from './stage3StrategyBook';
 
 const official = [
@@ -91,5 +91,35 @@ describe('draftDepartmentsFrom（草案に計画の詳細を残す）', () => {
       hypothesis: '医療分野で需要がある',
       partnerDepartment: '開発部',
     });
+  });
+});
+
+describe('再生成で既存の計画のIDを変えない', () => {
+  const official = [
+    {
+      id: 'dept_0',
+      name: '新聞販売・配達事業',
+      projects: [{ id: 'p-51077a2e', title: '新聞配達ルート別の採算と配達品質を両立する維持・改善判断', okrsV2: [{ id: 'kr-1', label: '営業貢献額（円／ルート）' }] }],
+    },
+  ];
+  const regenerated = {
+    'id:dept_0': [
+      { title: '新聞配達ルート別の採算と配達品質を両立する 維持・改善判断', description: '再生成の説明', kpis: ['粗利（円／ルート）'] },
+      { title: '新しい計画：ルート別の原価可視化', description: '新規', kpis: ['原価入力率（％）'] },
+    ],
+  };
+
+  it('同じ名前の計画は既存のIDのまま草案に入り、重複して追加されない', () => {
+    const draft = draftDepartmentsFrom(official, regenerated);
+    const projects = draft[0].projects as Array<{ id?: string; title: string }>;
+    const same = projects.filter((p) => p.title.replace(/\s+/g, '').includes('維持・改善判断'));
+    expect(same).toHaveLength(1);
+    expect(same[0].id).toBe('p-51077a2e');
+    expect(projects.some((p) => p.title === '新しい計画：ルート別の原価可視化')).toBe(true);
+  });
+
+  it('同じ名前の計画は新規候補にならず、本当に新しい計画だけが候補になる', () => {
+    const candidates = newProjectCandidatesFrom(official, regenerated);
+    expect(candidates.map((c) => c.project.title)).toEqual(['新しい計画：ルート別の原価可視化']);
   });
 });
