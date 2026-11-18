@@ -116,14 +116,6 @@ export async function POST(req: Request) {
     });
     if (!outcome.ok) return failResponse(outcome.status, outcome.error);
 
-    const after = await admin
-      .from('strategy_data')
-      .select('revision, departments')
-      .eq('id', body.strategyId)
-      .eq('company_id', body.companyId)
-      .maybeSingle();
-    if (after.error || !after.data) return failResponse(503, 'reload_failed');
-
     await logAuditEvent({
       companyId: body.companyId,
       actorUserId: access.userId,
@@ -135,11 +127,7 @@ export async function POST(req: Request) {
       metadata: { action: body.action, expectedRevision: body.expectedRevision, executing, started },
     });
 
-    return NextResponse.json({
-      ok: true,
-      revision: Number(after.data.revision ?? 0),
-      departments: after.data.departments,
-    });
+    return NextResponse.json({ ok: true, revision: outcome.revision, departments: outcome.departments });
   } catch {
     return failResponse(500, 'internal_error');
   }

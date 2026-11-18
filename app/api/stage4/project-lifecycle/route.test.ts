@@ -33,7 +33,7 @@ function makeFakeAdmin() {
     if (st.limit !== undefined) rows = rows.slice(0, st.limit);
     if (st.op === 'update') {
       for (const r of rows) Object.assign(r, st.patch);
-      return { data: rows.map((r) => ({ id: r.id })), error: null };
+      return { data: rows.map((r) => ({ id: r.id, revision: r.revision, departments: r.departments })), error: null };
     }
     return { data: rows.map((r) => ({ ...r })), error: null };
   };

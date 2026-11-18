@@ -5,7 +5,9 @@ import { canAdoptCandidate } from '@/lib/cascade/stage3Candidates';
 type AnyRecord = Record<string, unknown>;
 
 export type WriteFailure = { ok: false; status: number; error: string };
-export type WriteOutcome = { ok: true } | WriteFailure;
+export type WriteOutcome = { ok: true; revision: number; departments: AnyRecord[] } | WriteFailure;
+
+const LIFECYCLE_CONFLICT = /stage4_lifecycle_conflict:(APPROVED|EXECUTING|NOT_STARTED)/;
 export type DepartmentApply = (
   target: AnyRecord,
   departments: AnyRecord[],
@@ -75,10 +77,13 @@ export async function writeDepartmentGuarded(args: {
     .eq('id', strategyId)
     .eq('company_id', companyId)
     .eq('revision', expectedRevision)
-    .select('id');
-  if (write.error) return { ok: false, status: 500, error: 'save_failed' };
-  if (!Array.isArray(write.data) || write.data.length === 0) {
-    return { ok: false, status: 409, error: 'revision_changed' };
+    .select('id, revision, departments');
+  if (write.error) {
+    const conflict = LIFECYCLE_CONFLICT.exec(String(write.error.message ?? ''));
+    if (conflict) return { ok: false, status: 409, error: conflict[1].toLowerCase() };
+    return { ok: false, status: 500, error: 'save_failed' };
   }
-  return { ok: true };
+  const row = Array.isArray(write.data) ? write.data[0] : undefined;
+  if (!row) return { ok: false, status: 409, error: 'revision_changed' };
+  return { ok: true, revision: Number(row.revision ?? 0), departments: row.departments as AnyRecord[] };
 }
