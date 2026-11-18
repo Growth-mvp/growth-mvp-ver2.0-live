@@ -9,6 +9,13 @@ import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio
 import { COMPANY_TARGET_UNIT_PRESETS as NS_UNIT_PRESETS, editableUnitOf, isPresetUnit } from '@/lib/stage2/companyTargetUnit';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useConsultFocus } from '@/hooks/useConsultFocus';
+import type { ConsultFocus } from '@/lib/consult/consultFocus';
+import {
+  buildFinalDocumentConsultFocus,
+  buildQuestionsConsultFocus,
+  buildSwotConsultFocus,
+  type StoryEditTarget,
+} from '@/components/stage2/stage2ConsultFocus';
 import { useUserStore } from '@/store/userStore';
 import { buildStage2FinancePayload } from '@/utils/finance/stage2FinancePayload';
 import { withoutCandidateState } from '@/lib/swot/candidatePool';
@@ -108,6 +115,17 @@ function hashAnswers12(a: Stage2Answer[] | undefined | null): string {
     .map((x) => ({ id: x.id, answer: x.answer ?? '' }))
     .sort((p, q) => p.id.localeCompare(q.id));
   return JSON.stringify(slim);
+}
+
+/* ===================================================
+ * 相談文脈用：画面の入力が正式に保存済みか
+ * - dirty（未保存の変更あり）と boot.isSaving（保存中）のどちらでもなければ保存済み
+ * - 保存中の値は保存完了まで未保存扱いにする
+ * =================================================== */
+function useStage2InputSaved(): boolean {
+  const dirty = useStrategyStore((s: StrategyState) => s.dirty);
+  const saving = useStrategyStore((s: StrategyState) => !!s.boot?.isSaving);
+  return !dirty && !saving;
 }
 
 /* ===================================================
@@ -1384,6 +1402,8 @@ function SWOTSection() {
   const weakness = useStrategyStore((s: StrategyState) => s.weakness ?? '');
   const opportunity = useStrategyStore((s: StrategyState) => s.opportunity ?? '');
   const threat = useStrategyStore((s: StrategyState) => s.threat ?? '');
+  const inputSaved = useStage2InputSaved();
+  useConsultFocus('stage2-swot', buildSwotConsultFocus({ strength, weakness, opportunity, threat, saved: inputSaved }));
 
   return (
     <div className="space-y-4">
@@ -1605,6 +1625,14 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
 }
 
 /* ===================================================
+ * 経営戦略書の相談文脈（最終タブが表示されている間だけ登録する。描画は行わない）
+ * =================================================== */
+function StoryConsultFocus({ focus }: { focus: Omit<ConsultFocus, 'pathname'> | null }) {
+  useConsultFocus('stage2-final-document', focus);
+  return null;
+}
+
+/* ===================================================
  * 12問回答セクション（原型維持）
  * - 修正：必須表示を撤廃し、入力済み数表示へ
  * =================================================== */
@@ -1617,6 +1645,7 @@ function Questions12Section({
   businessContent,
   customerSegment,
   strategyDataId,
+  storyDraft,
 }: {
   answers12: Stage2Answer[];
   onUpdateAnswer: (id: string, answer: string) => void;
@@ -1626,6 +1655,8 @@ function Questions12Section({
   businessContent?: string;
   customerSegment?: string;
   strategyDataId?: string | null;
+  /** 同じタブに表示しているたたき台（相談文脈の項目に使う） */
+  storyDraft?: StoryChapter[];
 }) {
   const [selectedId, setSelectedId] = useState<string>(TEMPLATE12[0].id);
 
@@ -1642,12 +1673,20 @@ function Questions12Section({
   // ★ 新規：深掘り情報取得
   const currentDeepDive = safeAnswers12.find((a) => a.id === selectedId)?.deepDive;
 
-  const strategyUnsaved = useStrategyStore((s: StrategyState) => s.dirty);
-  useConsultFocus('stage2-questions', {
-    stage: 2,
-    question: { id: selectedQ.id, title: selectedQ.question, intent: selectedQ.reason },
-    draft: { text: currentAnswer, saved: !strategyUnsaved },
-  });
+  const answeredTotal = safeAnswers12.filter((a) => a.answer?.trim()).length;
+  const inputSaved = useStage2InputSaved();
+  useConsultFocus(
+    'stage2-questions',
+    buildQuestionsConsultFocus({
+      question: { id: selectedQ.id, title: selectedQ.question, intent: selectedQ.reason },
+      answer: currentAnswer,
+      answeredCount: answeredTotal,
+      total: TEMPLATE12.length,
+      deepDive: currentDeepDive,
+      storyDraft: storyDraft ?? [],
+      saved: inputSaved,
+    }),
+  );
 
   // ★ 新規：strategyStore の updateAnswer12 を利用
   const updateAnswer12 = useStrategyStore((s: StrategyState) => (s as any).updateAnswer12 as (id: string, patch: Partial<Stage2Answer>) => void);
@@ -1845,8 +1884,6 @@ function Questions12Section({
       return acc;
     }, {});
   }, []);
-
-  const answeredTotal = safeAnswers12.filter((a) => a.answer?.trim()).length;
 
   return (
     <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
@@ -2215,6 +2252,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const [generateFinalError, setGenerateFinalError] = useState<string | null>(null);
   // ★ 最終ストーリーの表示モード：デフォルトは経営層向けドキュメント表示。編集はトグルで切替
   const [storyEditMode, setStoryEditMode] = useState(false);
+  // 相談文脈用：編集モードで最後に編集した対象（章・結論）
+  const [lastEditedDoc, setLastEditedDoc] = useState<StoryEditTarget>(null);
+  const inputSaved = useStage2InputSaved();
 
   // ★ STAGE2補助セクション編集中の値（store から初期化、編集中はこちらで管理）
   const [editingDocumentEdits, setEditingDocumentEdits] = useState<Stage2FinalDocumentEdits | undefined>(
@@ -4166,6 +4206,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     businessContent={businessContent}
                     customerSegment={customerSegment}
                     strategyDataId={strategyId}
+                    storyDraft={storyDraft}
                   />
 
                   <div className="mt-6 flex justify-center">
@@ -4195,6 +4236,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             {activeTab === 'final' && (
               <ReadOnlyBlock readOnly={readOnly}>
               <div className="space-y-6">
+                <StoryConsultFocus
+                  focus={buildFinalDocumentConsultFocus({
+                    editing: storyEditMode,
+                    chapters: storyEditMode ? editingStory : displayingStory,
+                    conclusion: resolveConclusion(documentEditsForView?.conclusion, stage2FinalGeneratedConclusion),
+                    finalized: !!(finalStoryFinalRaw && finalStoryFinalRaw.length > 0) && !hasUnconfirmedChanges,
+                    saved: inputSaved,
+                    lastEdited: lastEditedDoc,
+                  })}
+                />
                 {displayingStory.length > 0 ? (
                   <>
                     {/* ★ ステータスバッジ + 表示モード切替 */}
@@ -4220,6 +4271,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           onClick={() => {
                             if (!storyEditMode) {
                               setEditingDocumentEdits(stage2FinalDocumentEdits);
+                              setLastEditedDoc(null);
                             }
                             setStoryEditMode((v) => !v);
                           }}
@@ -4250,12 +4302,15 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           aiGeneratedConclusion={stage2FinalGeneratedConclusion}
                           isEditMode={storyEditMode}
                           onConclusionChange={(conclusion) => {
+                            setLastEditedDoc({ kind: 'conclusion' });
                             setEditingDocumentEdits({ ...documentEditsForView, conclusion });
                           }}
                           onAssumptionsChange={(assumptions) => {
+                            setLastEditedDoc(null);
                             setEditingDocumentEdits({ ...documentEditsForView, assumptions });
                           }}
                           onMidtermStrategyChange={(patch) => {
+                            setLastEditedDoc(null);
                             setEditingDocumentEdits(applyMidtermPatch(documentEditsForView, patch));
                           }}
                         />
@@ -4280,6 +4335,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                                   updated[chapterIndex].body = e.target.value;
                                 }
                                 setEditingStory(updated);
+                                setLastEditedDoc({ kind: 'chapter', index: chapterIndex });
                               }}
                               className="w-full p-3 border border-gray-300 xl:dark:border-gray-600 rounded-lg bg-white xl:dark:bg-gray-700 text-gray-800 xl:dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                               placeholder={`${chapter.title}の本文を入力...`}
