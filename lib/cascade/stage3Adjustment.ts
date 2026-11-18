@@ -330,8 +330,6 @@ export function withKpis(project: AnyRecord, kpis: string[]): AnyRecord {
   return { ...project, kpis };
 }
 
-const sameList = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b);
-
 function findProject(dept: AnyRecord, projectId: string): AnyRecord | undefined {
   const list = Array.isArray(dept.projects) ? (dept.projects as AnyRecord[]) : [];
   return list.find((p) => p && typeof p === 'object' && (projectIdOf(p) === projectId || stableText(p.id) === projectId));
