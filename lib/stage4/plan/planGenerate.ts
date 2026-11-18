@@ -3,6 +3,7 @@
  * 同じプロジェクトの生成は1つだけ（生成の権利を取ってから、モデルを呼ぶ）。草案がある間は再生成しない。
  * 再生成のプレビューは、保存せずに新しい案を返す（権利も取らず、保存された計画書には触れない）。
  * モデルの呼び出しは外から渡す（本番は既存のモデル設定、検証はモック）。 */
+import { ZodError } from 'zod';
 import { runExecutionPlanEngine } from './generate';
 import type { PlanDocKey, PlanDocRecord } from './planDocumentStore';
 import { stableIdOf } from './projectResolver';
@@ -47,6 +48,19 @@ const SWOT_LABELS: Array<[keyof RawPlanStrategy, string]> = [
 
 const MODEL_FAILED = 'AIによる草案を作れませんでした。内容は保存されていません。もう一度お試しください。';
 const FAILED = '草案を保存できませんでした。もう一度お試しください。';
+const KPI_FIELD_JA: Record<string, string> = { id: 'ID', label: '名称', target: '目標値', unit: '単位', due: '期限', owner: '担当' };
+
+/* 入力（STAGE3の保存データ）が計画エンジンの形に合わないときの理由。どのKPIのどの項目かを示す */
+function inputMessages(e: ZodError): string[] {
+  return e.issues.map((issue) => {
+    const at = issue.path.indexOf('kpis');
+    const where =
+      at >= 0 && typeof issue.path[at + 1] === 'number'
+        ? `KPI ${Number(issue.path[at + 1]) + 1}件目の${KPI_FIELD_JA[String(issue.path[at + 2])] ?? String(issue.path[at + 2])}`
+        : issue.path.join('.');
+    return `STAGE3の入力に不備があるため計画書を作れません（${where}：${issue.message}）`;
+  });
+}
 // 関数の上限（300秒）より長く作成中のままの行は、打ち切られた生成の残りとみなす
 const STALE_GENERATION_MS = 6 * 60 * 1000;
 
@@ -211,8 +225,9 @@ export async function generatePlanDraft(
     }
     return { status: 'CREATED', record: done.value };
   } catch (e) {
-    console.error('[stage4-generate] draft failed', describeError(e));
     await ctx.gateway.failGeneration(key, ctx.userId);
+    if (e instanceof ZodError) return { status: 'INVALID', messages: inputMessages(e) };
+    console.error('[stage4-generate] draft failed', describeError(e));
     return { status: 'MODEL_FAILED', message: MODEL_FAILED };
   }
 }
@@ -244,6 +259,7 @@ export async function previewPlanDraft(
     });
     return { status: 'PREVIEW', draft };
   } catch (e) {
+    if (e instanceof ZodError) return { status: 'INVALID', messages: inputMessages(e) };
     console.error('[stage4-preview] draft failed', describeError(e));
     return { status: 'MODEL_FAILED', message: MODEL_FAILED };
   }

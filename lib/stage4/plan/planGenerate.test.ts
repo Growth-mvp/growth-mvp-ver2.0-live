@@ -164,6 +164,35 @@ describe('実行計画書の生成（サーバーの経路）', () => {
   });
 });
 
+describe('KPIの単位が未設定の場合', () => {
+  const renewalKpis = (row: Record<string, unknown>) => {
+    const depts = row.departments as Array<{ projects: Array<{ id: string; okrsV2: Array<Record<string, unknown>> }> }>;
+    return depts.flatMap((d) => d.projects).find((p) => p.id === RENEWAL)!.okrsV2;
+  };
+
+  it('単位が空でも草案を作り、単位は補わず空のまま残す', async () => {
+    const row = strategyRow();
+    renewalKpis(row).forEach((k) => (k.unit = ''));
+    const t = gateway({ row });
+    const out = await generatePlanDraft(ctxOf(t.g), args, deps());
+    expect(out.status).toBe('CREATED');
+    const plan = (t.completed() as { plan: { section3: { protectedKpis: Array<{ unit: string }> } } }).plan;
+    expect(plan.section3.protectedKpis.length).toBeGreaterThan(0);
+    expect(plan.section3.protectedKpis.every((k) => k.unit === '')).toBe(true);
+  });
+
+  it('KPIの名称などに不備があれば、どのKPIの何かを示し、草案は作らない', async () => {
+    const row = strategyRow();
+    renewalKpis(row)[0].label = '';
+    const t = gateway({ row });
+    const out = await generatePlanDraft(ctxOf(t.g), args, deps());
+    expect(out.status).toBe('INVALID');
+    expect(out.status === 'INVALID' && out.messages[0]).toContain('KPI 1件目の名称');
+    expect(t.calls.fail).toBe(1);
+    expect(t.calls.complete).toBe(0);
+  });
+});
+
 describe('再生成のプレビュー（保存しない）', () => {
   it('新しい案を返すが、権利も取らず、何も書かない（既存の草案は変えない）', async () => {
     const t = gateway({ claim: { existing: rec('DRAFT') } });

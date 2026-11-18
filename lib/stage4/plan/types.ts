@@ -25,7 +25,8 @@ export const Stage3KpiSourceSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   target: z.number().nullable(),
-  unit: z.string().min(1),
+  /** 単位は未設定でもよい（根拠のない単位を補わない）。空の場合は画面で未設定と示す */
+  unit: z.string(),
   due: YM.nullable(),
   owner: z.string().nullable(),
   /** 目標値の根拠（省略時は UNKNOWN 扱い）。KPI の状態は kpiBasis.ts で判定する */

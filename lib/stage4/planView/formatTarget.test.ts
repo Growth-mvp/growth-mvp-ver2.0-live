@@ -11,6 +11,10 @@ describe('KPIの目標値の表示（未設定と0を区別し、単位の位置
     expect(formatTarget(0, '件')).toBe('0件');
   });
 
+  it('単位が未設定なら、単位を補わず未設定と示す', () => {
+    expect(formatTarget(10, '')).toBe('10（単位未設定）');
+  });
+
   it('円の単位（¥）は前に付ける', () => {
     expect(formatTarget(0, '¥')).toBe('¥0');
     expect(formatTarget(1200000, '¥')).toBe('¥1200000');
