@@ -8,7 +8,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
 import { industryTemplates, getIndustryLabel } from '@/utils/industryTemplates';
 import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/utils';
-import { DX_AI_DISCOVERY_RULE_STAGE3 } from '@/lib/ai/dxAiDiscovery';
 import { z } from 'zod';
 import {
   confirmedSegmentNames,
@@ -3221,7 +3220,6 @@ async function reviewCascadeDepartment(dept: any, partners: string[], context: {
 buyerは発注する企業・施設運営者、customerChangeはその事業成果や利用者の変化、revenueMechanismは当社の収益への接続。発注企業と来場者を同じ「顧客」で混同しない。
 既存2件のdifferentiationには互いの違いを記す。同じ用途でデザインを改善する2案にせず、提供段階・収益機会・実行内容を分ける。
 新規はデジタル導入自体を新事業と呼ばない。誰が何に対価を払うか、支払意思をどう確認し、どの結果なら事業化・見直しに進むかを書く。
-${DX_AI_DISCOVERY_RULE_STAGE3}
 既存2件は異なる成長・収益機会、新規1件は未検証の顧客価値と事業化仮説、事業内1件は機能間の役割分担、事業間1件は両事業の補完関係を書く。
 事業間は許可された実在の連携先のみ選ぶ。連携先情報が薄ければ能力を断定せず共同検証案と明示する。
 業種に合わせて機能・工程を選び、製造・量産・試作を他業種の既定値にしない。
