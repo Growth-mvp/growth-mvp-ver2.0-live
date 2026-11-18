@@ -10,6 +10,7 @@ import { POST as confirmPost } from '@/app/api/stage3/strategy-book/confirm/rout
 import { POST as referencesPost } from '@/app/api/stage3/strategy-book/project-references/route';
 import { POST as analyzePost } from '@/app/api/stage3/adjustment/analyze/route';
 import { POST as regeneratePost } from '@/app/api/stage3/adjustment/regenerate/route';
+import { POST as proposePost } from '@/app/api/stage3/adjustment/propose/route';
 import { buildDeptProposals } from '@/lib/cascade/stage3Candidates';
 
 const root = process.cwd();
@@ -87,7 +88,7 @@ async function openDb(): Promise<Pg> {
   const pg = await PGlite.create();
   await pg.exec(fs.readFileSync(path.join(root, 'eval/db/standin.sql'), 'utf8'));
   await pg.exec(`create role service_role nologin; grant usage on schema public to service_role;`);
-  await pg.exec(`alter table strategy_data add column stage2_final_document_edits jsonb, add column final_story_final jsonb, add column final_story_edited jsonb;`);
+  await pg.exec(`alter table strategy_data add column stage2_final_document_edits jsonb, add column final_story_final jsonb, add column final_story_edited jsonb, add column finance_pl jsonb;`);
   await pg.exec(fs.readFileSync(path.join(root, 'supabase/pending/20261112_stage3_strategy_books.sql'), 'utf8'));
   await pg.exec(`create table if not exists okrs (company_id text, strategy_id text, project_id text);`);
   return pg;
@@ -224,6 +225,7 @@ const ROUTES: Record<string, (req: Request) => Promise<Response>> = {
   'POST /api/stage3/strategy-book/project-references': referencesPost,
   'POST /api/stage3/adjustment/analyze': analyzePost,
   'POST /api/stage3/adjustment/regenerate': regeneratePost,
+  'POST /api/stage3/adjustment/propose': proposePost,
   /* 6問のテーマ（検証用の固定の問い。実際のAI生成は行わない） */
   'POST /api/generate-department-question': async (req) => {
     const body = (await req.json()) as { afterStepIndex?: number };

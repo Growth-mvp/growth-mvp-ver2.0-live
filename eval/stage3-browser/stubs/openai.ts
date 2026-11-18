@@ -67,7 +67,10 @@ export const openai = {
         const system = params.messages[0].content;
         const user = params.messages[1].content;
         const { depts, plans } = parseUnits(user);
-        const content = system.includes('調整候補を挙げます') ? analysisAnswer(depts, plans) : regenAnswer(user);
+        const proposalIds = [...new Set([...user.matchAll(/・(adj-\d+) /g)].map((m) => m[1]))];
+        const content = system.includes('部門間の調整候補それぞれについて')
+          ? { proposals: proposalIds.map((candidateId) => ({ candidateId, proposal: '検証用の調整案：役割分担を明記し、結果を週次で共有する', changes: [] })) }
+          : system.includes('調整候補を挙げます') ? analysisAnswer(depts, plans) : regenAnswer(user);
         return { choices: [{ message: { content: JSON.stringify(content) } }] };
       },
     },

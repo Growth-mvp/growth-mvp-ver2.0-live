@@ -165,15 +165,16 @@ try {
 
   await step('STEP4：確認・確定の画面に、判断を求める旧方式の表示が無く、確定ボタンが押せる', async () => {
     await stepBtn('STEP4').click();
-    await page.getByText('正式に確定する内容').first().waitFor({ timeout: 15000 });
+    await btn('採用する').first().waitFor({ timeout: 15000 });
     check('STEP4：「既存の計画（変更しません）」の一覧が無い', (await page.getByText('既存の計画（変更しません）').count()) === 0);
     const adopt = btn('採用する').first();
     await savedOnClick(() => adopt.click());
     const afterAdopt = await api(`/api/stage3/strategy-book?companyId=${IDS.company}&strategyId=${IDS.strategy}`);
     const adopted = (afterAdopt.body?.state?.projectSelections ?? []).filter((p) => p.decision === 'applied').length;
     check('新規候補：採用した1件が、確定の前に保存される', adopted === 1, `採用 ${adopted}件`);
-    const adjustN = await btn('採用').count();
-    for (let i = 0; i < adjustN; i += 1) await savedOnClick(() => btn('採用').nth(i).click());
+    const adjustButtons = btn('採用する');
+    const adjustN = (await adjustButtons.count()) - 1;
+    for (let i = 1; i <= adjustN; i += 1) await savedOnClick(() => adjustButtons.nth(i).click());
     check('STEP4：部門間調整の候補に、採否を選んだ', adjustN > 0, `候補 ${adjustN}件`);
     const afterAdj = await api(`/api/stage3/strategy-book?companyId=${IDS.company}&strategyId=${IDS.strategy}`);
     const decided = Object.values(afterAdj.body?.state?.candidateDecisions ?? {}).filter((d) => d === 'adopted').length;

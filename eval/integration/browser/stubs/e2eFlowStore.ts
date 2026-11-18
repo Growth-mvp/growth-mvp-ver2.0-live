@@ -135,9 +135,9 @@ state.setFinancePlanAssumptions = (snapshot: unknown, options?: { markDirty?: bo
   });
 };
 
-/* 部分更新の結果を反映する（実ストアと同じ契約：未保存の変更がある間は反映しない） */
-state.syncPartialSave = ({ departments, revision }: { departments: any[]; revision: number }) => {
-  if (state.dirty) return false;
+/* 部分更新の結果を反映する（実ストアと同じ契約：未保存の変更がある間は反映しない。preserveUnsaved のときは、呼び出し側が未保存の編集を残して合わせた部門を受け取る） */
+state.syncPartialSave = ({ departments, revision, preserveUnsaved }: { departments: any[]; revision: number; preserveUnsaved?: boolean }) => {
+  if (state.dirty && !preserveUnsaved) return false;
   setState({ departments: clone(departments), revision, version: (state.version ?? 0) + 1 });
   return true;
 };
