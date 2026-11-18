@@ -18,6 +18,8 @@ import { DiffViewer } from '@/components/stage4/DiffViewer';
 import { AlignmentPreview } from '@/components/stage4/AlignmentPreview';
 import { ProjectEditor } from '@/components/stage4/ProjectEditor';
 import { KpiTreePanel } from '@/components/stage4/KpiTreePanel';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
+import { legacyDeptPlanConsultFocus } from '@/components/okr/execution-plan/planConsult';
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import type { Stage4Plan, Stage4Baseline, Stage4Current, Department, Project, HumanInvestment } from '@/types/strategy';
 
@@ -386,6 +388,15 @@ export default function Stage4Page() {
       setIsInitializing(false);
     }
   };
+
+  // CEOチャットの相談文脈（部門別の計画）。保存状態は、ストアに未保存の変更があるかで判定する（hooks は早期 return より前に置く）
+  const storeUnsaved = useStrategyStore((s: StrategyState) => s.dirty === true);
+  useConsultFocus(
+    'stage4-legacy-plan',
+    selectedDept && selectedPlan
+      ? legacyDeptPlanConsultFocus({ department: selectedDept, plan: selectedPlan, unsaved: storeUnsaved })
+      : null,
+  );
 
   // 初回読み込み中：★ store.loaded/hydrated に依存しない
   if (isInitializing || !initializedReady) {

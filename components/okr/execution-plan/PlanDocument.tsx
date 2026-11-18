@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { buildDocModel, type DocModel, type Edits, type EditValue } from '@/lib/stage4/planView/documentModel';
 import type { PlanMode } from '@/lib/stage4/planView/planState';
 import { PLAN_DOC_CSS, PLAN_FINANCE_FOLD_CSS } from './planDocStyles';
+import { ConsultEditingContext } from './planConsult';
 
 type Mode = PlanMode;
 
@@ -49,6 +50,7 @@ export function EditableBlock({
   onChange,
   multiline = true,
   className = 'plan-p',
+  fieldKey,
 }: {
   label: string;
   value: string;
@@ -56,8 +58,18 @@ export function EditableBlock({
   onChange: (v: string) => void;
   multiline?: boolean;
   className?: string;
+  /** 計画書の項目のキー（相談文脈で保存状態を判定するため）。無ければ相談文脈へ報告しない */
+  fieldKey?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const reportEditing = useContext(ConsultEditingContext);
+  const reportId = useId();
+  /* 開いている間だけ、編集中の文章欄として相談文脈に知らせる（閉じたら外す） */
+  useEffect(() => {
+    if (!open || mode === 'read' || !fieldKey) return;
+    reportEditing(reportId, { label, text: value, fieldKey });
+    return () => reportEditing(reportId, null);
+  }, [open, mode, fieldKey, label, value, reportEditing, reportId]);
   if (mode === 'read') {
     return <p className={className}>{value}</p>;
   }
@@ -139,6 +151,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
     value: Object.prototype.hasOwnProperty.call(edits, key) ? String(edits[key] ?? '') : original,
     mode,
     onChange: (v: string) => setEdit(key, v),
+    fieldKey: key,
   });
 
   const editCount = Object.keys(committed).length;

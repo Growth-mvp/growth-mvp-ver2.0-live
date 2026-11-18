@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useContext, useEffect, useId, useState } from 'react';
 import type { ProjectPlanState, PlanView } from '@/lib/stage4/planView/planState';
 import type { SectionViews } from '@/lib/stage4/planView/types';
+import { ConsultEditingContext } from './planConsult';
 
 const BUTTON_PRIMARY =
   'rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40';
@@ -34,6 +35,16 @@ export default function StartConfirmation({ plan, view, bodyDirty, responsible, 
   const [name, setName] = useState(responsible);
   const candidates = [...new Set([...((view.d.sections as unknown as SectionViews)[4].blocks[0].responsible.candidates ?? [])])];
   const trimmed = name.trim();
+
+  /* 実行責任者の入力が保存済みと違う間だけ、編集中の文章欄として相談文脈に知らせる（未保存扱い） */
+  const reportEditing = useContext(ConsultEditingContext);
+  const reportId = useId();
+  const nameEdited = trimmed !== responsible.trim();
+  useEffect(() => {
+    if (plan.started || !nameEdited) return;
+    reportEditing(reportId, { label: '実行責任者（実行開始の入力）', text: name, saved: false });
+    return () => reportEditing(reportId, null);
+  }, [plan.started, nameEdited, name, reportEditing, reportId]);
 
   const blockers: string[] = [];
   if (!trimmed) blockers.push('実行責任者を入力してください');

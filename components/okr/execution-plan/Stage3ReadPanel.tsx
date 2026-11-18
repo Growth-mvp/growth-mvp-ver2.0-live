@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
@@ -89,6 +89,15 @@ import {
   toEdits,
   type PlanDocEntry,
 } from './planDocEntry';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
+import {
+  ConsultEditingContext,
+  keySavedOf,
+  planDocumentConsultFocus,
+  type EditingFieldInfo,
+  type EditingReporter,
+  type FinanceItemView,
+} from './planConsult';
 
 const ROLE_LABEL: Record<string, string> = { REVENUE: '売上を伸ばす', COST: 'ムダを減らす', FUTURE: '将来の成長に備える' };
 const REASON_LABEL: Record<string, string> = {
@@ -227,6 +236,14 @@ function Stage3ProjectBrowser({
   const [lifecycleTarget, setLifecycleTarget] = useState<{ sel: Stage3Selection; projectId: string; title: string; action: LifecycleAction; facts: PlanFacts } | null>(null);
   const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  /* 開いている編集中の文章欄（CEOチャットの相談文脈に使う。開いた順に並び、いちばん新しいものが最後） */
+  const [editingFields, setEditingFields] = useState<Array<EditingFieldInfo & { id: string }>>([]);
+  const reportEditing = useCallback<EditingReporter>((id, info) => {
+    setEditingFields((prev) => {
+      if (!info) return prev.some((f) => f.id === id) ? prev.filter((f) => f.id !== id) : prev;
+      return [...prev.filter((f) => f.id !== id), { ...info, id }];
+    });
+  }, []);
   /* 計画から外す・中止は管理者・管理職だけ。書き込みの時にもサーバーで同じ判定を行う */
   const canChangeLifecycle = source.memberships.some(
     (m) => m.company_id === (source.strategies[0]?.company_id ?? '') && canAdoptCandidate(m.role),
@@ -786,7 +803,58 @@ function Stage3ProjectBrowser({
     </>
   ) : undefined;
 
+  /* CEOチャットの相談文脈：いま見ている計画書の表示中の内容と、保存状態（保存済みの版との比較で判定する） */
+  const regenNow = id ? regen[id] : undefined;
+  const startShown = !!entry && !!planView && entry.view === 'start';
+  const savedShown = !!entry && !!planView && !startShown && !regenNow;
+  const previewDraft = !!entry && !!planView && !startShown && regenNow?.status === 'READY' ? regenNow.draft : null;
+  const consultDoc = useMemo(() => {
+    if (previewDraft) return buildDocModel(previewDraft, {});
+    return entry && (entry.view === 'start' || !regenNow) ? buildDocModel(entry.aiDraft, entry.plan.committed) : null;
+  }, [entry, previewDraft, regenNow]);
+  const keySaved: (key: string) => boolean = previewDraft ? () => false : keySavedOf(entry);
+  const savedEntry = savedShown ? entry : null;
+  const consultFinance: FinanceItemView[] = financeLines.flatMap((line) => {
+    const draft = anchoredFinanceDrafts.find((d) => d.label === line.label);
+    if (!draft || !savedEntry) return [];
+    const typed = !!savedEntry.finance?.[draft.kind];
+    const savedOne = financeSaved.some((e) => e.kind === draft.kind);
+    return [{ label: line.label, status: line.status, text: line.text, saved: !typed && savedOne }];
+  });
+  const editingLast = editingFields[editingFields.length - 1];
+  const consultFocus =
+    view && view.status === 'READY'
+      ? planDocumentConsultFocus({
+          section: previewDraft ? '新しいAI案（未保存・読み取り専用）' : startShown ? '実行開始の確認' : '実行計画書',
+          departmentName: view.model.department.name,
+          projectId: financeProjectId ?? undefined,
+          projectTitle: view.model.project.title,
+          doc: consultDoc,
+          keySaved,
+          adoption:
+            entry && planView && (startShown || savedShown)
+              ? { adopted: entry.plan.adopted, started: entry.plan.started, saved: !!entry.stored && entry.stored.adopted === entry.plan.adopted }
+              : null,
+          finance: consultFinance,
+          investments: {
+            saved: savedShown ? savedInvestments : [],
+            pending: savedEntry?.investments ?? [],
+            pendingRemovals: savedEntry?.investmentRemovals?.length ?? 0,
+          },
+          draft:
+            editingLast && (startShown || savedShown)
+              ? {
+                  label: editingLast.label,
+                  text: editingLast.text,
+                  saved: editingLast.fieldKey !== undefined ? keySaved(editingLast.fieldKey) : editingLast.saved === true,
+                }
+              : null,
+        })
+      : null;
+  useConsultFocus('stage4-plan-document', consultFocus);
+
   return (
+    <ConsultEditingContext.Provider value={reportEditing}>
     <div className="space-y-4">
       <style>{PLAN_DOC_CSS}</style>
       {!startSelected && (
@@ -921,6 +989,7 @@ function Stage3ProjectBrowser({
         )}
       </section>
     </div>
+    </ConsultEditingContext.Provider>
   );
 }
 
