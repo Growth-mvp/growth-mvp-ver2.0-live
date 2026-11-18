@@ -1,6 +1,7 @@
 import { findProjectPositionById } from '@/lib/stage4/planView/financeBridgeStore';
 import { applyFinanceActualToDepartments, patchStrategyDepartments } from '@/lib/stage5/partialStrategyWrite';
 import { upsertFinanceActual } from '@/lib/stage5/financeActuals';
+import { actualMonthRefusal } from '@/lib/stage5/stoppedActuals';
 import { useStrategyStore } from '@/store/strategyStore';
 import { strategyPartialIo } from '@/utils/supabase/strategyPartial';
 
@@ -29,6 +30,8 @@ export async function writeFinanceActual(args: {
   }
   const found = findProjectPositionById(before.departments, args.projectId);
   if (!found) return { ok: false, message: '対象の施策を特定できないため、保存しませんでした。一覧を読み直してください。' };
+  const monthRefusal = actualMonthRefusal(found.project, args.ym);
+  if (monthRefusal) return { ok: false, message: monthRefusal };
   if (!args.allowedItemKeys.includes(args.itemKey)) {
     return { ok: false, message: '対象の財務項目を特定できないため、保存しませんでした。画面を読み直してください。' };
   }

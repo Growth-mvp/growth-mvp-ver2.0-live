@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Project } from '@/types/strategy';
 import { motion } from 'framer-motion';
 import { stripProjectPrefix } from '@/utils/dateFormatter';
+import { isProjectStopped } from '@/lib/cascade/projectLifecycle';
 
 interface Props {
   deptName: string;
@@ -61,7 +62,12 @@ export default function ProjectCard({
       {/* 横いっぱいに広げるため w-full / max-w-none を明示 */}
       <Card className="w-full max-w-none p-4 shadow-xl border border-blue-200 bg-white hover:shadow-2xl transition-all rounded-2xl">
         <h2 className="text-md text-blue-800 font-semibold mb-2">{deptName}</h2>
-        <h3 className="text-xl font-bold text-gray-800">{project.title}</h3>
+        <h3 className="text-xl font-bold text-gray-800">
+          {project.title}
+          {isProjectStopped(project) && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 align-middle text-[11px] font-semibold text-rose-700 whitespace-nowrap">中止</span>
+          )}
+        </h3>
 
         <div className="mt-2">
           <p className="text-sm text-gray-600 line-clamp-2">

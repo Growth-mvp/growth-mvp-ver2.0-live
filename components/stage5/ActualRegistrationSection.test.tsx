@@ -215,4 +215,58 @@ describe('planRegistration（保存の前の検証）', () => {
     expect(p.finance['OPEX:ac16']).toBe('900000');
     expect(p.kr['kr-1']).toEqual({ value: '88', asOf: '2026-10-15' });
   });
+
+  it('中止した施策の上限より後の月は保存しない。上限の月（中止月）までは保存する', () => {
+    const after = planRegistration(draft({ ym: '2026-11', finance: { 'OPEX:ac16': '1' } }), [{ ...opexItem, actuals: [] }], [], NOW, '2026-10');
+    expect(after).toEqual({ ok: false, error: '中止した月（2026-10）より後の実績は登録できません。' });
+    const upTo = planRegistration({ ym: '2026-10', finance: { 'OPEX:ac16': '800000' }, kr: {}, note: '' }, [opexItem], [], NOW, '2026-10');
+    expect(upTo.ok).toBe(true);
+  });
+
+  it('中止後の上限は、KRの基準日の月にも効く（基準日が上限より後なら保存しない）', () => {
+    const r = planRegistration(
+      { ym: '2026-10', finance: {}, kr: { 'kr-1': { value: '90', asOf: '2026-11-03' } }, note: '' },
+      [],
+      [kr('kr-1', '継続率')],
+      NOW,
+      '2026-10',
+    );
+    expect(r).toEqual({ ok: false, error: '継続率：中止した月（2026-10）より後の実績は登録できません。' });
+  });
+});
+
+describe('中止した施策の実績（登録できる月の上限）', () => {
+  it('中止月より後の月は選べず、中止月は選べる。入力欄の max も中止月になる', () => {
+    render(<ActualRegistrationSection items={[{ ...opexItem, actuals: [] }]} krs={[]} maxYm="2026-10" onRecordFinance={jest.fn()} onRecordKr={jest.fn()} />);
+    const month = screen.getByLabelText('対象年月') as HTMLInputElement;
+    expect(month.max).toBe('2026-10');
+
+    fireEvent.change(month, { target: { value: '2026-11' } });
+    expect(month.value).toBe('');
+    expect((screen.getByRole('alert') as HTMLElement).textContent).toContain('中止した月（2026-10）より後の実績は登録できません。');
+    expect((screen.getByLabelText('外注費（検証用）の実績金額') as HTMLInputElement).disabled).toBe(true);
+
+    fireEvent.change(month, { target: { value: '2026-10' } });
+    expect(month.value).toBe('2026-10');
+    expect((screen.getByLabelText('外注費（検証用）の実績金額') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('中止していない施策は、月に上限を設けない', () => {
+    render(<ActualRegistrationSection items={[{ ...opexItem, actuals: [] }]} krs={[]} onRecordFinance={jest.fn()} onRecordKr={jest.fn()} />);
+    const month = screen.getByLabelText('対象年月') as HTMLInputElement;
+    expect(month.hasAttribute('max')).toBe(false);
+    fireEvent.change(month, { target: { value: '2027-03' } });
+    expect(month.value).toBe('2027-03');
+  });
+
+  it('KRの基準日が中止月より後なら、保存せず入力を残す（onRecordKr は呼ばない）', async () => {
+    const onRecordKr = jest.fn(async () => ({ ok: true as const }));
+    render(<ActualRegistrationSection items={[]} krs={[kr('kr-1', '継続率')]} maxYm="2026-10" onRecordFinance={jest.fn()} onRecordKr={onRecordKr} />);
+    fireEvent.change(screen.getByLabelText('対象年月'), { target: { value: '2026-10' } });
+    fireEvent.change(screen.getByLabelText('継続率の実績値（%）'), { target: { value: '90' } });
+    fireEvent.change(screen.getByLabelText('継続率の基準日'), { target: { value: '2026-11-03' } });
+    fireEvent.click(screen.getByRole('button', { name: '実績を保存' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('継続率：中止した月（2026-10）より後の実績は登録できません。');
+    expect(onRecordKr).not.toHaveBeenCalled();
+  });
 });

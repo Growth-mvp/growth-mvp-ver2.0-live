@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { KRStructured, KrActual } from '@/types/strategy';
 import { FINANCE_ACTUAL_NOTE_MAX, parseFinanceActualInput, type FinanceActualItem } from '@/lib/stage5/financeActuals';
 import { krActualView, parseKrActualInput } from '@/lib/stage5/krActual';
+import { monthAfterLimit } from '@/lib/stage5/stoppedActuals';
 
 export type FinanceActualRecordArgs = { itemKey: string; ym: string; amountYen: number; note?: string };
 export type FinanceActualRecordResult = { ok: true } | { ok: false; error: string };
@@ -50,14 +51,18 @@ export type RegistrationStep =
   | { kind: 'FINANCE'; key: string; label: string; args: FinanceActualRecordArgs }
   | { kind: 'KR'; key: string; label: string; krId: string; actual: KrActual };
 
-/* 入力を検証し、保存する項目だけを順に並べる。空欄は含めない。どれか1つでも不正なら、何も保存しない。 */
+/* 入力を検証し、保存する項目だけを順に並べる。空欄は含めない。どれか1つでも不正なら、何も保存しない。
+ * maxYm は中止した施策の上限（YYYY-MM）。上限より後の年月（KRの基準日を含む）は保存しない。 */
 export function planRegistration(
   draft: RegistrationDraft,
   items: readonly FinanceActualItem[],
   krs: readonly KRStructured[],
   nowIso: string,
+  maxYm?: string | null,
 ): { ok: true; steps: RegistrationStep[] } | { ok: false; error: string } {
   if (!YM_PATTERN.test(draft.ym)) return { ok: false, error: '対象年月を選んでください。' };
+  const afterLimit = monthAfterLimit(draft.ym, maxYm);
+  if (afterLimit) return { ok: false, error: afterLimit };
   const steps: RegistrationStep[] = [];
   let filled = 0;
 
@@ -86,6 +91,8 @@ export function planRegistration(
     filled += 1;
     const parsed = parseKrActualInput({ value: input.value, asOf: input.asOf, note: draft.note }, nowIso);
     if (!parsed.ok) return { ok: false, error: `${k.label}：${parsed.error}` };
+    const krAfterLimit = monthAfterLimit(parsed.actual.asOf.slice(0, 7), maxYm);
+    if (krAfterLimit) return { ok: false, error: `${k.label}：${krAfterLimit}` };
     const current = k.actual;
     const sameMonth = !!current && current.asOf.startsWith(draft.ym);
     if (sameMonth && current && current.value === parsed.actual.value && current.asOf === parsed.actual.asOf) continue;
@@ -107,12 +114,15 @@ export function planRegistration(
 export function ActualRegistrationSection({
   items,
   krs,
+  maxYm,
   onRecordFinance,
   onRecordKr,
   onDraftChange,
 }: {
   items: FinanceActualItem[];
   krs?: KRStructured[];
+  /** 中止した施策の、登録できる最後の年月（YYYY-MM）。中止していなければ未指定 */
+  maxYm?: string | null;
   onRecordFinance: (args: FinanceActualRecordArgs) => Promise<FinanceActualRecordResult> | FinanceActualRecordResult;
   onRecordKr: (krId: string, actual: KrActual) => Promise<KrRecordResult> | KrRecordResult;
   /** 表示中の入力状態を、親に知らせる（相談の文脈用。画面の動きは変えない） */
@@ -137,6 +147,11 @@ export function ActualRegistrationSection({
   }, []);
 
   const chooseYm = (next: string) => {
+    const afterLimit = monthAfterLimit(next, maxYm);
+    if (afterLimit) {
+      setResult({ tone: 'error', text: afterLimit });
+      return;
+    }
     setYm(next);
     const p = next && YM_PATTERN.test(next) ? prefillFor(next, items, krList) : { finance: {}, kr: {} };
     setFinance(p.finance);
@@ -146,7 +161,7 @@ export function ActualRegistrationSection({
 
   const save = async () => {
     if (busy) return;
-    const plan = planRegistration({ ym, finance, kr, note }, items, krList, new Date().toISOString());
+    const plan = planRegistration({ ym, finance, kr, note }, items, krList, new Date().toISOString(), maxYm);
     if (!plan.ok) {
       setResult({ tone: 'error', text: plan.error });
       return;
@@ -209,6 +224,7 @@ export function ActualRegistrationSection({
             <input
               type="month"
               aria-label="対象年月"
+              max={maxYm ?? undefined}
               value={ym}
               onChange={(e) => chooseYm(e.target.value)}
               className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"

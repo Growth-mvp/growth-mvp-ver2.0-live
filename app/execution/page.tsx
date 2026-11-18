@@ -1,7 +1,8 @@
 // /app/execution/page.tsx
 'use client';
 import StrategyGuard from '@/app/StrategyGuard';
-import { isProjectActive } from '@/lib/cascade/projectLifecycle';
+import { isProjectStopped } from '@/lib/cascade/projectLifecycle';
+import { actualMaxYmOf, actualMonthRefusal, isListedOnExecution } from '@/lib/stage5/stoppedActuals';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -358,6 +359,8 @@ function ExecPanel(props: {
   krs?: KRStructured[];
   onRecordKrActual?: (krId: string, actual: KrActual) => KrRecordResult | Promise<KrRecordResult>;
   financeActualItems?: FinanceActualItem[];
+  /** 中止した施策の、実績を登録できる最後の年月（YYYY-MM）。中止していなければ null */
+  financeActualMaxYm?: string | null;
   onRecordFinanceActual?: (args: FinanceActualRecordArgs) => Promise<FinanceActualRecordResult> | FinanceActualRecordResult;
 }) {
   const {
@@ -1549,6 +1552,7 @@ function ExecPanel(props: {
             <div className="mt-3">
               <ActualRegistrationSection
                 items={props.financeActualItems ?? []}
+                maxYm={props.financeActualMaxYm}
                 krs={props.krs}
                 onRecordFinance={props.onRecordFinanceActual}
                 onRecordKr={props.onRecordKrActual}
@@ -2118,7 +2122,7 @@ function ExecutionPageContent() {
           })(),
           projForCard: { ...(proj as any), title: strictProj.title },
         };
-      }).filter((p) => isProjectActive(p.projForCard));
+      }).filter((p) => isListedOnExecution(p.projForCard));
 
       return {
         di,
@@ -2331,7 +2335,10 @@ function ExecutionPageContent() {
       if (typeof selectedDi !== 'number' || typeof selectedPi !== 'number') {
         return { ok: false, error: '施策が選択されていません。' };
       }
-      const current = (useStrategyStore.getState() as any).departments?.[selectedDi]?.projects?.[selectedPi]?.okrsV2;
+      const selectedProject = (useStrategyStore.getState() as any).departments?.[selectedDi]?.projects?.[selectedPi];
+      const monthRefusal = actualMonthRefusal(selectedProject, actual.asOf.slice(0, 7));
+      if (monthRefusal) return { ok: false, error: monthRefusal };
+      const current = selectedProject?.okrsV2;
       const result = recordKrActual(current, krId, actual);
       if (!result.ok) return { ok: false, error: krLocateMessage(result.reason) };
       const beforeKr = (current as KRStructured[]).find((k) => k.id === krId);
@@ -2375,6 +2382,7 @@ function ExecutionPageContent() {
     typeof selectedDi === 'number' && typeof selectedPi === 'number' ? st.departments?.[selectedDi]?.projects?.[selectedPi] : undefined,
   );
   const selectedFinanceActualItems = useMemo(() => financeActualItemsOf(selectedFinanceProject), [selectedFinanceProject]);
+  const selectedFinanceActualMaxYm = useMemo(() => actualMaxYmOf(selectedFinanceProject), [selectedFinanceProject]);
 
   const recordFinanceActualFor = useCallback(
     async (args: { itemKey: string; ym: string; amountYen: number; note?: string }): Promise<FinanceActualRecordResult> => {
@@ -2936,6 +2944,11 @@ function ExecutionPageContent() {
                                       <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2 min-w-0">
                                           <div className="truncate text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition">{p.title || '（プロジェクト名未設定）'}</div>
+                                          {isProjectStopped(p.projForCard) && (
+                                            <span className="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 whitespace-nowrap">
+                                              中止{actualMaxYmOf(p.projForCard) ? `（${actualMaxYmOf(p.projForCard)}）` : ''}
+                                            </span>
+                                          )}
                                           {(() => {
                                             const updateInfo = projectUpdateMap[key];
                                             if (!updateInfo?.hasUnread) return null;
@@ -3016,6 +3029,7 @@ function ExecutionPageContent() {
         krs={selectedKrs}
         onRecordKrActual={recordKrActualFor}
         financeActualItems={selectedFinanceActualItems}
+        financeActualMaxYm={selectedFinanceActualMaxYm}
         onRecordFinanceActual={recordFinanceActualFor}
         onActivitySaved={({ okrId, at }) => {
           setProjectActivityMap((prev) => {
