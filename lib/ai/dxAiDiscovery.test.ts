@@ -2,9 +2,16 @@ import { DX_AI_DISCOVERY_RULE_STAGE3, DX_AI_DISCOVERY_RULES_STAGE2 } from './dxA
 
 describe('解決手段の思考プロセス（STAGE2・3の生成ルール）', () => {
   it('STAGE2は、課題の特定から手段の反映までの6段階を順に示す', () => {
-    for (const step of ['① 経営課題を特定する', '② 変えるべき業務を特定する', '③ 現在、人が行っている作業を洗い出す', '④ デジタル技術やAIによる代替・自動化・高度化の可能性を検討する', '⑤ 費用対効果・実現可能性を判断する', '⑥ 有効な手段を戦略に反映する']) {
+    for (const step of ['A. 経営課題を特定する', 'B. 変えるべき業務を特定する', 'C. 現在、人が行っている作業を洗い出す', 'D. デジタル技術やAIによる代替・自動化・高度化の可能性を検討する', 'E. 費用対効果・実現可能性を判断する', 'F. 有効な手段を戦略に反映する']) {
       expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain(step);
     }
+  });
+
+  it('STAGE2の解決手段の検討は補助であり、戦略の思考順序（①〜⑤）と番号が重ならない', () => {
+    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('（補助）');
+    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('「戦略の思考順序」で立てた戦略仮説に');
+    expect(DX_AI_DISCOVERY_RULES_STAGE2).toContain('「戦略の思考順序」と「勝ち筋の品質基準」が主');
+    expect(DX_AI_DISCOVERY_RULES_STAGE2).not.toMatch(/[①②③④⑤⑥]/);
   });
 
   it('STAGE2は、DX・AIを強制せず、業務改革でも人が行うことを前提にしない', () => {
@@ -19,7 +26,7 @@ describe('解決手段の思考プロセス（STAGE2・3の生成ルール）', 
   });
 
   it('STAGE3は、計画の前に同じ順で確かめ、代替が有効な場合だけ変え方と検証指標を書く', () => {
-    expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('計画を作る前に、次の順で確かめる');
+    expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('計画を作る前に、戦略と既存の計画の要件を主とし、その実現を補うために次の順で確かめる');
     expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('代替・高度化が有効だと入力から言える場合');
     expect(DX_AI_DISCOVERY_RULE_STAGE3).toContain('DX・AIの導入そのものを成果としない');
   });
