@@ -132,6 +132,30 @@ const ProjectRemovalSchema = z.object({
 
 export type ProjectRemoval = z.infer<typeof ProjectRemovalSchema>;
 
+export const PROJECT_PROPOSAL_DECISIONS = ['pending', 'adopted', 'rejected'] as const;
+
+const ProjectChangeFieldsSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  reason: z.string().max(2000).nullable(),
+  hypothesis: z.string().max(2000).nullable(),
+  description: z.string().max(2000).nullable(),
+  kpis: z.array(z.string().trim().min(1).max(300)).max(10),
+});
+
+/** 調整後の再生成が出した計画・KPIの変更案。採用されるまで正式データは変えない（確定時に base と照合する）。 */
+const ProjectProposalSchema = z.object({
+  departmentKey: z.string().min(1).max(200),
+  departmentName: z.string().trim().min(1).max(200),
+  projectId: z.string().min(1).max(200),
+  projectTitle: z.string().trim().min(1).max(300),
+  reason: z.string().trim().min(1).max(600),
+  base: ProjectChangeFieldsSchema,
+  proposed: ProjectChangeFieldsSchema,
+  decision: z.enum(PROJECT_PROPOSAL_DECISIONS),
+});
+
+export type ProjectProposal = z.infer<typeof ProjectProposalSchema>;
+
 export const WorkspaceStateSchema = z.object({
   schemaVersion: z.literal(1),
   status: z.enum(['draft', 'confirmed']),
@@ -152,6 +176,7 @@ export const WorkspaceStateSchema = z.object({
   projectSelections: z.array(ProjectSelectionSchema).max(60).default([]),
   projectEdits: z.array(ProjectEditSchema).max(MAX_PROJECT_EDITS).default([]),
   projectRemovals: z.array(ProjectRemovalSchema).max(60).default([]),
+  projectProposals: z.array(ProjectProposalSchema).max(40).default([]),
   confirmed: z.object({ confirmedAt: z.string().max(40), appliedCount: z.number().int().min(0) }).nullable(),
 });
 
@@ -170,6 +195,7 @@ export function emptyWorkspaceState(): WorkspaceState {
     projectSelections: [],
     projectEdits: [],
     projectRemovals: [],
+    projectProposals: [],
     confirmed: null,
   };
 }
@@ -194,7 +220,9 @@ export type WorkspaceFailure =
   | 'confirmed_with_undecided_candidate'
   | 'project_unknown'
   | 'project_edit_duplicated'
-  | 'project_removal_duplicated';
+  | 'project_removal_duplicated'
+  | 'project_proposal_duplicated'
+  | 'project_edit_conflict';
 
 /** 正式データのプロジェクトIDを文字列にそろえる（無い・空なら null） */
 export function stableIdText(value: unknown): string | null {
@@ -312,6 +340,17 @@ export function verifyWorkspaceState(
     if (!officialProjects.get(r.departmentKey)?.has(r.projectId)) return { ok: false, error: 'project_unknown' };
     if (removedKeys.has(ref)) return { ok: false, error: 'project_removal_duplicated' };
     removedKeys.add(ref);
+  }
+
+  const proposalRefs = new Set<string>();
+  for (const p of state.projectProposals) {
+    const ref = `${p.departmentKey} ${p.projectId}`;
+    if (!officialProjects.get(p.departmentKey)?.has(p.projectId)) return { ok: false, error: 'project_unknown' };
+    if (proposalRefs.has(ref)) return { ok: false, error: 'project_proposal_duplicated' };
+    proposalRefs.add(ref);
+    if (p.decision === 'adopted' && (editedKeys.has(ref) || removedKeys.has(ref))) {
+      return { ok: false, error: 'project_edit_conflict' };
+    }
   }
 
   if (state.status === 'confirmed') {

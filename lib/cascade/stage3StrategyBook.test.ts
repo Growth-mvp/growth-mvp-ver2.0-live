@@ -183,3 +183,40 @@ describe('verifyWorkspaceState（既存プロジェクトの編集・計画か�
     expect(result.ok && result.state.projectRemovals).toEqual([]);
   });
 });
+
+describe('verifyWorkspaceState（計画・KPIの変更候補）', () => {
+  const official = [{ id: 'd-sales', name: '営業部', projects: [{ id: 'p-1', title: '既存顧客の再受注施策' }] }];
+  const text = { title: '既存顧客の再受注施策', reason: null, hypothesis: null, description: null };
+  const proposal = {
+    departmentKey: 'id:d-sales',
+    departmentName: '営業部',
+    projectId: 'p-1',
+    projectTitle: '既存顧客の再受注施策',
+    reason: '話し合いで再受注の担当を明確にした',
+    base: { ...text, kpis: [] },
+    proposed: { ...text, title: '再受注の施策（改名）', kpis: [] },
+    decision: 'adopted' as const,
+  };
+  const edit = { departmentKey: 'id:d-sales', projectId: 'p-1', fields: text, base: text };
+
+  it('採用した変更候補と、同じ計画の編集・計画から外すは両立しない', () => {
+    expect(verifyWorkspaceState({ ...emptyWorkspaceState(), projectProposals: [proposal], projectEdits: [edit] }, official)).toEqual({
+      ok: false,
+      error: 'project_edit_conflict',
+    });
+    expect(
+      verifyWorkspaceState({ ...emptyWorkspaceState(), projectProposals: [{ ...proposal, decision: 'rejected' }], projectEdits: [edit] }, official).ok,
+    ).toBe(true);
+  });
+
+  it('正式データに無い計画の変更候補と、同じ計画への重複を拒否する', () => {
+    expect(verifyWorkspaceState({ ...emptyWorkspaceState(), projectProposals: [{ ...proposal, projectId: 'p-x' }] }, official)).toEqual({
+      ok: false,
+      error: 'project_unknown',
+    });
+    expect(verifyWorkspaceState({ ...emptyWorkspaceState(), projectProposals: [proposal, proposal] }, official)).toEqual({
+      ok: false,
+      error: 'project_proposal_duplicated',
+    });
+  });
+});

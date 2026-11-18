@@ -300,3 +300,48 @@ describe('planConfirm（以前の確定で反映済みの変更）', () => {
     expect(plan).toMatchObject({ ok: false, error: 'current_value_changed', departmentName: '宅配事業', item: 'mission' });
   });
 });
+
+describe('採用したKPIの変更の確定（A-03）', () => {
+  const text = { title: '既存顧客の再受注施策', reason: null, hypothesis: '手間が減る', description: null };
+  const departments = (statement = '再受注率 40%') => [
+    {
+      id: 'd-sales',
+      name: '営業部',
+      projects: [
+        {
+          id: 'p-1',
+          title: '既存顧客の再受注施策',
+          hypothesis: '手間が減る',
+          okrs: [{ objective: '再受注を増やす', keyResults: [{ id: 'kr-1', statement }] }],
+        },
+      ],
+    },
+  ];
+  const kpiEdit = {
+    departmentKey: 'id:d-sales',
+    departmentName: '営業部',
+    projectId: 'p-1',
+    fields: text,
+    base: text,
+    kpis: { base: ['再受注率 40%'], next: ['再受注率 45%'] },
+  };
+
+  it('KPIの文言だけを差し替え、目標や識別子は変えない', () => {
+    const plan = planConfirm({ departments: departments(), changes: [], projectEdits: [kpiEdit], mintId: () => 'p-new' });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.editedProjectCount).toBe(1);
+    const kr = ((plan.departments[0].projects as Array<Record<string, any>>)[0].okrs[0] as Record<string, any>).keyResults[0];
+    expect(kr).toEqual({ id: 'kr-1', statement: '再受注率 45%' });
+  });
+
+  it('KPIの基準が編集時点から変わっていれば確定しない', () => {
+    const plan = planConfirm({
+      departments: departments('別の人が直したKPI'),
+      changes: [],
+      projectEdits: [kpiEdit],
+      mintId: () => 'p-new',
+    });
+    expect(plan).toEqual({ ok: false, error: 'project_changed', departmentName: '営業部', item: 'project' });
+  });
+});

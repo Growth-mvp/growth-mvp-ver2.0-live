@@ -12,6 +12,7 @@ export type StrategyAccess = {
   strategyId: string;
   revision: number;
   departments: unknown[];
+  financePl: unknown;
   stage2: Stage2Status;
 };
 
@@ -41,7 +42,7 @@ export async function loadStrategyAccess(
 
   const strategy = await admin
     .from('strategy_data')
-    .select('id, company_id, revision, departments, stage2_final_document_edits, final_story_final, final_story_edited')
+    .select('id, company_id, revision, departments, finance_pl, stage2_final_document_edits, final_story_final, final_story_edited')
     .eq('id', ids.strategyId)
     .maybeSingle();
   if (strategy.error) return { ok: false, status: 503, error: 'strategy_check_unavailable' };
@@ -64,6 +65,7 @@ export async function loadStrategyAccess(
       strategyId: ids.strategyId,
       revision: Number(strategy.data.revision ?? 0),
       departments: strategy.data.departments,
+      financePl: strategy.data.finance_pl,
       stage2,
     },
   };

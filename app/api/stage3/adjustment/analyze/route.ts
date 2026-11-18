@@ -19,6 +19,7 @@ import {
   buildAnalysisMessages,
   collectPlanUnits,
   countDepartments,
+  formatFinanceSummary,
   resolveCandidates,
 } from '@/lib/cascade/stage3Adjustment';
 
@@ -52,7 +53,11 @@ export async function POST(req: Request) {
 
     const completion = await openai.chat.completions.create({
       ...getOpenAIModelParamsForProcess('stage3AdjustmentAnalyze'),
-      messages: buildAnalysisMessages({ companyStrategy: confirmed.companyStrategy, units }),
+      messages: buildAnalysisMessages({
+        companyStrategy: confirmed.companyStrategy,
+        units,
+        finance: formatFinanceSummary(access.access.financePl),
+      }),
     });
 
     let raw: unknown;

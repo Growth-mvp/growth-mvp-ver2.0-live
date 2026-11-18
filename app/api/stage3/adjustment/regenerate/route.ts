@@ -16,9 +16,11 @@ import { loadStrategyAccess, requireConfirmedStrategy } from '@/lib/server/stage
 import { loadWorkspace } from '@/lib/server/stage3StrategyBook';
 import { sourceDepartments, verifyWorkspaceState } from '@/lib/cascade/stage3StrategyBook';
 import {
+  buildProjectChangeProposals,
   buildRegenerationMessages,
   buildRegenerationProposals,
   collectPlanUnits,
+  formatFinanceSummary,
   normalizeDialogue,
   verifyCandidates,
 } from '@/lib/cascade/stage3Adjustment';
@@ -65,6 +67,7 @@ export async function POST(req: Request) {
         units,
         candidates,
         dialogue: dialogue.results,
+        finance: formatFinanceSummary(access.access.financePl),
       }),
     });
 
@@ -75,7 +78,9 @@ export async function POST(req: Request) {
       return failResponse(502, 'upstream_unparseable');
     }
     // 変更案の基準は、保存済みの正式データ（apply 時に現在値と照合される）
-    const result = buildRegenerationProposals(raw, access.access.departments as Record<string, unknown>[], involved);
+    const departments = access.access.departments as Record<string, unknown>[];
+    const result = buildRegenerationProposals(raw, departments, involved);
+    const projects = buildProjectChangeProposals(raw, departments, involved);
 
     await logAuditEvent({
       companyId: access.access.companyId,
@@ -88,6 +93,8 @@ export async function POST(req: Request) {
         dialogueCount: dialogue.results.length,
         departmentCount: result.departments.length,
         rejectedDepartments: result.rejectedDepartments,
+        projectProposalCount: projects.projects.length,
+        rejectedProjects: projects.rejectedProjects,
         sourceDraftId: body.draft?.draftId ?? null,
       },
     });
@@ -98,6 +105,8 @@ export async function POST(req: Request) {
       workspaceVersion: loaded.workspace.version,
       departments: result.departments,
       rejectedDepartments: result.rejectedDepartments,
+      projects: projects.projects,
+      rejectedProjects: projects.rejectedProjects,
     });
   } catch {
     return failResponse(500, 'internal_error');

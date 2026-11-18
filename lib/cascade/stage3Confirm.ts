@@ -1,4 +1,4 @@
-import { departmentKeyOf } from '@/lib/cascade/stage3Adjustment';
+import { departmentKeyOf, editableKpis, withKpis } from '@/lib/cascade/stage3Adjustment';
 import { exclusionRefusal, isProjectActive } from '@/lib/cascade/projectLifecycle';
 import type { ProjectTextFields } from '@/lib/cascade/stage3StrategyBook';
 import {
@@ -32,6 +32,7 @@ export type ConfirmProjectEdit = {
   projectId: string;
   fields: ProjectTextFields;
   base: ProjectTextFields;
+  kpis?: { base: string[]; next: string[] };
 };
 
 export type ConfirmProjectRemoval = {
@@ -54,8 +55,17 @@ type ConfirmError =
   | 'project_approved';
 
 export type ConfirmPlan =
-  | { ok: true; departments: AnyRecord[]; appliedCount: number; adoptedProjectIds: string[]; excludedProjectIds: string[] }
+  | {
+      ok: true;
+      departments: AnyRecord[];
+      appliedCount: number;
+      editedProjectCount: number;
+      adoptedProjectIds: string[];
+      excludedProjectIds: string[];
+    }
   | { ok: false; error: ConfirmError; departmentName: string; item: string };
+
+const sameStrings = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b);
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null);
 
@@ -118,6 +128,7 @@ export function planConfirm(args: {
     appliedChanges += 1;
   }
 
+  let editedCount = 0;
   for (const e of args.projectEdits ?? []) {
     const fail = (error: ConfirmError) => ({ ok: false as const, error, departmentName: e.departmentName, item: 'project' });
     const { index, at } = findProject(e.departmentKey, e.projectId, e.departmentName);
@@ -125,12 +136,20 @@ export function planConfirm(args: {
     const list = next[index].projects as AnyRecord[];
     const project = list[at];
     if (!sameProjectText(e.base, projectTextOf(project))) return fail('project_changed');
-    const updated: AnyRecord = { ...project, title: e.fields.title };
+    if (e.kpis) {
+      const current = editableKpis(project);
+      if (!current || !sameStrings(current, e.kpis.base) || e.kpis.next.length !== current.length) {
+        return fail('project_changed');
+      }
+    }
+    let updated: AnyRecord = { ...project, title: e.fields.title };
     for (const key of ['reason', 'hypothesis', 'description'] as const) {
       if (e.fields[key] === null) delete updated[key];
       else updated[key] = e.fields[key];
     }
+    if (e.kpis) updated = withKpis(updated, e.kpis.next);
     list[at] = updated;
+    editedCount += 1;
   }
 
   const excludedProjectIds: string[] = [];
@@ -174,5 +193,12 @@ export function planConfirm(args: {
     next[index] = { ...next[index], projects: [...list, { ...prepared.project, sourceCandidateId: a.candidateId }] };
   }
 
-  return { ok: true, departments: next, appliedCount: appliedChanges, adoptedProjectIds, excludedProjectIds };
+  return {
+    ok: true,
+    departments: next,
+    appliedCount: appliedChanges,
+    editedProjectCount: editedCount,
+    adoptedProjectIds,
+    excludedProjectIds,
+  };
 }
