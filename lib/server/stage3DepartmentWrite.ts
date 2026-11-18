@@ -20,6 +20,7 @@ export function failResponse(status: number, error: string) {
 /**
  * 会社・戦略・権限・revision を確認し、対象部門1件だけを書き換える。
  * 書き込みは strategy_data.departments の1列だけ。保存済みの revision と一致した場合だけ書く。
+ * loaded を渡した場合は、呼び出し元が同じ要求の中で読んだ行を使う（更新の revision 条件が同じ版だけに書くことを保つ）。
  */
 export async function writeDepartmentGuarded(args: {
   admin: any;
@@ -29,8 +30,9 @@ export async function writeDepartmentGuarded(args: {
   expectedRevision: number;
   departmentName: string;
   apply: DepartmentApply;
+  loaded?: { revision: number; departments: unknown };
 }): Promise<WriteOutcome> {
-  const { admin, userId, companyId, strategyId, expectedRevision, departmentName, apply } = args;
+  const { admin, userId, companyId, strategyId, expectedRevision, departmentName, apply, loaded } = args;
 
   const membership = await admin
     .from('company_members')
@@ -46,18 +48,24 @@ export async function writeDepartmentGuarded(args: {
     return { ok: false, status: 403, error: 'insufficient_role' };
   }
 
-  const strategy = await admin
-    .from('strategy_data')
-    .select('id, company_id, revision, departments')
-    .eq('id', strategyId)
-    .maybeSingle();
-  if (strategy.error) return { ok: false, status: 503, error: 'strategy_check_unavailable' };
-  if (!strategy.data || strategy.data.company_id !== companyId) {
-    return { ok: false, status: 403, error: 'strategy_mismatch' };
+  let current: { revision: unknown; departments: unknown };
+  if (loaded) {
+    current = loaded;
+  } else {
+    const strategy = await admin
+      .from('strategy_data')
+      .select('id, company_id, revision, departments')
+      .eq('id', strategyId)
+      .maybeSingle();
+    if (strategy.error) return { ok: false, status: 503, error: 'strategy_check_unavailable' };
+    if (!strategy.data || strategy.data.company_id !== companyId) {
+      return { ok: false, status: 403, error: 'strategy_mismatch' };
+    }
+    current = strategy.data;
   }
-  if (strategy.data.revision !== expectedRevision) return { ok: false, status: 409, error: 'revision_changed' };
+  if (current.revision !== expectedRevision) return { ok: false, status: 409, error: 'revision_changed' };
 
-  const departments: unknown = strategy.data.departments;
+  const departments: unknown = current.departments;
   if (!Array.isArray(departments)) return { ok: false, status: 409, error: 'unverifiable_departments' };
   const list = departments as AnyRecord[];
   const targetIndex = list.findIndex((d) => d && typeof d === 'object' && d.name === departmentName);
@@ -77,7 +85,7 @@ export async function writeDepartmentGuarded(args: {
     .eq('id', strategyId)
     .eq('company_id', companyId)
     .eq('revision', expectedRevision)
-    .select('id, revision, departments');
+    .select('id, revision');
   if (write.error) {
     const conflict = LIFECYCLE_CONFLICT.exec(String(write.error.message ?? ''));
     if (conflict) return { ok: false, status: 409, error: conflict[1].toLowerCase() };
@@ -85,5 +93,5 @@ export async function writeDepartmentGuarded(args: {
   }
   const row = Array.isArray(write.data) ? write.data[0] : undefined;
   if (!row) return { ok: false, status: 409, error: 'revision_changed' };
-  return { ok: true, revision: Number(row.revision ?? 0), departments: row.departments as AnyRecord[] };
+  return { ok: true, revision: Number(row.revision ?? 0), departments: nextDepartments };
 }

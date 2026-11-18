@@ -57,6 +57,7 @@ import {
   mergeGeneratedKpisIntoOkrsV2,
   mkKRStructured,
   buildKRFromText,
+  seededId,
   diffKrSets,
   type Department,
   type Project,
@@ -1226,6 +1227,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
    * ========================================================== */
   const {
     patchDepartments,
+    patchDepartmentsQuietly,
     updateProjectRole,
     updateProjectRoleDetail,
     updateProjectOKR,
@@ -2898,7 +2900,7 @@ let variantsFixed = (p as any).okrVariants;
       trigger: 'first initialization',
     });
 
-    patchDepartments((prev: any) => {
+    patchDepartmentsQuietly((prev: any) => {
       const next = [...prev];
       let anyChanged = false;
 
@@ -2953,7 +2955,7 @@ krsRaw.forEach((krItem: any) => {
   });
 
   const kr = buildKRFromText(label, ownerHint);
-  existing.push(kr);
+  existing.push({ ...kr, id: seededId(`${String(d.id ?? d.name ?? '')}::${String((p as any).id ?? (p as any).title ?? '')}::kr::${label}`) });
   projChanged = true;
 });
           });
@@ -2979,7 +2981,7 @@ krsRaw.forEach((krItem: any) => {
     console.log('[diag][okr:auto-convert:done]', {
       timestamp: new Date().toISOString(),
     });
-  }, [departments, patchDepartments]);
+  }, [departments, patchDepartmentsQuietly]);
 
   /* ============================================================
    * KR 追加フォーム（pageに残す：UI state）

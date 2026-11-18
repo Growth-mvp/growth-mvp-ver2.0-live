@@ -38,7 +38,7 @@ jest.mock('@/utils/supabase/strategy', () => {
 
 import { AuthFetchError } from '@/utils/authFetch';
 import { useStrategyStore } from '@/store/strategyStore';
-import { writeProjectLifecycleToProject } from './lifecycleBridgeStore';
+import { mergeLifecycleIntoDepartments, writeProjectLifecycleToProject } from './lifecycleBridgeStore';
 
 const TARGET = { id: 'p-target', title: '保守契約の更新', planStatus: 'draft' };
 const OTHER = { id: 'p-other', title: '他社の施策' };
@@ -48,7 +48,7 @@ const DEPARTMENTS = [
 ];
 
 function setStore(over: Record<string, unknown> = {}) {
-  const syncPartialSave = jest.fn(() => true);
+  const syncPartialSave = jest.fn((_args: unknown) => true);
   useStrategyStore.setState({
     companyId: 'co-jnc',
     strategyId: 'st-1',
@@ -108,7 +108,26 @@ describe('計画から外す・中止する（STAGE4の画面側）', () => {
         json: { companyId: 'co-jnc', strategyId: 'st-1', projectId: TARGET.id, action: 'EXCLUDE', expectedRevision: 5 },
       }),
     );
-    expect(syncPartialSave).toHaveBeenCalledWith({ departments, revision: 6 });
+    expect(syncPartialSave).toHaveBeenCalledWith({
+      departments: [
+        { id: 'd1', name: '営業部', projects: [{ ...TARGET, lifecycle: { status: 'EXCLUDED' } }, { ...OTHER }] },
+        { id: 'd2', name: '企画部', projects: [] },
+      ],
+      revision: 6,
+      preserveUnsaved: true,
+    });
+  });
+
+  it('保存は済んだが画面に反映できなければ、画面の読み直しを案内する', async () => {
+    const { syncPartialSave } = setStore();
+    syncPartialSave.mockReturnValueOnce(false);
+    const departments = [{ id: 'd1', name: '営業部', projects: [{ ...TARGET, lifecycle: { status: 'EXCLUDED' } }, { ...OTHER }] }];
+    mockFetch.mockResolvedValueOnce({ ok: true, revision: 6, departments });
+    const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
+    expect(r).toEqual({
+      ok: false,
+      message: '変更は保存されましたが、画面に反映できませんでした。画面を読み直して、結果を確認してください。',
+    });
   });
 
   it('サーバーが管理者・管理職以外と判定したら、その理由を出し、画面を変えない', async () => {
@@ -141,7 +160,30 @@ describe('計画から外す・中止する（STAGE4の画面側）', () => {
     const r = await writeProjectLifecycleToProject({ ...base, action: 'STOP', facts: { executing: true, started: true } });
     expect(r).toEqual({ ok: true });
     expect(mockFetch.mock.calls[0][1].json.action).toBe('STOP');
-    expect(syncPartialSave).toHaveBeenCalledWith({ departments, revision: 6 });
+    expect(syncPartialSave).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: 6, preserveUnsaved: true, departments: expect.any(Array) }),
+    );
+    const sent = syncPartialSave.mock.calls[0][0] as { departments: Array<{ projects: Array<Record<string, unknown>> }> };
+    expect(sent.departments[0].projects[0]).toEqual({ ...TARGET, lifecycle: { status: 'STOPPED' } });
+  });
+
+  it('成功時は、画面の未保存の編集（同じ施策の他の項目・他の施策）を消さない', async () => {
+    const { syncPartialSave } = setStore({
+      departments: [
+        { id: 'd1', name: '営業部', projects: [{ ...TARGET, title: '編集中の名前' }, { ...OTHER, title: '他の編集' }] },
+      ],
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      revision: 6,
+      departments: [{ id: 'd1', name: '営業部', projects: [{ ...TARGET, lifecycle: { status: 'EXCLUDED' } }] }],
+    });
+    await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
+    const sent = syncPartialSave.mock.calls[0][0] as { departments: Array<{ projects: Array<Record<string, unknown>> }> };
+    expect(sent.departments[0].projects).toEqual([
+      { ...TARGET, title: '編集中の名前', lifecycle: { status: 'EXCLUDED' } },
+      { ...OTHER, title: '他の編集' },
+    ]);
   });
 
   it('予期しない失敗は、保存できなかったことだけを伝える（画面は変えない）', async () => {
@@ -150,5 +192,35 @@ describe('計画から外す・中止する（STAGE4の画面側）', () => {
     const r = await writeProjectLifecycleToProject({ ...base, action: 'EXCLUDE' });
     expect(r).toEqual({ ok: false, message: '計画の変更を保存できませんでした。もう一度お試しください。' });
     expect(syncPartialSave).not.toHaveBeenCalled();
+  });
+});
+
+describe('mergeLifecycleIntoDepartments（サーバーの結果を画面の未保存の編集に重ねる）', () => {
+  const local = [
+    { id: 'd1', name: '営業部', projects: [{ id: 'p1', title: '編集中', kpis: [1] }, { id: 'p2', title: '他' }] },
+    { id: 'd2', name: '企画部', projects: [{ id: 'p3', title: '別' }] },
+  ];
+
+  it('対象の施策の状態だけを写し、他の編集と他の施策はそのまま残す', () => {
+    const server = [{ id: 'd1', name: '営業部', projects: [{ id: 'p1', title: '保存済み', lifecycle: { status: 'STOPPED' } }] }];
+    const out = mergeLifecycleIntoDepartments(local, server, 'p1') as Array<{ projects: Array<Record<string, unknown>> }>;
+    expect(out[0].projects[0]).toEqual({ id: 'p1', title: '編集中', kpis: [1], lifecycle: { status: 'STOPPED' } });
+    expect(out[0].projects[1]).toBe(local[0].projects[1]);
+    expect(out[1]).toBe(local[1]);
+  });
+
+  it('サーバーに状態が無ければ、画面の状態も外す', () => {
+    const withState = [{ id: 'd1', name: '営業部', projects: [{ id: 'p1', lifecycle: { status: 'EXCLUDED' } }] }];
+    const server = [{ id: 'd1', name: '営業部', projects: [{ id: 'p1' }] }];
+    const out = mergeLifecycleIntoDepartments(withState, server, 'p1') as Array<{ projects: Array<Record<string, unknown>> }>;
+    expect(out[0].projects[0]).toEqual({ id: 'p1' });
+    expect('lifecycle' in out[0].projects[0]).toBe(false);
+  });
+
+  it('画面にも保存結果にも施策が1件に特定できなければ、null を返す', () => {
+    const server = [{ id: 'd1', name: '営業部', projects: [{ id: 'p-missing' }] }];
+    expect(mergeLifecycleIntoDepartments(local, server, 'p1')).toBeNull();
+    expect(mergeLifecycleIntoDepartments(local, [], 'p1')).toBeNull();
+    expect(mergeLifecycleIntoDepartments([], [{ id: 'd1', projects: [{ id: 'p1' }] }], 'p1')).toBeNull();
   });
 });

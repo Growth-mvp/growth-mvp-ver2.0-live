@@ -102,6 +102,7 @@ export async function POST(req: Request) {
       strategyId: body.strategyId,
       expectedRevision: body.expectedRevision,
       departmentName,
+      loaded: { revision: access.revision, departments: access.departments },
       apply: (target) => {
         const next = setProjectLifecycle([target], {
           projectId: body.projectId,

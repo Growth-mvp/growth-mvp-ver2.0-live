@@ -11,7 +11,7 @@ type StoreView = {
   strategyId?: string | null;
   departments?: unknown[];
   revision?: number;
-  syncPartialSave: (result: { departments: unknown[]; revision: number }) => boolean;
+  syncPartialSave: (result: { departments: unknown[]; revision: number; preserveUnsaved?: boolean }) => boolean;
 };
 const storeNow = () => useStrategyStore.getState() as unknown as StoreView;
 
@@ -20,6 +20,27 @@ type LifecycleResponse = { ok: true; revision: number; departments: unknown[] };
 const CHANGED = '会社または戦略が切り替わったため、保存されませんでした。画面を読み込み直してから、もう一度お試しください。';
 const NOT_FOUND = '対象の施策を特定できないため、保存しませんでした。一覧を読み直してください。';
 const DEFAULT = '計画の変更を保存できませんでした。もう一度お試しください。';
+const SAVED_RELOAD = '変更は保存されましたが、画面に反映できませんでした。画面を読み直して、結果を確認してください。';
+
+type AnyRecord = Record<string, unknown>;
+
+/* サーバーの書き込みは、対象の施策の「lifecycle」だけを変える。画面の未保存の編集は残し、その施策の状態だけを写す。
+ * 版（revision）の条件で書かれているため、書き込み前の保存済みの内容は画面の内容と同じ。 */
+export function mergeLifecycleIntoDepartments(local: unknown[], server: unknown[], projectId: string): unknown[] | null {
+  const at = findProjectPositionById(local, projectId);
+  const remote = findProjectPositionById(server, projectId);
+  if (!at || !remote) return null;
+  const dept = local[at.dIdx] as AnyRecord;
+  const projects = [...(dept.projects as unknown[])];
+  const project = { ...(at.project as unknown as AnyRecord) };
+  const lifecycle = (remote.project as unknown as AnyRecord).lifecycle;
+  if (lifecycle === undefined) delete project.lifecycle;
+  else project.lifecycle = lifecycle;
+  projects[at.pIdx] = project;
+  const next = [...local];
+  next[at.dIdx] = { ...dept, projects };
+  return next;
+}
 
 const MESSAGE: Record<string, string> = {
   insufficient_role: '計画から外す・中止は、管理者と管理職だけが行えます。',
@@ -55,7 +76,7 @@ function errorCodeOf(e: unknown): string | null {
 /**
  * 施策を「計画から外す（EXCLUDE）」または「中止する（STOP）」。書き込みは サーバーの経路（/api/stage4/project-lifecycle）で行い、
  * 管理者・管理職の確認、会社・戦略・案件の照合、版（revision）の確認、計画の採用・開始の読み直しを、サーバーで行う。
- * 画面側の判定は先に分かりやすく伝えるためだけに使う。成功したら、保存後の版と部門を画面に反映する。物理削除はしない。
+ * 画面側の判定は先に分かりやすく伝えるためだけに使う。成功したら、対象の施策の状態と保存後の版を画面に反映する（未保存の編集は残す）。物理削除はしない。
  */
 export async function writeProjectLifecycleToProject(args: {
   companyId: string;
@@ -87,7 +108,10 @@ export async function writeProjectLifecycleToProject(args: {
     });
     const now = storeNow();
     if (now.companyId !== args.companyId || now.strategyId !== args.strategyId) return { ok: false, message: CHANGED };
-    if (!now.syncPartialSave({ departments: res.departments, revision: res.revision })) return { ok: false, message: CHANGED };
+    const merged = mergeLifecycleIntoDepartments(now.departments ?? [], res.departments, args.projectId);
+    if (!merged || !now.syncPartialSave({ departments: merged, revision: res.revision, preserveUnsaved: true })) {
+      return { ok: false, message: SAVED_RELOAD };
+    }
     return { ok: true };
   } catch (e) {
     const code = errorCodeOf(e);

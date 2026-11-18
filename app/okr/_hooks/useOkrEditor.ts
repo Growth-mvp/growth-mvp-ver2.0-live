@@ -54,6 +54,16 @@ export function useOkrEditor(args: {
     });
   }, []);
 
+  /* 画面を開いたときの形の補正（利用者の編集ではない）。未保存の状態にしない。 */
+  const patchDepartmentsQuietly = useCallback((mutator: (draft: Department[]) => Department[]) => {
+    useStrategyStore.setState((st: any) => {
+      const current: Department[] = Array.isArray(st.departments) ? (st.departments as Department[]) : [];
+      const next = mutator(current);
+      if (next === current) return st;
+      return { ...st, departments: next };
+    });
+  }, []);
+
   /* ============================================================
    * Project：role（財務レバー：REVENUE/COST/FUTURE）
    * - role 変更時に roleDetail を undefined にリセット（不整合防止）
@@ -774,6 +784,7 @@ export function useOkrEditor(args: {
 
   return {
     patchDepartments,
+    patchDepartmentsQuietly,
 
     updateProjectRole,
     updateProjectRoleDetail,

@@ -201,6 +201,18 @@ export const genId = () => {
   return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 };
 
+export const seededId = (seed: string): string => {
+  const block = (salt: number) => {
+    let h = salt;
+    for (let i = 0; i < seed.length; i++) {
+      h = Math.imul(h ^ seed.charCodeAt(i), 16777619) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+  const hex = block(2166136261) + block(0x9e3779b9) + block(0x85ebca6b) + block(0xc2b2ae35);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+};
+
 export function mkKRStructured(
   p: Omit<KRStructuredX, 'id'> &
     Partial<
