@@ -10,7 +10,13 @@ import {
 import { projectTextOf } from '@/lib/cascade/stage3Confirm';
 import { isProjectActive } from '@/lib/cascade/projectLifecycle';
 import { pickAdoptableProject, type DeptProposal } from '@/lib/cascade/stage3Candidates';
-import type { DraftDepartment, NewProjectCandidate, ProjectSelection, Selection } from '@/lib/cascade/stage3StrategyBook';
+import type {
+  DraftDepartment,
+  NewProjectCandidate,
+  ProjectProposal,
+  ProjectSelection,
+  Selection,
+} from '@/lib/cascade/stage3StrategyBook';
 
 type DraftProject = DraftDepartment['projects'][number];
 
@@ -142,6 +148,20 @@ export function draftDepartmentsFrom(
  * 再生成で同じ名前の既存の計画に出た改善内容を、正式データへの変更案にする。
  * 変更案は採用されるまで正式データを変えない。採用時は確定処理が base と照合して反映する。
  */
+/** 再生成した部門の変更案だけを置き換える。ほかの部門の変更案（採用・保留・不採用の判断を含む）は残す。 */
+export function projectProposalsAfterRegeneration(
+  previous: ProjectProposal[],
+  regenKeys: Set<string>,
+  official: AnyRecord[],
+  candidateProjects: Record<string, AnyRecord[]>,
+): ProjectProposal[] {
+  const regenCandidates = Object.fromEntries(Object.entries(candidateProjects).filter(([k]) => regenKeys.has(k)));
+  return [
+    ...previous.filter((p) => !regenKeys.has(p.departmentKey)),
+    ...regeneratedProjectProposalsFrom(official, regenCandidates),
+  ];
+}
+
 export function regeneratedProjectProposalsFrom(
   official: AnyRecord[],
   candidateProjects: Record<string, AnyRecord[]>,

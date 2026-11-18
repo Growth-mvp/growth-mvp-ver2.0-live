@@ -20,8 +20,8 @@ import { DEPT_PROPOSAL_ITEMS, currentItemValues, type DeptProposal, type DeptPro
 import {
   draftDepartmentsFrom,
   newProjectCandidatesFrom,
+  projectProposalsAfterRegeneration,
   projectSelectionsFrom,
-  regeneratedProjectProposalsFrom,
   selectionsFrom,
 } from '@/lib/cascade/stage3Draft';
 import { isProjectActive } from '@/lib/cascade/projectLifecycle';
@@ -827,7 +827,7 @@ export function StrategyBookDesk({
         analysis: null,
         candidateDecisions: {},
         adjustmentProposals: [],
-        projectProposals: regeneratedProjectProposalsFrom(official, candidateMap),
+        projectProposals: projectProposalsAfterRegeneration(base.projectProposals, regenKeys, official, candidateMap),
         dialogue: [],
         selections: [
           ...selectionsFrom(official, proposals, previousSelections.filter((s) => regenKeys.has(s.departmentKey))),
