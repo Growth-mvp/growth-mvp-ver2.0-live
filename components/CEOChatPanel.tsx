@@ -22,6 +22,8 @@ import { parseReviewTargets } from '@/lib/ceoChat/reviewTargets';
 import { supabase } from '@/utils/supabase/client';
 import { usePathname } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
+import { consultPayloadFor } from '@/lib/consult/consultFocus';
+import { useConsultFocusStore } from '@/store/consultFocusStore';
 import { consultKeyOf, useSelectedProjectStore } from '@/lib/stage5/selectedProjectStore';
 import {
   AskFailureError,
@@ -307,6 +309,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       const latestStrategyId = useStrategyStore.getState().strategyId;
 
       const screenId = screenIdForPathname(pathname ?? '');
+      const consult = consultPayloadFor(useConsultFocusStore.getState().entries, pathname ?? '', latestStrategyId ?? null);
 
       const doAsk = async () => {
         // ★ Sprint 3A': meta を付与する場合と付与しない場合に対応
@@ -315,6 +318,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           strategyId: latestStrategyId,
           companyId: requestCompanyId,
           ...(screenId ? { screen: { screenId } } : {}),
+          ...(consult ? { consult } : {}),
           ...(execKey && selNow && selNow.strategyId === latestStrategyId
             ? { execution: { companyId: selNow.companyId, strategyId: selNow.strategyId, departmentId: selNow.departmentId, projectId: selNow.projectId } }
             : {}),

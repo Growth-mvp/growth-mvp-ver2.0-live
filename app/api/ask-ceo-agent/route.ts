@@ -10,6 +10,7 @@ function makeRequestId() {
 import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
 import { resolveScreenContext } from '@/lib/screens/screenContext';
+import { consultBlockFor } from '@/lib/consult/consultFocus';
 import { loadExecutionScope, parseExecutionInput } from '@/lib/ceoChat/executionScope';
 import { buildOperationGuidance } from '@/lib/operationKnowledge/guidance';
 import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
@@ -121,6 +122,7 @@ type RequestBody = {
   companyId: string;
   screen?: unknown;
   execution?: unknown;
+  consult?: unknown;
   meta?: {
     stage?: 'strategy' | 'manual' | 'generic' | 'hybrid'; // 既存
     mode?: 'text' | 'facilitator' | 'help';               // Sprint 1-4: text/facilitator/help
@@ -819,6 +821,15 @@ export async function POST(req: Request) {
     }
     if (screen) {
       systemBase += `\n\n【現在の画面】${screen.label}（${screen.pathname}）\n操作案内はこの画面の範囲で行う。`;
+    }
+    if (body?.consult !== undefined) {
+      const deptRow = await admin.from('strategy_data').select('departments').eq('id', strategyId).maybeSingle();
+      const departmentList: unknown[] = Array.isArray(deptRow.data?.departments) ? deptRow.data.departments : [];
+      const departmentNames = new Set(
+        departmentList.map((d) => (d && typeof d === 'object' ? String((d as { name?: unknown }).name ?? '') : '')).filter(Boolean),
+      );
+      const consultBlock = consultBlockFor(body.consult, screen, departmentNames);
+      if (consultBlock) systemBase += `\n\n${consultBlock}`;
     }
     if (executionPrompt) {
       systemBase += `\n\n${executionPrompt}`;

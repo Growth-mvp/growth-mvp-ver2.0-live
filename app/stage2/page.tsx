@@ -8,6 +8,7 @@ import { safeGetSession } from '@/utils/supabase/client';
 import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio, formatPct } from '@/utils/unit';
 import { COMPANY_TARGET_UNIT_PRESETS as NS_UNIT_PRESETS, editableUnitOf, isPresetUnit } from '@/lib/stage2/companyTargetUnit';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
 import { useUserStore } from '@/store/userStore';
 import { buildStage2FinancePayload } from '@/utils/finance/stage2FinancePayload';
 import { withoutCandidateState } from '@/lib/swot/candidatePool';
@@ -1640,6 +1641,13 @@ function Questions12Section({
 
   // ★ 新規：深掘り情報取得
   const currentDeepDive = safeAnswers12.find((a) => a.id === selectedId)?.deepDive;
+
+  const strategyUnsaved = useStrategyStore((s: StrategyState) => s.dirty);
+  useConsultFocus('stage2-questions', {
+    stage: 2,
+    question: { id: selectedQ.id, title: selectedQ.question, intent: selectedQ.reason },
+    draft: { text: currentAnswer, saved: !strategyUnsaved },
+  });
 
   // ★ 新規：strategyStore の updateAnswer12 を利用
   const updateAnswer12 = useStrategyStore((s: StrategyState) => (s as any).updateAnswer12 as (id: string, patch: Partial<Stage2Answer>) => void);

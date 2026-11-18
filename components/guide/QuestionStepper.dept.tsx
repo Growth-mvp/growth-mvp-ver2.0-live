@@ -6,6 +6,7 @@ import { useAccess } from '@/utils/access'; // ★ 編集ガード
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { QUESTION_FAILURE_MESSAGE } from '@/lib/cascade/deptQuestionOutput';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
 
 /** 利用者に見せるエラーの文言。内部のエラー文字列（生の応答など）は見せない。 */
 function questionErrorMessage(e: unknown): string {
@@ -135,6 +136,14 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const [hint, setHint] = useState<string | undefined>(undefined);
   const [showHint, setShowHint] = useState(false);
   const [answerText, setAnswerText] = useState('');
+
+  const savedAnswerText = answers.find((a) => a.stepNumber === step)?.answer ?? '';
+  useConsultFocus('stage3-six-questions', {
+    stage: 3,
+    departmentName,
+    question: question ? { id: `step-${step}`, title: label || `${step}問目`, text: question, intent: reason || undefined } : undefined,
+    draft: question ? { text: answerText, saved: answerText.trim() === savedAnswerText.trim() } : undefined,
+  });
 
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
