@@ -825,10 +825,18 @@ export async function POST(req: Request) {
     if (body?.consult !== undefined) {
       const deptRow = await admin.from('strategy_data').select('departments').eq('id', strategyId).maybeSingle();
       const departmentList: unknown[] = Array.isArray(deptRow.data?.departments) ? deptRow.data.departments : [];
-      const departmentNames = new Set(
-        departmentList.map((d) => (d && typeof d === 'object' ? String((d as { name?: unknown }).name ?? '') : '')).filter(Boolean),
-      );
-      const consultBlock = consultBlockFor(body.consult, screen, departmentNames);
+      const departmentNames = new Set<string>();
+      const projectIds = new Set<string>();
+      for (const d of departmentList) {
+        if (!d || typeof d !== 'object') continue;
+        const dept = d as { name?: unknown; projects?: unknown };
+        if (typeof dept.name === 'string' && dept.name) departmentNames.add(dept.name);
+        for (const p of Array.isArray(dept.projects) ? dept.projects : []) {
+          const id = p && typeof p === 'object' ? (p as { id?: unknown }).id : undefined;
+          if (typeof id === 'string' || typeof id === 'number') projectIds.add(String(id));
+        }
+      }
+      const consultBlock = consultBlockFor(body.consult, screen, { departmentNames, projectIds });
       if (consultBlock) systemBase += `\n\n${consultBlock}`;
     }
     if (executionPrompt) {

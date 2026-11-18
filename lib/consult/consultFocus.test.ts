@@ -2,7 +2,7 @@ import { consultBlockFor, consultPayloadFor, consultPromptBlock, ConsultFocusSch
 
 const stage2Screen = { pathname: '/stage2', area: 'stage' };
 const orgScreen = { pathname: '/org-transformation', area: 'org' };
-const names = new Set(['営業部']);
+const names = { departmentNames: new Set(['営業部']), projectIds: new Set<string>(['p-1']) };
 
 describe('consultBlockFor（相談の文脈の照合）', () => {
   it('未保存の回答を、保存状態と質問の意図つきで渡す', () => {
@@ -77,5 +77,25 @@ describe('consultPayloadFor（送信時の文脈の選択）', () => {
   it('組織変革ルームの画面からは文脈を送らない', () => {
     const orgEntry = { ...entry, pathname: '/org-transformation' };
     expect(consultPayloadFor({ x: orgEntry }, '/org-transformation', 's-1')).toBeUndefined();
+  });
+});
+
+describe('consultPayloadFor（同じ画面の複数の登録を統合する）', () => {
+  it('項目は未保存を先頭にして上限まで残し、単一の値は最初の登録を使う', () => {
+    const many = (prefix: string, saved: boolean) =>
+      Array.from({ length: 8 }, (_, i) => ({ label: `${prefix}${i}`, value: 'v', saved }));
+    const payload = consultPayloadFor(
+      {
+        a: { pathname: '/cascade', stage: 3, section: '戦略書', departmentName: '営業部', strategyId: 's-1', items: many('保存', true) },
+        b: { pathname: '/cascade', stage: 3, section: '部門間の調整', strategyId: 's-1', items: many('未保存', false), draft: { text: '途中', saved: false } },
+      },
+      '/cascade',
+      's-1',
+    );
+    expect(payload?.section).toBe('戦略書 / 部門間の調整');
+    expect(payload?.departmentName).toBe('営業部');
+    expect(payload?.draft?.text).toBe('途中');
+    expect(payload?.items).toHaveLength(12);
+    expect(payload?.items?.slice(0, 8).every((i) => !i.saved)).toBe(true);
   });
 });

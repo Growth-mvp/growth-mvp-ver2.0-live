@@ -51,6 +51,8 @@ import {
 } from '@/lib/cascade/stage3StrategyBook';
 import { EditableBlock } from '@/components/okr/execution-plan/PlanDocument';
 import { PLAN_DOC_CSS } from '@/components/okr/execution-plan/planDocStyles';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
+import type { ConsultFocus } from '@/lib/consult/consultFocus';
 
 type AnyRecord = Record<string, unknown>;
 type TextDraft = Partial<Record<TextItemKey, string>>;
@@ -428,6 +430,158 @@ function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'neutral'; children: R
     neutral: 'border-gray-200 bg-white text-gray-700',
   }[tone];
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{children}</span>;
+}
+
+/* ---- CEOチャットの相談文脈（いま見ている画面の内容）。saved は作業版に保存済みかを表す。未保存の編集は saved=false ---- */
+type ConsultFocusInput = Omit<ConsultFocus, 'pathname'>;
+type ConsultItems = NonNullable<ConsultFocusInput['items']>;
+
+const clipText = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
+
+const CONSULT_DOC_KEYS: TextItemKey[] = ['mission', 'strategicRole', 'keyIssues'];
+
+const DEPT_PHASE_SECTION: Record<Phase, string> = {
+  1: 'STEP1 AIによるたたき台',
+  2: '6つの問い',
+  3: '6つの問い（再生成）',
+  4: 'STEP3 戦略書の確認・編集',
+  5: 'STEP4 重点プロジェクトを選ぶ',
+  6: '確定後の戦略書',
+};
+
+/** 画面に出ている文書の項目（採用された変更があればそれ、なければ正式データ）。StrategyBookDesk の docFor と同じ規則 */
+function shownTextOf(state: WorkspaceState, dept: Department, k: TextItemKey): string {
+  const key = departmentKeyOf(dept as unknown as AnyRecord);
+  const applied = (item: DeptProposalItem) =>
+    state.selections.find((s) => s.departmentKey === key && s.item === item && s.decision === 'applied');
+  if (k === 'intraCollab' || k === 'interCollab') {
+    const field = k === 'intraCollab' ? 'intraDeptCollab' : 'interDeptCollab';
+    return linesOf(applied('collab')?.proposed[field] ?? currentItemValues(dept as unknown as AnyRecord, 'collab')[field]).join('\n');
+  }
+  const item = TEXT_SPECS[k].item;
+  const key0 = DEPT_PROPOSAL_ITEMS[item].keys[0];
+  return linesOf(applied(item)?.proposed[key0] ?? currentItemValues(dept as unknown as AnyRecord, item)[key0]).join('\n');
+}
+
+/** 正式データのプロジェクト（確定前の基準）の文章項目。作業版の編集があれば、その内容を優先する */
+function savedProjectFieldsOf(state: WorkspaceState, dept: Department, deptKey: string, id: string) {
+  const edited = state.projectEdits.find((e) => e.departmentKey === deptKey && e.projectId === id);
+  if (edited) return edited.fields;
+  const official = dept.projects?.find((p) => stableIdText((p as unknown as AnyRecord).id) === id);
+  return official ? projectTextOf(official as unknown as AnyRecord) : undefined;
+}
+
+function deptConsultFocus(args: {
+  dept: Department;
+  deptKey: string;
+  phase: Phase;
+  state: WorkspaceState;
+  docDraft: { deptKey: string; texts: TextDraft; projects: Record<string, ProjectTextDraft> } | null;
+  candEdit: { candidateId: string; title: string; reason: string; hypothesis: string; description: string } | null;
+}): ConsultFocusInput {
+  const { dept, deptKey, phase, state, docDraft, candEdit } = args;
+  const items: ConsultItems = [];
+  let draft: ConsultFocusInput['draft'];
+  if (phase === 5) {
+    for (const ps of state.projectSelections.filter((x) => x.departmentKey === deptKey).slice(0, 12)) {
+      items.push({ label: clipText(`新規候補：${ps.title}`, 80), value: PROJECT_DECISION_LABEL[ps.decision], saved: true });
+    }
+    if (candEdit && state.projectSelections.some((x) => x.departmentKey === deptKey && x.candidateId === candEdit.candidateId)) {
+      draft = {
+        text: clipText(`題名：${candEdit.title}\n目的：${candEdit.reason}\n仮説：${candEdit.hypothesis}\n取り組み内容：${candEdit.description}`, 4000),
+        saved: false,
+      };
+    }
+  } else {
+    const editing = docDraft !== null && docDraft.deptKey === deptKey ? docDraft : null;
+    for (const k of CONSULT_DOC_KEYS) {
+      const shown = shownTextOf(state, dept, k);
+      const value = editing ? (editing.texts[k] ?? '') : shown;
+      items.push({ label: TEXT_LABEL[k], value: clipText(value, 600), saved: value === shown });
+    }
+    if (editing) {
+      const lines: string[] = [];
+      for (const k of ALL_TEXT_KEYS) {
+        const v = editing.texts[k] ?? '';
+        if (v !== shownTextOf(state, dept, k)) lines.push(`${TEXT_LABEL[k]}：${v}`);
+      }
+      for (const [id, v] of Object.entries(editing.projects)) {
+        const base = savedProjectFieldsOf(state, dept, deptKey, id);
+        if (!base) continue;
+        if (
+          v.title !== (base.title ?? '') ||
+          v.reason !== (base.reason ?? '') ||
+          v.hypothesis !== (base.hypothesis ?? '') ||
+          v.description !== (base.description ?? '')
+        ) {
+          lines.push(`計画「${v.title}」：目的＝${v.reason}／取り組み内容＝${v.description}／仮説＝${v.hypothesis}`);
+        }
+      }
+      if (lines.length > 0) draft = { text: clipText(lines.join('\n'), 4000), saved: false };
+    }
+  }
+  return {
+    stage: 3,
+    section: clipText(DEPT_PHASE_SECTION[phase], 80),
+    departmentName: dept.name,
+    items: items.length > 0 ? items : undefined,
+    draft,
+  };
+}
+
+function compareConsultFocus(args: {
+  state: WorkspaceState;
+  results: Record<string, string>;
+  editingProposal: { candidateId: string; text: string } | null;
+}): ConsultFocusInput {
+  const { state, results, editingProposal } = args;
+  const cands = state.analysis?.candidates ?? [];
+  const items: ConsultItems = cands.slice(0, 11).map((c, idx) => {
+    const decision = state.candidateDecisions[c.id];
+    return {
+      label: clipText(`調整候補${idx + 1}：${c.title}`, 80),
+      value: decision ? CANDIDATE_LABEL[decision] : '未判断',
+      saved: true,
+    };
+  });
+  const v = state.verification;
+  if (v) {
+    const value =
+      v.basisKey !== planBasisKey(state)
+        ? '作業内容が変わったため再検証中'
+        : v.changeCount === 0
+          ? '変更がないため再検証なし'
+          : v.candidates.length === 0
+            ? '重複・不整合は見つからなかった'
+            : `不整合の候補${v.candidates.length}件`;
+    items.push({ label: '再検証の結果', value, saved: true });
+  }
+
+  // 話し合いの結果の入力欄のうち、作業版に保存していない内容
+  const dialogueLines = cands.flatMap((c) =>
+    c.dialogueTopics.flatMap((topic) => {
+      const typed = (results[dialogueKey(c.id, topic)] ?? '').trim();
+      const savedText = (state.dialogue.find((d) => d.candidateId === c.id && d.topic === topic)?.result ?? '').trim();
+      return typed !== savedText ? [`${c.title}／${topic}：${typed}`] : [];
+    }),
+  );
+  // 編集中の文章欄は1つだけ渡せる。未保存の調整案 > 未保存の話し合いの結果 > 保存済みの調整案（修正中のみ）の順
+  let section = '部門間の調整';
+  let draft: ConsultFocusInput['draft'];
+  const proposal = editingProposal ? state.adjustmentProposals.find((p) => p.candidateId === editingProposal.candidateId) : undefined;
+  const shownProposal = proposal ? (proposal.edited ?? proposal.proposal) : '';
+  if (editingProposal) {
+    const title = cands.find((c) => c.id === editingProposal.candidateId)?.title ?? '';
+    section = clipText(`部門間の調整（調整案を修正中：${title}）`, 80);
+  }
+  if (editingProposal && editingProposal.text !== shownProposal) {
+    draft = { text: clipText(editingProposal.text, 4000), saved: false };
+  } else if (dialogueLines.length > 0) {
+    draft = { text: clipText(dialogueLines.join('\n'), 4000), saved: false };
+  } else if (editingProposal) {
+    draft = { text: clipText(editingProposal.text, 4000), saved: true };
+  }
+  return { stage: 3, section, items: items.length > 0 ? items : undefined, draft };
 }
 
 export function StrategyBookDesk({
@@ -1246,6 +1400,22 @@ export function StrategyBookDesk({
     setViewByDept((prev) => ({ ...prev, [key]: phase }));
   };
 
+  /* CEOチャットの相談文脈。6問の画面（STEP2・3）は QuestionStepper が登録するため、ここでは外す（同じ画面で2件登録すると一方が隠れるため）。 */
+  const focusDeptIndex = tab.startsWith('dept:') ? Number(tab.slice(5)) : -1;
+  const focusDept = focusDeptIndex >= 0 ? departments[focusDeptIndex] : undefined;
+  const focusDeptKey = focusDept ? departmentKeyOf(focusDept as unknown as AnyRecord) : null;
+  const focusPhase = focusDeptKey ? phaseOf(focusDeptKey, progressOf(focusDeptKey)) : null;
+  useConsultFocus(
+    'stage3-strategy-book',
+    focusDept && focusDeptKey && focusPhase !== null && focusPhase !== 2 && focusPhase !== 3
+      ? deptConsultFocus({ dept: focusDept, deptKey: focusDeptKey, phase: focusPhase, state, docDraft, candEdit })
+      : null,
+  );
+  useConsultFocus(
+    'stage3-strategy-book-compare',
+    tab === 'compare' ? compareConsultFocus({ state, results, editingProposal }) : null,
+  );
+
   const judgments = judgmentSummaryOf(state);
   const confirmBlocker = !canEdit
     ? '確定・反映は管理者・管理職のみ行えます'
@@ -1527,6 +1697,14 @@ export function StrategyBookDesk({
                     ? '確定済みです。下の「確定版PDFを出力」と、確定した計画からのSTAGE4への移動を使えます。'
                     : 'STEP3で内容を確認・編集してから、「部門間の調整」タブの④で全体を確定してください。'}
           </p>
+          {state.verification && state.verification.basisKey === planBasisKey(state) && state.verification.changeCount > 0 && (
+            <p className="rounded-lg bg-zinc-50 px-3 py-2 text-sm text-zinc-800">
+              調整後の再検証：
+              {state.verification.candidates.length === 0
+                ? '採用した変更による重複・不整合は見つかりませんでした。'
+                : `重複・不整合の候補が${state.verification.candidates.length}件あります（「部門間の調整」タブで確認できます）。`}
+            </p>
+          )}
         </header>
 
         {/* ① 初回のたたき台 */}
