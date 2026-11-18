@@ -2,6 +2,7 @@ import { collectPlanUnits, resolveCandidates } from './stage3Adjustment';
 import {
   emptyWorkspaceState,
   planBasisKey,
+  responseStillApplies,
   verificationFor,
   workspaceSignature,
   WorkspaceStateSchema,
@@ -280,5 +281,29 @@ describe('検証結果と最新の編集の整合（保存の競合）', () => {
     expect(workspaceSignature(verified)).toBe(workspaceSignature(withPlan));
     const edited = { ...withPlan, dialogue: [{ candidateId: 'adj-1', topic: 't', result: '新しい話し合い' }] };
     expect(workspaceSignature(edited)).not.toBe(workspaceSignature(withPlan));
+  });
+});
+
+describe('responseStillApplies（AIの応答を、依頼時の作業版に反映してよいか）', () => {
+  const base = { ...emptyWorkspaceState(), candidateDecisions: { 'adj-1': 'adopted' as const } };
+  const edited = { ...base, dialogue: [{ candidateId: 'adj-1', topic: 't', result: '保存された話し合い' }] };
+  const verified = { ...base, verification: null };
+
+  it('依頼の後に版が変わっていなければ反映してよい', () => {
+    expect(responseStillApplies({ version: 3, state: base }, { version: 3, state: base })).toBe(true);
+  });
+
+  it('版が進んでも、内容が依頼時と同じなら反映してよい（検証だけで版が進んだ場合）', () => {
+    const verifiedLatest = { ...base, verification: { basisKey: 'x', createdAt: '2026-11-18T00:00:00.000Z', changeCount: 0, rejectedCount: 0, candidates: [] } };
+    expect(responseStillApplies({ version: 3, state: verified }, { version: 4, state: verifiedLatest })).toBe(true);
+  });
+
+  it('依頼の後に別の保存で内容が変わっていれば、古い応答として反映しない', () => {
+    expect(responseStillApplies({ version: 3, state: base }, { version: 4, state: edited })).toBe(false);
+  });
+
+  it('依頼時の版が分からない場合は、内容が同じかどうかだけで判断する', () => {
+    expect(responseStillApplies({ version: null, state: base }, { version: 4, state: base })).toBe(true);
+    expect(responseStillApplies({ version: null, state: base }, { version: 4, state: edited })).toBe(false);
   });
 });

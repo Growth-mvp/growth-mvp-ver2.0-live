@@ -9,6 +9,8 @@ import {
   resolveCandidates,
   resolveProposals,
   adjustmentConclusion,
+  displayTextOf,
+  internalIdNamesOf,
   verifyCandidates,
   withAdjustmentEdit,
   type AdjustmentProposal,
@@ -471,5 +473,52 @@ describe('再生成の計画変更案：草案の計画IDの対応づけ（A-03�
   it('草案にも正式データにも対応する計画が無ければ採用しない', () => {
     const raw = { projects: [{ departmentKey: 'id:dept_0', projectId: 'id:unknown', kpis: ['x'], reason: 'r' }] };
     expect(buildProjectChangeProposals(raw, official, new Set(['id:dept_0']), draftUnits).rejectedProjects).toBe(1);
+  });
+});
+
+describe('displayTextOf（画面に出す文章の内部IDを取り除く）', () => {
+  const names = new Map([
+    ['id:p-1', '既存顧客の再受注施策'],
+    ['id:d-sales', '営業部'],
+    ['np-1a2b3c4d', '新規の配送施策'],
+  ]);
+
+  it('分かる計画・部門のIDは、名称に置き換える（保存済みの文章にも効く）', () => {
+    expect(displayTextOf('「計画ID=id:p-1」の再受注を増やす', names)).toBe('「既存顧客の再受注施策」の再受注を増やす');
+    expect(displayTextOf('部門ID=id:d-sales が主担当になる', names)).toBe('営業部 が主担当になる');
+  });
+
+  it('分からないIDは取り除き、前後の文は残す', () => {
+    expect(displayTextOf('営業部（部門ID=id:zzz）が主担当になる', names)).toBe('営業部が主担当になる');
+    const cleaned = displayTextOf('np-9f8e7d6c を優先する', names);
+    expect(cleaned).toContain('優先する');
+    expect(cleaned).not.toMatch(/np-/);
+    expect(displayTextOf('adj-1 の調整案', names)).not.toMatch(/adj-/);
+  });
+
+  it('IDの接頭辞だけの名称（title:・name:）は、名称の部分を残す', () => {
+    expect(displayTextOf('title:新規事業 を進める', names)).toBe('新規事業 を進める');
+    expect(displayTextOf('name:製造部の見直し', names)).toBe('製造部の見直し');
+  });
+
+  it('IDの無い文章はそのまま返す', () => {
+    expect(displayTextOf('営業部が主担当になる。マーケ部は案内を担う。', names)).toBe('営業部が主担当になる。マーケ部は案内を担う。');
+  });
+});
+
+describe('internalIdNamesOf（表示用の名称の対応表）', () => {
+  it('部門・計画・新規候補の計画IDを、名称に対応づける', () => {
+    const map = internalIdNamesOf(
+      [
+        { id: 'd-sales', name: '営業部', projects: [{ id: 'p-1', title: '既存顧客の再受注施策' }] },
+        { name: '製造部', projects: [{ title: '工程の見直し' }] },
+      ],
+      [{ candidateId: 'np-1a2b3c4d', project: { title: '新規の配送施策' } }],
+    );
+    expect(map.get('id:d-sales')).toBe('営業部');
+    expect(map.get('id:p-1')).toBe('既存顧客の再受注施策');
+    expect(map.get('name:製造部')).toBe('製造部');
+    expect(map.get('title:工程の見直し')).toBe('工程の見直し');
+    expect(map.get('np-1a2b3c4d')).toBe('新規の配送施策');
   });
 });

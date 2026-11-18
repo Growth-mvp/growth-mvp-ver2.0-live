@@ -222,9 +222,17 @@ export function verificationFor(state: WorkspaceState, verification: Verificatio
   return planBasisKey(state) === verification.basisKey ? verification : null;
 }
 
-/** 作業版の内容の署名。検証結果だけを除いて比べ、自動の検証で版が進んだだけかを判定する。 */
+/** 作業版の内容の署名。検証結果だけを除いて比べ、検証で版が進んだだけかを判定する。 */
 export function workspaceSignature(state: WorkspaceState): string {
   return hash53(canonicalJson({ ...state, verification: null }));
+}
+
+export function responseStillApplies(
+  requested: { version: number | null; state: WorkspaceState },
+  latest: { version: number; state: WorkspaceState },
+): boolean {
+  if (requested.version !== null && requested.version === latest.version) return true;
+  return workspaceSignature(requested.state) === workspaceSignature(latest.state);
 }
 
 /** キーの並び順と未定義の値に依存しない直列化（保存の往復で並びが変わっても同じ値にする） */

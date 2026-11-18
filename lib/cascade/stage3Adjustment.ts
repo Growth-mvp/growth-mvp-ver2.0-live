@@ -834,3 +834,45 @@ export function adjustmentConclusion(text: string): string {
     .slice(0, 2)
     .join('');
 }
+
+const INTERNAL_ID_LABEL = /(?:部門ID|計画ID|候補ID|projectId|departmentKey|candidateId)\s*[=＝:：]\s*/gi;
+const INTERNAL_ID_TOKEN =
+  /\b(?:id|title|name):[^\s、，,。．；;:：（）()「」『』【】［］[\]<>"']+|\b(?:np|adj)-[0-9A-Za-z]+\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+export function displayTextOf(text: string, names: ReadonlyMap<string, string> = new Map()): string {
+  return text
+    .replace(INTERNAL_ID_LABEL, '')
+    .replace(INTERNAL_ID_TOKEN, (token) => {
+      const known = names.get(token);
+      if (known) return known;
+      const colon = token.indexOf(':');
+      return colon > 0 && /^(?:title|name)$/i.test(token.slice(0, colon)) ? token.slice(colon + 1) : '';
+    })
+    .replace(/[（(]\s*[）)]/g, '')
+    .replace(/[、，,]\s*(?=[）)])/g, '')
+    .trim();
+}
+
+export function internalIdNamesOf(
+  departments: unknown,
+  newProjects: ReadonlyArray<{ candidateId: string; project: AnyRecord }> = [],
+): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const d of Array.isArray(departments) ? departments : []) {
+    if (!d || typeof d !== 'object') continue;
+    const dept = d as AnyRecord;
+    const name = textOf(dept.name);
+    if (!name) continue;
+    names.set(departmentKeyOf(dept), name);
+    for (const p of Array.isArray(dept.projects) ? (dept.projects as unknown[]) : []) {
+      if (!p || typeof p !== 'object') continue;
+      const title = textOf((p as AnyRecord).title);
+      if (title) names.set(projectIdOf(p as AnyRecord), title);
+    }
+  }
+  for (const np of newProjects) {
+    const title = textOf(np.project.title);
+    if (title) names.set(np.candidateId, title);
+  }
+  return names;
+}
