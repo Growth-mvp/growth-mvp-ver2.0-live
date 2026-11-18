@@ -3318,9 +3318,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               });
 
               // ★ Sync revision/strategyId to store to prevent REVISION_CONFLICT
-              if (saveResult.data?.revision !== undefined) {
-                useStrategyStore.getState().setRevision(saveResult.data.revision);
-              }
+              useStrategyStore.getState().markSavedPayload(savePayload, saveResult.data?.revision);
               if (saveResult.data?.strategyId) {
                 useStrategyStore.getState().setStrategyId(saveResult.data.strategyId);
               }
@@ -3554,6 +3552,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             const result = await runInSaveScope(scopeAtStart, () =>
               saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, stage2SaveRevision(storeState), {}, 'stage2:generateFinal'),
             );
+            if (result !== SAVE_SCOPE_CHANGED && !result.error) {
+              useStrategyStore.getState().markSavedPayload(savePayload, result.data?.revision);
+            }
             return result === SAVE_SCOPE_CHANGED ? null : result;
           } finally {
             try {
@@ -4403,6 +4404,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             );
                             if (saveResult === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(saveScope)) return;
 
+                            if (!saveResult.error) {
+                              useStrategyStore.getState().markSavedPayload(savePayload, saveResult.data?.revision);
+                            }
                             if (saveResult.error) {
                               console.error('[Stage2][docEdits][manual-save-failed]', saveResult.error);
                               setSaveWarning(stage2ConflictMessage(saveResult.error) ?? '保存できませんでした。編集内容は画面に残っています。もう一度保存してください。');

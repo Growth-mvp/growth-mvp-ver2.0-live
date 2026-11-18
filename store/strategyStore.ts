@@ -461,6 +461,7 @@ export type StrategyState = {
   setServerSnapshotHash: (hash?: string) => void;
 
   setRevision: (rev?: number) => void;
+  markSavedPayload: (payload: Record<string, any>, rev?: number) => void;
   setStrategyId: (id: string | null) => void;
   hydrateFromFullState: (fullState: Partial<StrategyData> & { revision?: number }) => void;
   setCompanyScope: (id: string | null) => void;
@@ -2167,6 +2168,10 @@ export const useStrategyStore = create<StrategyState>()(
       setServerSnapshotHash: (hash) => set({ lastServerSnapshot: hash }),
 
       setRevision: (rev) => set({ revision: rev }),
+      markSavedPayload: (payload, rev) => {
+        __syncedRaw = { ...(__syncedRaw ?? {}), ...cloneState(payload) };
+        if (typeof rev === 'number') set({ revision: rev });
+      },
       setStrategyId: (id) => set({ strategyId: id }),
 
       hydrateFromFullState: (fullState) => {
