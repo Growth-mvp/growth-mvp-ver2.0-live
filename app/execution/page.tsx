@@ -33,7 +33,9 @@ import { debugLog } from '@/utils/debug';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
-import { ActualRegistrationSection, type FinanceActualRecordArgs, type FinanceActualRecordResult, type KrRecordResult } from '@/components/stage5/ActualRegistrationSection';
+import { ActualRegistrationSection, type FinanceActualRecordArgs, type FinanceActualRecordResult, type KrRecordResult, type RegistrationConsultView } from '@/components/stage5/ActualRegistrationSection';
+import { useConsultFocus } from '@/hooks/useConsultFocus';
+import { CONSULT_DRAFT_MAX, consultExecItems, consultText, type ConsultActionRow } from '@/lib/stage5/consultFocusItems';
 import { krLocateMessage, recordKrActual, revertKrActual } from '@/lib/stage5/krActual';
 import { financeActualItemsOf, type FinanceActualItem } from '@/lib/stage5/financeActuals';
 import { writeFinanceActual } from '@/lib/stage5/financeActualStore';
@@ -428,6 +430,10 @@ function ExecPanel(props: {
     supportDraft: string;
     reviewSignal: string;
   } | null>(null);
+
+  // 相談の文脈用：実施事項の表示中の進捗・実績登録フォームの入力状態（画面の値を写すだけ。保存はしない）
+  const [actionConsultRows, setActionConsultRows] = useState<ConsultActionRow[]>([]);
+  const [registrationConsult, setRegistrationConsult] = useState<RegistrationConsultView | null>(null);
 
   // Store から score を取得
   const getScoreFromStore = () => {
@@ -1248,6 +1254,29 @@ function ExecPanel(props: {
     : [];
 
   const requestConsult = useSelectedProjectStore((st) => st.requestConsult);
+
+  // CEOチャットの相談文脈：開いている実行支援（選択中の施策）の画面の内容。閉じている間・施策が特定できない間は登録しない。
+  const consultItems = consultExecItems({
+    actionRows: actionConsultRows,
+    krs: props.krs ?? [],
+    financeItems: props.financeActualItems ?? [],
+    registration: registrationConsult,
+  });
+  useConsultFocus(
+    'stage5-execution',
+    open && projectId
+      ? {
+          stage: 5,
+          section: '実行支援（進捗・実績）',
+          ...(deptName.trim() ? { departmentName: consultText(deptName.trim(), 200) } : {}),
+          projectId,
+          ...(projectTitle.trim() ? { projectTitle: consultText(projectTitle.trim(), 300) } : {}),
+          draft: { text: consultText(progressText, CONSULT_DRAFT_MAX), saved: false },
+          ...(consultItems.length > 0 ? { items: consultItems } : {}),
+        }
+      : null,
+  );
+
   useEffect(() => {
     if (notice === '✅ 記録しました' || notice === '✅ メモを更新しました') {
       setShareDraft('');
@@ -1360,6 +1389,7 @@ function ExecPanel(props: {
         projectTitle={projectTitle}
         userId={userId ?? ''}
         onLoaded={setStartedPlan}
+        onActionRowsChange={setActionConsultRows}
       >
 
       {/* 今、困っていること：右側のAI経営コンサルタントへ、同じ対象で相談する */}
@@ -1522,6 +1552,7 @@ function ExecPanel(props: {
                 krs={props.krs}
                 onRecordFinance={props.onRecordFinanceActual}
                 onRecordKr={props.onRecordKrActual}
+                onDraftChange={setRegistrationConsult}
               />
             </div>
           </details>

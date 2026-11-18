@@ -3,7 +3,7 @@
 /* STAGE5 の実施事項ごとの進捗と進捗メモを記録する。計画の内容（STAGE4）は変えない。
  * 進捗メモは「成果・課題・次の行動」を1つにまとめた欄（保存は成果の項目）。以前に保存した課題・次の行動は消さず、読み取りで表示する。
  * 保存は1回にまとめ、変更のあった実施事項だけを順に書く。一部が失敗したら、保存できた件と失敗した件を分けて伝える。 */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   ACTION_STATUSES,
@@ -12,6 +12,7 @@ import {
   type ActionProgressRecord,
   type ActionStatus,
 } from '@/lib/stage5/actionProgress';
+import { consultActionRows, type ConsultActionRow } from '@/lib/stage5/consultFocusItems';
 import type { StartedPlanAction } from '@/lib/stage5/startedPlans';
 import { writeActionProgress } from '@/lib/stage5/actionProgressStore';
 
@@ -35,6 +36,8 @@ export function ActionProgressEditor(props: {
   allowedKeys: string[];
   progress: Record<string, ActionProgressRecord>;
   krs: LinkableKr[];
+  /** 表示中の実施事項の進捗を、相談の文脈へ知らせる（保存はしない。画面の動きは変えない） */
+  onRowsChange?: (rows: ConsultActionRow[]) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
@@ -44,6 +47,20 @@ export function ActionProgressEditor(props: {
   const changed = props.actions.filter(
     (a) => a.actionKey !== '' && drafts[a.actionKey] !== undefined && !sameDraft(drafts[a.actionKey], draftOf(props.progress[a.actionKey])),
   );
+
+  const consultRows = consultActionRows({ actions: props.actions, progress: props.progress, drafts, busy });
+  const consultKey = JSON.stringify(consultRows);
+  const onRowsChangeRef = useRef(props.onRowsChange);
+  onRowsChangeRef.current = props.onRowsChange;
+  useEffect(() => {
+    onRowsChangeRef.current?.(consultRows);
+    // consultKey は consultRows の内容を表す（参照の変化で再通知しないため）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consultKey]);
+  useEffect(() => {
+    const latest = onRowsChangeRef;
+    return () => latest.current?.([]);
+  }, []);
 
   const saveAll = async () => {
     if (busy || changed.length === 0) return;

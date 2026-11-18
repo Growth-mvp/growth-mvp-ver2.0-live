@@ -14,6 +14,7 @@ import type { PlanDocActor, PlanDocKey, PlanDocRecord } from '@/lib/stage4/plan/
 import { downloadProjectPlanPdf } from '@/lib/stage4/plan/projectPlanPdf';
 import { projectPlanFinanceOf } from '@/lib/stage4/plan/projectPlanFinance';
 import { progressOf, type ActionProgressRecord } from '@/lib/stage5/actionProgress';
+import type { ConsultActionRow } from '@/lib/stage5/consultFocusItems';
 import { startedPlanView, type StartedPlanView } from '@/lib/stage5/startedPlans';
 import { findDuplicateProjectIds } from '@/lib/strategy/projectIds';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -34,6 +35,8 @@ export type ProjectPlanSectionProps = {
   projectTitle: string;
   userId: string;
   onLoaded?: (view: StartedPlanView | null) => void;
+  /** 表示中の実施事項の進捗を、相談の文脈へ知らせる（画面の動きは変えない） */
+  onActionRowsChange?: (rows: ConsultActionRow[]) => void;
   children?: ReactNode;
 };
 
@@ -220,6 +223,7 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
           allowedKeys={view.actions.map((a) => a.actionKey).filter((k) => k !== '')}
           progress={progress.progress}
           krs={progress.krs}
+          onRowsChange={props.onActionRowsChange}
         />
       </div>
     </section>

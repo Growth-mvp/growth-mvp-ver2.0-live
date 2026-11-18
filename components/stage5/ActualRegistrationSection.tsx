@@ -3,7 +3,7 @@
 /* STAGE5：実績の登録。対象年月を1つ選び、財務実績とKR実績を並べて入力し、保存は1回にまとめる。
  * 空欄の項目は保存しない（0円・0％とは区別する）。財務実績・KR実績は、既存の記録（lib/stage5）をそのまま書く。
  * KPI・KR実績から財務実績への換算は行わない。 */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { KRStructured, KrActual } from '@/types/strategy';
 import { FINANCE_ACTUAL_NOTE_MAX, parseFinanceActualInput, type FinanceActualItem } from '@/lib/stage5/financeActuals';
 import { krActualView, parseKrActualInput } from '@/lib/stage5/krActual';
@@ -11,6 +11,14 @@ import { krActualView, parseKrActualInput } from '@/lib/stage5/krActual';
 export type FinanceActualRecordArgs = { itemKey: string; ym: string; amountYen: number; note?: string };
 export type FinanceActualRecordResult = { ok: true } | { ok: false; error: string };
 export type KrRecordResult = { ok: true } | { ok: false; error: string };
+
+/* 相談の文脈へ渡す、登録フォームの表示中の入力状態（保存はしない。画面の値をそのまま写す） */
+export type RegistrationConsultView = {
+  ym: string;
+  finance: Record<string, string>;
+  kr: Record<string, { value: string; asOf: string }>;
+  busy: boolean;
+};
 
 const YM_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -101,11 +109,14 @@ export function ActualRegistrationSection({
   krs,
   onRecordFinance,
   onRecordKr,
+  onDraftChange,
 }: {
   items: FinanceActualItem[];
   krs?: KRStructured[];
   onRecordFinance: (args: FinanceActualRecordArgs) => Promise<FinanceActualRecordResult> | FinanceActualRecordResult;
   onRecordKr: (krId: string, actual: KrActual) => Promise<KrRecordResult> | KrRecordResult;
+  /** 表示中の入力状態を、親に知らせる（相談の文脈用。画面の動きは変えない） */
+  onDraftChange?: (view: RegistrationConsultView | null) => void;
 }) {
   const krList = krs ?? [];
   const [ym, setYm] = useState('');
@@ -114,6 +125,16 @@ export function ActualRegistrationSection({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
+  useEffect(() => {
+    onDraftChangeRef.current?.({ ym, finance, kr, busy });
+  }, [ym, finance, kr, busy]);
+  useEffect(() => {
+    const latest = onDraftChangeRef;
+    return () => latest.current?.(null);
+  }, []);
 
   const chooseYm = (next: string) => {
     setYm(next);
