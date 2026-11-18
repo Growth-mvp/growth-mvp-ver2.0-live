@@ -253,3 +253,11 @@ describe('planBasisKey（検証結果が古くなったかの判定）', () => {
     expect(parsed.verification).toBeNull();
   });
 });
+
+describe('planBasisKey（保存の往復で並びが変わっても同じ値）', () => {
+  it('キーの並び順と未定義の値が違っても、同じ計画なら同じキー', () => {
+    const a = { ...emptyWorkspaceState(), selections: [{ departmentKey: 'id:d', departmentName: '営業部', item: 'collab', proposed: { x: 1, y: 'a' }, base: {}, decision: 'applied' as const }] };
+    const b = { ...emptyWorkspaceState(), selections: [{ decision: 'applied' as const, base: {}, proposed: { y: 'a', x: 1, z: undefined }, item: 'collab', departmentName: '営業部', departmentKey: 'id:d' }] };
+    expect(planBasisKey(a as WorkspaceState)).toBe(planBasisKey(b as WorkspaceState));
+  });
+});

@@ -210,7 +210,19 @@ export function planBasisKey(state: WorkspaceState): string {
       .filter((p) => p.decision === 'adopted')
       .map((p) => [p.departmentKey, p.projectId, p.proposed]),
   };
-  return hash53(JSON.stringify(basis));
+  return hash53(canonicalJson(basis));
+}
+
+/** キーの並び順と未定義の値に依存しない直列化（保存の往復で並びが変わっても同じ値にする） */
+function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonicalJson(x))).join(',')}]`;
+  if (v && typeof v === 'object') {
+    const entries = Object.entries(v as Record<string, unknown>)
+      .filter(([, x]) => x !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, x]) => `${JSON.stringify(k)}:${canonicalJson(x)}`).join(',')}}`;
+  }
+  return JSON.stringify(v ?? null);
 }
 
 /** 文字列の短いハッシュ（同じ入力は常に同じ値。クライアントとサーバーで同じ結果になる） */
