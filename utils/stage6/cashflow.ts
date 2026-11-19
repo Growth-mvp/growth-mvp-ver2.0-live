@@ -151,6 +151,32 @@ const actual = (value: number | null, note?: string): CfValue => ({ value, basis
 const held = (note: string): CfValue => ({ value: null, basis: 'HELD', note });
 const notApplicable = (): CfValue => ({ value: null, basis: 'ACTUAL', note: '実績年度のため推計対象外' });
 
+/** 税引後利益。損失の年度は税を計上しない（STAGE6・銀行向け計画書で共通の計算） */
+export function afterTaxIncomeOf(pretaxYen: number, taxRate: number): number {
+  return pretaxYen > 0 ? pretaxYen * (1 - taxRate) : pretaxYen;
+}
+
+/** 運転資金（売掛金＋棚卸資産−買掛金）を売上高と比率から求める。比率か売上が欠ければ null */
+export function workingCapitalAt(
+  ratios: { ar: number | null; inventory: number | null; ap: number | null },
+  revenueYen: number | null,
+): number | null {
+  if (revenueYen === null || ratios.ar === null || ratios.inventory === null || ratios.ap === null) return null;
+  return ratios.ar * revenueYen + ratios.inventory * revenueYen - ratios.ap * revenueYen;
+}
+
+/** 営業CF＝税引後利益＋減価償却費−運転資金増加。どれか一つでも欠ければ null（0として扱わない） */
+export function operatingCashFlowOf(args: {
+  pretaxYen: number | null;
+  taxRate: number | null;
+  depreciationYen: number | null;
+  workingCapitalChangeYen: number | null;
+}): number | null {
+  const { pretaxYen, taxRate, depreciationYen, workingCapitalChangeYen } = args;
+  if (pretaxYen === null || taxRate === null || depreciationYen === null || workingCapitalChangeYen === null) return null;
+  return afterTaxIncomeOf(pretaxYen, taxRate) + depreciationYen - workingCapitalChangeYen;
+}
+
 function unitSuspectsOf(pl: FinancePLRow[], bs: FinanceBSRow[]): string[] {
   const out: string[] = [];
   const plRevenue = new Map(pl.map((r) => [r.year, num(r.revenue)]));
@@ -521,7 +547,7 @@ export function buildCashFlowPlan(
     if (pretax === null && !missing.includes('営業利益・支払利息')) missing.push('営業利益・支払利息');
     const rate = taxRate.value;
     if (rate === null) missing.push('税率');
-    const netIncomeValue = pretax !== null && rate !== null ? (pretax > 0 ? pretax * (1 - rate) : pretax) : null;
+    const netIncomeValue = pretax !== null && rate !== null ? afterTaxIncomeOf(pretax, rate) : null;
     const netIncome: CfValue =
       netIncomeValue !== null
         ? { value: netIncomeValue, basis: 'ESTIMATE', note: '営業利益から推計（支払利息・税率を控除）' }
@@ -530,10 +556,7 @@ export function buildCashFlowPlan(
     const dep = depreciation.value;
     if (dep === null) missing.push('減価償却費');
 
-    const wcValue =
-      allRatiosKnown && revValue !== null
-        ? (arR.value as number) * revValue + (invR.value as number) * revValue - (apR.value as number) * revValue
-        : null;
+    const wcValue = workingCapitalAt({ ar: arR.value, inventory: invR.value, ap: apR.value }, revValue);
     if (!allRatiosKnown) missing.push('運転資金比率');
     const wcChange = wcValue !== null && prevWc !== null ? wcValue - prevWc : null;
     if (wcChange === null && wcValue !== null && prevWc === null) missing.push('基準年度の運転資金');
@@ -545,8 +568,12 @@ export function buildCashFlowPlan(
         ? { value: wcChange, basis: 'ESTIMATE', note: '前年度末との差（初年度は基準年度の実績との差）' }
         : held('運転資金増減を算出できません');
 
-    const ocfValue =
-      netIncomeValue !== null && dep !== null && wcChange !== null ? netIncomeValue + dep - wcChange : null;
+    const ocfValue = operatingCashFlowOf({
+      pretaxYen: pretax,
+      taxRate: rate,
+      depreciationYen: dep,
+      workingCapitalChangeYen: wcChange,
+    });
     const operatingCf: CfValue =
       ocfValue !== null
         ? { value: ocfValue, basis: 'ESTIMATE', note: '税引後利益＋減価償却費−運転資金増加（推計）' }

@@ -1,8 +1,8 @@
 import { financeTotals, projectFinanceSummary } from '@/lib/plans/financeEffectSummary';
 import type { CompanyTarget, Department } from '@/types/strategy';
-import { buildCashFlowPlan, type CashFlowPlan, type CfBasis, type CfValue, type WorkingCapitalBreakdown } from './cashflow';
+import type { CashFlowPlan, CfBasis, CfValue, WorkingCapitalBreakdown } from './cashflow';
 import { buildFinanceOutlook, forecastHorizonOf, type FinanceOutlook } from './financeOutlook';
-import { withoutTargetPath } from './financeEffectPlan';
+import type { FinanceEffectTrialYear } from './financeEffectPlan';
 import type { UnifiedPlYear } from './unifiedPl';
 import type { DebtSchedule } from './debt';
 import {
@@ -244,6 +244,8 @@ export type StrategyProjectRow = {
   planStatus: string | null;
   revenueYen: number | null;
   operatingIncomeYen: number | null;
+  /** 確認済み（STAGE6に反映）の財務効果の件数。承認状態（planStatus）とは別の項目 */
+  financeConfirmedCount: number;
   investmentRecordCount: number;
   investmentYen: number | null;
 };
@@ -270,6 +272,7 @@ function strategyProjectRows(departments: Department[], items: InvestmentItem[])
         planStatus: p?.planStatus ?? null,
         revenueYen: finance.confirmedRevenueYen,
         operatingIncomeYen: finance.confirmedOperatingYen,
+        financeConfirmedCount: finance.confirmedCount,
         investmentRecordCount: own.filter((it) => it.duplicateStatus !== 'CANDIDATE').length,
         investmentYen: knownTotal(own),
       });
@@ -278,14 +281,22 @@ function strategyProjectRows(departments: Department[], items: InvestmentItem[])
   return rows;
 }
 
-function stage4Contributions(departments: Department[]) {
+/** 確認済み財務効果の集計。営業利益は統一PLと同じ、最終予測年度の値（OPEX控除後）を使う。不明な年度は0にしない */
+function stage4Contributions(departments: Department[], trialYears: FinanceEffectTrialYear[]) {
   const t = financeTotals(departments);
+  const last = trialYears.reduce<FinanceEffectTrialYear | undefined>((acc, y) => (!acc || y.fiscalYear > acc.fiscalYear ? y : acc), undefined);
+  const operatingIncomeYen =
+    t.confirmedCount > 0 && last && last.revenueOperatingIncomeYen !== null
+      ? last.revenueOperatingIncomeYen + last.costReductionYen - last.costIncreaseYen
+      : null;
   return {
     revenueYen: t.revenueYen,
-    operatingIncomeYen: t.operatingIncomeYen,
+    operatingIncomeYen,
     projectCount: t.projectCount,
     missingValueCount: t.pendingCount,
-    note: '確認済みの財務効果の年額換算の合計です。全社の財務試算（統一PL）に含まれる内訳のため、そこへ加算しません。未確認・未算定の効果は含みません。',
+    note: last
+      ? `確認済みの財務効果の、最終予測年度（${last.fiscalYear}年度）の年額換算です。営業利益はOPEX（営業利益に含まれない費用）を差し引いた後の値で、統一PLと同じ計算です。全社の財務試算に含まれる内訳のため、そこへ加算しません。未確認・未算定の効果は含みません。`
+      : '最終予測年度の財務効果を算定できません。全社の財務試算に含まれる内訳のため、そこへ加算しません。',
   };
 }
 
@@ -437,27 +448,7 @@ export function buildBankFinancialPlanBlock(args: {
   if (meta.sourceHash !== computed.sourceHash) reasons.push('財務実績または実行施策の元データが保存時点から変わっています');
   const status: BankFinancialPlanStatus = reasons.length > 0 ? 'STALE' : 'CURRENT';
 
-  const plan = buildCashFlowPlan(
-    {
-      financePL: inputs.financePL,
-      financeBS: inputs.financeBS,
-      investment: {
-        yearlyByCategory: computed.investment.yearlyByCategory,
-        unclassifiedYen: computed.investment.unclassifiedYen,
-        unscheduledYen: computed.investment.unscheduledYen,
-        candidateYen: computed.investment.candidateYen,
-        basisPendingYen: computed.investment.basisPendingYen,
-      },
-      assumptions: withoutTargetPath(stored.domain.assumptions),
-      fiscalYearEndSet: computed.fiscalYearEndSet,
-      debt: computed.debtEntered ? computed.schedule : undefined,
-      yearlyOverride: Object.fromEntries(
-        outlook.unifiedPl.years.map((r) => [r.fiscalYear, { revenueYen: r.plan.revenueYen, operatingIncomeYen: r.plan.operatingIncomeYen }]),
-      ),
-      horizonYears,
-    },
-    currentYear,
-  );
+  const plan = outlook.financedPlan;
   const fiscalYearEndSet = computed.fiscalYearEndSet;
   if (!fiscalYearEndSet) reasons.push('決算期が未設定のため、年度別の投資額と返済可能性の判定は保留です');
   if (plan.yearMismatch) reasons.push('PLとBSの基準年度が一致しないため、資金計画は保留です');
@@ -473,7 +464,7 @@ export function buildBankFinancialPlanBlock(args: {
   const stage2Revenue = parseRegisteredTarget(targets, '売上');
   const stage2Operating = parseRegisteredTarget(targets, '営業利益');
   const scenarioTarget = stored.domain.assumptions;
-  const contributions = stage4Contributions(inputs.departments);
+  const contributions = stage4Contributions(inputs.departments, outlook.effectTrial.years);
 
   const holds = [
     ...plan.globalHolds,

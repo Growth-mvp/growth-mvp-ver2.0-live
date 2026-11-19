@@ -721,6 +721,10 @@ CRITICAL INSTRUCTIONS FOR FINANCIAL DATA HANDLING:
    - 登録された全社目標（承認状態は未確認）と実行施策の「施策効果合計」を混同しない。
    - 両者が異なる場合、その理由（施策だけでは不十分 / 施策が目標を超える など）を分析する。
 
+6. 施策効果の確認状態：
+   - 「財務効果の確認」が「確認済み（財務計画に反映済み）」の施策は、財務計画に反映された計算値として記載する。「未確定」「見込み」とは書かない。
+   - 「計画の承認状態」（承認未確認）は財務効果の確認とは別の項目である。承認未確認であることは、一度だけ注記してよい。
+
 TONE: Professional, conservative, fact-based. Emphasize realistic assessment and risk management.`,
 
     shareholder: `AUDIENCE: Shareholders/Investors

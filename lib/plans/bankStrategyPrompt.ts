@@ -99,7 +99,7 @@ export function bankStage34Block(planData: PlanData & { bankFinancialPlan?: Bank
     const mainLines = main
       .map(
         (p) =>
-          `- ${p.title}（${p.departmentName}）：財務効果（売上） ${formatMillionYenText(p.revenueYen)} ／ 財務効果（営業利益） ${formatMillionYenText(p.operatingIncomeYen)} ／ 承認状態 ${p.planStatus === 'approved' ? '承認済み' : '承認未確認'}`,
+          `- ${p.title}（${p.departmentName}）：財務効果（売上） ${formatMillionYenText(p.revenueYen)} ／ 財務効果（営業利益） ${formatMillionYenText(p.operatingIncomeYen)} ／ 財務効果の確認 ${p.financeConfirmedCount > 0 ? '確認済み（財務計画に反映済み）' : '未確認'} ／ 計画の承認状態 ${p.planStatus === 'approved' ? '承認済み' : '承認未確認'}`,
       )
       .join('\n');
     return `【部門別戦略】（部門：${coverageNote(totalDepartments, shownDepartments.length)}）

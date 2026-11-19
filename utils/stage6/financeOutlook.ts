@@ -40,6 +40,8 @@ export type FinanceOutlookInput = {
 
 export type FinanceOutlook = {
   baselinePlan: CashFlowPlan;
+  /** 施策反映後の売上・営業利益・借入で計算した資金計画（STAGE6の資金判定と銀行向け計画書の共通の値） */
+  financedPlan: CashFlowPlan;
   target: PlTarget;
   effectTrial: FinanceEffectTrial;
   unifiedPl: UnifiedPl;
@@ -135,9 +137,24 @@ export function buildFinanceOutlook(input: FinanceOutlookInput): FinanceOutlook 
     effects: effectTrial.years,
     target,
   });
+  const financedPlan = buildCashFlowPlan(
+    {
+      financePL,
+      financeBS,
+      investment: investmentInputOf(computed.investment),
+      assumptions: withoutTargetPath(domain.assumptions),
+      fiscalYearEndSet: computed.fiscalYearEndSet,
+      debt: computed.debtEntered ? computed.schedule : undefined,
+      yearlyOverride: Object.fromEntries(
+        unifiedPl.years.map((r) => [r.fiscalYear, { revenueYen: r.plan.revenueYen, operatingIncomeYen: r.plan.operatingIncomeYen }]),
+      ),
+      horizonYears,
+    },
+    currentYear,
+  );
   const conditionalCf = buildConditionalCashFlow({ baseline: baselinePlan, unified: unifiedPl });
 
-  return { baselinePlan, target, effectTrial, unifiedPl, conditionalCf };
+  return { baselinePlan, financedPlan, target, effectTrial, unifiedPl, conditionalCf };
 }
 
 function investmentInputOf(inv: InvestmentDemandSummary) {

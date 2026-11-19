@@ -1,4 +1,4 @@
-import type { CashFlowPlan, CfBasis } from './cashflow';
+import { operatingCashFlowOf, workingCapitalAt, type CashFlowPlan, type CfBasis } from './cashflow';
 import type { UnifiedPl } from './unifiedPl';
 
 export type ConditionalCfYear = {
@@ -20,28 +20,31 @@ export type ConditionalCf = {
   years: ConditionalCfYear[];
 };
 
-/** 税引後利益。損失の年度は税を計上しない（cashflow.ts の既存の計算と同じ） */
-function netIncomeOf(pretax: number, rate: number): number {
-  return pretax > 0 ? pretax * (1 - rate) : pretax;
-}
-
 /**
- * 基準CF（直近実績の横ばい・目標補間なし）に、統一PLの営業利益の差だけを反映した条件付きCF。
- * 運転資金・減価償却・投資・財務CFは基準CFの値をそのまま使う（売上は変えないため）。
- * 営業利益が未算定の年度は営業CF以降を未算定にし、翌年度以降の期首も未算定として連鎖させる。
+ * 施策反映後の売上・営業利益で、基準CFと同じ計算（cashflow.ts の共通関数）を行った条件付きCF。
+ * 運転資金は施策反映後の売上高×比率から再計算し、前年度との差で増減を出す。
+ * 投資・借入は基準CFの値をそのまま使う。欠けた前提は0にせず未算定として連鎖させる。
  */
 export function buildConditionalCashFlow(args: { baseline: CashFlowPlan; unified: UnifiedPl }): ConditionalCf {
   const { baseline, unified } = args;
   const debtEnabled = baseline.debtEnabled;
   const rate = baseline.taxRate.value;
+  const depreciation = baseline.depreciation.value;
+  const ratios = {
+    ar: baseline.workingCapitalRatios.ar.value,
+    inventory: baseline.workingCapitalRatios.inventory.value,
+    ap: baseline.workingCapitalRatios.ap.value,
+  };
   const actual = baseline.years.find((y) => y.kind === 'ACTUAL');
   const forecast = baseline.years.filter((y) => y.kind === 'FORECAST');
 
   let previousClosing: number | null = actual?.closingCashBeforeFinancing.value ?? null;
+  let previousWc: number | null = actual?.workingCapital.value ?? null;
   const years: ConditionalCfYear[] = unified.years.map((u) => {
     const b = forecast.find((y) => y.year === u.fiscalYear);
-    const reasons: string[] = [];
     if (!b) {
+      previousClosing = null;
+      previousWc = null;
       return {
         fiscalYear: u.fiscalYear,
         operatingIncomeYen: u.plan.operatingIncomeYen,
@@ -55,26 +58,27 @@ export function buildConditionalCashFlow(args: { baseline: CashFlowPlan; unified
       };
     }
 
-    const baselineOcf = b.operatingCf.value;
-    const interest = b.interest.value;
-    const dep = b.depreciation.value;
-    const dWc = b.workingCapitalChange.value;
+    const reasons: string[] = [];
     const op = u.plan.operatingIncomeYen;
+    const interest = b.interest.value;
+    const pretax = op !== null && interest !== null ? op - interest : null;
+    const wc = workingCapitalAt(ratios, u.plan.revenueYen);
+    const wcChange = wc !== null && previousWc !== null ? wc - previousWc : null;
 
-    let conditionalOcf: number | null = null;
-    if (op === null) {
-      reasons.push('営業利益が未算定のため、営業CF・期末現預金は算定しない（売上増加の原価が不明）');
-    } else if (u.plan.revenueYen !== b.revenue.value) {
-      reasons.push('売上の変動に対応する運転資金は算定しない');
-    } else if (interest === null || rate === null || dep === null || dWc === null) {
-      if (rate === null) reasons.push('税率が未確定（STAGE6の税率、またはSTAGE1の法人税等・税引前利益の実績が必要）');
-      if (interest === null) reasons.push('支払利息が未確定（STAGE1の基準年度の支払利息、または借入計画の利息が必要）');
-      if (dep === null) reasons.push('減価償却費が未確定（STAGE1の基準年度の減価償却費、またはSTAGE6の減価償却費が必要）');
-      if (dWc === null) reasons.push('運転資金増減が未確定（STAGE1の基準年度BSの売掛金・棚卸資産・買掛金が必要）');
-    } else {
-      conditionalOcf = netIncomeOf(op - interest, rate) + dep - dWc;
-    }
+    const conditionalOcf = operatingCashFlowOf({
+      pretaxYen: pretax,
+      taxRate: rate,
+      depreciationYen: depreciation,
+      workingCapitalChangeYen: wcChange,
+    });
+    if (op === null) reasons.push('営業利益が未算定のため、営業CF・期末現預金は算定しない（売上増加の原価が不明）');
+    if (interest === null) reasons.push('支払利息が未確定（STAGE1の基準年度の支払利息、または借入計画の利息が必要）');
+    if (rate === null) reasons.push('税率が未確定（STAGE6の税率、またはSTAGE1の法人税等・税引前利益の実績が必要）');
+    if (depreciation === null) reasons.push('減価償却費が未確定（STAGE1の基準年度の減価償却費、またはSTAGE6の減価償却費が必要）');
+    if (wc === null) reasons.push('運転資金を推計できません（STAGE1の基準年度BSの売掛金・棚卸資産・買掛金、または運転資金比率が必要）');
+    else if (wcChange === null) reasons.push('運転資金増減が未確定（STAGE1の基準年度BSの売掛金・棚卸資産・買掛金が必要）');
 
+    const baselineOcf = b.operatingCf.value;
     const delta = conditionalOcf !== null && baselineOcf !== null ? conditionalOcf - baselineOcf : null;
     const investing = b.investingCf.value;
     const financing = debtEnabled ? b.financingCf.value : null;
@@ -95,6 +99,7 @@ export function buildConditionalCashFlow(args: { baseline: CashFlowPlan; unified
     const baselineClosing = debtEnabled ? b.closingCashAfterFinancing.value : b.closingCashBeforeFinancing.value;
     const opening = previousClosing;
     previousClosing = closing;
+    previousWc = wc;
 
     return {
       fiscalYear: u.fiscalYear,

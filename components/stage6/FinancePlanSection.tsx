@@ -243,26 +243,8 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
   );
   const { target: unifiedTarget, effectTrial, unifiedPl, conditionalCf, baselinePlan } = financeOutlook;
 
-  // 資金判定：既存事業の増減＋確認済み施策効果（統一PL）を前提にし、目標補間は使わない
-  const fundingPlan = useMemo(
-    () =>
-      buildCashFlowPlan(
-        {
-          financePL,
-          financeBS,
-          investment: investmentInput,
-          assumptions: withoutTargetPath(assumptions),
-          fiscalYearEndSet,
-          debt: debtEntered ? schedule : undefined,
-          yearlyOverride: Object.fromEntries(
-            unifiedPl.years.map((r) => [r.fiscalYear, { revenueYen: r.plan.revenueYen, operatingIncomeYen: r.plan.operatingIncomeYen }]),
-          ),
-          horizonYears,
-        },
-        NOW_YEAR,
-      ),
-    [financePL, financeBS, investmentInput, assumptions, fiscalYearEndSet, debtEntered, schedule, unifiedPl, horizonYears],
-  );
+  // 資金判定：既存事業の増減＋確認済み施策効果（統一PL）を前提にし、目標補間は使わない（銀行向け計画書と同じ計算）
+  const fundingPlan = financeOutlook.financedPlan;
 
   const currentMeta: CalcSnapshotMeta = useMemo(
     () => ({
