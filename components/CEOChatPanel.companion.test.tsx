@@ -308,6 +308,29 @@ describe('自律伴走：企業の分離', () => {
     expect(companionCardText()).toContain('論点を1件作りましょう');
   });
 
+  it('助言の依頼が処理中に会社を切り替えても、切替前の会社の助言は表示も保存もしない', async () => {
+    const pending = deferred<ReturnType<typeof okResponse>>();
+    mockFetch.mockReturnValueOnce(pending.promise);
+    setStoreData({ companyName: '会社A', financePL: [{ year: 2025, revenue: 1000 }], stage1Issues: [{ id: 'i1' }], answers12: [], dirty: false });
+    await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    expect(companionCardText()).toContain('AIの助言');
+
+    switchCompany(COMPANY_B);
+    completeSwitchTo(COMPANY_B, STRATEGY_B);
+    setStoreData({ companyName: '会社B', financePL: [{ year: 2025, revenue: 900 }], stage1Issues: [], answers12: [], dirty: false });
+    await flush();
+
+    await act(async () => {
+      pending.resolve(okResponse('会社Aの助言本文'));
+    });
+    await flush();
+    expect(document.body.textContent).not.toContain('会社Aの助言本文');
+    expect(companionCardText()).not.toContain('AIの助言');
+    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain('会社Aの助言本文');
+  });
+
   it('画面の会社と保存データの会社が違う（切替中）間は、判定しない', async () => {
     setStoreData({ companyName: '' });
     await renderReadyPanel();
