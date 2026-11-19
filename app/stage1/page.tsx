@@ -18,6 +18,7 @@ import MetricsPanel from '@/components/stage1/MetricsPanel';
 import Stage1BenchmarkPanel from '@/components/stage1/Stage1BenchmarkPanel';
 import Stage1ToStage2Panel from '@/components/stage1/Stage1ToStage2Panel';
 import ListingInfoPanel from '@/components/stage1/ListingInfoPanel';
+import CompanyAutofillPanel from '@/components/stage1/CompanyAutofillPanel';
 import WaccPanel from '@/components/stage1/WaccPanel';
 
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
@@ -620,6 +621,7 @@ export default function Stage1Page() {
 
             <SectionCard title="① 企業情報・事業内容" defaultOpen={false}>
               <ReadOnlyBlock readOnly={!canEdit}>
+                <CompanyAutofillPanel disabled={!canEdit} />
                 <CompanyAndBusinessPanel readOnly={!canEdit} disabled={!canEdit} />
               </ReadOnlyBlock>
             </SectionCard>
