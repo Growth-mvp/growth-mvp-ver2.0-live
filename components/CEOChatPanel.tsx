@@ -25,6 +25,7 @@ import { screenIdForPathname } from '@/lib/screens/screenContext';
 import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
 import { isAutofillRequest } from '@/lib/autofill/intent';
 import { useAutofillStore } from '@/lib/autofill/autofillStore';
+import { runAutofillPipeline } from '@/lib/autofill/client';
 import { judgeCompanion, type CompanionAction } from '@/lib/companion/companionEngine';
 import { buildCompanionSnapshot } from '@/lib/companion/companionSnapshot';
 import { detectMilestone, fingerprint, MILESTONE_LABEL } from '@/lib/companion/companionMilestones';
@@ -76,7 +77,7 @@ type Props = { embedded?: boolean };
 
 const ASK_TIMEOUT_MS = 90_000;         // 応答待ちの上限（Web検索を含む処理時間を見込む）
 
-/** 公開資料からの入力の依頼：候補を作り、STAGE1の承認欄へ渡す（反映はしない。AIは呼ばない） */
+/** 公開資料からの入力の依頼：候補を作り、STAGE1の承認欄へ渡す（反映はしない。AIは呼ばない）。進行状況を同じ発言に示す */
 async function requestAutofillFromChat(args: {
   ticket: Parameters<typeof updateCeoChatMessages>[0];
   text: string;
@@ -84,63 +85,46 @@ async function requestAutofillFromChat(args: {
   strategyId: string;
   isStale: () => boolean;
 }): Promise<void> {
-  const say = (content: string) => {
+  const setLast = (content: string) => {
     if (args.isStale()) return;
-    updateCeoChatMessages(args.ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
+    updateCeoChatMessages(args.ticket, (msgs) => [...msgs.slice(0, -1), { role: 'assistant', content }]);
   };
+  updateCeoChatMessages(args.ticket, (msgs) => [...msgs, { role: 'assistant', content: '公開資料から取得しています…' }]);
   try {
     const { data } = await supabase.auth.getSession();
     const token = data?.session?.access_token;
-    if (!token) return say('ログインが必要です。');
-    const res = await fetch('/api/stage1/autofill/plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ companyId: args.companyId, strategyId: args.strategyId, text: args.text }),
+    if (!token) return setLast('ログインが必要です。');
+    const result = await runAutofillPipeline({
+      text: args.text,
+      companyId: args.companyId,
+      strategyId: args.strategyId,
+      token,
+      onProgress: (p) => setLast(`取得中：${p.label}（${p.step}/${p.total}）`),
     });
-    const raw = await res.text();
-    const json = (raw ? JSON.parse(raw) : {}) as Record<string, any>;
     if (args.isStale()) return;
-    if (!res.ok) {
-      return say(
-        json.error === 'insufficient_role'
-          ? '基本情報の取り込みは、管理者または管理職のみ実行できます。'
-          : json.error === 'edinet_not_configured'
-            ? '公開資料の取得が設定されていません（管理者に確認してください）。'
-            : '公開資料からの取得に失敗しました。時間をおいて再度お試しください。',
-      );
-    }
-    if (json.status === 'FOUND') {
-      const c = json.candidate;
-      useAutofillStore.getState().setPending({
-        companyId: args.companyId,
-        strategyId: args.strategyId,
-        fetchedAt: String(json.fetchedAt ?? ''),
-        candidate: c,
-      });
-      const unavailable = (c.issues as string[]).filter((t) => t.includes('未入力') || t.includes('未確認')).slice(0, 4);
-      return say(
+    if (result.status === 'FOUND') {
+      const c = result.candidate;
+      useAutofillStore.getState().setPending({ companyId: args.companyId, strategyId: args.strategyId, fetchedAt: result.fetchedAt, candidate: c });
+      const notes = [
+        result.missingPeriods.length > 0 ? `取得できなかった決算期：${result.missingPeriods.join('、')}` : '',
+        '取得できなかった項目・確認できなかった項目は未入力のままです（推測で補っていません）。',
+      ].filter(Boolean);
+      return setLast(
         [
-          `「${c.filer.name}」の有価証券報告書（書類ID ${c.docId}、期末 ${c.periodEnd ?? '未確認'}）から候補を作りました。`,
-          'STAGE1の「①企業情報・事業内容」の候補欄で内容を確認し、承認すると入力欄に反映されます。承認するまで入力欄は変わりません。',
-          unavailable.length > 0 ? `取得できなかった・確認できなかった項目：${unavailable.join('／')}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
+          `「${c.filer.name}」（証券コード ${c.filer.secCode ?? '未確認'}）の有価証券報告書から候補を作りました。`,
+          `対象：直近${c.finance.length}期の財務、企業情報${c.segments ? '、事業セグメント' : ''}（最新の書類 ${c.docId}）`,
+          'STAGE1の「①企業情報・事業内容」にある候補欄で、取得対象の企業名と内容を確認し、承認すると入力欄に反映されます。承認するまで入力欄は変わりません。',
+          ...notes,
+        ].join('\n'),
       );
     }
-    if (json.status === 'AMBIGUOUS') {
-      const names = (json.candidates as Array<{ name: string; secCode: string | null }>).map((c) => `${c.name}（証券コード ${c.secCode ?? '未確認'}）`);
-      return say(`同じ名前の会社が複数あります。証券コード（4桁）を付けて、もう一度依頼してください。\n${names.join('\n')}`);
+    if (result.status === 'AMBIGUOUS') {
+      const names = result.candidates.map((c) => `${c.name}（証券コード ${c.secCode ?? '未確認'}）`).join('\n');
+      return setLast(`同じ名前の会社が複数あります。証券コード（4桁）を付けて、もう一度依頼してください。\n${names}`);
     }
-    if (json.status === 'BUDGET_EXCEEDED') {
-      return say('確認する期間が多すぎるため途中で止めました。証券コード（4桁）を付けて、もう一度依頼してください。');
-    }
-    if (json.status === 'QUERY_UNCLEAR') {
-      return say('会社名または証券コード（4桁）を含めて、もう一度依頼してください。');
-    }
-    return say('公開資料に、該当する会社の有価証券報告書が見つかりませんでした。証券コード（4桁）を付けて依頼してください。');
+    return setLast(result.message);
   } catch {
-    say('公開資料からの取得に失敗しました。時間をおいて再度お試しください。');
+    setLast('公開資料からの取得に失敗しました。時間をおいて再度お試しください。');
   }
 }
 

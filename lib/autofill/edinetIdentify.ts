@@ -147,3 +147,84 @@ export function parseIdentifyQuery(text: string): IdentifyQuery | null {
   const name = stripped.split(' ').find((t) => t.length >= 2) ?? '';
   return name ? { name } : null;
 }
+
+export const FILING_WINDOW_DAYS = 92;
+export const MAX_PERIOD_DAYS = 110;
+
+/** 決算期の終了日（YYYY-MM-DD）。決算日が月末以外でも、その日（存在しない日は月末）にする */
+export function fiscalPeriodEnd(year: number, month: number, day: number | null): string {
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const d = Math.min(day ?? lastDay, lastDay);
+  return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+export type PeriodResult =
+  | { status: 'FOUND'; annual: EdinetDocument; amendments: EdinetDocument[]; scannedDays: number }
+  | { status: 'NOT_FOUND'; scannedDays: number }
+  | { status: 'NOT_YET_OPEN'; scannedDays: number }
+  | { status: 'BUDGET_EXCEEDED'; scannedDays: number };
+
+/** 決算期（終了日）の有価証券報告書を探す。提出は決算後92日以内が原則。新しい日から読む（締切近くに集中するため） */
+export async function findAnnualReportForPeriod(
+  q: { edinetCode: string; periodEnd: string },
+  opts: { now?: number; listDocs: DocLister; maxDays?: number },
+): Promise<PeriodResult> {
+  const now = opts.now ?? Date.now();
+  const today = jstToday(now);
+  const maxDays = opts.maxDays ?? MAX_PERIOD_DAYS;
+  const periodMs = Date.parse(`${q.periodEnd}T00:00:00Z`);
+  if (!Number.isFinite(periodMs)) return { status: 'NOT_FOUND', scannedDays: 0 };
+  const from = new Date(periodMs + 86400000);
+  const to = new Date(Math.min(today.getTime(), periodMs + FILING_WINDOW_DAYS * 86400000));
+  if (from.getTime() > today.getTime()) return { status: 'NOT_YET_OPEN', scannedDays: 0 };
+
+  let scanned = 0;
+  const amendments: EdinetDocument[] = [];
+  const isOwnAnnual = (d: EdinetDocument) => d.docTypeCode === ANNUAL_REPORT_CODE && d.edinetCode === q.edinetCode && d.periodEnd === q.periodEnd;
+  const isOwnAmendment = (d: EdinetDocument) => d.docTypeCode === AMENDED_REPORT_CODE && d.edinetCode === q.edinetCode && d.periodEnd === q.periodEnd && !d.withdrawn;
+
+  const scanDays = async (days: string[]): Promise<{ annual: EdinetDocument | null; exhausted: boolean }> => {
+    for (const day of days) {
+      if (scanned >= maxDays) return { annual: null, exhausted: true };
+      scanned++;
+      const docs = await opts.listDocs(day);
+      amendments.push(...docs.filter(isOwnAmendment));
+      const annual = docs.find(isOwnAnnual) ?? null;
+      if (annual) return { annual, exhausted: false };
+    }
+    return { annual: null, exhausted: false };
+  };
+
+  const first = await scanDays(weekdaysDesc(from, to));
+  if (!first.annual) {
+    return first.exhausted ? { status: 'BUDGET_EXCEEDED', scannedDays: scanned } : { status: 'NOT_FOUND', scannedDays: scanned };
+  }
+  const annual = first.annual;
+  const annualMs = Date.parse(`${annual.submitDate?.slice(0, 10) ?? ''}T00:00:00Z`);
+  const afterFrom = new Date(to.getTime() + 86400000);
+  const afterTo = new Date(Math.min(today.getTime(), (Number.isFinite(annualMs) ? annualMs : to.getTime()) + AMENDMENT_WINDOW_DAYS * 86400000));
+  if (afterFrom.getTime() <= afterTo.getTime()) {
+    const extra = await scanDays(weekdaysDesc(afterFrom, afterTo));
+    if (extra.exhausted) return { status: 'BUDGET_EXCEEDED', scannedDays: scanned };
+  }
+  return {
+    status: 'FOUND',
+    annual,
+    amendments: amendments.sort((a, b) => (b.submitDate ?? '').localeCompare(a.submitDate ?? '')),
+    scannedDays: scanned,
+  };
+}
+
+/** 直近の決算期（窓が開いた期）と、その2年・4年前の決算期（最大5期のうち、有価証券報告書を読む期） */
+export function recentPeriodEnds(fye: { month: number; day: number | null }, now: number = Date.now()): string[] {
+  const today = jstToday(now);
+  const cutoff = today.getTime() - 30 * 86400000;
+  const y = today.getUTCFullYear();
+  const candidates = [y, y - 1].map((year) => fiscalPeriodEnd(year, fye.month, fye.day));
+  const latestEnd = candidates
+    .filter((e) => Date.parse(`${e}T00:00:00Z`) <= cutoff)
+    .sort((a, b) => b.localeCompare(a))[0];
+  if (!latestEnd) return [];
+  const latestYear = Number(latestEnd.slice(0, 4));
+  return [0, 2, 4].map((k) => fiscalPeriodEnd(latestYear - k, fye.month, fye.day));
+}

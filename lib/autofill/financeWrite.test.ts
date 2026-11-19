@@ -2,6 +2,8 @@ import { combineFinance, splitFinanceWrite } from './financeWrite';
 import type { FilingApplyPlan } from './filingCandidates';
 
 const emptyPlan = (over: Partial<FilingApplyPlan>): FilingApplyPlan => ({
+  segmentsPatch: null,
+  segmentsSkipped: null,
   profilePatch: {},
   profileApplied: [],
   profileSkipped: [],

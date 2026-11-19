@@ -100,9 +100,31 @@ export const EDINET_DOCUMENT_URL = 'https://api.edinet-fsa.go.jp/api/v2/document
 
 /** 書類の構造化データ（CSVを含むzip）を1回だけ取得する。再試行はしない */
 export async function downloadEdinetCsvZip(docId: string, apiKey: string, fetchImpl: typeof fetch = fetch): Promise<Buffer> {
-  if (!/^S\d[A-Z0-9]{7}$/.test(docId)) throw new Error('invalid_doc_id');
+  if (!/^S[0-9A-Z]{7}$/.test(docId)) throw new Error('invalid_doc_id');
   const url = `${EDINET_DOCUMENT_URL}/${docId}?type=5&Subscription-Key=${encodeURIComponent(apiKey)}`;
   const res = await fetchImpl(url, { method: 'GET' });
   if (!res.ok) throw new EdinetHttpError(res.status);
   return Buffer.from(await res.arrayBuffer());
+}
+
+export const DAY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const annualDayCache = new Map<string, { loadedAt: number; docs: EdinetDocument[] }>();
+
+/** 日付の提出書類のうち、有価証券報告書と訂正（120・130）だけを24時間保持する。失敗は保持しない */
+export async function listAnnualDocsForDate(
+  date: string,
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+  now: number = Date.now(),
+): Promise<EdinetDocument[]> {
+  const hit = annualDayCache.get(date);
+  if (hit && now - hit.loadedAt < DAY_CACHE_TTL_MS) return hit.docs;
+  const all = await listEdinetDocumentsForDate(date, apiKey, fetchImpl);
+  const docs = all.filter((d) => d.docTypeCode === ANNUAL_REPORT_CODE || d.docTypeCode === '130');
+  annualDayCache.set(date, { loadedAt: now, docs });
+  return docs;
+}
+
+export function resetAnnualDayCacheForTest(): void {
+  annualDayCache.clear();
 }

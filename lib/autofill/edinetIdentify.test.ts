@@ -1,5 +1,15 @@
 import type { EdinetDocument } from './companyCandidates';
-import { identifyCompany, MAX_IDENTIFY_DAYS, normalizeCompanyName, parseIdentifyQuery, weekdaysDesc, windowsByPriority } from './edinetIdentify';
+import {
+  findAnnualReportForPeriod,
+  fiscalPeriodEnd,
+  identifyCompany,
+  MAX_IDENTIFY_DAYS,
+  normalizeCompanyName,
+  parseIdentifyQuery,
+  recentPeriodEnds,
+  weekdaysDesc,
+  windowsByPriority,
+} from './edinetIdentify';
 
 // 2026-11-19 12:00 JST
 const NOW = Date.parse('2026-11-19T03:00:00Z');
@@ -110,5 +120,54 @@ describe('会社の特定', () => {
     const cal = calendar({});
     const r = await identifyCompany({ name: '存在しない会社' }, { now: NOW, listDocs: cal.listDocs });
     expect(['NOT_FOUND', 'BUDGET_EXCEEDED']).toContain(r.status);
+  });
+});
+
+describe('決算期ごとの有価証券報告書の探索（決算日から窓を決める）', () => {
+  // 2026-11-19 12:00 JST
+  const NOW2 = Date.parse('2026-11-19T03:00:00Z');
+  const ANNUAL2 = (over: Partial<EdinetDocument>): EdinetDocument => DOC({ docId: 'ANNUAL', periodEnd: '2026-03-31', submitDate: '2026-06-25 10:00', ...over });
+
+  it('決算期の終わりから92日以内の、新しい日から読む（締切近くに集中するため）', async () => {
+    const cal = calendar({ '2026-06-25': [ANNUAL2({})] });
+    const r = await findAnnualReportForPeriod({ edinetCode: 'E01408', periodEnd: '2026-03-31' }, { now: NOW2, listDocs: cal.listDocs });
+    expect(r.status).toBe('FOUND');
+    expect(cal.called[0]).toBe('2026-07-01');
+    if (r.status === 'FOUND') expect(r.annual.docId).toBe('ANNUAL');
+  });
+
+  it('同じ会社・同じ決算期の訂正報告書を、提出後の窓で確認する（別の会社の書類は無視）', async () => {
+    const cal = calendar({
+      '2026-06-25': [ANNUAL2({})],
+      '2026-07-02': [ANNUAL2({ docId: 'AMEND', docTypeCode: '130', submitDate: '2026-07-02 10:00' }), ANNUAL2({ docId: 'OTHER', edinetCode: 'E99999', docTypeCode: '130' })],
+    });
+    const r = await findAnnualReportForPeriod({ edinetCode: 'E01408', periodEnd: '2026-03-31' }, { now: NOW2, listDocs: cal.listDocs });
+    expect(r.status === 'FOUND' && r.amendments.map((d) => d.docId)).toEqual(['AMEND']);
+  });
+
+  it('決算期がまだ窓に入っていない時は、読まずに NOT_YET_OPEN', async () => {
+    const cal = calendar({});
+    const r = await findAnnualReportForPeriod({ edinetCode: 'E01408', periodEnd: '2027-03-31' }, { now: NOW2, listDocs: cal.listDocs });
+    expect(r.status).toBe('NOT_YET_OPEN');
+    expect(cal.called).toHaveLength(0);
+  });
+
+  it('上限に達したら、そこで止める（BUDGET_EXCEEDED）', async () => {
+    const cal = calendar({});
+    const r = await findAnnualReportForPeriod({ edinetCode: 'E01408', periodEnd: '2026-03-31' }, { now: NOW2, listDocs: cal.listDocs, maxDays: 5 });
+    expect(r.status).toBe('BUDGET_EXCEEDED');
+    expect(cal.called).toHaveLength(5);
+  });
+
+  it('決算日から、期の終わりの日付を作る（存在しない日は月末）', () => {
+    expect(fiscalPeriodEnd(2026, 3, 31)).toBe('2026-03-31');
+    expect(fiscalPeriodEnd(2026, 2, 31)).toBe('2026-02-28');
+    expect(fiscalPeriodEnd(2026, 1, null)).toBe('2026-01-31');
+  });
+
+  it('直近の決算期と、その2年・4年前（5期分の読む対象）を返す。窓がまだ開いていない期は除く', () => {
+    expect(recentPeriodEnds({ month: 3, day: 31 }, NOW2)).toEqual(['2026-03-31', '2024-03-31', '2022-03-31']);
+    expect(recentPeriodEnds({ month: 1, day: 31 }, NOW2)).toEqual(['2026-01-31', '2024-01-31', '2022-01-31']);
+    expect(recentPeriodEnds({ month: 12, day: 31 }, NOW2)).toEqual(['2025-12-31', '2023-12-31', '2021-12-31']);
   });
 });

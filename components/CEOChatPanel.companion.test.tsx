@@ -571,35 +571,22 @@ describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回'
 });
 
 describe('AI経営コンサルタントへの公開資料からの入力の依頼（PHASE 5B）', () => {
-  it('「〇〇の基本情報を入力して」は、AIに送らず候補を作り、STAGE1の承認欄へ渡す', async () => {
+  it('「〇〇の基本情報を入力して」は、AIに送らず候補を作り、STAGE1の承認欄へ渡す（進行状況を同じ発言に示す）', async () => {
     const { useAutofillStore } = require('@/lib/autofill/autofillStore') as typeof import('@/lib/autofill/autofillStore');
+    const { identifyFound, reportFound, jsonRes } = require('@/lib/autofill/__fixtures__/pipelineResponses') as typeof import('@/lib/autofill/__fixtures__/pipelineResponses');
     useAutofillStore.setState({ pending: null });
     mockFetch.mockImplementation(async (url: string) => {
-      if (String(url).includes('/api/stage1/autofill/plan')) {
-        return { ok: true, status: 200, text: async () => JSON.stringify({
-          status: 'FOUND',
-          fetchedAt: 'now',
-          candidate: {
-            filer: { name: '日本製罐株式会社' },
-            docId: 'S100YK2J',
-            docTypeCode: '120',
-            periodEnd: '2026-03-31',
-            amendedFromDocId: null,
-            profile: { fields: {}, issues: [] },
-            profileExtra: {},
-            finance: [],
-            issues: ['業種（東証33業種）は提出書類の構造化データに無いため、未入力のまま'],
-          },
-        }) };
-      }
+      if (String(url).endsWith('/api/stage1/autofill/identify')) return jsonRes(identifyFound());
+      if (String(url).endsWith('/api/stage1/autofill/report')) return jsonRes(reportFound());
       return okResponse('AIの応答');
     });
     setStoreData({ companyName: '' });
     await renderReadyPanel();
     await sendText('日本製罐の基本情報を入力して');
     await waitFor(() => expect(useAutofillStore.getState().pending).not.toBeNull());
-    expect(mockFetch.mock.calls.some((c) => String(c[0]).includes('/api/stage1/autofill/plan'))).toBe(true);
-    expect(mockFetch.mock.calls.some((c) => String(c[0]).includes('/api/ask-ceo-agent'))).toBe(false);
+    const urls = mockFetch.mock.calls.map((c) => String(c[0]));
+    expect(urls).toEqual(['/api/stage1/autofill/identify', '/api/stage1/autofill/report']);
+    expect(urls.some((u) => u.includes('/api/ask-ceo-agent'))).toBe(false);
     expect(chatBubbles()).toContain('候補を作りました');
     expect(useStrategyStore.getState().companyName).toBe('');
   });

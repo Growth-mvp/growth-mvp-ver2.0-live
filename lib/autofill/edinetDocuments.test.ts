@@ -1,6 +1,7 @@
 import {
   EDINET_DOCUMENTS_URL,
   EdinetHttpError,
+  downloadEdinetCsvZip,
   findDocumentsForTicker,
   listEdinetDocumentsForDate,
   listEdinetDocumentsForRange,
@@ -90,5 +91,16 @@ describe('証券コードでの書類の選び方', () => {
       doc({ docId: 'OTHER', secCode: '13000' }),
     ];
     expect(findDocumentsForTicker(docs, '5905').map((d) => d.docId)).toEqual(['NEW', 'OLD', 'Q']);
+  });
+});
+
+describe('書類の取得（書類ID の形式）', () => {
+  it('EDINETの書類ID（S＋7文字）は受け付け、それ以外は問い合わせずに拒否する', async () => {
+    const f = jest.fn(async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) }));
+    await downloadEdinetCsvZip('S100YK2J', 'k', f as unknown as typeof fetch);
+    expect(f).toHaveBeenCalledTimes(1);
+    await expect(downloadEdinetCsvZip('100YK2J', 'k', f as unknown as typeof fetch)).rejects.toThrow('invalid_doc_id');
+    await expect(downloadEdinetCsvZip('S100YK2J/../x', 'k', f as unknown as typeof fetch)).rejects.toThrow('invalid_doc_id');
+    expect(f).toHaveBeenCalledTimes(1);
   });
 });

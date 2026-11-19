@@ -24,15 +24,28 @@ export type FilingCandidate = {
     location: FieldCandidate<string>;
     employees: FieldCandidate<number>;
     businessContent: FieldCandidate<string>;
+    industry: FieldCandidate<string>;
   }>;
   finance: FinanceYearCandidate[];
+  segments: SegmentsCandidate | null;
+  reports: ReportRef[];
   issues: string[];
 };
 
-export type ProfileKey = 'companyName' | 'ticker' | 'fiscalYearEnd' | 'isListed' | 'location' | 'employees' | 'businessContent';
+export type SegmentItemCandidate = { name: string | null; memberCode: string; sales?: number; operatingIncome?: number };
+
+export type SegmentsCandidate = {
+  periodEnd: string | null;
+  items: SegmentItemCandidate[];
+  issues: string[];
+};
+
+export type ReportRef = { docId: string; docTypeCode: string | null; periodEnd: string | null; amendedFromDocId: string | null };
+
+export type ProfileKey = 'companyName' | 'ticker' | 'fiscalYearEnd' | 'isListed' | 'location' | 'employees' | 'businessContent' | 'industry';
 export type FinanceKey = 'revenue' | 'operatingIncome' | 'netIncome' | 'totalAssets' | 'netAssets';
 
-export const PROFILE_KEYS: ProfileKey[] = ['companyName', 'ticker', 'fiscalYearEnd', 'isListed', 'location', 'employees', 'businessContent'];
+export const PROFILE_KEYS: ProfileKey[] = ['companyName', 'ticker', 'fiscalYearEnd', 'isListed', 'location', 'employees', 'businessContent', 'industry'];
 export const FINANCE_KEYS: FinanceKey[] = ['revenue', 'operatingIncome', 'netIncome', 'totalAssets', 'netAssets'];
 
 export const PROFILE_LABEL: Record<ProfileKey, string> = {
@@ -43,6 +56,7 @@ export const PROFILE_LABEL: Record<ProfileKey, string> = {
   location: '所在地',
   employees: '従業員数',
   businessContent: '事業内容',
+  industry: '業種',
 };
 
 export const FINANCE_LABEL: Record<FinanceKey, string> = {
@@ -123,14 +137,19 @@ export function buildFilingCandidate(args: {
     profile,
     profileExtra,
     finance: [...finance.values()].sort((a, b) => a.year - b.year),
+    segments: null,
+    reports: [{ docId: doc.docId, docTypeCode: doc.docTypeCode, periodEnd: doc.periodEnd, amendedFromDocId: args.amendedFromDocId }],
     issues,
   };
 }
 
 export type CurrentFilingProfile = Record<ProfileKey, string | boolean | undefined>;
+export type SegmentPatchItem = { name: string; memberCode: string; revenueMillion?: number; profitMillion?: number };
 export type CurrentFinanceRow = { year: number } & Partial<Record<FinanceKey, number | null>>;
 
 export type FilingApplyPlan = {
+  segmentsPatch: SegmentPatchItem[] | null;
+  segmentsSkipped: 'not_selected' | 'no_candidate' | 'already_filled' | null;
   profilePatch: Partial<Record<ProfileKey, string | boolean>>;
   profileApplied: ProfileKey[];
   profileSkipped: Array<{ key: ProfileKey; reason: 'already_filled' | 'no_candidate' }>;
@@ -153,6 +172,7 @@ function candidateValueOf(c: FilingCandidate, key: ProfileKey): string | boolean
   if (key === 'isListed') return c.profile.fields.isListed?.value;
   if (key === 'location') return c.profileExtra.location?.value;
   if (key === 'employees') return c.profileExtra.employees?.value;
+  if (key === 'industry') return c.profileExtra.industry?.value;
   return c.profileExtra.businessContent?.value;
 }
 
@@ -165,7 +185,11 @@ export function planFilingApply(args: {
   overwriteProfile: ProfileKey[];
   selectedYears: number[];
   overwriteYears: number[];
+  selectedSegments?: boolean;
+  overwriteSegments?: boolean;
+  currentSegmentCount?: number;
 }): FilingApplyPlan {
+  const segmentsPlan = planSegments(args);
   const profilePatch: FilingApplyPlan['profilePatch'] = {};
   const profileApplied: ProfileKey[] = [];
   const profileSkipped: FilingApplyPlan['profileSkipped'] = [];
@@ -220,11 +244,29 @@ export function planFilingApply(args: {
   }
 
   return {
+    segmentsPatch: segmentsPlan.patch,
+    segmentsSkipped: segmentsPlan.skipped,
     profilePatch,
     profileApplied,
     profileSkipped,
     financeRows: [...rows.values()].sort((a, b) => a.year - b.year),
     financeApplied,
     financeSkipped,
+  };
+}
+
+/** セグメントは、名前が分かるものだけ反映する。売上・利益は百万円（四捨五入）に直す。既存のセグメントがあれば上書きを選んだ時だけ */
+function planSegments(args: { candidate: FilingCandidate; selectedSegments?: boolean; overwriteSegments?: boolean; currentSegmentCount?: number }): {
+  patch: SegmentPatchItem[] | null;
+  skipped: FilingApplyPlan['segmentsSkipped'];
+} {
+  if (!args.selectedSegments) return { patch: null, skipped: 'not_selected' };
+  const items = (args.candidate.segments?.items ?? []).filter((i) => i.name);
+  if (items.length === 0) return { patch: null, skipped: 'no_candidate' };
+  if ((args.currentSegmentCount ?? 0) > 0 && !args.overwriteSegments) return { patch: null, skipped: 'already_filled' };
+  const toMillion = (v: number | undefined) => (v === undefined ? undefined : Math.round(v / 1_000_000));
+  return {
+    patch: items.map((i) => ({ name: i.name as string, memberCode: i.memberCode, revenueMillion: toMillion(i.sales), profitMillion: toMillion(i.operatingIncome) })),
+    skipped: null,
   };
 }

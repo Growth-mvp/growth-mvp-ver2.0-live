@@ -28,6 +28,7 @@ const EMPTY: CurrentFilingProfile = {
   location: '',
   employees: '',
   businessContent: '',
+  industry: '',
 };
 
 describe('候補：出典と連結区分を項目ごとに持つ', () => {
