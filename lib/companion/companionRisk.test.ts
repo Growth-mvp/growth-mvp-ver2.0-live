@@ -5,6 +5,7 @@ import {
   buildRiskPrompt,
   dueEndOf,
   detectRiskFacts,
+  isSeriousRisk,
   renderRiskFacts,
   riskFingerprint,
   type RiskInput,
@@ -116,6 +117,18 @@ describe('経営点検：事実の判定（プログラムで決める）', () =
   it('事実は上限件数までに絞る（AIに渡す量を抑える）', () => {
     const krs = Array.from({ length: 12 }, (_, i) => ({ label: `KR${i}`, where: '営業部', kind: 'ACQ', unit: '件', due: '2026-01' }));
     expect(detectRiskFacts({ ...EMPTY, krs })).toHaveLength(MAX_FACTS);
+  });
+});
+
+describe('経営点検：重大なリスクの判定', () => {
+  it('資金不足と目標未達は重大、それ以外の事実は重大でない', () => {
+    const cash = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, isForecast: true, shortfallYen: 1 }] });
+    const target = detectRiskFacts({ ...EMPTY, targets: [{ metric: '売上', fiscalYear: 2027, gapYen: 1 }] });
+    const stalled = detectRiskFacts({ ...EMPTY, actions: [{ where: 'A', inProgress: true, updatedAt: OLD }] });
+    expect(isSeriousRisk(cash)).toBe(true);
+    expect(isSeriousRisk(target)).toBe(true);
+    expect(isSeriousRisk(stalled)).toBe(false);
+    expect(isSeriousRisk([])).toBe(false);
   });
 });
 

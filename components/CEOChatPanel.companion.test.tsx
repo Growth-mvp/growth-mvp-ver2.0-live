@@ -58,6 +58,9 @@ const STRATEGY_B = 'strategy-b';
 const GENERIC_ERROR = '通信エラー。ネットワーク/ログイン/権限をご確認ください。';
 
 const mockFetch = jest.fn();
+const RISK_REVIEW_URL = '/api/companion/risk-review';
+const mockRiskFetch = jest.fn();
+const NO_RISK_RESPONSE = { ok: true, status: 200, text: async () => JSON.stringify({ facts: [], text: null, serious: false }) };
 
 Element.prototype.scrollIntoView = jest.fn();
 
@@ -158,7 +161,10 @@ beforeEach(() => {
   mockPathname = '/stage1';
   jest.clearAllMocks();
   mockFetch.mockReset();
-  global.fetch = mockFetch as unknown as typeof fetch;
+  mockRiskFetch.mockReset();
+  mockRiskFetch.mockImplementation(async () => NO_RISK_RESPONSE);
+  global.fetch = ((url: string, init?: unknown) =>
+    String(url).includes(RISK_REVIEW_URL) ? mockRiskFetch(url, init) : mockFetch(url, init)) as unknown as typeof fetch;
   mockGetSession.mockResolvedValue({ data: { session: { access_token: 'token-1' } } });
   useUserStore.setState({ user: null, companyId: null } as any);
   useUserStore.setState({ user: { id: 'user-1' } as any, companyId: COMPANY_A } as any);
@@ -466,7 +472,6 @@ describe('自律伴走：助言の失敗と再依頼', () => {
 });
 
 describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回', () => {
-  const RISK_URL = '/api/companion/risk-review';
 
   function completeStoreForReview() {
     setStoreData({
@@ -482,17 +487,17 @@ describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回'
   }
 
   function riskCalls() {
-    return mockFetch.mock.calls.filter((c) => String(c[0]).includes(RISK_URL));
+    return mockRiskFetch.mock.calls;
   }
 
   beforeEach(() => {
     mockPathname = '/stage6';
-    mockFetch.mockImplementation(async (url: string) => {
-      if (String(url).includes(RISK_URL)) {
-        return { ok: true, status: 200, text: async () => JSON.stringify({ facts: ['- 2027年度：施策反映後の期末現預金が不足の見込み'], text: '仮説：回収の遅れが原因の可能性' }) };
-      }
-      return okResponse('節目の助言');
-    });
+    mockFetch.mockImplementation(async () => okResponse('節目の助言'));
+    mockRiskFetch.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ facts: ['- 2027年度：施策反映後の期末現預金が不足の見込み'], text: '仮説：回収の遅れが原因の可能性' }),
+    }));
   });
 
   it('STAGE6で、事実があれば所見を一度だけ依頼し、事実を先に表示する。同じ日の再表示では依頼しない', async () => {
@@ -512,12 +517,55 @@ describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回'
     again.unmount();
   });
 
-  it('STAGE6以外の画面では、経営点検を依頼しない', async () => {
-    mockPathname = '/stage1';
+  it('点検していない範囲（費用の計画と実績、会社全体のKR）を、所見の本文に必ず添える', async () => {
     completeStoreForReview();
     await renderReadyPanel();
     await turnCompanionOn();
+    await waitFor(() => expect(companionCardText()).toContain('点検していない範囲'));
+    expect(companionCardText()).toContain('費用（OPEX・コスト削減・追加費用）の計画と実績');
+  });
+
+  it('重大なリスク（資金不足・目標未達）は、進行の案内が残っていても進行の案内より前に出す', async () => {
+    mockPathname = '/stage1';
+    mockRiskFetch.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ facts: ['- 2027年度：不足'], text: '仮説：回収の遅れ', serious: true }),
+    }));
+    setStoreData({ companyName: '' });
+    await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(companionCardText()).toContain('仮説：回収の遅れ'));
+    expect(companionCardText()).not.toContain(TITLE_ENTER_NAME);
+  });
+
+  it('重大でないリスクは、進行の案内が残っている間は出さず、進行の案内を優先する', async () => {
+    mockPathname = '/stage1';
+    setStoreData({
+      companyName: '',
+      stage1Issues: [],
+      answers12: [],
+      finalStory: [],
+      departments: [],
+      stage3_strategy_bridge: undefined,
+    });
+    await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(riskCalls()).toHaveLength(1));
     await flush();
-    expect(riskCalls()).toHaveLength(0);
+    expect(companionCardText()).toContain(TITLE_ENTER_NAME);
+    expect(companionCardText()).not.toContain('仮説');
+  });
+
+  it('会社ごとの経営点検は、画面を移っても1日1回しか依頼しない', async () => {
+    mockPathname = '/stage1';
+    setStoreData({ companyName: '' });
+    const view = await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(riskCalls()).toHaveLength(1));
+    mockPathname = '/stage6';
+    view.rerender(<CEOChatPanel />);
+    await flush();
+    expect(riskCalls()).toHaveLength(1);
   });
 });

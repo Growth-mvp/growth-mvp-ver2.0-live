@@ -130,6 +130,15 @@ export function detectRiskFacts(input: RiskInput): RiskFact[] {
   return facts.slice(0, MAX_FACTS);
 }
 
+/** 資金不足・経営目標の未達は、通常の進行案内より優先して示す */
+export function isSeriousRisk(facts: RiskFact[]): boolean {
+  return facts.some((f) => f.category === 'CASH' || f.category === 'TARGET');
+}
+
+/** 点検していない範囲。表示で必ず添え、点検済みと誤認させない */
+export const NOT_CHECKED_NOTE =
+  '点検していない範囲：費用（OPEX・コスト削減・追加費用）の計画と実績、会社全体のKR（経営目標）の進捗。これらは判断の材料に含めていません。';
+
 export function riskFingerprint(facts: RiskFact[]): string {
   return fingerprint(facts.map((f) => f.text));
 }
