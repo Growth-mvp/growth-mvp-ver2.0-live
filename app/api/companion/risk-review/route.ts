@@ -14,6 +14,7 @@ import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { riskFactsFromStrategy } from '@/lib/companion/companionRiskSource';
+import { isCompanionKilled } from '@/lib/companion/companionPolicy';
 import { RISK_GUARD, buildRiskPrompt, isSeriousRisk, renderRiskFacts } from '@/lib/companion/companionRisk';
 
 type Body = { companyId?: unknown; strategyId?: unknown };
@@ -21,6 +22,9 @@ type Body = { companyId?: unknown; strategyId?: unknown };
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
 
 export async function POST(req: Request) {
+  if (isCompanionKilled(process.env.NEXT_PUBLIC_CEO_COMPANION_DISABLED)) {
+    return NextResponse.json({ error: 'companion_disabled' }, { status: 503 });
+  }
   const admin = getSupabaseAdmin();
   const userId = await getAuthUserIdFromBearer(admin, req);
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
