@@ -403,17 +403,23 @@ export function buildCashFlowPlan(
         : 'FLAT';
   const scenarioValid = !targetOn || (targetYear !== null && Y !== null && targetYear > Y);
 
+  /* 既存事業の増減の空欄の扱い：両方空欄は直近実績の横ばい／片方だけ入力したら空欄側は未算定／両方入力は反映／0円は増減なし */
+  const scenarioEntryAt = (t: number) => {
+    if (!scenarioOn) return undefined;
+    const d = a.baseScenario?.[t];
+    return d && (d.revenueYen !== null || d.operatingIncomeYen !== null) ? d : undefined;
+  };
   const scenarioRevenueAt = (t: number): number | null => {
     if (rev0 === null) return null;
-    const d = scenarioOn ? a.baseScenario?.[t] : undefined;
-    return d && d.revenueYen !== null ? rev0 + d.revenueYen : rev0;
+    const d = scenarioEntryAt(t);
+    if (d === undefined) return rev0;
+    return d.revenueYen === null ? null : rev0 + d.revenueYen;
   };
   const scenarioOperatingIncomeAt = (t: number): number | null => {
     if (oi0 === null) return null;
-    if (!scenarioOn) return oi0;
-    const d = a.baseScenario?.[t];
-    if (d && d.revenueYen !== null && d.operatingIncomeYen === null) return null;
-    return oi0 + (d?.operatingIncomeYen ?? 0);
+    const d = scenarioEntryAt(t);
+    if (d === undefined) return oi0;
+    return d.operatingIncomeYen === null ? null : oi0 + d.operatingIncomeYen;
   };
   const withTargetPath = (
     scenarioAt: (t: number) => number | null,

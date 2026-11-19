@@ -24,7 +24,20 @@ const MODE_LABEL: Record<CashFlowPlan['basisMode'], { label: string; tone: strin
   FINANCE_OUTLOOK: { label: '統一財務試算の値を使用中', tone: 'bg-indigo-100 text-indigo-800' },
 };
 
-const mil = (yen: number | null) => (yen === null ? '—' : (yen / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 }));
+const mil = (yen: number | null) => (yen === null ? '未算定' : (yen / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 }));
+
+/* 空欄・0円・片方だけの入力を、利用者が見て分かる文にする（計算の規則と同じ） */
+export function baseScenarioRowNote(entry: { revenue: string; operatingIncome: string } | undefined): string {
+  const revenueText = entry?.revenue ?? '';
+  const operatingText = entry?.operatingIncome ?? '';
+  const rev = revenueText.trim() === '' ? null : parseNumber(revenueText);
+  const op = operatingText.trim() === '' ? null : parseNumber(operatingText);
+  if (rev === null && op === null) return '空欄：直近実績の横ばい';
+  if (rev !== null && op === null) return '営業利益は空欄のため未算定';
+  if (rev === null && op !== null) return '売上は空欄のため未算定';
+  if (rev === 0 && op === 0) return '0円：増減なし';
+  return '入力どおり反映';
+}
 
 export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperatingIncomeYen, planned, mode, form, setForm }: Props) {
   const update = (year: number, key: 'revenue' | 'operatingIncome', value: string) =>
@@ -44,9 +57,12 @@ export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperati
       <p className="text-xs leading-relaxed text-slate-600 break-keep">
         増減は<strong>直近実績（{baseYear !== null ? `${baseYear}年度` : '基準年度'}）からの差額</strong>で、年度ごとに入力します（前年度からの差額ではありません）。
         直近実績：売上 {mil(baseRevenueYen)} 百万円 ／ 営業利益 {mil(baseOperatingIncomeYen)} 百万円。
-        空欄は横ばいです。利用者が入力した値だけを使い、AIや利益率では推定しません。
-        売上だけを入力し営業利益を空欄にすると、その年度の営業利益は未算定になります。
       </p>
+      <ul className="space-y-0.5 text-xs leading-relaxed text-slate-600">
+        <li>両方空欄：直近実績のまま横ばい。</li>
+        <li>片方だけ入力：入力した側を反映し、空欄の側は未算定（推定しません）。</li>
+        <li>0 と入力：増減なし（空欄とは区別されます）。</li>
+      </ul>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
           <thead>
@@ -54,6 +70,7 @@ export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperati
               <th className="px-2 py-1 text-left font-semibold">年度</th>
               <th className="px-2 py-1 text-left font-semibold">売上の増減（直近実績比・百万円）</th>
               <th className="px-2 py-1 text-left font-semibold">営業利益の増減（直近実績比・百万円）</th>
+              <th className="px-2 py-1 text-left font-semibold">扱い</th>
               <th className="px-2 py-1 text-right font-semibold">既存事業の売上（百万円）</th>
               <th className="px-2 py-1 text-right font-semibold">既存事業の営業利益（百万円）</th>
             </tr>
@@ -73,7 +90,7 @@ export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperati
                       value={entry?.revenue ?? ''}
                       onChange={(e) => update(year, 'revenue', e.target.value)}
                       className={`w-28 rounded border px-2 py-1 ${invalid(entry?.revenue) ? 'border-rose-400' : 'border-slate-300'}`}
-                      placeholder="横ばい"
+                      placeholder="空欄"
                     />
                   </td>
                   <td className="px-2 py-1">
@@ -84,9 +101,10 @@ export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperati
                       value={entry?.operatingIncome ?? ''}
                       onChange={(e) => update(year, 'operatingIncome', e.target.value)}
                       className={`w-28 rounded border px-2 py-1 ${invalid(entry?.operatingIncome) ? 'border-rose-400' : 'border-slate-300'}`}
-                      placeholder="横ばい"
+                      placeholder="空欄"
                     />
                   </td>
+                  <td className="px-2 py-1 text-slate-700">{baseScenarioRowNote(entry)}</td>
                   <td className="px-2 py-1 text-right text-slate-800">{mil(p?.revenueYen ?? null)}</td>
                   <td className="px-2 py-1 text-right text-slate-800">{mil(p?.operatingIncomeYen ?? null)}</td>
                 </tr>

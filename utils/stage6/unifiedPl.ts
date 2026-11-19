@@ -72,7 +72,7 @@ export function buildUnifiedPl(args: {
 
     if (revenueOperatingIncomeYen === null) {
       unknownReasons.push(OP_UNKNOWN_REASON);
-    } else if (b.revenueYen !== null && b.operatingIncomeYen !== null) {
+    } else if (b.operatingIncomeYen !== null) {
       const operatingIncomeYen = b.operatingIncomeYen + revenueOperatingIncomeYen + costReductionYen - costIncreaseYen;
       plan.operatingIncomeYen = operatingIncomeYen;
       plan.operatingExpenseYen = plan.revenueYen === null ? null : plan.revenueYen - operatingIncomeYen;

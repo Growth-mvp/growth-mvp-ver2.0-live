@@ -642,6 +642,9 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
         onToggle={(e) => setDetailOpen(e.currentTarget.open)}
       >
         <summary className="cursor-pointer text-lg font-bold text-slate-900">財務計画の詳細・設定</summary>
+        <p className="mt-2 text-xs text-slate-600">
+          既存事業の増減、投資、借入・返済、配当、最低現預金の入力は、ここで行います。開くと入力欄が表示されます。
+        </p>
         <div className="mt-4 space-y-4">
         <div role="tablist" aria-label="財務計画の作業タブ" className="grid grid-cols-2 gap-2 md:grid-cols-5">
         {FINANCE_TABS.map((t) => {

@@ -254,8 +254,8 @@ function CompanyPLEditor({
           </colgroup>
           <thead className="bg-zinc-50 sticky top-0 z-20">
             <tr>
-              <th className="px-3 py-2 text-left border-r border-zinc-200 sticky left-0 bg-zinc-50 z-10 w-[180px]">
-                項目
+              <th className="px-3 py-2 text-left border-r border-zinc-200 sticky left-0 bg-zinc-50 z-10 w-[16rem] min-w-[16rem] whitespace-normal break-keep">
+                項目（単位：円）
               </th>
               {years.map((y) => (
                 <th key={y} className="px-3 py-2 text-center border-r border-zinc-200 w-[120px]">
@@ -630,8 +630,8 @@ function CompanyBSEditor({
           </colgroup>
           <thead className="bg-zinc-50 sticky top-0 z-20">
             <tr>
-              <th className="px-3 py-2 text-left border-r border-zinc-200 sticky left-0 bg-zinc-50 z-10 w-[180px]">
-                項目
+              <th className="px-3 py-2 text-left border-r border-zinc-200 sticky left-0 bg-zinc-50 z-10 w-[16rem] min-w-[16rem] whitespace-normal break-keep">
+                項目（単位：円）
               </th>
               {years.map((y) => (
                 <th key={y} className="px-3 py-2 text-center border-r border-zinc-200 w-[120px]">

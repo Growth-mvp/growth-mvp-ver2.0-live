@@ -154,15 +154,16 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
           </div>
         ) : (
           <div className="mt-2 overflow-x-auto">
+            <p className="mb-1 text-[11px] text-slate-500">単位：金額は百万円、金利は%。元本返済予定は年度ごとの入力欄です。</p>
             <table className="min-w-full text-xs">
               <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="px-2 py-1 text-left">借入名称</th>
-                  <th className="px-2 py-1 text-left">区分</th>
-                  <th className="px-2 py-1 text-left">基準年度末残高（百万円）</th>
-                  <th className="px-2 py-1 text-left">金利（%）</th>
+                <tr className="whitespace-nowrap">
+                  <th className="min-w-[9rem] px-2 py-1 text-left font-semibold">借入名称</th>
+                  <th className="min-w-[7rem] px-2 py-1 text-left font-semibold">区分</th>
+                  <th className="min-w-[8rem] px-2 py-1 text-left font-semibold">基準年度末残高</th>
+                  <th className="min-w-[6rem] px-2 py-1 text-left font-semibold">金利</th>
                   {forecastYears.map((y) => (
-                    <th key={y} className="px-2 py-1 text-left">{y}年 元本返済予定（百万円）</th>
+                    <th key={y} className="min-w-[7rem] px-2 py-1 text-left font-semibold">{y}年 元本返済</th>
                   ))}
                   <th />
                 </tr>
@@ -286,11 +287,11 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
             <tbody className="divide-y divide-slate-100">
               <DebtRow label="期首借入残高" years={yearsOut} pick={(y) => y.openingBalance} />
               <DebtRow label="新規借入額" years={yearsOut} pick={(y) => y.draw} />
-              <DebtRow label="元本返済額（既存＋新規）" years={yearsOut} pick={(y) => y.principal} strong />
+              <DebtRow label="元本返済額（既存＋新規）　※財務CFの支出" years={yearsOut} pick={(y) => y.principal} strong />
               <DebtRow label="　うち既存借入" years={yearsOut} pick={(y) => y.existingPrincipal} />
               <DebtRow label="　うち新規借入" years={yearsOut} pick={(y) => y.newPrincipal} />
               <DebtRow label="期末借入残高" years={yearsOut} pick={(y) => y.closingBalance} strong />
-              <DebtRow label="支払利息（既存＋新規）" years={yearsOut} pick={(y) => y.interest} />
+              <DebtRow label="支払利息（既存＋新規）　※営業CFで控除済み" years={yearsOut} pick={(y) => y.interest} />
               <DebtRow label="　うち既存借入" years={yearsOut} pick={(y) => y.existingInterest} />
               <DebtRow label="　うち新規借入" years={yearsOut} pick={(y) => y.newInterest} />
               <DebtRow label="年間元利返済額" years={yearsOut} pick={(y) => y.debtService} strong />
@@ -323,7 +324,7 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
             </thead>
             <tbody className="divide-y divide-slate-100">
               <tr>
-                <td className="px-2 py-1 text-slate-700">配当等の支出（入力）</td>
+                <td className="px-2 py-1 text-slate-700">配当（株主への支払い・入力）　※財務CFの支出</td>
                 {forecastYears.map((y) => (
                   <td key={y} className="px-2 py-1">
                     <input className={inputCls} value={form.dividends[y] ?? ''} inputMode="decimal" onChange={(e) => setDividend(y, e.target.value)} />
@@ -331,8 +332,8 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
                 ))}
               </tr>
               <Row label="新規借入受入額" years={cfYears} pick={(y) => y.draws} />
-              <Row label="元本返済額（既存＋新規）" years={cfYears} pick={(y) => y.principal} />
-              <Row label="配当等（入力）" years={cfYears} pick={(y) => y.dividends} />
+              <Row label="元本返済（借入の返済・既存＋新規）" years={cfYears} pick={(y) => y.principal} />
+              <Row label="配当（株主への支払い・入力）" years={cfYears} pick={(y) => y.dividends} />
               <Row label="借入・返済などによるお金の増減" term="財務CF（新規借入−元本返済−配当）" years={cfYears} pick={(y) => y.financingCf} strong />
             </tbody>
           </table>

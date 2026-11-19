@@ -305,12 +305,12 @@ describe('12. 銀行向け本文への反映', () => {
     expect(out.text).toContain('**A. 財務目標と収益計画**');
   });
 
-  it('計算結果にない数値を含む本文は、決まった説明文に差し替える', () => {
+  it('第4章の金額を含む文は取り除き、金額は計算結果の文と表だけで示す', () => {
     const text = generatedText('売上は3,000百万円に達する見込みです。');
     const out = finalizeBankPlanText(text, CURRENT());
-    expect(out.check.proseReplaced).toBe(true);
-    expect(out.check.issues.some((i) => i.includes('計算結果にない数値'))).toBe(true);
+    expect(out.check.issues.some((i) => i.includes('金額を含む文'))).toBe(true);
     expect(out.text).not.toContain('3,000百万円');
+    expect(out.text).toContain('計算結果（百万円）：');
   });
 
   it('禁止表現（組織体制の推測・断定）を含む本文も差し替える', () => {
@@ -368,21 +368,46 @@ describe('許容集合', () => {
   });
 });
 
-describe('16. 数値検査の章境界と¥M表記', () => {
-  it('第4章内の番号付き行の後にある数値も検査する', () => {
-    const out = finalizeBankPlanText(generatedText('1. 前提を確認します。\n2. 売上は3,000百万円に達する見込みです。'), CURRENT());
-    expect(out.check.proseReplaced).toBe(true);
-    expect(out.check.issues.some((i) => i.includes('3,000百万円'))).toBe(true);
+describe('No.24 数値の転記：章の範囲・計算経路・計算結果の文', () => {
+  it('小見出しで第4章の検査範囲を途切れさせない（章の中の金額は取り除く）', () => {
+    const text = generatedText('### 4.2 資金の詳細\n売上は3,000百万円に達する見込みです。');
+    const out = finalizeBankPlanText(text, CURRENT());
+    expect(out.check.issues.some((i) => i.includes('金額を含む文'))).toBe(true);
+    expect(out.text).not.toContain('3,000百万円');
   });
 
-  it('第5章の本文は第4章の検査対象に含めない', () => {
+  it('既定の文章は、基準の増減を入力した場合と横ばいの場合で、計算経路に合わせて説明する', () => {
+    const flat = finalizeBankPlanText(generatedText('返済は十分可能です。'), { ...CURRENT(), calculationBasis: 'FLAT' });
+    expect(flat.text).toContain('増減の入力がないため直近実績の横ばい');
+    expect(flat.text).not.toContain('計画経路は利用者が設定した目標値への直線補間');
+    const scenario = finalizeBankPlanText(generatedText('返済は十分可能です。'), { ...CURRENT(), calculationBasis: 'BASE_SCENARIO' });
+    expect(scenario.text).toContain('年度ごとに入力した直近実績からの増減');
+    expect(scenario.text).toContain('経営目標への直線補間は参考経路');
+  });
+
+  it('計算結果の文は年度・指標を明示して並ぶ（本文の数値はこの文と表だけ）', () => {
+    const out = finalizeBankPlanText(generatedText('返済は十分可能です。'), CURRENT());
+    expect(out.text).toMatch(/- 20\d\d年（[^）]*）：売上高 /);
+  });
+});
+
+describe('16. 数値検査の章境界と¥M表記', () => {
+  it('第4章内の番号付き行の後にある数値も検査し、金額を含む文は取り除く', () => {
+    const out = finalizeBankPlanText(generatedText('1. 前提を確認します。\n2. 売上は3,000百万円に達する見込みです。'), CURRENT());
+    expect(out.check.issues.some((i) => i.includes('金額を含む文'))).toBe(true);
+    expect(out.text).not.toContain('3,000百万円');
+    expect(out.text).toContain('1. 前提を確認します。');
+  });
+
+  it('第5章の本文は第4章の金額の検査対象外だが、章の外でも計算にない金額の文は取り除く', () => {
     const text = generatedText(`財務計画は次のとおりです。\n\n${BANK_TABLE_PLACEHOLDER}`).replace(
       '月次で進捗を確認します。',
       '売上は3,000百万円を目指します。',
     );
     const out = finalizeBankPlanText(text, CURRENT());
     expect(out.check.proseReplaced).toBe(false);
-    expect(out.text).toContain('売上は3,000百万円を目指します。');
+    expect(out.check.issues.some((i) => i.includes('第4章以外の本文'))).toBe(true);
+    expect(out.text).not.toContain('売上は3,000百万円を目指します。');
   });
 
   it('¥488M と 488百万円 を同じ金額として照合し、誤った値は不一致とする', () => {

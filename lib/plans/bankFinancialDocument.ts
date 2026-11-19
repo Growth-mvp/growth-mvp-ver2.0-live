@@ -20,6 +20,9 @@ export type BankFinancialFacts = {
   allowed: AllowedFigures;
   issues: string[];
   usable: boolean;
+  /** 計算済みの数値を、年度と指標を明示した1行の文にしたもの（本文の数値はこの文と表だけから出す） */
+  keyLines: string[];
+  calculationBasis: 'FLAT' | 'BASE_SCENARIO' | 'TARGET_PATH' | 'FINANCE_OUTLOOK' | null;
 };
 
 const CASH_TOLERANCE_YEN = 1;
@@ -103,6 +106,8 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
       allowed: { yen: [], fractions: [] },
       issues: [],
       usable: false,
+      keyLines: [],
+      calculationBasis: null,
     };
   }
 
@@ -458,5 +463,10 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
     allowed: derived,
     issues,
     usable: true,
+    keyLines: [
+      ...revRows.map((r) => `${r[0]}（${r[1]}）：売上高 ${r[2]}、営業利益 ${r[3]}`),
+      ...cfRows.map((r) => `${r[0]}：期末現預金 ${r[6]}`),
+    ],
+    calculationBasis: block.calculationBasis ?? null,
   };
 }

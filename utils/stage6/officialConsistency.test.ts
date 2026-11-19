@@ -181,12 +181,12 @@ describe('経路B：ホーム・STAGE6・銀行向け計画書の年度別売上
     expect(summary.revenue.status).toBe('READY');
   });
 
-  it('利益減少（既存事業の営業利益を減らす増減）も、営業利益・営業費用に反映される', () => {
+  it('利益減少（営業利益だけの増減）は営業利益に反映し、空欄の売上は未算定（営業費用も推定しない）', () => {
     const domain = domainOf({ ...ASSUMPTIONS, baseScenario: { 2026: { revenueYen: null, operatingIncomeYen: -15 * M } } });
     const o = outlookOf(domain, departments([]));
-    expect(planAt(o, 2026).revenueYen).toBe(1_000 * M);
+    expect(planAt(o, 2026).revenueYen).toBeNull();
     expect(planAt(o, 2026).operatingIncomeYen).toBe(55 * M);
-    expect(planAt(o, 2026).operatingExpenseYen).toBe(945 * M);
+    expect(planAt(o, 2026).operatingExpenseYen).toBeNull();
   });
 
   it('赤字（営業利益のマイナス）は、そのまま表示・計算され、0に丸めない', () => {

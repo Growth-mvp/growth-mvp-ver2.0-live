@@ -47,6 +47,8 @@ export type BankFinancialPlanBlock = {
   numbersConfirmed: boolean;
   statusReasons: string[];
   amountUnit: 'JPY';
+  /** 数値の計算経路（文章の説明を実際の計算に合わせるため）。数値が無いときは null */
+  calculationBasis?: 'FLAT' | 'BASE_SCENARIO' | 'TARGET_PATH' | 'FINANCE_OUTLOOK' | null;
   companyId: string | null;
   strategyId: string | null;
   reproducibility: {
@@ -633,6 +635,7 @@ export function buildBankFinancialPlanBlock(args: {
     companyId,
     strategyId,
     reproducibility: currentRepro,
+    calculationBasis: outlook.baselinePlan.basisMode,
     sections,
   };
 }

@@ -60,10 +60,38 @@ describe('既存事業のベースシナリオ（年度別の増減）', () => {
     expect(plan.years.find((r) => r.year === 2026)!.operatingIncome.value).toBe(70 * M);
   });
 
-  it('営業利益だけを増減した場合、売上は横ばいのまま営業利益だけが動く', () => {
+  it('営業利益だけを増減した場合、入力された営業利益は反映し、空欄の売上は未算定になる（横ばいにしない）', () => {
     const years = forecast({ ...BASE, baseScenario: { 2026: { revenueYen: null, operatingIncomeYen: 8 * M } } });
-    expect(years.map((y) => y.revenue.value)).toEqual([1_000 * M, 1_000 * M, 1_000 * M]);
+    expect(years.map((y) => y.revenue.value)).toEqual([1_000 * M, null, 1_000 * M]);
     expect(years.map((y) => y.operatingIncome.value)).toEqual([70 * M, 78 * M, 70 * M]);
+  });
+
+  describe('空欄の扱い（両方空欄・片方だけ・両方入力・明示0円）', () => {
+    const at = (entry: { revenueYen: number | null; operatingIncomeYen: number | null } | undefined) => {
+      const years = forecast({ ...BASE, baseScenario: entry ? { 2026: entry } : undefined });
+      const y = years[1];
+      return { revenue: y.revenue.value, operatingIncome: y.operatingIncome.value };
+    };
+
+    it('両方空欄は直近実績の横ばい', () => {
+      expect(at(undefined)).toEqual({ revenue: 1_000 * M, operatingIncome: 70 * M });
+    });
+
+    it('両方入力は入力された増減を反映する', () => {
+      expect(at({ revenueYen: 50 * M, operatingIncomeYen: 5 * M })).toEqual({ revenue: 1_050 * M, operatingIncome: 75 * M });
+    });
+
+    it('明示的な0円は増減なし（空欄とは別に扱う）', () => {
+      expect(at({ revenueYen: 0, operatingIncomeYen: 0 })).toEqual({ revenue: 1_000 * M, operatingIncome: 70 * M });
+    });
+
+    it('売上だけ入力すると、空欄の営業利益は未算定', () => {
+      expect(at({ revenueYen: 50 * M, operatingIncomeYen: null })).toEqual({ revenue: 1_050 * M, operatingIncome: null });
+    });
+
+    it('営業利益だけ入力すると、空欄の売上は未算定', () => {
+      expect(at({ revenueYen: null, operatingIncomeYen: 5 * M })).toEqual({ revenue: null, operatingIncome: 75 * M });
+    });
   });
 
   it('赤字（営業利益のマイナス）も扱え、0に丸めない', () => {

@@ -68,7 +68,7 @@ export function buildBankPlanSummary(planData: PlanData, block: BankFinancialPla
     );
   }
   if (sections) {
-    targetItems.push('- 財務計画の売上・営業利益は登録目標に向けた計画経路であり、独立した業績予測ではありません。');
+    targetItems.push('- 財務計画の売上・営業利益は、既存事業の計算結果に登録済みの施策効果を加えたものです（経営目標への直線補間は参考経路で、計画の数値には使っていません）。');
   }
   if (targetItems.length > 0) {
     lines.push('**主要な売上・営業利益目標**');
