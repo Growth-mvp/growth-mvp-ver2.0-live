@@ -221,6 +221,7 @@ function Stage3ProjectBrowser({
   userId: string;
   handoff?: Stage3Handoff;
 }) {
+  const router = useRouter();
   const kind = currentPlanStoreKind();
   const store = planStoreFor(kind);
   const identityApi = identityApiFor(kind);
@@ -868,7 +869,16 @@ function Stage3ProjectBrowser({
                 <div className="text-[11px] font-semibold text-zinc-500">部門</div>
                 <div className="font-semibold text-zinc-900">{dept.name}</div>
                 {dept.mission && <div className="mt-0.5 text-[11px] text-zinc-500">{dept.mission}</div>}
-                <div className="mt-2 text-[11px] font-semibold text-zinc-500">プロジェクト</div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-zinc-500">プロジェクト</span>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/cascade')}
+                    className="text-[11px] text-zinc-700 underline underline-offset-2 hover:text-zinc-900"
+                  >
+                    ＋ プロジェクトを追加（STAGE3で行います）
+                  </button>
+                </div>
                 <div className="mt-1 flex flex-col gap-1.5">
                   {dept.projects.map((p) => {
                     const key: Stage3Selection = { companyId: p.companyId, strategyId: p.strategyId, projectKey: p.projectKey };
@@ -883,7 +893,7 @@ function Stage3ProjectBrowser({
                           className={`block min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left ${isSelected ? 'bg-zinc-900 text-white' : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'}`}
                         >
                           <div className="font-semibold">{p.projectTitle}</div>
-                          <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{p.role ? ROLE_LABEL[p.role] ?? p.role : '役割 未設定'}</div>
+                          {p.role && <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{ROLE_LABEL[p.role] ?? p.role}</div>}
                           {p.stoppedAt && <div className="text-rose-700">中止（{p.stoppedAt.slice(0, 10)}）</div>}
                         </button>
                         {projectId && canChangeLifecycle && (
@@ -1313,9 +1323,15 @@ function ReadOnlyProject({
             <tbody>
               <tr>
                 <th>対象部門</th>
-                <td>{dept.name}</td>
-                <th>役割</th>
-                <td>{project.role ? ROLE_LABEL[project.role] ?? project.role : '未設定'}</td>
+                {project.role ? (
+                  <>
+                    <td>{dept.name}</td>
+                    <th>役割</th>
+                    <td>{ROLE_LABEL[project.role] ?? project.role}</td>
+                  </>
+                ) : (
+                  <td colSpan={3}>{dept.name}</td>
+                )}
               </tr>
               <tr>
                 <th>部門のミッション</th>

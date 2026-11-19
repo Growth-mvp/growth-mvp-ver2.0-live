@@ -1,5 +1,6 @@
 import { departmentKeyOf, projectIdOf } from '@/lib/cascade/stage3Adjustment';
 import { currentItemValues } from '@/lib/cascade/stage3Candidates';
+import { candidateProjectId, titleKey } from '@/lib/cascade/stage3Draft';
 import { latestDraft, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
 
 type AnyRecord = Record<string, unknown>;
@@ -73,6 +74,46 @@ export function pruneWorkspaceForDepartment(state: WorkspaceState, departmentKey
 
 export type CandidateProjectPatch = { title?: string; reason?: string; hypothesis?: string; description?: string };
 
+export type ManualProjectResult =
+  | { ok: true; state: WorkspaceState; candidateId: string }
+  | { ok: false; error: 'no_draft' | 'invalid_title' | 'duplicate_title' };
+
+/**
+ * 利用者が重点プロジェクトを手で追加する。正式データは変えず、最新の草案の候補と採否（未判断）に入れる。
+ * 同じ部門に同じ名称の計画・候補があれば追加しない。
+ */
+export function addManualProject(
+  state: WorkspaceState,
+  input: { departmentKey: string; departmentName: string; officialTitles: string[]; title: string; purpose?: string },
+): ManualProjectResult {
+  const title = input.title.trim();
+  if (title === '' || title.length > 300) return { ok: false, error: 'invalid_title' };
+  const draft = latestDraft(state);
+  if (!draft) return { ok: false, error: 'no_draft' };
+  const key = titleKey(title);
+  const taken =
+    input.officialTitles.some((t) => titleKey(t) === key) ||
+    state.drafts.some((d) => d.newProjects.some((np) => np.departmentKey === input.departmentKey && titleKey(String(np.project.title ?? '')) === key)) ||
+    state.projectSelections.some((s) => s.departmentKey === input.departmentKey && titleKey(s.title) === key);
+  if (taken) return { ok: false, error: 'duplicate_title' };
+  const candidateId = candidateProjectId(input.departmentKey, title);
+  const purpose = input.purpose?.trim();
+  const project: AnyRecord = { title, ...(purpose ? { reason: purpose.slice(0, 2000) } : {}) };
+  const next: WorkspaceState = {
+    ...state,
+    drafts: state.drafts.map((d) =>
+      d.draftId === draft.draftId
+        ? { ...d, newProjects: [...d.newProjects, { departmentKey: input.departmentKey, candidateId, origin: 'manual', userEdited: true, project }] }
+        : d,
+    ),
+    projectSelections: [
+      ...state.projectSelections,
+      { departmentKey: input.departmentKey, departmentName: input.departmentName, candidateId, title, decision: 'pending' },
+    ],
+  };
+  return { ok: true, state: next, candidateId };
+}
+
 /**
  * 再生成版の新規候補プロジェクトの文章（目的・仮説・取り組み内容・題名）を直す。
  * 候補の ID（候補ID・計画ID）は変えない。題名が変わると分析の参照が合わなくなるため、分析は取り消す。
@@ -91,7 +132,7 @@ export function editCandidateProject(state: WorkspaceState, candidateId: string,
   const planId = projectIdOf(target.project);
   const next: StrategyDraftLike = {
     ...draft,
-    newProjects: draft.newProjects.map((np) => (np.candidateId === candidateId ? { ...np, project } : np)),
+    newProjects: draft.newProjects.map((np) => (np.candidateId === candidateId ? { ...np, project, userEdited: true } : np)),
     departments: draft.departments.map((d) => ({
       ...d,
       projects: d.projects.map((p) =>

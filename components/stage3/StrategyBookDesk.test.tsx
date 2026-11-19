@@ -269,6 +269,38 @@ describe('6問の未回答・回答変更後の再生成（課題4）', () => {
   });
 });
 
+describe('手動でプロジェクトを追加（課題No.13）と離脱時の警告（第1弾の残存リスク）', () => {
+  it('名称を入れて追加すると、候補として保存され、採否は未判断になる', async () => {
+    mockServer(stateWithRegeneratedDraft());
+    renderDesk();
+    await waitFor(() => expect((screen.getByRole('button', { name: /^STEP4/ }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /^STEP4/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '＋ プロジェクトを追加' }));
+    const nameInput = screen.getByLabelText(/プロジェクト名（必須）/) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: '手動の新規案' } });
+    fireEvent.click(screen.getByRole('button', { name: '追加する' }));
+
+    await waitFor(() => expect(putBodies()).toHaveLength(1));
+    const saved = putBodies()[0].state;
+    const manual = saved.drafts[saved.drafts.length - 1].newProjects.find((np) => (np.project as { title?: string }).title === '手動の新規案');
+    expect(manual?.origin).toBe('manual');
+    expect(saved.projectSelections.find((s) => s.title === '手動の新規案')?.decision).toBe('pending');
+  });
+
+  it('未保存の編集があるとき、ページを離れる前に警告する', async () => {
+    mockServer(stateWithRegeneratedDraft());
+    renderDesk();
+    await waitFor(() => expect((screen.getByRole('button', { name: /^STEP4/ }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /^STEP4/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '＋ プロジェクトを追加' }));
+    fireEvent.change(screen.getByLabelText(/プロジェクト名（必須）/), { target: { value: '入力途中' } });
+
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+});
+
 describe('事業・部門の追加ボタン（課題8）', () => {
   it('追加の入口は1つだけ', async () => {
     mockServer(stateWithRegeneratedDraft());

@@ -251,7 +251,11 @@ export default function PlanDocument(props: PlanDocumentProps) {
               {doc.goals.kpis.map((k) => (
                 <tr key={k.label} className={k.confirmed ? 'plan-kpi-confirmed' : undefined}>
                   <td>
-                    {k.label}
+                    {k.labelKey && mode === 'edit' ? (
+                      <EditableBlock {...editable(k.labelKey, 'KPI名称', k.label)} multiline={false} className="plan-inline" />
+                    ) : (
+                      k.label
+                    )}
                     <span className="plan-tag">{k.statusLabel}</span>
                     {k.stage3Changed && <span className="plan-tag plan-tag-hold">STAGE3から変更</span>}
                     {k.stage3Reference && <div className="plan-note">{k.stage3Reference}</div>}
@@ -261,6 +265,9 @@ export default function PlanDocument(props: PlanDocumentProps) {
                       <EditableBlock {...editable(k.targetKey, `${k.label}の目標`, k.target)} multiline={false} className="plan-inline" />
                     ) : (
                       k.target
+                    )}
+                    {k.unitKey && mode === 'edit' && (
+                      <EditableBlock {...editable(k.unitKey, `${k.label}の単位`, k.unit ?? '')} multiline={false} className="plan-inline" />
                     )}
                   </td>
                   <td>
@@ -282,7 +289,7 @@ export default function PlanDocument(props: PlanDocumentProps) {
             </tbody>
           </table>
           <p className="plan-note">
-            STAGE3由来の目標・期限・担当は、この画面で変更できます。変更した箇所には「STAGE3から変更」と表示し、元の値も示します。STAGE3の正式な戦略は変わりません（関係者が判断して反映します）。
+            STAGE3由来のKPIの名称・単位・目標・期限・担当は、この画面で変更できます。変更した箇所には「STAGE3から変更」と表示し、元の値も示します。STAGE3の正式な戦略は変わりません（関係者が判断して反映します）。
           </p>
         </section>
 

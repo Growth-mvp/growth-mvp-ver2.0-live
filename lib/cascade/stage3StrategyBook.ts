@@ -52,6 +52,10 @@ const NewProjectCandidateSchema = z.object({
   departmentKey: z.string().min(1).max(200),
   candidateId: z.string().regex(CANDIDATE_PROJECT_ID),
   project: z.record(z.string(), z.unknown()).refine((p) => JSON.stringify(p).length <= 20_000, 'project_too_large'),
+  /** 利用者が手で追加した候補。再生成しても消さない。 */
+  origin: z.enum(['ai', 'manual']).optional(),
+  /** 利用者が内容を直した候補。再生成しても、直した内容を残す。 */
+  userEdited: z.boolean().optional(),
 });
 
 export type NewProjectCandidate = z.infer<typeof NewProjectCandidateSchema>;

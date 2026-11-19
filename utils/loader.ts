@@ -104,17 +104,21 @@ export async function loadAndHydrate(companyId: string) {
     // ★ finally 内で getState() を取り直して、最新の store 参照を使う
     const freshStore = useStrategyStore.getState();
 
-    // 復元できた場合のみ hydrated にして保存を許可する。失敗時は画面を固めないため loaded だけ立て、保存は止めたままにする
-    if (restored) {
-      if (DEBUG) console.log('[loadAndHydrate] 🔧 finally ブロック：markLoaded 実行');
-      freshStore.markLoaded();
+    // この読み込みより後に別の会社の読み込みが始まっていたら、その会社の状態を変えない
+    const scopeNow = freshStore.pendingCompanyId ?? freshStore.companyId;
+    if (scopeNow !== companyId) {
+      if (DEBUG) console.log('[loadAndHydrate] 別の会社の読み込みが進んでいるため、この結果では状態を変えません', { companyId, scopeNow });
     } else {
-      console.warn('[loadAndHydrate] 復元できなかったため、保存を止めたまま表示だけ進めます');
-      useStrategyStore.setState({ loaded: true, hydrated: false });
+      // 復元できた場合のみ hydrated にして保存を許可する。失敗時は画面を固めないため loaded だけ立て、保存は止めたままにする
+      if (restored) {
+        if (DEBUG) console.log('[loadAndHydrate] 🔧 finally ブロック：markLoaded 実行');
+        freshStore.markLoaded();
+      } else {
+        console.warn('[loadAndHydrate] 復元できなかったため、保存を止めたまま表示だけ進めます');
+        useStrategyStore.setState({ loaded: true, hydrated: false });
+      }
+      freshStore.setHydrating(false);
     }
-
-    // setHydrating も最新の参照で実行
-    freshStore.setHydrating(false);
 
     // 最終的な state を確認（companyId と pendingCompanyId も含む）
     const finalState = useStrategyStore.getState();

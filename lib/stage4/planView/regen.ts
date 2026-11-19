@@ -88,6 +88,8 @@ export function listEditableItems(draft: any): EditableItem[] {
     items.push({ itemId: `kpi:${k.key}:target`, kind: 'kpi', field: 'target', label: k.label, value: k.target, text: k.label });
     items.push({ itemId: `kpi:${k.key}:due`, kind: 'kpi', field: 'due', label: k.label, value: k.due, text: k.label });
     items.push({ itemId: `kpi:${k.key}:owner`, kind: 'kpi', field: 'owner', label: k.label, value: k.owner, text: k.label });
+    items.push({ itemId: `kpi:${k.key}:label`, kind: 'kpi', field: 'label', label: k.label, value: k.label, text: k.label });
+    items.push({ itemId: `kpi:${k.key}:unit`, kind: 'kpi', field: 'unit', label: k.label, value: k.unit ?? null, text: k.label });
   });
   draft.section5.risks.forEach((r: any, i: number) => {
     items.push({ itemId: `risk:${i + 1}:countermeasure`, kind: 'risk', field: 'countermeasure', label: r.risk, value: r.countermeasure, text: r.risk });

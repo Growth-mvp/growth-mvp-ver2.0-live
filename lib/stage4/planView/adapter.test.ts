@@ -25,7 +25,7 @@ describe.each(['growth', 'profit', 'crossdept'])('%s：表示データへの変�
   });
 
   it('通常の表示に、内部のコードや参照IDを出さない', () => {
-    const body = JSON.stringify(toDisplayPlan(samples[id], {}).sections, (k, v) => (['key', 'original', 'id'].includes(k) ? undefined : v));
+    const body = JSON.stringify(toDisplayPlan(samples[id], {}).sections, (k, v) => (['key', 'original', 'id'].includes(k) || /Key$/.test(k) ? undefined : v));
     expect(body).not.toMatch(/BEFORE_START|UNCLASSIFIED|AI_PROVISIONAL|STAGE_DATA|UNCONFIRMED|CUSTOMER_OUTCOME|LEADING|REVENUE_UP|COST_REDUCTION|COST_INCREASE/);
     expect(body).not.toMatch(/\bS[123]-[A-Z]|\b[qcp][gp]?-kpi|\bS[1-9]\b/);
   });

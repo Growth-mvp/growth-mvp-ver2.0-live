@@ -53,8 +53,9 @@ export type ProtectedKpiView = {
 export type ProposedKpiView = {
   key: string;
   label: string;
+  labelKey: string;
   kindLabel: string;
-  target: { key: string; value: number | null; unit: string; original: number | null; edited: boolean };
+  target: { key: string; value: number | null; unit: string | null; unitKey: string; original: number | null; edited: boolean };
   untargeted: { key: string; value: boolean };
   due: { key: string; value: string | null; original: string | null; edited: boolean };
   owner: { key: string; value: string | null; original: string | null; edited: boolean };

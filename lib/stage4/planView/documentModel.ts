@@ -26,6 +26,10 @@ export type DocKpi = {
   targetKey: string | null;
   dueKey: string | null;
   ownerKey: string | null;
+  labelKey: string | null;
+  unitKey: string | null;
+  /** 単位（未設定なら null）。目標の表示に使う */
+  unit: string | null;
   /** STAGE3の値から、STAGE4上で変えたか（「STAGE3から変更」と表示する） */
   stage3Changed: boolean;
   /** 変えた場合に、元のSTAGE3の値（参照用） */
@@ -148,9 +152,12 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       targetKey: k.targetKey ?? null,
       dueKey: k.dueKey ?? null,
       ownerKey: k.ownerKey ?? null,
+      labelKey: k.labelKey ?? null,
+      unitKey: k.unitKey ?? null,
+      unit: k.unit ?? null,
       stage3Changed: k.stage3Changed === true,
       stage3Reference: k.stage3Changed
-        ? `STAGE3の値：目標 ${k.targetOriginal}・期限 ${k.dueOriginal ? ymJa(k.dueOriginal) : '未定'}・担当 ${k.ownerOriginal === '未設定' ? '未定' : k.ownerOriginal}`
+        ? `STAGE3の値：名称 ${k.labelOriginal}・目標 ${k.targetOriginal}・期限 ${k.dueOriginal ? ymJa(k.dueOriginal) : '未定'}・担当 ${k.ownerOriginal === '未設定' ? '未定' : k.ownerOriginal}`
         : null,
     })),
     ...kpiBlock.proposed.map((k: ProposedKpiView) => ({
@@ -164,6 +171,9 @@ export function buildDocModel(bundle: any, edits: Edits): DocModel {
       targetKey: k.target.key,
       dueKey: k.due.key,
       ownerKey: k.owner.key,
+      labelKey: k.labelKey ?? null,
+      unitKey: k.target.unitKey ?? null,
+      unit: k.target.unit ?? null,
       stage3Changed: false,
       stage3Reference: null,
     })),

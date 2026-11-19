@@ -251,6 +251,7 @@ export function candidateProjectId(departmentKey: string, title: string): string
 export function newProjectCandidatesFrom(
   official: AnyRecord[],
   candidateProjects: Record<string, AnyRecord[]>,
+  previous: NewProjectCandidate[] = [],
 ): NewProjectCandidate[] {
   const out: NewProjectCandidate[] = [];
   for (const d of official) {
@@ -268,7 +269,11 @@ export function newProjectCandidatesFrom(
     for (const p of candidateProjects[key] ?? []) {
       if (typeof p.title !== 'string' || p.title.trim() === '') continue;
       const unitId = projectIdOf(p);
-      const candidateId = candidateProjectId(key, p.title.trim());
+      // 同じ部門で同じ名称の候補は、以前の候補IDを引き継ぐ（採否・編集・分析の参照を失わないため）
+      const priorId = previous.find(
+        (np) => np.departmentKey === key && titleKey(String(np.project.title ?? '')) === titleKey(String(p.title)),
+      )?.candidateId;
+      const candidateId = priorId ?? candidateProjectId(key, p.title.trim());
       // 同じ名前の既存の計画は、新規候補にしない（採用済みの候補は、紐づいた計画として残す）
       const sameAsExisting = existingTitles.has(titleKey(p.title)) && !linkedCandidateIds.has(candidateId);
       if (existingIds.has(unitId) || sameAsExisting || seen.has(candidateId)) continue;
@@ -285,6 +290,43 @@ export function newProjectCandidatesFrom(
     }
   }
   return out;
+}
+
+/**
+ * 再生成した部門の候補のうち、利用者が直した候補・手動で追加した候補・採否を決めた候補は残す。
+ * 再生成で同じ計画が出たときは、候補IDを既存のものに合わせ、利用者が直した内容を優先する。
+ */
+export function keepRegeneratedCandidates(input: {
+  previous: NewProjectCandidate[];
+  next: NewProjectCandidate[];
+  regenKeys: Set<string>;
+  decidedIds: Set<string>;
+}): NewProjectCandidate[] {
+  const out = [...input.next];
+  const matched = new Set<number>();
+  for (const prev of input.previous) {
+    if (!input.regenKeys.has(prev.departmentKey)) continue;
+    const kept = prev.userEdited === true || prev.origin === 'manual' || input.decidedIds.has(prev.candidateId);
+    if (!kept) continue;
+    const idx = out.findIndex(
+      (n, i) =>
+        !matched.has(i) &&
+        n.departmentKey === prev.departmentKey &&
+        (n.candidateId === prev.candidateId || titleKey(String(n.project.title ?? '')) === titleKey(String(prev.project.title ?? ''))),
+    );
+    if (idx >= 0) {
+      matched.add(idx);
+      out[idx] = prev.userEdited || prev.origin === 'manual' ? prev : { ...out[idx], candidateId: prev.candidateId };
+    } else {
+      out.push(prev);
+    }
+  }
+  const seen = new Set<string>();
+  return out.filter((n) => {
+    if (seen.has(n.candidateId)) return false;
+    seen.add(n.candidateId);
+    return true;
+  });
 }
 
 /**

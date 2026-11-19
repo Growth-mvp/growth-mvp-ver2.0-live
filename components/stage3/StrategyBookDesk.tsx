@@ -20,6 +20,7 @@ import {
 import { DEPT_PROPOSAL_ITEMS, currentItemValues, type DeptProposal, type DeptProposalItem } from '@/lib/cascade/stage3Candidates';
 import {
   draftDepartmentsFrom,
+  keepRegeneratedCandidates,
   newProjectCandidatesFrom,
   projectProposalsAfterRegeneration,
   projectSelectionsFrom,
@@ -28,6 +29,7 @@ import {
 import { isProjectActive } from '@/lib/cascade/projectLifecycle';
 import {
   departmentDeleteBlockers,
+  addManualProject,
   editCandidateProject,
   generationBlockerOf,
   pruneWorkspaceForDepartment,
@@ -608,6 +610,8 @@ export function StrategyBookDesk({
   const versionRef = useRef<number | null>(null);
   // 複数スコープの読み込みが競合しても、古い会社の応答は反映しない。
   const loadSequenceRef = useRef(0);
+  // 今の会社・戦略の組み合わせ。非同期の応答が別の会社・戦略に反映されないよう、送信の前後で比べる
+  const scopeKeyRef = useRef('');
   // 6問の未保存の回答を、STEPを移動する前に保存するための関数（部門ごと）
   const sixFlushRef = useRef<Record<string, () => void>>({});
   const [state, setState] = useState<WorkspaceState>(emptyWorkspaceState());
@@ -617,6 +621,7 @@ export function StrategyBookDesk({
   const [editingProposal, setEditingProposal] = useState<{ candidateId: string; text: string } | null>(null);
   const [docDraft, setDocDraft] = useState<{ deptKey: string; texts: TextDraft; projects: Record<string, ProjectTextDraft> } | null>(null);
   const [candEdit, setCandEdit] = useState<{ candidateId: string; title: string; reason: string; hypothesis: string; description: string } | null>(null);
+  const [manualAdd, setManualAdd] = useState<{ deptKey: string; title: string; purpose: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [confirmResult, setConfirmResult] = useState<{ tone: 'ok' | 'error'; message: string } | null>(null);
@@ -633,6 +638,16 @@ export function StrategyBookDesk({
   const [pendingChoices, setPendingChoices] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    // 会社・戦略が変わったら、前の会社の未送信の採否と入力中の内容は持ち越さない
+    scopeKeyRef.current = `${readCompanyId ?? ''}|${readStrategyId ?? ''}`;
+    decisionPatchesRef.current = [];
+    decisionDraftRef.current = null;
+    setPendingChoices({});
+    setDecisionError(null);
+    setManualAdd(null);
+    setDocDraft(null);
+    setCandEdit(null);
+    setEditingProposal(null);
     // 親ページは初回表示後に認証・会社・strategyIdを復元する。
     // 初回マウントだけで読みに行くとスコープ未確定のエラーで永久に止まる。
     if (!readCompanyId || !readStrategyId) {
@@ -764,6 +779,16 @@ export function StrategyBookDesk({
   const stage2Ready = stage2.status === 'confirmed';
   const stage2Message = (): string | undefined => (stage2.status === 'error' ? stage2.message : undefined);
   const decisionsUnsaved = Object.keys(pendingChoices).length > 0;
+  const hasUnsavedEdits = decisionsUnsaved || docDraft !== null || candEdit !== null || editingProposal !== null || manualAdd !== null;
+  useEffect(() => {
+    if (!hasUnsavedEdits) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasUnsavedEdits]);
   const blockerFor = (busyNow: boolean) =>
     generationBlockerOf({
       loaded,
@@ -830,7 +855,12 @@ export function StrategyBookDesk({
           official.map((d) => ({ ...d, projects: Array.isArray(d.projects) ? (d.projects as AnyRecord[]).filter((p) => isProjectActive(p)) : d.projects })),
           candidateMap,
         ),
-        newProjects: newProjectCandidatesFrom(official, candidateMap),
+        newProjects: keepRegeneratedCandidates({
+          previous: previous?.newProjects ?? [],
+          next: newProjectCandidatesFrom(official, candidateMap, previous?.newProjects ?? []),
+          regenKeys,
+          decidedIds: new Set(base.projectSelections.filter((s) => s.decision !== 'pending').map((s) => s.candidateId)),
+        }),
         generatedDepartmentKeys: Object.keys(generated),
       };
       const proposals = Object.fromEntries(Object.entries(generated).map(([k, r]) => [k, r.proposals]));
@@ -1070,6 +1100,7 @@ export function StrategyBookDesk({
      競合したら最新の状態に判断を積み直して書き直す。失敗した判断は画面に残し、再試行できるようにする */
   const flushDecisions = async (failureNote: string) => {
     if (decisionPatchesRef.current.length === 0) return;
+    const scope = scopeKeyRef.current;
     const g = gate();
     if (!g || versionRef.current === null) {
       setDecisionError(`${failureNote}作業内容を読み込めませんでした。時間をおいて再度お試しください。`);
@@ -1092,6 +1123,7 @@ export function StrategyBookDesk({
           draft = replayDecisions(latest.state, decisionPatchesRef.current);
         }
       }
+      if (scopeKeyRef.current !== scope) return;
       const settled = settleSentDecisions(decisionPatchesRef.current, sent, draft);
       decisionPatchesRef.current = settled.rest;
       decisionDraftRef.current = settled.draft;
@@ -1100,7 +1132,7 @@ export function StrategyBookDesk({
       releaseDecisionKeys(settled.done.map((p) => p.key));
       settled.done.forEach((p) => p.after?.());
     } catch (e) {
-      setDecisionError(`${failureNote}${errorMessage(e)} 未保存の採否は画面に残っています。`);
+      if (scopeKeyRef.current === scope) setDecisionError(`${failureNote}${errorMessage(e)} 未保存の採否は画面に残っています。`);
     }
   };
 
@@ -1241,6 +1273,34 @@ export function StrategyBookDesk({
       setNotice(errorMessage(e));
       return errorCode(e) === 'insufficient_departments' ? 'skipped' : 'failed';
     }
+  };
+
+  /* 重点プロジェクトを手で追加する。作業版の候補と採否（未判断）に入れる。正式データは確定時にだけ変わる */
+  const addManual = async (dept: Department) => {
+    if (!manualAdd) return;
+    const blocker = blockerFor(false);
+    if (blocker) {
+      setNotice(blocker);
+      return;
+    }
+    const result = addManualProject(state, {
+      departmentKey: departmentKeyOf(dept as unknown as AnyRecord),
+      departmentName: dept.name,
+      officialTitles: ((dept.projects ?? []) as unknown as AnyRecord[]).map((p) => String(p.title ?? '')),
+      title: manualAdd.title,
+      purpose: manualAdd.purpose,
+    });
+    if (!result.ok) {
+      setNotice(
+        result.error === 'duplicate_title'
+          ? 'この部門に、同じ名前の計画・候補がすでにあります。'
+          : result.error === 'invalid_title'
+            ? 'プロジェクト名を入力してください。'
+            : '戦略書のたたき台を作ってから、プロジェクトを追加してください。',
+      );
+      return;
+    }
+    if (await save(reopen(result.state), '重点プロジェクトを追加できませんでした。')) setManualAdd(null);
   };
 
   const decideProject = (target: ProjectSelection, decision: ProjectSelection['decision']) =>
@@ -2076,6 +2136,53 @@ export function StrategyBookDesk({
                 </p>
               )}
               {projs.length === 0 && <p className="text-xs text-gray-600">この部門の新規の候補プロジェクトはまだありません。</p>}
+              {manualAdd && manualAdd.deptKey === key ? (
+                <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                  <label className="block text-xs text-gray-700">
+                    プロジェクト名（必須）
+                    <input
+                      value={manualAdd.title}
+                      maxLength={300}
+                      onChange={(e) => setManualAdd({ ...manualAdd, title: e.target.value })}
+                      className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                    />
+                  </label>
+                  <label className="block text-xs text-gray-700">
+                    目的・背景（任意）
+                    <textarea
+                      value={manualAdd.purpose}
+                      maxLength={2000}
+                      rows={2}
+                      onChange={(e) => setManualAdd({ ...manualAdd, purpose: e.target.value })}
+                      className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => void addManual(dept)}
+                      disabled={!canOperate || manualAdd.title.trim() === ''}
+                      className="rounded-full h-8 px-3 text-xs"
+                    >
+                      追加する
+                    </Button>
+                    <Button variant="outline" onClick={() => setManualAdd(null)} className="rounded-full h-8 px-3 text-xs">
+                      やめる
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setManualAdd({ deptKey: key, title: '', purpose: '' })}
+                    disabled={!canOperate || !latest}
+                    className="rounded-full h-8 px-3 text-xs"
+                  >
+                    ＋ プロジェクトを追加
+                  </Button>
+                  {reasonLine(!latest ? '先に、部門の戦略書のたたき台を作成してください。' : null)}
+                </div>
+              )}
               {projs.map((p) => {
                 const c = latest?.newProjects.find((np) => np.candidateId === p.candidateId);
                 const summary = showText(projectSummaryOf(state, p.candidateId));
