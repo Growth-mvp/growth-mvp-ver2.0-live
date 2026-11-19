@@ -66,7 +66,7 @@ STAGE5（実行）とSTAGE6（業績・資金）の保存済みデータから�
 ## 6. 安全設計
 
 - 自動変更なし。案内・所見は表示のみ。
-- AI呼び出しは「事実がある」「会社ごと1日1回」「STAGE5・6の画面」の時だけ。
+- AI呼び出しは「事実がある」「会社ごと1日1回」の時だけ。
 - 応答に失敗しても再依頼しない（同じ日は再び依頼しない）。
 - 会社・利用者ごとに記録を分ける。会社切替で表示中の所見を消し、切替前の応答は表示も保存もしない。
 - 権限：読み取りのみ。所属していない会社の戦略データは読まない（`requireMembership`）。
@@ -86,7 +86,7 @@ STAGE5（実行）とSTAGE6（業績・資金）の保存済みデータから�
 - `lib/companion/companionRisk.test.ts`：各区分の事実（しきい値、期限、向き、上限、指紋、依頼文）
 - `lib/companion/companionRiskClient.test.ts`：依頼の認証・応答の形・失敗時の扱い・所見が無い時の本文
 - `lib/companion/companionPolicy.test.ts`：会社ごと1日1回
-- `components/CEOChatPanel.companion.test.tsx`：STAGE6で1回だけ依頼し事実を先に表示する、STAGE6以外では依頼しない
+- `components/CEOChatPanel.companion.test.tsx`：どの画面でも1回だけ依頼する、重大な事実は進行の案内より前に出す、重大でない事実は進行の案内が無い時だけ出す、画面を移っても1日1回だけ依頼する
 
 ## 9. PHASE 4：最終検証（2026-11-19）
 
