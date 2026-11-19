@@ -1,4 +1,4 @@
-import { candidateFromDocument, planApply, tickerOfSecCode, type CurrentProfile, type EdinetDocument } from './companyCandidates';
+import { candidateFromDocument, tickerOfSecCode, type EdinetDocument } from './companyCandidates';
 
 const NOW = '2026-11-19T00:00:00.000Z';
 const DOC: EdinetDocument = {
@@ -13,7 +13,6 @@ const DOC: EdinetDocument = {
   submitDate: '2026-06-20',
   withdrawn: false,
 };
-const EMPTY: CurrentProfile = { companyName: '', ticker: '', fiscalYearEnd: '', isListed: undefined };
 
 describe('入力候補：書類から作る（推測で補わない）', () => {
   it('証券コードは5桁（末尾0）から4桁の東証コードに直す', () => {
@@ -50,50 +49,5 @@ describe('入力候補：書類から作る（推測で補わない）', () => {
     const c = candidateFromDocument({ ...DOC, periodEnd: '不明' }, NOW);
     expect(c.fields.fiscalYearEnd).toBeUndefined();
     expect(c.issues.join('')).toContain('決算期末');
-  });
-});
-
-describe('反映の計画：承認された項目だけ、既存の値は無断で上書きしない', () => {
-  const c = candidateFromDocument(DOC, NOW);
-
-  it('入力が空の項目は、承認されれば反映する', () => {
-    const plan = planApply({ current: EMPTY, candidate: c, selected: ['companyName', 'ticker', 'fiscalYearEnd', 'isListed'], overwrite: [] });
-    expect(plan.patch).toEqual({ companyName: '日本製罐株式会社', ticker: '5905', fiscalYearEnd: '3', isListed: true });
-    expect(plan.applied).toHaveLength(4);
-    expect(plan.skipped).toEqual([]);
-  });
-
-  it('承認されていない項目は反映しない', () => {
-    const plan = planApply({ current: EMPTY, candidate: c, selected: ['ticker'], overwrite: [] });
-    expect(Object.keys(plan.patch)).toEqual(['ticker']);
-  });
-
-  it('入力済みの会社名は、上書きを選ばない限り変えない', () => {
-    const plan = planApply({
-      current: { ...EMPTY, companyName: '既存の社名' },
-      candidate: c,
-      selected: ['companyName'],
-      overwrite: [],
-    });
-    expect(plan.patch).toEqual({});
-    expect(plan.skipped).toEqual([{ key: 'companyName', reason: 'already_filled' }]);
-  });
-
-  it('入力済みでも、利用者が上書きを選んだ項目だけ反映する', () => {
-    const plan = planApply({
-      current: { ...EMPTY, companyName: '既存の社名', ticker: '1234' },
-      candidate: c,
-      selected: ['companyName', 'ticker'],
-      overwrite: ['ticker'],
-    });
-    expect(plan.patch).toEqual({ ticker: '5905' });
-    expect(plan.skipped).toEqual([{ key: 'companyName', reason: 'already_filled' }]);
-  });
-
-  it('候補が無い項目を選んでも反映しない', () => {
-    const noTicker = candidateFromDocument({ ...DOC, secCode: null }, NOW);
-    const plan = planApply({ current: EMPTY, candidate: noTicker, selected: ['ticker'], overwrite: [] });
-    expect(plan.patch).toEqual({});
-    expect(plan.skipped).toEqual([{ key: 'ticker', reason: 'no_candidate' }]);
   });
 });

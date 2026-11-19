@@ -1,7 +1,7 @@
 /* 上場企業の基本情報の入力候補（PHASE 5A）。公開資料の書類情報から候補を作り、反映する項目を承認の内容だけに限る。
  * 取得できない項目は候補に含めない（推測で補わない）。書類に無い情報（連結・単体、通貨の単位）は「未確認」と示す。 */
 
-export type Consolidation = 'CONSOLIDATED' | 'NON_CONSOLIDATED' | 'UNKNOWN';
+export type Consolidation = 'CONSOLIDATED' | 'NON_CONSOLIDATED' | 'UNKNOWN' | 'NOT_APPLICABLE';
 
 export type EdinetDocument = {
   docId: string;
@@ -43,12 +43,6 @@ export type CompanyProfileCandidate = {
   issues: string[];
 };
 
-export type CurrentProfile = {
-  companyName: string;
-  ticker: string;
-  fiscalYearEnd: string;
-  isListed: boolean | undefined;
-};
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -104,49 +98,3 @@ export function candidateFromDocument(doc: EdinetDocument, fetchedAt: string): C
   return { fields, issues };
 }
 
-export type ApplyPlan = {
-  patch: Partial<Record<ProfileFieldKey, string | boolean>>;
-  applied: ProfileFieldKey[];
-  skipped: Array<{ key: ProfileFieldKey; reason: 'already_filled' | 'no_candidate' }>;
-};
-
-const KEYS: ProfileFieldKey[] = ['companyName', 'ticker', 'fiscalYearEnd', 'isListed'];
-
-function isFilled(key: ProfileFieldKey, current: CurrentProfile): boolean {
-  if (key === 'isListed') return current.isListed === true;
-  return current[key].trim() !== '';
-}
-
-/** 承認された項目だけを反映する計画を作る。既に入力済みの項目は、利用者が上書きを選んだ時だけ反映する */
-export function planApply(args: {
-  current: CurrentProfile;
-  candidate: CompanyProfileCandidate;
-  selected: ProfileFieldKey[];
-  overwrite: ProfileFieldKey[];
-}): ApplyPlan {
-  const patch: ApplyPlan['patch'] = {};
-  const applied: ProfileFieldKey[] = [];
-  const skipped: ApplyPlan['skipped'] = [];
-  for (const key of KEYS) {
-    if (!args.selected.includes(key)) continue;
-    const field = args.candidate.fields[key];
-    if (!field) {
-      skipped.push({ key, reason: 'no_candidate' });
-      continue;
-    }
-    if (isFilled(key, args.current) && !args.overwrite.includes(key)) {
-      skipped.push({ key, reason: 'already_filled' });
-      continue;
-    }
-    patch[key] = field.value as string | boolean;
-    applied.push(key);
-  }
-  return { patch, applied, skipped };
-}
-
-export const PROFILE_FIELD_LABEL: Record<ProfileFieldKey, string> = {
-  companyName: '会社名',
-  ticker: '証券コード',
-  fiscalYearEnd: '決算月',
-  isListed: '上場区分',
-};

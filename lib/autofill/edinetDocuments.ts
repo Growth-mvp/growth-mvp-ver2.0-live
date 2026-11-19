@@ -95,3 +95,14 @@ export function findDocumentsForTicker(docs: EdinetDocument[], ticker: string): 
       return (b.periodEnd ?? '').localeCompare(a.periodEnd ?? '');
     });
 }
+
+export const EDINET_DOCUMENT_URL = 'https://api.edinet-fsa.go.jp/api/v2/documents';
+
+/** 書類の構造化データ（CSVを含むzip）を1回だけ取得する。再試行はしない */
+export async function downloadEdinetCsvZip(docId: string, apiKey: string, fetchImpl: typeof fetch = fetch): Promise<Buffer> {
+  if (!/^S\d[A-Z0-9]{7}$/.test(docId)) throw new Error('invalid_doc_id');
+  const url = `${EDINET_DOCUMENT_URL}/${docId}?type=5&Subscription-Key=${encodeURIComponent(apiKey)}`;
+  const res = await fetchImpl(url, { method: 'GET' });
+  if (!res.ok) throw new EdinetHttpError(res.status);
+  return Buffer.from(await res.arrayBuffer());
+}
