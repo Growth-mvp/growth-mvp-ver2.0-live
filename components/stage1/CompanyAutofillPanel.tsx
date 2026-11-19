@@ -2,15 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import { openCeoChatRequest, updateCeoChatMessages, useCeoChatStore } from '@/store/ceoChatStore';
 import { supabase } from '@/utils/supabase/client';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { useAutofillStore, type PendingAutofill } from '@/lib/autofill/autofillStore';
 import { combineFinance, splitFinanceWrite } from '@/lib/autofill/financeWrite';
 import { runAutofillPipeline, type IdentifyCandidate, type PipelineProgress, type PipelineResult } from '@/lib/autofill/client';
 import { normalizeCompanyName } from '@/lib/autofill/edinetIdentify';
+import { buildApplyReport, formatApplyReportText, FINANCE_SHORT_LABEL, type ApplyReport } from '@/lib/autofill/applyReport';
 import {
   FINANCE_KEYS,
-  FINANCE_LABEL,
   PROFILE_KEYS,
   PROFILE_LABEL,
   planFilingApply,
@@ -32,34 +33,97 @@ const ERROR_TEXT: Record<string, string> = {
   invalid_payload: '会社名または証券コード（4桁）を入力してください',
 };
 
-const DISPLAY_TEXT_MAX = 160;
-const yen = (v: number) => `${v.toLocaleString('ja-JP')}円`;
-const million = (v: number | undefined) => (v === undefined ? '未取得' : `${Math.round(v / 1_000_000).toLocaleString('ja-JP')}百万円`);
+const DISPLAY_TEXT_MAX = 60;
+const toMillion = (v: number) => Math.round(v / 1_000_000);
+const millionText = (v: number | undefined) => (v === undefined ? '未取得' : toMillion(v).toLocaleString('ja-JP'));
 
-function fieldDisplay(key: ProfileKey, c: FilingCandidate): string {
-  if (key === 'companyName') return c.profile.fields.companyName?.value ?? '';
-  if (key === 'ticker') return c.profile.fields.ticker?.value ?? '';
-  if (key === 'fiscalYearEnd') return c.profile.fields.fiscalYearEnd ? `${c.profile.fields.fiscalYearEnd.value}月` : '';
-  if (key === 'isListed') return c.profile.fields.isListed ? '上場' : '';
-  if (key === 'location') return c.profileExtra.location?.value ?? '';
-  if (key === 'employees') return c.profileExtra.employees ? `${c.profileExtra.employees.value}名（連結・単体は未確認）` : '';
-  if (key === 'industry') {
-    const v = c.profileExtra.industry?.value;
-    return v ? getIndustryLabel(v, { full: true }) : '';
+type RowStatus = 'empty' | 'same' | 'differs' | 'none';
+
+function candidateRaw(k: ProfileKey, c: FilingCandidate): string {
+  switch (k) {
+    case 'companyName':
+      return c.profile.fields.companyName?.value ?? '';
+    case 'ticker':
+      return c.profile.fields.ticker?.value ?? '';
+    case 'fiscalYearEnd':
+      return c.profile.fields.fiscalYearEnd?.value ?? '';
+    case 'isListed':
+      return c.profile.fields.isListed?.value === true ? 'true' : '';
+    case 'location':
+      return c.profileExtra.location?.value ?? '';
+    case 'employees':
+      return c.profileExtra.employees ? String(c.profileExtra.employees.value) : '';
+    case 'businessContent':
+      return c.profileExtra.businessContent?.value ?? '';
+    case 'industry':
+      return c.profileExtra.industry?.value ?? '';
   }
-  const text = c.profileExtra.businessContent?.value ?? '';
-  return Array.from(text).length > DISPLAY_TEXT_MAX ? `${Array.from(text).slice(0, DISPLAY_TEXT_MAX).join('')}…` : text;
 }
 
-function filledProfile(k: ProfileKey, c: CurrentFilingProfile): boolean {
-  if (k === 'isListed') return c.isListed === true;
+function currentRaw(k: ProfileKey, c: CurrentFilingProfile): string {
+  if (k === 'isListed') return c.isListed === true ? 'true' : '';
   const v = c[k];
-  return typeof v === 'string' ? v.trim() !== '' : v !== undefined;
+  return typeof v === 'string' ? v : '';
 }
 
-function hasExistingYear(year: number, pl: ReadonlyArray<{ year: number }> | null | undefined, bs: ReadonlyArray<{ year: number }> | null | undefined): boolean {
-  return (pl ?? []).some((r) => r.year === year) || (bs ?? []).some((r) => r.year === year);
+function displayRaw(k: ProfileKey, raw: string): string {
+  if (!raw) return '';
+  if (k === 'fiscalYearEnd') return `${raw}月`;
+  if (k === 'isListed') return '上場';
+  if (k === 'employees') return `${raw}名`;
+  if (k === 'industry') return getIndustryLabel(raw, { full: true });
+  if (k === 'businessContent' && Array.from(raw).length > DISPLAY_TEXT_MAX) return `${Array.from(raw).slice(0, DISPLAY_TEXT_MAX).join('')}…`;
+  return raw;
 }
+
+function sameRaw(k: ProfileKey, a: string, b: string): boolean {
+  if (k === 'companyName') return normalizeCompanyName(a) === normalizeCompanyName(b);
+  return a.replace(/\s+/g, '') === b.replace(/\s+/g, '');
+}
+
+function profileStatus(k: ProfileKey, cand: string, cur: string): RowStatus {
+  if (!cand) return 'none';
+  if (!cur) return 'empty';
+  return sameRaw(k, cand, cur) ? 'same' : 'differs';
+}
+
+type ExistingYearRow = { year: number };
+
+function existingFinance(year: number, k: FinanceKey, pl: ReadonlyArray<ExistingYearRow>, bs: ReadonlyArray<ExistingYearRow>): number | undefined {
+  const table = k === 'totalAssets' || k === 'netAssets' ? bs : pl;
+  const row = table.find((r) => r.year === year) as unknown as Record<string, unknown> | undefined;
+  const v = row?.[k];
+  return typeof v === 'number' ? v : undefined;
+}
+
+type FinanceCell = { value: number; status: RowStatus; registered?: number };
+type FinanceYearView = { year: number; cells: Partial<Record<FinanceKey, FinanceCell>>; hasEmpty: boolean; hasDiffers: boolean };
+
+function financeYearViews(c: FilingCandidate, pl: ReadonlyArray<ExistingYearRow>, bs: ReadonlyArray<ExistingYearRow>): FinanceYearView[] {
+  return c.finance.map((y) => {
+    const cells: Partial<Record<FinanceKey, FinanceCell>> = {};
+    let hasEmpty = false;
+    let hasDiffers = false;
+    for (const k of FINANCE_KEYS) {
+      const cand = y[k];
+      if (!cand) continue;
+      const registered = existingFinance(y.year, k, pl, bs);
+      const status: RowStatus = registered === undefined ? 'empty' : toMillion(registered) === toMillion(cand.value) ? 'same' : 'differs';
+      if (status === 'empty') hasEmpty = true;
+      if (status === 'differs') hasDiffers = true;
+      cells[k] = { value: cand.value, status, registered };
+    }
+    return { year: y.year, cells, hasEmpty, hasDiffers };
+  });
+}
+
+function saveFailureCause(reason: string, code?: string): string {
+  if (code === 'REVISION_CONFLICT') return '他の利用者が同時に更新したため';
+  if (reason === 'pending_queued') return '別の保存が進行中のため';
+  return '保存処理が完了しなかったため';
+}
+
+const toggle = <T,>(list: T[], v: T): T[] => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
 /** 登録中の企業と取得対象の企業が違うか（取り違え防止）。登録中の情報が空なら違いとはしない */
 export function differsFromRegistered(registeredName: string, registeredTicker: string, candidate: FilingCandidate): boolean {
@@ -80,8 +144,8 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
   const storedBusiness = useStrategyStore((s) => s.businessContent ?? '');
   const storedIndustry = useStrategyStore((s) => s.industry ?? '');
   const storedSegments = useStrategyStore((s) => s.businessSegments ?? []);
-  const financePL = useStrategyStore((s) => s.financePL);
-  const financeBS = useStrategyStore((s) => s.financeBS);
+  const financePL = useStrategyStore((s) => s.financePL ?? []);
+  const financeBS = useStrategyStore((s) => s.financeBS ?? []);
   const pending = useAutofillStore((s) => s.pending);
   const setPending = useAutofillStore((s) => s.setPending);
 
@@ -101,46 +165,62 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
 
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState<PipelineProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [ambiguous, setAmbiguous] = useState<IdentifyCandidate[] | null>(null);
   const [view, setView] = useState<PendingAutofill | null>(null);
-  const [profileSel, setProfileSel] = useState<ProfileKey[]>([]);
-  const [profileOver, setProfileOver] = useState<ProfileKey[]>([]);
-  const [yearSel, setYearSel] = useState<number[]>([]);
-  const [yearOver, setYearOver] = useState<number[]>([]);
-  const [segmentSel, setSegmentSel] = useState(false);
+  const [missingPeriods, setMissingPeriods] = useState<string[]>([]);
+  const [overProfile, setOverProfile] = useState<ProfileKey[]>([]);
+  const [overYears, setOverYears] = useState<number[]>([]);
   const [otherCompanyOk, setOtherCompanyOk] = useState(false);
-  const [applied, setApplied] = useState<string | null>(null);
+  const [done, setDone] = useState<ApplyReport | null>(null);
 
   useEffect(() => {
     if (!pending) return;
     if (pending.companyId !== companyId || pending.strategyId !== strategyId) return;
     setView(pending);
+    setMissingPeriods([]);
     setNotice('AI経営コンサルタントが作った候補です。内容を確認して承認してください。');
     setPending(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, companyId, strategyId]);
 
   useEffect(() => {
-    if (!view) return;
-    const c = view.candidate;
-    setProfileSel(PROFILE_KEYS.filter((k) => fieldDisplay(k, c) !== '' && !filledProfile(k, current)));
-    setProfileOver([]);
-    setYearSel(c.finance.map((y) => y.year).filter((y) => !hasExistingYear(y, financePL, financeBS)));
-    setYearOver([]);
-    setSegmentSel((c.segments?.items.length ?? 0) > 0 && storedSegments.length === 0);
+    setOverProfile([]);
+    setOverYears([]);
     setOtherCompanyOk(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
+
+  const candidate = view?.candidate ?? null;
+
+  const selection = useMemo(() => {
+    if (!candidate) return null;
+    const profile = PROFILE_KEYS.map((k) => {
+      const cand = candidateRaw(k, candidate);
+      const cur = currentRaw(k, current);
+      return { key: k, cand, cur, status: profileStatus(k, cand, cur) };
+    });
+    const years = financeYearViews(candidate, financePL, financeBS);
+    const segNew = (candidate.segments?.items.some((i) => i.name) ?? false) && storedSegments.length === 0;
+    const segKept = (candidate.segments?.items.some((i) => i.name) ?? false) && storedSegments.length > 0;
+    const profileTargets = profile.filter((r) => r.status === 'empty' || r.status === 'differs').map((r) => r.key);
+    const yearTargets = years.filter((y) => y.hasEmpty || y.hasDiffers).map((y) => y.year);
+    const applyCount =
+      profile.filter((r) => r.status === 'empty' || (r.status === 'differs' && overProfile.includes(r.key))).length +
+      years.filter((y) => y.hasEmpty || (y.hasDiffers && overYears.includes(y.year))).length +
+      (segNew ? 1 : 0);
+    const differCount = profile.filter((r) => r.status === 'differs').length + years.filter((y) => y.hasDiffers).length;
+    return { profile, years, segNew, segKept, profileTargets, yearTargets, applyCount, differCount };
+  }, [candidate, current, financePL, financeBS, storedSegments.length, overProfile, overYears]);
 
   if (process.env.NEXT_PUBLIC_STAGE1_AUTOFILL_DISABLED === 'true') return null;
 
   const fetchCandidates = async () => {
     setError(null);
     setNotice(null);
-    setApplied(null);
+    setDone(null);
     setAmbiguous(null);
     setView(null);
     if (!companyId || !strategyId) {
@@ -166,7 +246,8 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
       });
       if (result.status === 'FOUND') {
         setView({ companyId, strategyId, fetchedAt: result.fetchedAt, candidate: result.candidate });
-        setNotice(result.missingPeriods.length > 0 ? `取得できなかった決算期：${result.missingPeriods.join('、')}` : null);
+        setMissingPeriods(result.missingPeriods);
+        setNotice(null);
       } else if (result.status === 'AMBIGUOUS') {
         setAmbiguous(result.candidates);
       } else {
@@ -181,87 +262,104 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
     }
   };
 
-  const approve = () => {
-    if (!view) return;
-    const now = useStrategyStore.getState();
-    if ((now.companyId ?? null) !== view.companyId || (now.strategyId ?? null) !== view.strategyId) {
+  const mismatch = candidate ? differsFromRegistered(storedName, storedTicker, candidate) : false;
+  const nothingToApply = selection ? selection.applyCount === 0 : true;
+  const approveDisabled = Boolean(disabled) || saving || (mismatch && !otherCompanyOk) || nothingToApply;
+
+  const cancelView = () => {
+    setView(null);
+    setNotice(null);
+  };
+
+  const approve = async () => {
+    if (!view || !selection || approveDisabled) return;
+    const before = useStrategyStore.getState();
+    if ((before.companyId ?? null) !== view.companyId || (before.strategyId ?? null) !== view.strategyId) {
       setError('企業が切り替わったため、反映しません。候補を取得し直してください');
       setView(null);
       return;
     }
-    const st = now as unknown as { financePL: Array<Record<string, unknown> & { year: number }>; financeBS: Array<Record<string, unknown> & { year: number }> };
-    const pl = st.financePL ?? [];
-    const bs = st.financeBS ?? [];
-    const candidate = view.candidate;
-    const plan = planFilingApply({
-      current: {
-        companyName: now.companyName ?? '',
-        ticker: String(now.ticker ?? ''),
-        fiscalYearEnd: String(now.fiscalYearEnd ?? ''),
-        isListed: now.isListed,
-        location: now.location ?? '',
-        employees: String(now.employees ?? ''),
-        businessContent: now.businessContent ?? '',
-        industry: now.industry ?? '',
-      },
-      currentFinance: combineFinance(pl as never, bs as never),
-      candidate,
-      selectedProfile: profileSel,
-      overwriteProfile: profileOver,
-      selectedYears: yearSel,
-      overwriteYears: yearOver,
-      selectedSegments: segmentSel,
-      overwriteSegments: false,
-      currentSegmentCount: (now.businessSegments ?? []).length,
-    });
-
-    const profileWrite: Record<string, unknown> = { ...plan.profilePatch };
-    if (plan.segmentsPatch) {
-      profileWrite.businessSegments = plan.segmentsPatch.map((s) => ({
-        id: crypto.randomUUID(),
-        name: s.name,
-        revenue: s.revenueMillion,
-        profit: s.profitMillion,
-      }));
+    if (before.dirty) {
+      setError('ほかに未保存の変更があるため、反映しません。画面左下の「全体保存」で保存してから、もう一度承認してください。');
+      return;
     }
-    if (Object.keys(profileWrite).length > 0) now.setProfile(profileWrite as Parameters<typeof now.setProfile>[0]);
-    const written = splitFinanceWrite(plan, pl as never, bs as never);
-    if (written.pl) now.setFinancePL(written.pl as never);
-    if (written.bs) now.setFinanceBS(written.bs as never);
+    setSaving(true);
+    setError(null);
+    setDone(null);
+    try {
+      const now = useStrategyStore.getState();
+      const st = now as unknown as { financePL: Array<Record<string, unknown> & { year: number }>; financeBS: Array<Record<string, unknown> & { year: number }> };
+      const pl = st.financePL ?? [];
+      const bs = st.financeBS ?? [];
+      const plan = planFilingApply({
+        current: {
+          companyName: now.companyName ?? '',
+          ticker: String(now.ticker ?? ''),
+          fiscalYearEnd: String(now.fiscalYearEnd ?? ''),
+          isListed: now.isListed,
+          location: now.location ?? '',
+          employees: String(now.employees ?? ''),
+          businessContent: now.businessContent ?? '',
+          industry: now.industry ?? '',
+        },
+        currentFinance: combineFinance(pl as never, bs as never),
+        candidate: view.candidate,
+        selectedProfile: selection.profileTargets,
+        overwriteProfile: overProfile,
+        selectedYears: selection.yearTargets,
+        overwriteYears: overYears,
+        selectedSegments: selection.segNew,
+        overwriteSegments: false,
+        currentSegmentCount: (now.businessSegments ?? []).length,
+      });
 
-    const parts = [
-      plan.profileApplied.length > 0 ? `反映：${plan.profileApplied.map((k) => PROFILE_LABEL[k]).join('、')}` : '',
-      plan.segmentsPatch ? `事業セグメント：${plan.segmentsPatch.length}件` : '',
-      plan.financeApplied.length > 0
-        ? `財務：${plan.financeApplied.map((a) => `${a.year}年度`).join('、')}`
-        : '',
-      '未取得のまま（推測で補っていません）：取得できなかった項目と年度',
-    ].filter(Boolean);
-    setApplied(parts.join('　'));
-    setView(null);
-    setProfileSel([]);
-    setYearSel([]);
-    setSegmentSel(false);
+      const profileWrite: Record<string, unknown> = { ...plan.profilePatch };
+      if (plan.segmentsPatch) {
+        profileWrite.businessSegments = plan.segmentsPatch.map((s) => ({
+          id: crypto.randomUUID(),
+          name: s.name,
+          revenue: s.revenueMillion,
+          profit: s.profitMillion,
+        }));
+      }
+      if (Object.keys(profileWrite).length > 0) now.setProfile(profileWrite as Parameters<typeof now.setProfile>[0]);
+      const written = splitFinanceWrite(plan, pl as never, bs as never);
+      if (written.pl) now.setFinancePL(written.pl as never);
+      if (written.bs) now.setFinanceBS(written.bs as never);
+
+      const res = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:autofill-approve' });
+      if (!res.ok) {
+        setView(null);
+        setError(`反映した内容は入力欄に残っていますが、${saveFailureCause(res.reason, res.code)}保存できませんでした。画面左下の「全体保存」で保存してください。`);
+        return;
+      }
+
+      const report = buildApplyReport({ plan, candidate: view.candidate, missingPeriods });
+      setDone(report);
+      setView(null);
+      const ticket = openCeoChatRequest(useCeoChatStore.getState().ownerKey);
+      if (ticket) {
+        const content = formatApplyReportText({ companyName: view.candidate.filer.name, report });
+        updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
+      }
+    } catch {
+      setError('反映・保存に失敗しました。画面を再読み込みして、状況を確認してください。');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const toggle = <T,>(list: T[], setList: (v: T[]) => void, v: T) => setList(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
-
-  const candidate = view?.candidate ?? null;
-  const mismatch = candidate ? differsFromRegistered(storedName, storedTicker, candidate) : false;
-  const pct = progress && progress.total > 0 ? Math.round((progress.step / progress.total) * 100) : 0;
+  const mismatchBlocked = mismatch && !otherCompanyOk;
 
   return (
-    <div className="space-y-3 rounded-md border border-sky-200 bg-sky-50/40 p-3 text-sm">
-      <div className="font-medium text-slate-800">AIで公開資料（有価証券報告書）から基本情報を取得</div>
-      <p className="text-xs text-slate-600">
-        会社名または証券コード（4桁）を入れて取得します。AI経営コンサルタントに「〇〇の基本情報を入力して」と頼んでも同じ候補を作れます。承認するまで入力欄は変わりません。
-      </p>
+    <div className="space-y-2 rounded-md border border-sky-200 bg-sky-50/40 p-2 text-sm">
+      <div className="font-medium text-slate-800">公開資料（有価証券報告書）から基本情報を取得</div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs">
           会社名または証券コード
-          <input className="ml-1 w-56 rounded border px-2 py-1" value={text} onChange={(e) => setText(e.target.value)} disabled={disabled || busy} placeholder="例：日本製罐 / 5905" />
+          <input className="ml-1 w-56 rounded border px-2 py-1" value={text} onChange={(e) => setText(e.target.value)} disabled={disabled || busy || saving} placeholder="例：日本製罐 / 5905" />
         </label>
-        <button type="button" className="rounded border bg-white px-3 py-1 text-xs" onClick={fetchCandidates} disabled={disabled || busy}>
+        <button type="button" className="rounded border bg-white px-3 py-1 text-xs" onClick={fetchCandidates} disabled={disabled || busy || saving}>
           {busy ? '取得中…' : '候補を取得'}
         </button>
       </div>
@@ -270,11 +368,12 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         <div role="status" className="space-y-1 text-xs text-slate-700">
           <div>{progress.label}（{progress.step}/{progress.total}）</div>
           <div className="h-1.5 w-full overflow-hidden rounded bg-slate-200">
-            <div className="h-full bg-sky-600 transition-all" style={{ width: `${pct}%` }} />
+            <div className="h-full bg-sky-600 transition-all" style={{ width: `${progress.total > 0 ? Math.round((progress.step / progress.total) * 100) : 0}%` }} />
           </div>
         </div>
       ) : null}
 
+      {saving ? <div role="status" className="text-xs text-slate-700">反映して保存しています…</div> : null}
       {error ? <div role="alert" className="text-xs text-rose-700">{error}</div> : null}
       {notice ? <div className="text-xs text-slate-700">{notice}</div> : null}
 
@@ -289,139 +388,174 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         </div>
       ) : null}
 
-      {candidate && view ? (
-        <div className="space-y-3 rounded border bg-white p-2">
-          <div className="rounded bg-slate-50 p-2 text-xs">
-            <div className="font-medium">取得対象：{candidate.filer.name}（証券コード {candidate.filer.secCode ?? '未確認'}／EDINET {candidate.filer.edinetCode}）</div>
-            <div className="text-slate-600">登録中の企業：{storedName || '未入力'}{storedTicker ? `（証券コード ${storedTicker}）` : ''}</div>
+      {candidate && view && selection ? (
+        <div className="space-y-2 rounded border bg-white p-2 text-xs">
+          <div>
+            取得対象：<span className="font-medium">{candidate.filer.name}</span>（証券コード {candidate.filer.secCode ?? '未確認'}・{candidate.docTypeCode === '130' ? '訂正有価証券報告書' : '有価証券報告書'} {candidate.docId}）
           </div>
           {mismatch ? (
-            <label className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
-              <input type="checkbox" className="mt-0.5" checked={otherCompanyOk} onChange={(e) => setOtherCompanyOk(e.target.checked)} disabled={disabled} />
-              登録中の企業と取得対象の企業が異なります。取得対象の企業の情報として反映することを確認しました。
+            <label className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-800">
+              <input type="checkbox" className="mt-0.5" checked={otherCompanyOk} onChange={(e) => setOtherCompanyOk(e.target.checked)} disabled={disabled || saving} />
+              登録中の企業（{storedName || '未入力'}）と取得対象の企業が異なります。取得対象の企業の情報として反映することを確認しました。
             </label>
           ) : null}
-
-          <div className="text-xs text-slate-700">
-            取得元：{candidate.docTypeCode === '130' ? '訂正有価証券報告書' : '有価証券報告書'}（{candidate.docId}、期末 {candidate.periodEnd ?? '未確認'}）
-            {candidate.amendedFromDocId ? `／元の書類 ${candidate.amendedFromDocId} より後の訂正を採用` : ''}
-            ／金額の単位：円（表示は百万円に丸め）
+          <div className="text-slate-600">
+            未入力の項目は一括で反映します。登録済みと同じ項目は変えません
+            {selection.differCount > 0 ? `。登録済みと違う ${selection.differCount} 件は、「上書き」を選んだものだけ反映します` : ''}。
           </div>
 
-          <div className="font-medium text-xs">企業情報</div>
-          <ul className="space-y-1 text-xs">
-            {PROFILE_KEYS.filter((k) => fieldDisplay(k, candidate) !== '').map((k) => {
-              const filled = filledProfile(k, current);
-              return (
-                <li key={k} className="flex flex-wrap items-start gap-2">
-                  <label className="flex items-start gap-1">
-                    <input type="checkbox" className="mt-0.5" checked={profileSel.includes(k)} onChange={() => toggle(profileSel, setProfileSel, k)} disabled={disabled || (mismatch && !otherCompanyOk)} />
-                    <span className="font-medium">{PROFILE_LABEL[k]}</span>：<span className="break-all">{fieldDisplay(k, candidate)}</span>
-                  </label>
-                  {filled ? (
-                    <label className="flex items-center gap-1 text-amber-700">
-                      <input type="checkbox" checked={profileOver.includes(k)} onChange={() => toggle(profileOver, setProfileOver, k)} disabled={disabled || (mismatch && !otherCompanyOk)} />
-                      入力済みの値を上書きする
-                    </label>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+          <div className="font-medium">企業情報</div>
+          <table className="w-full">
+            <tbody>
+              {selection.profile.map((r) => (
+                <tr key={r.key} className="border-t align-top">
+                  <th className="w-20 whitespace-nowrap py-1 pr-2 text-left font-medium text-slate-600">{PROFILE_LABEL[r.key]}</th>
+                  <td className="break-all py-1 pr-2">{displayRaw(r.key, r.cand) || <span className="text-slate-400">取得できず</span>}</td>
+                  <td className="whitespace-nowrap py-1 text-right">
+                    {r.status === 'none' ? <span className="text-slate-400">―</span> : null}
+                    {r.status === 'empty' ? '未入力 → 反映' : null}
+                    {r.status === 'same' ? <span className="text-slate-500">登録済みと同じ</span> : null}
+                    {r.status === 'differs' ? (
+                      <div className="space-y-0.5">
+                        <div className="text-amber-700">登録中：{displayRaw(r.key, r.cur)}</div>
+                        <label className="flex items-center justify-end gap-1 text-amber-700">
+                          <input
+                            type="checkbox"
+                            aria-label={`上書き（${PROFILE_LABEL[r.key]}）`}
+                            checked={overProfile.includes(r.key)}
+                            onChange={() => setOverProfile((l) => toggle(l, r.key))}
+                            disabled={disabled || saving || mismatchBlocked}
+                          />
+                          上書き
+                        </label>
+                      </div>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-          {candidate.finance.length > 0 ? (
+          {selection.years.length > 0 ? (
             <>
-              <div className="font-medium text-xs">財務（直近5期・単位：円）</div>
-              <table className="w-full text-[11px]">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="pr-2">年度</th>
-                    {FINANCE_KEYS.map((k) => <th key={k} className="pr-2">{FINANCE_LABEL[k]}</th>)}
-                    <th>反映</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {candidate.finance.map((y) => {
-                    const hasExisting = hasExistingYear(y.year, financePL, financeBS);
-                    return (
-                      <tr key={y.year} className="align-top">
-                        <td className="pr-2 font-medium">{y.year}年度</td>
-                        {FINANCE_KEYS.map((k) => (
-                          <td key={k} className="pr-2">{y[k] ? yen(y[k]!.value) : <span className="text-slate-400">未取得</span>}</td>
-                        ))}
-                        <td>
-                          <label className="flex items-center gap-1">
-                            <input type="checkbox" checked={yearSel.includes(y.year)} onChange={() => toggle(yearSel, setYearSel, y.year)} disabled={disabled || (mismatch && !otherCompanyOk)} />
-                            選ぶ
-                          </label>
-                          {hasExisting ? (
+              <div className="font-medium">財務（直近5期・百万円）</div>
+              <div className="overflow-x-auto">
+                <table className="w-full whitespace-nowrap">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="py-1 pr-3 font-normal">年度</th>
+                      {FINANCE_KEYS.map((k) => (
+                        <th key={k} className="py-1 pr-3 text-right font-normal" title={k === 'netIncome' ? '親会社株主に帰属する当期純利益' : undefined}>
+                          {FINANCE_SHORT_LABEL[k]}
+                        </th>
+                      ))}
+                      <th className="w-px py-1 pl-2 text-left font-normal">扱い</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selection.years.map((y) => (
+                      <tr key={y.year} className="border-t align-top">
+                        <td className="py-1 pr-3 font-medium">{y.year}年度</td>
+                        {FINANCE_KEYS.map((k) => {
+                          const cell = y.cells[k];
+                          return (
+                            <td key={k} className="py-1 pr-3 text-right tabular-nums">
+                              {cell ? (
+                                <>
+                                  {millionText(cell.value)}
+                                  {cell.status === 'differs' ? <div className="text-amber-700">登録中 {millionText(cell.registered)}</div> : null}
+                                </>
+                              ) : (
+                                <span className="text-slate-400">未取得</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="w-px py-1 pl-2">
+                          {y.hasDiffers ? (
                             <label className="flex items-center gap-1 text-amber-700">
-                              <input type="checkbox" checked={yearOver.includes(y.year)} onChange={() => toggle(yearOver, setYearOver, y.year)} disabled={disabled || (mismatch && !otherCompanyOk)} />
-                              上書き
+                              <input
+                                type="checkbox"
+                                aria-label={`上書き（${y.year}年度）`}
+                                checked={overYears.includes(y.year)}
+                                onChange={() => setOverYears((l) => toggle(l, y.year))}
+                                disabled={disabled || saving || mismatchBlocked}
+                              />
+                              上書き{y.hasEmpty ? '（未入力分は反映）' : ''}
                             </label>
-                          ) : null}
+                          ) : y.hasEmpty ? (
+                            '未入力 → 反映'
+                          ) : (
+                            <span className="text-slate-500">登録済みと同じ</span>
+                          )}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </>
-          ) : null}
-
-          {candidate.segments && candidate.segments.items.length > 0 ? (
-            <>
-              <div className="flex items-center gap-2 font-medium text-xs">
-                事業セグメント（セグメント別の売上高・営業利益）
-                <label className="flex items-center gap-1 font-normal">
-                  <input type="checkbox" checked={segmentSel} onChange={() => setSegmentSel(!segmentSel)} disabled={disabled || (mismatch && !otherCompanyOk) || storedSegments.length > 0} />
-                  反映する{storedSegments.length > 0 ? '（既に登録済みのため変更しない）' : ''}
-                </label>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <table className="w-full text-[11px]">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="pr-2">セグメント</th>
-                    <th className="pr-2">売上高</th>
-                    <th className="pr-2">営業利益</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {candidate.segments.items.map((s) => (
-                    <tr key={s.memberCode}>
-                      <td className="pr-2">{s.name ?? <span className="text-slate-400">名称未取得（{s.memberCode}）</span>}</td>
-                      <td className="pr-2">{million(s.sales)}</td>
-                      <td className="pr-2">{million(s.operatingIncome)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </>
           ) : null}
 
-          {candidate.issues.length > 0 ? (
-            <ul className="list-disc pl-5 text-[11px] text-slate-600">
-              {candidate.issues.map((t) => <li key={t}>{t}</li>)}
-            </ul>
+          {selection.segNew && candidate.segments ? (
+            <>
+              <div className="font-medium">事業セグメント（百万円）</div>
+              <ul className="space-y-0.5">
+                {candidate.segments.items
+                  .filter((s) => s.name)
+                  .map((s) => (
+                    <li key={s.memberCode} className="flex flex-wrap gap-x-3">
+                      <span className="font-medium">{s.name}</span>
+                      <span className="whitespace-nowrap">売上高 {millionText(s.sales)}</span>
+                      <span className="whitespace-nowrap">営業利益 {millionText(s.operatingIncome)}</span>
+                    </li>
+                  ))}
+              </ul>
+            </>
+          ) : selection.segKept ? (
+            <div className="text-slate-500">事業セグメント：登録済みのため変更しません</div>
           ) : null}
 
-          <div className="flex gap-2">
+          <details className="text-[11px] text-slate-600">
+            <summary className="cursor-pointer">出典・注意（{candidate.issues.length}件）</summary>
+            <div className="mt-1">
+              取得元：{candidate.filer.name}（EDINET {candidate.filer.edinetCode}）・書類 {candidate.docId}・期末 {candidate.periodEnd ?? '未確認'}・金額の単位は円（表示は百万円に丸め）
+              {candidate.amendedFromDocId ? `・元の書類 ${candidate.amendedFromDocId} より後の訂正を採用` : ''}
+            </div>
+            <ul className="list-disc pl-5">
+              {candidate.issues.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          </details>
+
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="rounded bg-sky-700 px-3 py-1 text-xs text-white disabled:opacity-50"
+              className="rounded bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               onClick={approve}
-              disabled={disabled || (mismatch && !otherCompanyOk) || (profileSel.length === 0 && yearSel.length === 0 && !segmentSel)}
+              disabled={approveDisabled}
             >
-              承認して反映
+              承認して反映・保存
             </button>
-            <button type="button" className="rounded border px-3 py-1 text-xs" onClick={() => { setView(null); setNotice(null); }}>
+            <button type="button" className="rounded border px-3 py-1.5 text-xs" onClick={cancelView} disabled={saving}>
               取り消す
             </button>
+            {nothingToApply && !mismatchBlocked ? <span className="text-slate-600">反映する項目はありません（すべて登録済みと同じです）</span> : null}
           </div>
         </div>
       ) : null}
 
-      {applied ? <div className="text-xs text-emerald-800">{applied}</div> : null}
+      {done ? (
+        <div className="space-y-0.5 rounded border border-emerald-300 bg-white p-2 text-xs text-emerald-900">
+          <div className="font-medium">反映し、保存しました</div>
+          {done.applied.length > 0 ? <div>反映：{done.applied.join('／')}</div> : null}
+          {done.kept.map((t) => (
+            <div key={t}>{t}</div>
+          ))}
+          {done.unfetched.length > 0 ? <div className="text-slate-700">未取得（推測で補っていません）：{done.unfetched.join('、')}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
