@@ -1,5 +1,6 @@
 import { buildStage6PlanBlock, buildCashPositionBlock, latestActual } from './stage6Plan';
-import { buildStoredFinancePlan, FINANCE_PLAN_CALC_VERSION, type FinancePlanDomain } from '@/utils/stage6/financePlanSnapshot';
+import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
+import { buildStoredFinancePlan, FINANCE_PLAN_CALC_VERSION, readStoredFinancePlan, type FinancePlanDomain } from '@/utils/stage6/financePlanSnapshot';
 import { formatAmount } from './stage1Blocks';
 import { FICTIONAL_STRATEGY_ROW, FICTIONAL_COMPANY_ID } from '../../eval/quality/fictionalCompany';
 
@@ -69,16 +70,39 @@ describe('実績・目標・予測の区分（Q2・Q5の誤りの再現と防止
     expect(text).toContain(`目標（経営者が登録）：2027年度 売上 ${formatAmount(1_000_000_000)}｜営業利益 ${formatAmount(70_000_000)}`);
   });
 
-  it('独立した予測が無いことを「予測未算出」と明示する', () => {
+  it('保存済みの計画がある場合、見通しは「予測未算出」と書かず、登録目標を見通しとして扱わない', () => {
     const text = block();
-    expect(text).toContain('予測未算出');
-    expect(text).toContain('目標年以降の値は目標そのものであり、予測として扱わないこと');
+    expect(text).not.toContain('予測未算出');
+    expect(text).toContain('登録目標は見通しではなく目標として扱うこと');
   });
 
-  it('期末現預金の予測は未算出で、現在の実績とは別の区分にする（Q5）', () => {
+  it('期末現預金の見通しは未算定の項目を未算定と書き、現在の実績とは別の区分にする（Q5）', () => {
     const text = block();
-    expect(text).toContain('期末現預金の予測：未算出');
-    expect(text).toContain('現在の実績とは別の区分');
+    expect(text).toContain('期末現預金 未算定');
+    expect(text).toContain('現在の実績（STAGE1登録）とは別の区分');
+  });
+
+  it('年度別の売上・営業利益・期末現預金は、STAGE6と同じ buildFinanceOutlook の結果と一致する', () => {
+    const stored = readStoredFinancePlan(storedFor(COMPANY_A), COMPANY_A);
+    if (stored.kind !== 'OK') throw new Error('stored plan must be OK');
+    const outlook = buildFinanceOutlook({
+      financePL: PL,
+      financeBS: BS,
+      departments: [],
+      fiscalYearEnd: '3',
+      companyTargets: [],
+      domain: stored.domain,
+      currentYear: CURRENT_YEAR,
+    });
+    const forecast = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST').slice(0, 3);
+    expect(forecast.length).toBeGreaterThan(0);
+    const text = block();
+    for (const y of forecast) {
+      const cash = typeof y.closingCashAfterFinancing.value === 'number' ? formatAmount(y.closingCashAfterFinancing.value) : '未算定';
+      expect(text).toContain(
+        `・${y.year}年度：売上 ${formatAmount(y.revenue.value as number)}・営業利益 ${formatAmount(y.operatingIncome.value as number)}・期末現預金 ${cash}`
+      );
+    }
   });
 
   it('実績は STAGE1 の最新年度（売上・営業利益・期末現預金）を使い、区分名を付ける', () => {

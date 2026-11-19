@@ -287,3 +287,9 @@ These rely on `html2pdf.js` and component refs, called from report pages.
 - Main branch: Production code (auto-deploys to Vercel)
 - Feature branches: Create from `main`, squash-merge on completion
 - Commit messages: Include issue/feature context (e.g., "feat: add deep-dive questions for STAGE2")
+
+## 画面・操作知識の更新ルール
+
+- 画面・機能・操作フローを変更したら、同じ変更で次も更新する：`lib/screens/screenRegistry.ts`（画面）、`lib/operationKnowledge/operations.ts`（操作。ラベル・根拠の行・手順・権限・保存方法）、`lib/growthKnowledge.ts`（CEOチャットの製品知識）。
+- 操作登録簿のテストは、根拠の行にラベルがあり、そのファイルが現行のページ（`app/**/page.tsx` と `layout.tsx`）から読み込まれていることを確認する。旧画面に同じラベルが残っているだけでは合格にしない。
+- 廃止された操作や旧画面を、現行の案内に使わない。

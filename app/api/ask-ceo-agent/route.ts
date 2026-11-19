@@ -45,6 +45,7 @@ import {
   isGeneralKnowledgeQuestion,
 } from '@/lib/ceoChat/contextSelection';
 import { buildExecutionSummaryBlock, isDepartmentsAbsent } from '@/lib/ceoChat/stage4Projection';
+import { buildStage4PlanBlock, loadStage4PlanRows } from '@/lib/ceoChat/stage4PlanBlock';
 import {
   buildStage5ProgressBlock,
   formatOwnProgressLines,
@@ -300,9 +301,11 @@ async function fetchStrategyContext(args: {
   const departments = safeArray<any>(strategy?.departments ?? (strategy as any)?.editableCascadeResult);
   const execSummary = buildExecutionSummaryBlock(departments, question, undefined, departmentsAbsent);
   const executionText = execSummary.text;
+  const stage4PlanRows = supabaseAdmin ? await loadStage4PlanRows(supabaseAdmin, companyId, strategyId) : null;
+  const stage4PlanText = buildStage4PlanBlock({ rows: stage4PlanRows, departments, question });
   const progressSummaryText = buildProgressSummary(progressLogs);
   const extraBlockFromFull =
-    `\n\n---\n${executionText}\n` +
+    `\n\n---\n${executionText}\n${stage4PlanText}\n` +
     `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
 
   // フルが取れない場合（strategyId が無効または削除されている場合）

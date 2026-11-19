@@ -1,9 +1,12 @@
 import { readStoredFinancePlan } from '@/utils/stage6/financePlanSnapshot';
 import { computeStage6FinancePlan } from '@/utils/stage6/financePlanPipeline';
-import { forecastHorizonOf } from '@/utils/stage6/financeOutlook';
+import { buildFinanceOutlook, forecastHorizonOf, type FinanceOutlook } from '@/utils/stage6/financeOutlook';
 import { formatAmount } from '@/lib/ceoChat/stage1Blocks';
 
 export const STAGE6_CHAR_BUDGET = 2000;
+const OUTLOOK_YEARS = 3;
+const OUTLOOK_NOTE =
+  '- 業績・資金の見通しは、保存済みの財務計画と現在のデータから、トップ画面・STAGE6・銀行向け計画書と同じ計算で出した推計です（確定値ではありません）。未算定の項目は推測で補わないこと。登録目標は見通しではなく目標として扱うこと。期末現預金の見通しは、現在の実績（STAGE1登録）とは別の区分です。';
 const SIMULATION_MAX = 3;
 const HEADER = '# 業績・資金の数値（STAGE6、区分ごとに表示）';
 const CATEGORY_NOTE =
@@ -86,6 +89,44 @@ function storedStatusLine(stored: Stored, noneConfirmed: boolean): string | null
   }
 }
 
+const calc = (v: number | null | undefined): string => (typeof v === 'number' && Number.isFinite(v) ? formatAmount(v) : '未算定');
+
+/* 施策反映後の売上・営業利益・期末現預金・判定を、STAGE6と同じ試算の結果から年度ごとに並べる（未算定は未算定と書く） */
+function outlookLines(outlook: FinanceOutlook): string[] {
+  const forecast = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST').slice(0, OUTLOOK_YEARS);
+  if (forecast.length === 0) return [];
+  const unified = new Map(outlook.unifiedPl.years.map((u) => [u.fiscalYear, u]));
+  const lines: string[] = ['- 年度別（施策反映後）：売上・営業利益・期末現預金、施策効果の内訳'];
+  for (const y of forecast) {
+    const u = unified.get(y.year);
+    const effect = u
+      ? `（施策効果：売上 ${calc(u.effect.revenueUpYen)}、営業利益 ${calc(u.effect.revenueOperatingIncomeYen)}）`
+      : '';
+    lines.push(
+      `  ・${y.year}年度：売上 ${calc(y.revenue.value)}・営業利益 ${calc(y.operatingIncome.value)}・期末現預金 ${calc(y.closingCashAfterFinancing.value)}${effect}`
+    );
+    if (y.verdict) lines.push(`    判定：${y.verdict}`);
+  }
+  return lines;
+}
+
+function safeOutlookLines(args: Parameters<typeof buildStage6PlanBlock>[0], domain: Parameters<typeof buildFinanceOutlook>[0]['domain']): string[] {
+  try {
+    const outlook = buildFinanceOutlook({
+      financePL: Array.isArray(args.financePL) ? (args.financePL as any) : [],
+      financeBS: Array.isArray(args.financeBS) ? (args.financeBS as any) : [],
+      departments: Array.isArray(args.departments) ? (args.departments as any) : [],
+      fiscalYearEnd: args.fiscalYearEnd,
+      companyTargets: Array.isArray(args.companyTargets) ? (args.companyTargets as any) : [],
+      domain,
+      currentYear: args.currentYear,
+    });
+    return outlookLines(outlook);
+  } catch {
+    return [];
+  }
+}
+
 export function buildStage6PlanBlock(args: {
   csvFinanceData: unknown;
   companyId: string | null;
@@ -118,8 +159,13 @@ export function buildStage6PlanBlock(args: {
     lines.push(status);
   }
 
-  lines.push(FORECAST_NOTE);
-  lines.push(CASH_FORECAST_NOTE);
+  const outlook = stored.kind === 'OK' ? safeOutlookLines(args, stored.domain) : [];
+  if (outlook.length > 0) {
+    lines.push(OUTLOOK_NOTE, ...outlook);
+  } else {
+    lines.push(FORECAST_NOTE);
+    lines.push(CASH_FORECAST_NOTE);
+  }
 
   if (stored.kind === 'OK') {
     try {

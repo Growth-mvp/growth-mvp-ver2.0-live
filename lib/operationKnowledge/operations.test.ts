@@ -99,6 +99,76 @@ describe('操作登録簿：UIラベルと実装コードの照合', () => {
   });
 });
 
+/* 現行の画面（ナビから使われるページ）。旧画面・転送用のページは起点にしない */
+const LEGACY_PAGE_DIRS = ['stage3', 'stage4', 'strategy', 'review', 'report/midterm-plan', 'report/stakeholder-select', 'signup'];
+const IMPORT_RE = /(?:import|export)\s[^;]*?from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+function listFiles(dir: string, out: string[] = []): string[] {
+  for (const name of fs.readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (fs.statSync(full).isDirectory()) listFiles(full, out);
+    else out.push(full);
+  }
+  return out;
+}
+
+function resolveImport(spec: string, fromFile: string): string | null {
+  const base = spec.startsWith('@/')
+    ? path.join(ROOT, spec.slice(2))
+    : spec.startsWith('.')
+      ? path.resolve(path.dirname(fromFile), spec)
+      : null;
+  if (base === null) return null;
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, path.join(base, 'index.ts'), path.join(base, 'index.tsx')]) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+function reachableFromCurrentPages(): Set<string> {
+  const appDir = path.join(ROOT, 'app');
+  const roots = listFiles(appDir)
+    .filter((f) => /[\\/](page|layout)\.tsx$/.test(f))
+    .filter((f) => {
+      const rel = path.relative(appDir, path.dirname(f)).split(path.sep).join('/');
+      return !LEGACY_PAGE_DIRS.some((d) => rel === d || rel.startsWith(`${d}/`));
+    });
+  const seen = new Set<string>();
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const text = fs.readFileSync(file, 'utf8');
+    for (const m of text.matchAll(IMPORT_RE)) {
+      const spec = m[1] ?? m[2] ?? m[3];
+      if (!spec) continue;
+      const target = resolveImport(spec, file);
+      if (target && !seen.has(target)) queue.push(target);
+    }
+  }
+  return seen;
+}
+
+describe('操作登録簿：現行画面からの到達性（旧画面のラベルだけで合格にしない）', () => {
+  let reachable: Set<string>;
+  beforeAll(() => {
+    reachable = reachableFromCurrentPages();
+  });
+
+  it.each(OPERATIONS.map((op) => [op.operationId, op] as const))(
+    '%s：根拠のファイルは、現行のページからの読み込みで使われている',
+    (_id, op) => {
+      const file = path.resolve(ROOT, op.source.file);
+      expect({ id: op.operationId, file: op.source.file, reachable: reachable.has(file) }).toEqual({
+        id: op.operationId,
+        file: op.source.file,
+        reachable: true,
+      });
+    },
+  );
+});
+
 describe('操作登録簿：手順・条件・保存', () => {
   it.each(OPERATIONS.map((op) => [op.operationId, op] as const))(
     '%s：目的、手順、条件が記載されている',
