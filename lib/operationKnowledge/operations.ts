@@ -156,6 +156,46 @@ export const OPERATIONS: readonly OperationEntry[] = [
     permission: MANAGER_UI,
     save: { kind: 'auto', target: '事業ポートフォリオを保存してから遷移する（遷移自体は保存しない）' },
   },
+  {
+    operationId: 'stage1.autofill-fetch',
+    screenIds: ['stage1'],
+    label: '候補を取得',
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 363 },
+    purpose:
+      '会社名または証券コード（4桁）から、公開資料（有価証券報告書）の企業情報・業種・直近5期の財務・事業セグメントの候補を作る。候補を作るだけで、入力欄は変わらない。AI経営コンサルタントに「〇〇の基本情報を入力して」と依頼しても、同じ候補を作れる（結果はチャットに出る）。',
+    steps: [
+      '「① 企業情報・事業内容」を開き、「公開資料（有価証券報告書）から基本情報を取得」の欄に、会社名または証券コード（4桁）を入れる',
+      '「候補を取得」を押す。進行状況（会社の特定、決算期ごとの報告書の確認）が表示される',
+      '候補の「企業情報」「財務」「事業セグメント」を確認する（取得元の書類は「出典・注意」で見られる）',
+    ],
+    conditions:
+      '編集権限（管理者・管理職）が必要。同名の会社が複数あるときは、証券コード（4桁）を付けて取り直す。登録中の企業と取得対象が異なるときは、確認のチェックを入れるまで反映できない。停止設定が有効なときは表示されない',
+    permission: {
+      minRole: 'manager',
+      enforcement: 'ui-and-api',
+      apiRoute: 'app/api/stage1/autofill/identify/route.ts',
+      mfaRequired: false,
+      note: '取得のAPI（会社の特定・決算期ごとの報告書）は所属確認に加え assertMinRole(manager) を行う',
+    },
+    save: { kind: 'none', target: '保存しない（候補を作るだけ。入力欄は変わらない）' },
+  },
+  {
+    operationId: 'stage1.autofill-approve',
+    screenIds: ['stage1'],
+    label: '承認して反映・保存',
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 539 },
+    purpose:
+      '候補の内容を入力欄へ反映し、そのまま戦略データを保存する。完了は保存できたことを確認してから表示し、AI経営コンサルタントのチャットに、反映した項目・残した項目・未取得の項目を報告する。',
+    steps: [
+      '候補の「企業情報」「財務（直近5期）」「事業セグメント」を確認する。未入力の項目は一括で反映される',
+      '登録済みと違う項目は、「上書き」を入れたものだけ反映される。登録済みと同じ項目は変えない',
+      '「承認して反映・保存」を押す。保存できると「反映し、保存しました」と表示される',
+    ],
+    conditions:
+      '編集権限（管理者・管理職）が必要。ほかに未保存の変更があるときは反映しない（先に「全体保存」を押す）。保存できなかったときは、入力欄に残った内容を「全体保存」で保存する',
+    permission: MANAGER_UI,
+    save: { kind: 'manual', target: '承認の操作の中で、既存の保存処理（saveStrategyData）を1回呼ぶ' },
+  },
 
   // ---- STAGE2 ----
   {
