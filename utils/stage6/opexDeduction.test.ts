@@ -1,5 +1,6 @@
 import type { Department, ExecutionHumanInvestment, FinanceEffect, SpendSchedule } from '@/types/strategy';
 import { buildFinanceEffectTrial, type FinanceEffectProjectRow } from './financeEffectPlan';
+import { addCostConfirmedOf } from '@/lib/financeEffect';
 import { opexDeductionOfProjects, opexDeductionYearly } from './opexDeduction';
 
 const FY = [2026, 2027, 2028];
@@ -45,7 +46,7 @@ const costIncreaseOf = (t: ReturnType<typeof trialOf>, fy: number) => t.years.fi
 describe('OPEXの営業利益控除（施策ごと）', () => {
   it('営業利益に含まれないOPEXは、支出年度の会計年度に一度だけ差し引く', () => {
     const departments = deptWith([{ title: '少量配送', items: [opex('a', 1_000_000, { opexRelation: 'NOT_IN_PLAN' })] }]);
-    const list = opexDeductionOfProjects(departments, FY_END);
+    const list = opexDeductionOfProjects(departments, FY_END, addCostConfirmedOf);
     expect(list).toMatchObject([{ deptIndex: 0, projectIndex: 0, byFiscalYear: [{ fiscalYear: 2027, amountYen: 1_000_000 }], held: [] }]);
     expect(opexDeductionYearly(list)).toEqual([{ fiscalYear: 2027, amountYen: 1_000_000 }]);
 
@@ -63,20 +64,20 @@ describe('OPEXの営業利益控除（施策ごと）', () => {
       { title: '既存', items: [opex('b', 1_000_000, {})] },
       { title: '未確定', items: [opex('c', 1_000_000, { opexRelation: 'NOT_IN_PLAN', paymentYm: undefined })] },
     ]);
-    expect(opexDeductionOfProjects(departments, FY_END)).toEqual([]);
+    expect(opexDeductionOfProjects(departments, FY_END, addCostConfirmedOf)).toEqual([]);
     expect(trialOf(departments).projects.some((r) => r.source === 'OPEX')).toBe(false);
   });
 
   it('決算月が無いときは差し引かない', () => {
     const departments = deptWith([{ title: '少量配送', items: [opex('a', 1_000_000, { opexRelation: 'NOT_IN_PLAN' })] }]);
-    expect(opexDeductionOfProjects(departments, undefined)).toEqual([]);
+    expect(opexDeductionOfProjects(departments, undefined, addCostConfirmedOf)).toEqual([]);
   });
 });
 
 describe('確認済みの追加費用（COST_INCREASE）との二重控除の防止', () => {
   it('同じ案件に確認済みの追加費用があるOPEXは、同じ費用か確認するまで保留し、差し引かない', () => {
     const departments = deptWith([{ title: '少量配送', financeEffect: addCost, items: [opex('a', 1_000_000, { opexRelation: 'NOT_IN_PLAN' })] }]);
-    const list = opexDeductionOfProjects(departments, FY_END);
+    const list = opexDeductionOfProjects(departments, FY_END, addCostConfirmedOf);
     expect(list).toMatchObject([{ byFiscalYear: [], held: [{ label: '外注費a' }] }]);
     const t = trialOf(departments);
     expect(costIncreaseOf(t, 2027)).toBe(3_000_000);
@@ -87,7 +88,7 @@ describe('確認済みの追加費用（COST_INCREASE）との二重控除の防
 
   it('同じ費用と答えた場合は、追加費用に含まれるものとして二重に差し引かない（行も出さない）', () => {
     const departments = deptWith([{ title: '少量配送', financeEffect: addCost, items: [opex('a', 1_000_000, { opexRelation: 'SAME_AS_ADD_COST' })] }]);
-    expect(opexDeductionOfProjects(departments, FY_END)).toEqual([]);
+    expect(opexDeductionOfProjects(departments, FY_END, addCostConfirmedOf)).toEqual([]);
     const t = trialOf(departments);
     expect(costIncreaseOf(t, 2027)).toBe(3_000_000);
     expect(t.projects.some((r) => r.source === 'OPEX')).toBe(false);

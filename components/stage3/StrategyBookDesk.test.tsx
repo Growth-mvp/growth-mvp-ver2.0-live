@@ -145,7 +145,7 @@ describe('STEP4の重点プロジェクトの採否', () => {
   });
 });
 
-const OTHER_DEPT = { name: '開発部', mission: '製品を届ける', projects: [] };
+const OTHER_DEPT = { name: '開発部', mission: '製品を届ける', projects: [] } as unknown as Department;
 const OTHER_KEY = 'name:開発部';
 const LONG_PROPOSAL = '第一に、営業部と開発部の計画が同じ顧客を狙っています。第二に、役割を分けると両方の成果が上がります。第三に、四半期ごとに見直す必要があります。';
 
@@ -298,6 +298,46 @@ describe('手動でプロジェクトを追加（課題No.13）と離脱時の�
     const event = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+describe('再生成の後は、部門間の分析を待たずに戦略書を見られる（課題No.3・18・29）', () => {
+  it('保存が済んだら再生成した戦略書を表示し、分析中であることを示す。分析は保存した内容に対して行われる', async () => {
+    const state = stateWithRegeneratedDraft();
+    (state as unknown as { drafts: unknown[] }).drafts = [state.drafts[0]];
+    mockAuthFetchJson.mockReset();
+    mockAuthFetchJson.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (init?.method === 'PUT') return { ok: true, version: 6 };
+      if (String(url).includes('/adjustment/analyze')) return new Promise(() => undefined);
+      return serverResponse(state);
+    });
+    render(
+      <StrategyBookDesk
+        departments={[DEPT, OTHER_DEPT]}
+        canEdit
+        canManageDepartments={false}
+        getWriteGate={gate}
+        readCompanyId="c1"
+        readStrategyId="s1"
+        generateDepartment={jest.fn(async () => ({ projects: [], proposals: [] }))}
+        prepareRegeneration={jest.fn(async () => ({ ok: true as const }))}
+        renderSixQuestions={() => null}
+        onConfirmed={jest.fn()}
+        onExportDepartment={jest.fn(async () => undefined)}
+        onAddDepartment={jest.fn(async () => true)}
+        onRenameDepartment={jest.fn(async () => true)}
+        onDeleteDepartment={jest.fn(async () => true)}
+      />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '6つの問いへ進む' }));
+    fireEvent.click(await screen.findByRole('button', { name: '6問を反映して戦略書を再生成' }));
+
+    expect(await screen.findByText(/部門間の調整を分析しています/)).toBeTruthy();
+    expect(screen.queryByText(/戦略書を作り直しています/)).toBeNull();
+    expect(await screen.findByText(/6問反映後の再生成版/)).toBeTruthy();
+    const analyzeCalls = mockAuthFetchJson.mock.calls.filter(([url]) => String(url).includes('/adjustment/analyze'));
+    expect(analyzeCalls).toHaveLength(1);
+    expect(analyzeCalls[0][1].json.draft.version).toBe(2);
   });
 });
 

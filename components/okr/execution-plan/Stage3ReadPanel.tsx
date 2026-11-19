@@ -59,7 +59,7 @@ import {
 import { findProjectPositionById, writeFinanceEffectToProject } from '@/lib/stage4/planView/financeBridgeStore';
 import { writeInvestmentsToProject } from '@/lib/stage4/planView/investmentBridgeStore';
 import { checkInvestmentRow, isInvestmentRecord, type InvestmentRowDraft } from '@/lib/stage4/planView/investmentRows';
-import { hasConfirmedAddCost } from '@/utils/stage6/opexDeduction';
+import { hasConfirmedAddCost } from '@/lib/financeEffect';
 import { findFinanceEffectOverlaps } from '@/lib/financeEffect';
 import type { FinanceEffect } from '@/types/strategy';
 import { Stage4FinanceConfirm } from './Stage4FinanceConfirm';

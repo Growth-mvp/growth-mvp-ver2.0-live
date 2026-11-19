@@ -21,23 +21,44 @@ export type GenerateDeps = {
   modelFor: (raw: RawPlanInput) => Promise<(prompt: string) => Promise<ModelReply>>;
 };
 
+/* 失敗の原因。入力の不備・検証の不合格（INVALID）と、AI呼び出しの失敗（MODEL_FAILED）を区別する */
+export type InvalidCause = 'INPUT' | 'VALIDATION';
+export type ModelFailureCause = 'TIMEOUT' | 'TRANSPORT' | 'MODEL';
+
 export type GenerateOutcome =
   | { status: 'CREATED'; record: PlanDocRecord }
   | { status: 'EXISTS'; record: PlanDocRecord }
   | { status: 'IN_PROGRESS' }
   | { status: 'NOT_FOUND' }
   | { status: 'DENIED' }
-  | { status: 'INVALID'; messages: string[] }
-  | { status: 'MODEL_FAILED'; message: string }
+  | { status: 'INVALID'; messages: string[]; cause: InvalidCause }
+  | { status: 'MODEL_FAILED'; message: string; cause: ModelFailureCause }
   | { status: 'FAILED'; message: string };
 
 export type PreviewOutcome =
   | { status: 'PREVIEW'; draft: Record<string, unknown> }
   | { status: 'NOT_FOUND' }
   | { status: 'DENIED' }
-  | { status: 'INVALID'; messages: string[] }
-  | { status: 'MODEL_FAILED'; message: string }
+  | { status: 'INVALID'; messages: string[]; cause: InvalidCause }
+  | { status: 'MODEL_FAILED'; message: string; cause: ModelFailureCause }
   | { status: 'FAILED'; message: string };
+
+const MODEL_FAILED_BY_CAUSE: Record<ModelFailureCause, string> = {
+  TIMEOUT: 'AIの応答が時間内に返りませんでした。内容は保存されていません。少し時間をおいて、もう一度お試しください。',
+  TRANSPORT: 'AIサービスへの接続に失敗しました。内容は保存されていません。通信の状況を確認して、もう一度お試しください。',
+  MODEL: 'AIによる草案を作れませんでした。内容は保存されていません。もう一度お試しください。',
+};
+const VALIDATION_GUIDANCE = '計画書の検証で不合格になりました。既存の計画は変わっていません。STAGE3の内容を確認するか、もう一度生成してください。';
+
+/* AI呼び出しの例外を、時間切れ・通信の失敗・モデルの応答の失敗に分ける（再試行の判断は呼び出し口で済んでいる） */
+function modelCauseOf(e: unknown): ModelFailureCause {
+  const err = e as { name?: unknown; status?: unknown } | null;
+  const name = typeof err?.name === 'string' ? err.name : '';
+  if (name === 'APIConnectionTimeoutError' || name === 'AbortError' || name === 'APIUserAbortError') return 'TIMEOUT';
+  if (name === 'APIConnectionError') return 'TRANSPORT';
+  if (typeof err?.status === 'number' && (err.status === 429 || err.status >= 500)) return 'TRANSPORT';
+  return 'MODEL';
+}
 
 const SWOT_LABELS: Array<[keyof RawPlanStrategy, string]> = [
   ['strength', '強み'],
@@ -46,7 +67,6 @@ const SWOT_LABELS: Array<[keyof RawPlanStrategy, string]> = [
   ['threat', '脅威'],
 ];
 
-const MODEL_FAILED = 'AIによる草案を作れませんでした。内容は保存されていません。もう一度お試しください。';
 const FAILED = '草案を保存できませんでした。もう一度お試しください。';
 const KPI_FIELD_JA: Record<string, string> = { id: 'ID', label: '名称', target: '目標値', unit: '単位', due: '期限', owner: '担当' };
 
@@ -106,7 +126,7 @@ type Refusal =
   | { status: 'DENIED' }
   | { status: 'FAILED'; message: string }
   | { status: 'NOT_FOUND' }
-  | { status: 'INVALID'; messages: string[] };
+  | { status: 'INVALID'; messages: string[]; cause: InvalidCause };
 
 /* 所属・戦略・プロジェクトを照合し、保存データから計画エンジンの入力を作る（ここでは何も書かない） */
 async function targetOf(
@@ -136,7 +156,7 @@ async function targetOf(
   if (hits > 1) {
     return {
       ok: false,
-      refusal: { status: 'INVALID', messages: ['同じIDのプロジェクトが複数あるため、計画書を作れません。STAGE3でプロジェクトのIDを確認してください'] },
+      refusal: { status: 'INVALID', cause: 'INPUT', messages: ['同じIDのプロジェクトが複数あるため、計画書を作れません。STAGE3でプロジェクトのIDを確認してください'] },
     };
   }
 
@@ -147,7 +167,7 @@ async function targetOf(
   if (missing.length > 0) {
     return {
       ok: false,
-      refusal: { status: 'INVALID', messages: [`STAGE2のSWOT（${missing.join('・')}）が未入力のため、計画書を作れません`] },
+      refusal: { status: 'INVALID', cause: 'INPUT', messages: [`STAGE2のSWOT（${missing.join('・')}）が未入力のため、計画書を作れません`] },
     };
   }
 
@@ -204,10 +224,8 @@ export async function generatePlanDraft(
     const { result, reply } = await draftWithModel(raw, deps);
     if (!result.ok || !result.plan) {
       await ctx.gateway.failGeneration(key, ctx.userId);
-      return {
-        status: 'INVALID',
-        messages: result.issues.filter((i) => i.severity === 'error').map((i) => i.message),
-      };
+      const messages = result.issues.filter((i) => i.severity === 'error').map((i) => i.message);
+      return { status: 'INVALID', messages: [...messages, VALIDATION_GUIDANCE], cause: 'VALIDATION' };
     }
     const bundle = toRunRecord({
       result,
@@ -226,9 +244,10 @@ export async function generatePlanDraft(
     return { status: 'CREATED', record: done.value };
   } catch (e) {
     await ctx.gateway.failGeneration(key, ctx.userId);
-    if (e instanceof ZodError) return { status: 'INVALID', messages: inputMessages(e) };
+    if (e instanceof ZodError) return { status: 'INVALID', messages: inputMessages(e), cause: 'INPUT' };
     console.error('[stage4-generate] draft failed', describeError(e));
-    return { status: 'MODEL_FAILED', message: MODEL_FAILED };
+    const cause = modelCauseOf(e);
+    return { status: 'MODEL_FAILED', message: MODEL_FAILED_BY_CAUSE[cause], cause };
   }
 }
 
@@ -246,7 +265,7 @@ export async function previewPlanDraft(
     if (!result.ok || !result.plan) {
       const errors = result.issues.filter((i) => i.severity === 'error');
       console.warn('[stage4-preview] invalid', errors.map((i) => i.code).join(','));
-      return { status: 'INVALID', messages: errors.map((i) => i.message) };
+      return { status: 'INVALID', messages: [...errors.map((i) => i.message), VALIDATION_GUIDANCE], cause: 'VALIDATION' };
     }
     const draft = toRunRecord({
       result,
@@ -259,9 +278,10 @@ export async function previewPlanDraft(
     });
     return { status: 'PREVIEW', draft };
   } catch (e) {
-    if (e instanceof ZodError) return { status: 'INVALID', messages: inputMessages(e) };
+    if (e instanceof ZodError) return { status: 'INVALID', messages: inputMessages(e), cause: 'INPUT' };
     console.error('[stage4-preview] draft failed', describeError(e));
-    return { status: 'MODEL_FAILED', message: MODEL_FAILED };
+    const cause = modelCauseOf(e);
+    return { status: 'MODEL_FAILED', message: MODEL_FAILED_BY_CAUSE[cause], cause };
   }
 }
 

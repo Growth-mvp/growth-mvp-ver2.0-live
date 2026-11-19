@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 
 import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
+import { runWithRetryBudget } from '@/lib/server/aiCallMetrics';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { buildStateFromDbRow } from '@/utils/supabase/strategy';
@@ -33,14 +34,16 @@ function userScopedClient(req: Request) {
   });
 }
 
+/* 1回の計画書生成のモデル呼び出しに使える時間。生成ルートの maxDuration（300秒）の内側に、保存の時間を残す */
+const STAGE4_MODEL_BUDGET_MS = 280_000;
+
 /* 実AIの呼び出し口。モデルの設定は既存の設定機構（config/models.json の stage4PlanDraft）を使う */
 async function openAiCall(prompt: string): Promise<ModelReply> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0 });
   const params = getOpenAIModelParamsForProcess('stage4PlanDraft');
-  const res = await openai.chat.completions.create({
-    ...params,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  const res = await runWithRetryBudget('stage4-plan-draft', STAGE4_MODEL_BUDGET_MS, (timeout) =>
+    openai.chat.completions.create({ ...params, messages: [{ role: 'user', content: prompt }] }, { timeout }),
+  );
   const choice = res.choices[0];
   return {
     text: choice?.message?.content ?? '',

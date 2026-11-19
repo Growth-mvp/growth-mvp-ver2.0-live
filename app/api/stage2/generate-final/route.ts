@@ -1065,6 +1065,7 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
   try {
     const resp = await openai.chat.completions.create(base, {
       signal: controller.signal,
+      maxRetries: 0,
     });
     clearTimeout(timer);
     return resp.choices?.[0]?.message?.content?.trim() ?? '';
@@ -1439,7 +1440,7 @@ async function enhanceEmotionIfNeeded(
       };
     }
 
-    const r = await openai.chat.completions.create(base);
+    const r = await openai.chat.completions.create(base, { timeout: 20_000, maxRetries: 0 });
     const raw = r.choices?.[0]?.message?.content?.trim() || '';
     const parsed = extractJsonLoose<{ sections?: { heading?: string; body?: string }[] }>(raw);
     const enhanced = Array.isArray(parsed?.sections) ? parsed!.sections! : null;

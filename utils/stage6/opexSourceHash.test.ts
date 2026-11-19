@@ -2,7 +2,7 @@ import type { CfAssumptions } from './cashflow';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { computeStage6FinancePlan } from './financePlanPipeline';
 import { sourceHashOf, type FinancePlanDomain } from './financePlanSnapshot';
-import { opexHashInputOf } from './opexDeduction';
+import { opexHashInputFor as opexHashInputFor } from './financeEffectPlan';
 
 const financePL: FinancePLRow[] = [
   { year: 2024, revenue: 900_000_000, operatingIncome: 40_000_000, netIncome: 25_000_000, depreciation: 18_000_000, interest: 6_000_000, tax: 8_000_000 },
@@ -64,18 +64,18 @@ describe('銀行向け計画書と保存側の鮮度の識別子（OPEX控除）
         candidateYen: computed.investment.candidateYen,
         basisPendingYen: computed.investment.basisPendingYen,
         yearlyByCategory: computed.investment.yearlyByCategory,
-        opexNotInPlanYearly: opexHashInputOf(departments, '3'),
+        opexNotInPlanYearly: opexHashInputFor(departments, '3'),
       },
       fiscalYearEnd: '3',
     });
-    expect(opexHashInputOf(departments, '3')).toEqual([{ fiscalYear: 2027, amountYen: 1_000_000 }]);
+    expect(opexHashInputFor(departments, '3')).toEqual([{ fiscalYear: 2027, amountYen: 1_000_000 }]);
     expect(computed.sourceHash).toBe(saved);
   });
 
   it('営業利益に既に含まれるOPEXは差し引かないため、控除の項目を識別子に加えない（従来の作り方のまま）', () => {
     const departments = departmentsWith(project('IN_PLAN'));
     const computed = compute(departments);
-    expect(opexHashInputOf(departments, '3')).toBeUndefined();
+    expect(opexHashInputFor(departments, '3')).toBeUndefined();
     const legacy = sourceHashOf({
       financePL,
       financeBS,

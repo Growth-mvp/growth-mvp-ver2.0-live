@@ -1,6 +1,5 @@
-import type { Department, FinanceEffect } from '@/types/strategy';
+import type { Department } from '@/types/strategy';
 import type { OpexRelation } from '@/lib/stage4/planView/investmentRows';
-import { computeFinanceEffect } from '@/lib/financeEffect';
 import { buildInvestmentItems, fiscalYearOf, parseFiscalYearEndMonth, type InvestmentSource } from './investmentDemand';
 
 export type OpexHold = { label: string; reason: string };
@@ -38,15 +37,8 @@ export type OpexDecision = {
 const HOLD_SAME_WITHOUT_ADD_COST = '同じ案件の確認済み追加費用がないため、同じ費用か確認できません';
 const HOLD_NOT_IN_PLAN_WITH_ADD_COST = '同じ案件に確認済みの追加費用があるため、同じ費用か確認してください（二重に差し引かないため保留）';
 
-const effectsOf = (project: { financeEffect?: FinanceEffect; financeEffects?: FinanceEffect[] }): FinanceEffect[] =>
-  [project.financeEffect, ...(Array.isArray(project.financeEffects) ? project.financeEffects : [])].filter(
-    (e): e is FinanceEffect => !!e && typeof e === 'object',
-  );
-
-/** 確認済み（STAGE6に反映される）の追加費用（COST_INCREASE）を持つか */
-export function hasConfirmedAddCost(effects: readonly FinanceEffect[]): boolean {
-  return effects.some((e) => e.kind === 'COST_INCREASE' && computeFinanceEffect(e).status === 'CONFIRMED');
-}
+/** 施策が確認済みの追加費用を持つか。財務効果の解釈は境界モジュールが行い、ここには判定結果だけを渡す */
+export type AddCostConfirmedCheck = (project: object) => boolean;
 
 /**
  * OPEX明細ごとの判定。
@@ -56,14 +48,18 @@ export function hasConfirmedAddCost(effects: readonly FinanceEffect[]): boolean 
  * - DIFFERENT_FROM_ADD_COST：追加費用とは別の費用として差し引く
  * 関係が未確認の既存の明細は差し引かない。金額・時期がそろっていない明細は計画に含めない。
  */
-export function opexDecisionsOf(departments: Department[] | null | undefined, fiscalYearEnd: string | undefined): OpexDecision[] {
+export function opexDecisionsOf(
+  departments: Department[] | null | undefined,
+  fiscalYearEnd: string | undefined,
+  addCostConfirmedOf: AddCostConfirmedCheck,
+): OpexDecision[] {
   const endMonth = parseFiscalYearEndMonth(fiscalYearEnd);
   if (endMonth === null) return [];
 
   const addCostOf = new Map<string, boolean>();
   (departments ?? []).forEach((dept, dIdx) => {
     (dept?.projects ?? []).forEach((project, pIdx) => {
-      if (project) addCostOf.set(`${dIdx}:${pIdx}`, hasConfirmedAddCost(effectsOf(project)));
+      if (project) addCostOf.set(`${dIdx}:${pIdx}`, addCostConfirmedOf(project));
     });
   });
 
@@ -126,9 +122,13 @@ export function opexDecisionsOf(departments: Department[] | null | undefined, fi
 /**
  * 営業利益計画に含まれないOPEXを、施策ごとに差し引く（判定は opexDecisionsOf と同じ）。
  */
-export function opexDeductionOfProjects(departments: Department[] | null | undefined, fiscalYearEnd: string | undefined): OpexProjectDeduction[] {
+export function opexDeductionOfProjects(
+  departments: Department[] | null | undefined,
+  fiscalYearEnd: string | undefined,
+  addCostConfirmedOf: AddCostConfirmedCheck,
+): OpexProjectDeduction[] {
   const byProject = new Map<string, OpexProjectDeduction & { amounts: Map<number, number> }>();
-  for (const d of opexDecisionsOf(departments, fiscalYearEnd)) {
+  for (const d of opexDecisionsOf(departments, fiscalYearEnd, addCostConfirmedOf)) {
     if (d.status !== 'DEDUCTED' && d.status !== 'HELD') continue;
     const key = `${d.deptIndex}:${d.projectIndex}`;
     let entry = byProject.get(key);
@@ -163,7 +163,8 @@ export function opexDeductionYearly(list: readonly OpexProjectDeduction[]): { fi
 export function opexHashInputOf(
   departments: Department[] | null | undefined,
   fiscalYearEnd: string | undefined,
+  addCostConfirmedOf: AddCostConfirmedCheck,
 ): { fiscalYear: number; amountYen: number }[] | undefined {
-  const yearly = opexDeductionYearly(opexDeductionOfProjects(departments, fiscalYearEnd));
+  const yearly = opexDeductionYearly(opexDeductionOfProjects(departments, fiscalYearEnd, addCostConfirmedOf));
   return yearly.length > 0 ? yearly : undefined;
 }

@@ -56,12 +56,12 @@ const state = {
 const audiences: AudienceType[] = ['bank', 'shareholder', 'employee'];
 
 describe('計画書の表示（モック）：財務効果は確認済みのみ、年額換算と明記', () => {
-  it.each(audiences)('%s 向け：確認済みの年額換算を示し、未確認・未算定は金額にしない', (audience) => {
+  it.each(audiences)('%s 向け：STAGE6に反映される年額換算を示し、未反映・未算定は金額にしない', (audience) => {
     const data = buildPlanData(state, audience);
     const html = renderToStaticMarkup(<PlanPreview data={data} audience={audience} />);
     expect(html).toContain('財務効果（売上）');
-    expect(html).toContain('年額換算 +120百万円（確認済み）');
-    expect(html).toContain('未確認（財務試算に含まない）');
+    expect(html).toContain('年額換算 +120百万円（STAGE6に反映）');
+    expect(html).toContain('未反映（計算条件がそろうまで財務試算に含まない）');
     expect(html).toContain('未算定（不足：');
     expect(html).not.toContain('売上寄与:');
     expect(html).not.toContain('営業利益寄与:');

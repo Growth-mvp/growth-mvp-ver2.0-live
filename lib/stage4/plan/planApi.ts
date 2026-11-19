@@ -178,9 +178,9 @@ export function createPlanApi(deps: PlanApiDeps) {
       case 'DENIED':
         return json(403, { status: 'DENIED' });
       case 'INVALID':
-        return json(422, { status: 'INVALID', messages: out.messages });
+        return json(422, { status: 'INVALID', messages: out.messages, cause: out.cause });
       case 'MODEL_FAILED':
-        return json(502, { status: 'MODEL_FAILED', message: out.message });
+        return json(502, { status: 'MODEL_FAILED', message: out.message, cause: out.cause });
       default:
         return json(500, { status: 'FAILED', message: out.message });
     }
@@ -228,9 +228,9 @@ export function createPlanApi(deps: PlanApiDeps) {
       case 'DENIED':
         return json(403, { status: 'DENIED' });
       case 'INVALID':
-        return json(422, { status: 'INVALID', messages: out.messages });
+        return json(422, { status: 'INVALID', messages: out.messages, cause: out.cause });
       case 'MODEL_FAILED':
-        return json(502, { status: 'MODEL_FAILED', message: out.message });
+        return json(502, { status: 'MODEL_FAILED', message: out.message, cause: out.cause });
       default:
         return json(500, { status: 'FAILED', message: out.message });
     }

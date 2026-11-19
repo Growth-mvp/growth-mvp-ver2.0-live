@@ -1,8 +1,8 @@
-import { computeFinanceEffect, type FinanceEffectResult } from '@/lib/financeEffect';
+import { computeFinanceEffect, hasConfirmedAddCost, type FinanceEffectResult } from '@/lib/financeEffect';
 import { isInvestmentRecord } from '@/lib/stage4/planView/investmentRows';
 import type { ExecutionHumanInvestment, FinanceEffect } from '@/types/strategy';
-import { buildFinanceEffectTrial, type FinanceEffectProjectStatus } from '@/utils/stage6/financeEffectPlan';
-import { hasConfirmedAddCost, opexDecisionsOf, type OpexDecisionStatus } from '@/utils/stage6/opexDeduction';
+import { buildFinanceEffectTrial, opexDecisionsFor, type FinanceEffectProjectStatus } from '@/utils/stage6/financeEffectPlan';
+import type { OpexDecisionStatus } from '@/utils/stage6/opexDeduction';
 
 type Departments = Parameters<typeof buildFinanceEffectTrial>[0]['departments'];
 
@@ -63,7 +63,7 @@ export function projectPlanFinanceOf(args: { departments: unknown; fiscalYearEnd
   });
 
   const opexByRecord = new Map(
-    opexDecisionsOf(departments, args.fiscalYearEnd)
+    opexDecisionsFor(departments, args.fiscalYearEnd)
       .filter((d) => d.deptIndex === pos.deptIndex && d.projectIndex === pos.projectIndex && d.recordId)
       .map((d) => [String(d.recordId), { status: d.status, reason: d.reason }] as const),
   );

@@ -1,9 +1,9 @@
 /* STAGE6：プロジェクト別の財務効果の「計画（STAGE4）」と「登録済み実績（STAGE5）」を年度別に照らす（参照専用の純粋関数）。
  * 計画の金額は buildFinanceEffectTrial と opexDecisionsOf の結果をそのまま使う。実績は書き換えない。 */
-import type { Department, FinanceActualEntry, FinanceEffect } from '@/types/strategy';
-import { buildFinanceEffectTrial } from './financeEffectPlan';
+import type { Department, FinanceActualEntry } from '@/types/strategy';
+import { buildFinanceEffectTrial, effectFactsOf, opexDecisionsFor, type EffectFact } from './financeEffectPlan';
 import { fiscalYearOf, parseFiscalYearEndMonth } from './investmentDemand';
-import { opexDecisionsOf, type OpexDecision, type OpexDecisionStatus } from './opexDeduction';
+import type { OpexDecision, OpexDecisionStatus } from './opexDeduction';
 
 export type PlanActualKind = 'REVENUE_UP' | 'COST_REDUCTION' | 'COST_INCREASE' | 'OPEX';
 export type PlanActualMode = 'REVENUE' | 'COST' | 'OPERATING';
@@ -83,11 +83,6 @@ const monthsBetween = (startYm: string, endYm: string): string[] => {
 
 const isYmText = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}$/.test(v);
 
-const effectsWithIndex = (project: { financeEffect?: FinanceEffect; financeEffects?: FinanceEffect[] }) =>
-  [project.financeEffect, ...(Array.isArray(project.financeEffects) ? project.financeEffects : [])]
-    .map((effect, index) => ({ effect, index }))
-    .filter((x): x is { effect: FinanceEffect; index: number } => !!x.effect && typeof x.effect === 'object');
-
 /** 計画と実績の両方を含む会計年度の範囲（最大 MAX_YEARS 年）。範囲の外は計画・実績とも扱わない */
 function fiscalYearRangeOf(departments: Department[] | null | undefined, endMonth: number): number[] {
   const found: number[] = [];
@@ -97,9 +92,9 @@ function fiscalYearRangeOf(departments: Department[] | null | undefined, endMont
   for (const dept of departments ?? []) {
     for (const project of dept?.projects ?? []) {
       if (!project) continue;
-      for (const { effect } of effectsWithIndex(project)) {
-        add(effect.startYm);
-        add(effect.endYm);
+      for (const fact of effectFactsOf(project)) {
+        add(fact.startYm);
+        add(fact.endYm);
       }
       for (const r of project.executionHumanInvestments ?? []) {
         if (r?.spend?.category !== 'OPEX') continue;
@@ -159,7 +154,7 @@ export function planActualProjectsOf(departments: Department[] | null | undefine
   const fiscalYears = fiscalYearRangeOf(departments, endMonth);
   if (fiscalYears.length === 0) return [];
   const trial = buildFinanceEffectTrial({ departments, fiscalYearEnd, fiscalYears });
-  const decisions = opexDecisionsOf(departments, fiscalYearEnd);
+  const decisions = opexDecisionsFor(departments, fiscalYearEnd);
 
   const out: PlanActualProject[] = [];
   (departments ?? []).forEach((dept, deptIndex) => {
@@ -170,12 +165,12 @@ export function planActualProjectsOf(departments: Department[] | null | undefine
       const base = { deptIndex, projectIndex, deptName, projectTitle };
       const actuals = Array.isArray(project.financeActuals) ? project.financeActuals : [];
       const items: PlanActualItem[] = [];
-      const effects = effectsWithIndex(project);
+      const effects: EffectFact[] = effectFactsOf(project);
 
       for (const kind of EFFECT_KINDS) {
         const itemKey = `EFFECT:${kind}`;
         const label = KIND_LABEL[kind];
-        const matches = effects.filter((x) => x.effect.kind === kind);
+        const matches = effects.filter((x) => x.kind === kind);
         const own = actuals.filter((a) => a.itemKey === itemKey);
         if (matches.length === 0) {
           if (own.length > 0) items.push(noPlanItem({ ...base, itemKey, kind, label }, own));
@@ -185,14 +180,14 @@ export function planActualProjectsOf(departments: Department[] | null | undefine
           items.push(ambiguousItem({ ...base, itemKey, kind, label }));
           continue;
         }
-        const { effect } = matches[0];
+        const fact = matches[0];
         const row = trial.projects.find(
           (r) => r.deptIndex === deptIndex && r.projectIndex === projectIndex && r.kind === kind && r.source === undefined,
         );
         const planState: PlanActualPlanState = row?.status === 'REFLECTED' ? 'PLANNED' : row?.status === 'DRAFT' ? 'DRAFT' : 'NOT_CALCULATED';
-        const startYm = isYmText(effect.startYm) ? effect.startYm : null;
-        const endYm = isYmText(effect.endYm) ? effect.endYm : null;
-        const oneTime = effect.amountBasis === 'TOTAL' && !endYm;
+        const startYm = fact.startYm;
+        const endYm = fact.endYm;
+        const oneTime = fact.totalAmount && !endYm;
         const comparable = planState === 'PLANNED' && startYm !== null && (endYm !== null ? endYm >= startYm : oneTime);
         const months = startYm === null ? [] : oneTime ? [startYm] : endYm !== null && endYm >= startYm ? monthsBetween(startYm, endYm) : [];
         const amountOf = (y: { revenueYen: number | null; costReductionYen: number | null; costIncreaseYen: number | null }) =>

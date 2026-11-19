@@ -18,6 +18,7 @@ import {
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { toConfirmedEdits } from '@/lib/stage2/finalDocument';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
+import { logAiCall } from '@/lib/server/aiCallMetrics';
 import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignals, ReconsiderationSeverity, ReconsiderationPointInternal } from '@/types/strategy';
 import {
   businessNameKey,
@@ -3121,13 +3122,15 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
     // Retry only this call once; retain the full authoritative strategy input.
     for (let completionAttempt = 0; completionAttempt < 2; completionAttempt++) {
       const budget = completionAttempt === 0 ? limit : Math.min(limit * 2, 16000);
+      const startedAt = Date.now();
       const completion = await openai.chat.completions.create({
         model: CASCADE_MODEL, reasoning_effort: 'low', max_completion_tokens: budget,
         response_format: { type: 'json_object' },
         messages: [{ role: 'system', content: phaseSystem }, { role: 'user', content: JSON.stringify(payload) }],
       });
       const finishReason = completion.choices?.[0]?.finish_reason;
-      diagnosticAttempts?.push({ phase, completionAttempt: completionAttempt + 1,
+      logAiCall(`cascade-${phase}`, { ok: true, attempts: completionAttempt + 1, ms: Date.now() - startedAt });
+      diagnosticAttempts?.push({ phase, completionAttempt: completionAttempt + 1, durationMs: Date.now() - startedAt,
         maxCompletionTokens: budget, model: CASCADE_MODEL, finishReason, usage: completion.usage,
         strategyActuallyUsed: payload.finalStrategy, bridgeActuallyUsed: payload.bridge });
       if (finishReason === 'length' && completionAttempt === 0) continue;

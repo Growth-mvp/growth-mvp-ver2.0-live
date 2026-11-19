@@ -1,3 +1,5 @@
+import { mapWithConcurrency } from '@/lib/server/aiCallMetrics';
+
 export type CascadeLaneType = 'existing' | 'new' | 'intraCollab' | 'interCollab';
 
 export function businessNameKey(name: unknown): string {
@@ -253,8 +255,8 @@ export async function generateSlotProjects(opts: {
   indirect?: boolean;
   diagnostics?: any[];
 }): Promise<any[]> {
-  const projects: any[] = [];
-  for (const template of opts.templates) {
+  // 各スロットは同じ計画だけを入力にし、互いの結果を使わないため、同時に動かしても結果は変わらない（順序は保つ）
+  const results = await mapWithConcurrency(opts.templates, SLOT_CONCURRENCY, async (template) => {
     let candidate: any;
     let errors: string[] = [];
     for (let attempt = 0; attempt < (opts.maxAttempts ?? 2); attempt++) {
@@ -276,11 +278,17 @@ export async function generateSlotProjects(opts: {
       });
       if (!errors.length) break;
     }
+    return { candidate, errors };
+  });
+  const projects: any[] = [];
+  for (const { candidate, errors } of results) {
     if (errors.length) throw new Error(errors.join(','));
     projects.push(candidate);
   }
   return projects;
 }
+
+const SLOT_CONCURRENCY = 3;
 
 /** 事業セグメントに対応しない部門（人事部など）へ渡す指示。顧客・市場の根拠を創作させず、支援・協働の成果で設計させる。 */
 export const INDIRECT_DEPARTMENT_GUIDANCE =

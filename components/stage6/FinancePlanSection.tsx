@@ -5,7 +5,7 @@ import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
-import { opexHashInputOf } from '@/utils/stage6/opexDeduction';
+import { opexHashInputFor } from '@/utils/stage6/financeEffectPlan';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
 import { buildDebtSchedule, type DebtSchedule } from '@/utils/stage6/debt';
 import { buildFinanceOutlook, forecastHorizonOf } from '@/utils/stage6/financeOutlook';
@@ -164,7 +164,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
     () => buildInvestmentDemandSummary(departments, fiscalYearEnd),
     [departments, fiscalYearEnd],
   );
-  const opexNotInPlanYearly = useMemo(() => opexHashInputOf(departments, fiscalYearEnd), [departments, fiscalYearEnd]);
+  const opexNotInPlanYearly = useMemo(() => opexHashInputFor(departments, fiscalYearEnd), [departments, fiscalYearEnd]);
   const fiscalYearEndSet = parseFiscalYearEndMonth(fiscalYearEnd) !== null;
   const assumptions = useMemo(
     () => ({ ...toCashFlowAssumptions(cfForm), baseScenario: toBaseScenario(scenarioForm) }),

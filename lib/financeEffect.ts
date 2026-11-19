@@ -185,6 +185,24 @@ export function computeFinanceEffect(
   return result;
 }
 
+/** 施策に紐づく財務効果（1件または複数件）。保存形式の差を吸収する。 */
+export function financeEffectsOf(project: object): FinanceEffect[] {
+  const p = project as { financeEffect?: FinanceEffect; financeEffects?: FinanceEffect[] };
+  return [p.financeEffect, ...(Array.isArray(p.financeEffects) ? p.financeEffects : [])].filter(
+    (e): e is FinanceEffect => !!e && typeof e === 'object',
+  );
+}
+
+/** 確認済み（STAGE6に反映される）の追加費用（COST_INCREASE）を持つか */
+export function hasConfirmedAddCost(effects: readonly FinanceEffect[]): boolean {
+  return effects.some((e) => e.kind === 'COST_INCREASE' && computeFinanceEffect(e).status === 'CONFIRMED');
+}
+
+/** 施策が確認済みの追加費用を持つか（STAGE6の営業利益の差し引きの判定に渡す） */
+export function addCostConfirmedOf(project: object): boolean {
+  return hasConfirmedAddCost(financeEffectsOf(project));
+}
+
 /* 追加販売管理費等を、粗利益から差し引くか。同じ案件の追加費用（別の効果）と同じ費用なら、その効果で一度だけ差し引く。
  * 同じかどうか未回答で、同じ案件に追加費用があれば、二重に差し引くおそれがあるため判定しない（未算定）。 */
 export function revenueSgaRuleOf(effect: FinanceEffect, projectHasCostIncrease: boolean): 'NONE' | 'DEDUCT' | 'UNKNOWN' {

@@ -1,12 +1,52 @@
 import type { Department, FinanceEffect, FinanceEffectKind } from '@/types/strategy';
-import { computeFinanceEffect, revenueSgaRuleOf, type FinanceEffectResult } from '@/lib/financeEffect';
+import {
+  addCostConfirmedOf,
+  computeFinanceEffect,
+  financeEffectsOf,
+  revenueSgaRuleOf,
+  type FinanceEffectResult,
+} from '@/lib/financeEffect';
 import { fiscalYearOf, parseFiscalYearEndMonth } from './investmentDemand';
-import { opexDeductionOfProjects } from './opexDeduction';
+import { opexDecisionsOf, opexDeductionOfProjects, opexHashInputOf, type OpexDecision } from './opexDeduction';
 import type { CfAssumptions } from './cashflow';
 
 /** 経営目標への補間（目標経路）を外した前提。目標を入れていても現状延長（基準年度の横置き）になる */
 export function withoutTargetPath(assumptions: CfAssumptions): CfAssumptions {
   return { ...assumptions, targetRevenueYen: null, targetOperatingIncomeYen: null, targetYear: null };
+}
+
+/** 営業利益から差し引くOPEX明細の判定。追加費用の確認は、この境界モジュールで行う。 */
+export function opexDecisionsFor(departments: Department[] | null | undefined, fiscalYearEnd: string | undefined): OpexDecision[] {
+  return opexDecisionsOf(departments, fiscalYearEnd, addCostConfirmedOf);
+}
+
+/** 保存済み財務計画の識別子に入れる差し引き額（境界モジュールで追加費用の確認を行う） */
+export function opexHashInputFor(
+  departments: Department[] | null | undefined,
+  fiscalYearEnd: string | undefined,
+): { fiscalYear: number; amountYen: number }[] | undefined {
+  return opexHashInputOf(departments, fiscalYearEnd, addCostConfirmedOf);
+}
+
+/** 施策の財務効果の要点（照合用）。STAGE6の画面・集計は、生の財務効果ではなくこの要点を使う。 */
+export type EffectFact = {
+  index: number;
+  kind: FinanceEffectKind;
+  startYm: string | null;
+  endYm: string | null;
+  totalAmount: boolean;
+};
+
+const isYmText = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}$/.test(v);
+
+export function effectFactsOf(project: object): EffectFact[] {
+  return financeEffectsOf(project).map((effect, index) => ({
+    index,
+    kind: effect.kind,
+    startYm: isYmText(effect.startYm) ? effect.startYm : null,
+    endYm: isYmText(effect.endYm) ? effect.endYm : null,
+    totalAmount: effect.amountBasis === 'TOTAL',
+  }));
 }
 
 export type FinanceEffectTrialTarget = { deptName: string; projectTitle: string };
@@ -286,7 +326,7 @@ export function buildFinanceEffectTrial(args: {
     row.operatingUnknown = row.years.some((y) => y.operatingIncomeYen === null);
   }
 
-  for (const d of opexDeductionOfProjects(args.departments, args.fiscalYearEnd)) {
+  for (const d of opexDeductionOfProjects(args.departments, args.fiscalYearEnd, addCostConfirmedOf)) {
     const deducted = new Map(d.byFiscalYear.map((y) => [y.fiscalYear, y.amountYen]));
     const applies = d.byFiscalYear.length > 0;
     const years: FinanceEffectProjectYear[] = args.fiscalYears.map((fiscalYear) => {

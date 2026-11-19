@@ -271,6 +271,16 @@ const ERROR_MESSAGE: Record<string, string> = {
 
 const DEFAULT_ERROR = '処理に失敗しました。時間をおいて再度お試しください。';
 const DECISIONS_UNSAVED_MESSAGE = '採否の保存が終わっていません。保存が終わってから操作してください。';
+/* 処理中の進行状態。AIの処理は時間がかかるため、何をしているかを利用者に示す */
+const BUSY_TEXT: Record<string, string> = {
+  initial: '戦略書のたたき台を作っています。1〜2分かかることがあります。',
+  regenerated: '6問の回答を反映して、戦略書を作り直しています。',
+  analyze: '部門間の調整を分析しています。終わるまで、戦略書は閲覧できます。',
+  proposal: 'AI調整案を作っています。',
+  regenerate: '採用した調整案から、変更案を作っています。',
+  verify: '調整後の計画を再検証しています。',
+  confirm: '戦略書を確定しています。',
+};
 
 function linkedProjectOf(departments: readonly unknown[], candidateId: string): AnyRecord | undefined {
   for (const dept of departments) {
@@ -808,6 +818,7 @@ export function StrategyBookDesk({
     }
     setBusy(kind);
     setNotice('');
+    let analyzeAfter: { draftRef: { draftId: string; version: number }; base: WorkspaceState } | null = null;
     try {
       // 未保存の回答は、書き込みゲートの判定より先に保存する（保存後にゲートを確認する）
       if (kind === 'regenerated' && prepareRegeneration) {
@@ -896,10 +907,12 @@ export function StrategyBookDesk({
           .filter(Boolean)
           .join(' '),
       );
-      if (departments.length >= 2) await analyze({ draftId: draft.draftId, version: draft.version }, next);
+      // 保存が済んだ戦略書は、部門間の分析を待たずに閲覧できる。分析は保存した内容に対して、後から行う
+      if (departments.length >= 2) analyzeAfter = { draftRef: { draftId: draft.draftId, version: draft.version }, base: next };
     } finally {
       setBusy(null);
     }
+    if (analyzeAfter) await analyze(analyzeAfter.draftRef, analyzeAfter.base);
   };
 
   /* 最新の計画案を、部門間で分析する */
@@ -2516,6 +2529,11 @@ export function StrategyBookDesk({
         </section>
       )}
 
+      {busy && BUSY_TEXT[busy] && (
+        <p role="status" className="rounded-lg bg-sky-50 px-4 py-2 text-sm text-sky-900">
+          {BUSY_TEXT[busy]}
+        </p>
+      )}
       {notice && <p className="rounded-lg bg-gray-50 px-4 py-2 text-sm text-gray-800">{notice}</p>}
       {decisionError && (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
