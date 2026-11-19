@@ -94,6 +94,7 @@ import {
 } from '@/lib/ceoChat/reviewTargets';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
+import { buildMilestoneGuard, isMilestone } from '@/lib/companion/companionAdvice';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
 import { buildRagContextBlock, buildRagDebugFooter } from '@/lib/rag/prompt';
 import type { StrategyData } from '@/types/strategy';
@@ -130,6 +131,7 @@ type RequestBody = {
     mode?: 'text' | 'facilitator' | 'help';               // Sprint 1-4: text/facilitator/help
     output?: 'text' | 'json';                              // Sprint 1: 出力形式
     insights?: 'none' | 'stage1';                          // Sprint 2: STAGE1インサイト注入
+    companion?: { milestone?: unknown };                   // 自律伴走の節目の助言（規則を追加する）
   };
 };
 
@@ -888,6 +890,11 @@ export async function POST(req: Request) {
         // insights 生成失敗は無視（systemBase は変更しない）
         console.warn('[ask-ceo-agent] buildStage1Insight error:', e);
       }
+    }
+
+    const companionMilestone = meta?.companion?.milestone;
+    if (isMilestone(companionMilestone)) {
+      systemBase += '\n\n' + buildMilestoneGuard(companionMilestone);
     }
 
     // --- OpenAI 呼び出し ---

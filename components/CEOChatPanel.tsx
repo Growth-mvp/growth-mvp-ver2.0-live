@@ -1,7 +1,7 @@
 // /components/CEOChatPanel.tsx
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { on } from '@/utils/actionBus';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
@@ -22,6 +22,24 @@ import { parseReviewTargets } from '@/lib/ceoChat/reviewTargets';
 import { supabase } from '@/utils/supabase/client';
 import { usePathname } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
+import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
+import { judgeCompanion, type CompanionAction } from '@/lib/companion/companionEngine';
+import { buildCompanionSnapshot } from '@/lib/companion/companionSnapshot';
+import { detectMilestone, fingerprint, MILESTONE_LABEL } from '@/lib/companion/companionMilestones';
+import { requestMilestoneAdvice } from '@/lib/companion/companionAdviceClient';
+import {
+  isCompanionKilled,
+  readCompanionPref,
+  writeCompanionPref,
+  shouldShowCompanion,
+  recordCompanionShown,
+  canRequestAdvice,
+  recordAdviceRequested,
+  readAdviceText,
+  writeAdviceText,
+  COMPANION_COOLDOWN_MS,
+  type CompanionStores,
+} from '@/lib/companion/companionPolicy';
 import { consultPayloadFor } from '@/lib/consult/consultFocus';
 import { useConsultFocusStore } from '@/store/consultFocusStore';
 import { consultKeyOf, useSelectedProjectStore } from '@/lib/stage5/selectedProjectStore';
@@ -50,11 +68,6 @@ type AskResp = {
 
 type Props = { embedded?: boolean };
 
-// ★ Sprint 3B': 自動チェックイン設定（控えめ）
-const IDLE_MS = 180_000;               // 3分無操作で発火
-const COOLDOWN_MS = 600_000;           // 発火後10分はクールダウン
-const CHECK_TICK_MS = 15_000;          // 15秒ごとにポーリング
-const MAX_NUDGES_PER_SESSION = 2;      // セッション中最大2回
 const ASK_TIMEOUT_MS = 90_000;         // 応答待ちの上限（Web検索を含む処理時間を見込む）
 
 export default function CEOChatPanel({ embedded = true }: Props) {
@@ -133,11 +146,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const autoEnsureOnceRef = useRef(false);
   const askAbortRef = useRef<AbortController | null>(null);
 
-  // ★ Sprint 3B': 自動チェックイン用 refs
-  const lastUserActionAtRef = useRef<number>(Date.now());
-  const lastNudgeAtRef = useRef<number>(0);
-  const nudgeCountRef = useRef<number>(0);
-  const nudgeInFlightRef = useRef<boolean>(false);
 
   // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
   const activeCompanyIdRef = useRef<string | null>(companyId ?? null);
@@ -210,25 +218,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     return () => { off1(); if (debounceRef.current) window.clearTimeout(debounceRef.current); };
   }, []);
 
-  /** ====== ユーザー操作検知（idle リセット用） ====== */
-  useEffect(() => {
-    const updateLastAction = () => {
-      lastUserActionAtRef.current = Date.now();
-    };
-
-    // ★ Sprint 3B': 各種操作でタイムスタンプをリセット
-    window.addEventListener('pointerdown', updateLastAction);
-    window.addEventListener('keydown', updateLastAction);
-    window.addEventListener('scroll', updateLastAction);
-    window.addEventListener('focus', updateLastAction);
-
-    return () => {
-      window.removeEventListener('pointerdown', updateLastAction);
-      window.removeEventListener('keydown', updateLastAction);
-      window.removeEventListener('scroll', updateLastAction);
-      window.removeEventListener('focus', updateLastAction);
-    };
-  }, []);
 
   /** ====== textarea オートリサイズ ====== */
   const autoResize = useCallback(() => {
@@ -386,7 +375,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       // 切替後の別リクエストが使っている送信状態・入力欄には触らない
       if (!isStale()) {
         setCeoChatPending(ticket, false);
-        // 自動チェックイン送信時や送信を見送った時に、ユーザーの入力途中の下書きを消さない
+        // AIへの送信を見送った時に、ユーザーの入力途中の下書きを消さない
         if (!keepDraft) {
           setInput((prev) => (prev.trim() === trimmed ? '' : prev));
         }
@@ -395,49 +384,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     }
     return true;
   }, [ownerKey, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize]);
-
-  /** ====== 自動チェックイン（idle時のみ） ====== */
-  // ★ Sprint 3B': nudgeIfNeeded - ガード条件を満たしたら1回だけ自動送信
-  const nudgeIfNeeded = useCallback(async () => {
-    const now = Date.now();
-
-    // ガード条件（すべて満たしたら実行）
-    if (document.visibilityState !== 'visible') return;
-    if (nudgeInFlightRef.current) return;
-    if (nudgeCountRef.current >= MAX_NUDGES_PER_SESSION) return;
-    if (now - lastUserActionAtRef.current < IDLE_MS) return;
-    if (now - lastNudgeAtRef.current < COOLDOWN_MS) return;
-
-    nudgeInFlightRef.current = true;
-
-    try {
-      const nudgeMeta = {
-        mode: 'facilitator',
-        output: 'text',
-        stage: 'strategy',
-        insights: 'stage1'
-      };
-      const nudgeMsg =
-        '（自動チェックイン）現在の入力状況を2〜5行で要約し、次にやるべき最小アクションを最大3つ提案してください。提案は"どこを触るか"が分かるように書いてください。';
-
-      // Sprint 3A' で拡張した send を使用（meta付与）
-      const started = await send(nudgeMsg, nudgeMeta);
-      if (!started) return;
-
-      // 成功時のみカウント＆タイムスタンプ更新
-      lastNudgeAtRef.current = now;
-      nudgeCountRef.current++;
-      lastUserActionAtRef.current = now; // 連続 idle 発火を抑止
-
-    } catch (e) {
-      // エラーは黙って握りつぶす
-      if (process.env.NODE_ENV !== 'production') {
-        console.debug('[nudge] auto-checkin failed:', e);
-      }
-    } finally {
-      nudgeInFlightRef.current = false;
-    }
-  }, [send]);
 
   const onSubmit = () => { if (input.trim()) void send(input); };
 
@@ -468,11 +414,226 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     }
   };
 
-  /** ====== 自動チェックインポーリング ====== */
-  // 現状は自動発話を停止（手動送信のみ有効）
+  /** ====== 自律伴走（既定はOFF。操作・進行は決定的に判定し、節目の経営助言だけAIが作る） ====== */
+  const companionAvailable = !isCompanionKilled(process.env.NEXT_PUBLIC_CEO_COMPANION_DISABLED);
+  const [companionOn, setCompanionOn] = useState(false);
+  const [companionCard, setCompanionCard] = useState<CompanionAction | null>(null);
+  const [companionTick, setCompanionTick] = useState(0);
+  const shownCompanionKeyRef = useRef<string | null>(null);
+  const recordedCompanionKeyRef = useRef<string | null>(null);
+  const adviceKeyRef = useRef<string | null>(null);
+  const adviceInFlightRef = useRef<boolean>(false);
+  const adviceCardActiveRef = useRef<boolean>(false);
+  const companionRetryRef = useRef<number | null>(null);
+  const companionStores = useMemo<CompanionStores | null>(
+    () => (typeof window === 'undefined' ? null : { local: window.localStorage, session: window.sessionStorage }),
+    [],
+  );
+  const cDirty = useStrategyStore((s: StrategyState) => s.dirty);
+  const cLoaded = useStrategyStore((s: StrategyState) => s.loaded);
+  const cLoadError = useStrategyStore((s: StrategyState) => (s as any).__lastServerError);
+  const cCompanyName = useStrategyStore((s: StrategyState) => s.companyName);
+  const cFinancePL = useStrategyStore((s: StrategyState) => s.financePL);
+  const cIssues = useStrategyStore((s: StrategyState) => s.stage1Issues);
+  const cAnswers = useStrategyStore((s: StrategyState) => s.answers12);
+  const cFinalStory = useStrategyStore((s: StrategyState) => s.finalStory);
+  const cFinalStoryDraft = useStrategyStore((s: StrategyState) => s.finalStoryDraft);
+  const cFinalStoryEdited = useStrategyStore((s: StrategyState) => s.finalStoryEdited);
+  const cFinalStoryFinal = useStrategyStore((s: StrategyState) => s.finalStoryFinal);
+  const cBridge = useStrategyStore((s: StrategyState) => (s as any).stage3_strategy_bridge);
+  const cDepartments = useStrategyStore((s: StrategyState) => s.departments);
+  const userRole = useUserStore((s) => s.role);
+
+  const companionSnapshot = useMemo(
+    () =>
+      buildCompanionSnapshot({
+        restoreReady,
+        loaded: Boolean(cLoaded),
+        fetching: Boolean(isFetchingFromServer),
+        hasLoadError: Boolean(cLoadError),
+        storeCompanyId: storeCompanyId ?? null,
+        strategyId: strategyId ?? null,
+        dirty: Boolean(cDirty),
+        currentPath: pathname ?? '',
+        companyName: cCompanyName,
+        financePL: cFinancePL,
+        stage1Issues: cIssues,
+        answers12: cAnswers,
+        finalStory: cFinalStory,
+        finalStoryDraft: cFinalStoryDraft,
+        finalStoryEdited: cFinalStoryEdited,
+        finalStoryFinal: cFinalStoryFinal,
+        stage3Bridge: cBridge,
+        departments: cDepartments,
+        userId: user?.id ?? null,
+        userCompanyId: companyId ?? null,
+        role: userRole,
+      }),
+    [
+      restoreReady, cLoaded, isFetchingFromServer, cLoadError, storeCompanyId, strategyId, cDirty, pathname,
+      cCompanyName, cFinancePL, cIssues, cAnswers, cFinalStory, cFinalStoryDraft, cFinalStoryEdited,
+      cFinalStoryFinal, cBridge, cDepartments, user?.id, companyId, userRole,
+    ],
+  );
+
+  const companionProgress = useMemo<CompanionAction | null>(() => {
+    if (!companionAvailable || !companionOn) return null;
+    return judgeCompanion(companionSnapshot);
+  }, [companionAvailable, companionOn, companionSnapshot]);
+  const progressKey = companionProgress?.key ?? null;
+
+  const companionMilestone = useMemo(() => {
+    if (!companionAvailable || !companionOn) return null;
+    return detectMilestone(companionSnapshot, {
+      issues: fingerprint(cIssues),
+      finalStory: fingerprint(cFinalStoryFinal ?? cFinalStory),
+      bridge: fingerprint(cBridge),
+    });
+  }, [companionAvailable, companionOn, companionSnapshot, cIssues, cFinalStoryFinal, cFinalStory, cBridge]);
+  const milestoneKey = companionMilestone?.key ?? null;
+
+  // 設定の読み込み（利用者ごと。初期値はOFF）
   useEffect(() => {
-    return;
-  }, []);
+    if (!companionAvailable || !user?.id || !companionStores) {
+      setCompanionOn(false);
+      return;
+    }
+    setCompanionOn(readCompanionPref(companionStores.local, user.id));
+  }, [companionAvailable, user?.id, companionStores]);
+
+  // 会社が切り替わったら、表示中の案内と助言の状態を消す（会社をまたいで残さない）
+  useEffect(() => {
+    shownCompanionKeyRef.current = null;
+    recordedCompanionKeyRef.current = null;
+    adviceKeyRef.current = null;
+    adviceCardActiveRef.current = false;
+    setCompanionCard(null);
+  }, [companyId]);
+
+  // 進行・操作の案内（画面遷移・保存状態の変化でも判断し直す。表示中の案内は消さない）
+  useEffect(() => {
+    if (companionRetryRef.current !== null) {
+      window.clearTimeout(companionRetryRef.current);
+      companionRetryRef.current = null;
+    }
+    if (adviceCardActiveRef.current) return;
+    if (!companionProgress || !companionStores || !user?.id || !companyId) {
+      shownCompanionKeyRef.current = null;
+      recordedCompanionKeyRef.current = null;
+      setCompanionCard(null);
+      return;
+    }
+    if (shownCompanionKeyRef.current === companionProgress.key) return;
+    if (!shouldShowCompanion(companionStores, user.id, companyId, companionProgress, Date.now())) {
+      shownCompanionKeyRef.current = null;
+      setCompanionCard(null);
+      // 間隔の制限で見送った案内は、間隔が過ぎた後に判断し直す（作業の直後の次の一歩を失わない）
+      companionRetryRef.current = window.setTimeout(() => setCompanionTick((n) => n + 1), COMPANION_COOLDOWN_MS);
+      return;
+    }
+    recordedCompanionKeyRef.current = null;
+    shownCompanionKeyRef.current = companionProgress.key;
+    setCompanionCard(companionProgress);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progressKey, user?.id, companyId, pathname, companionTick]);
+
+  // 同じ案内の中で文言が変わったら（論点数など）、表示中のカードも更新する
+  useEffect(() => {
+    if (!companionProgress) return;
+    setCompanionCard((prev) => (prev && prev.kind === 'progress' && prev.key === companionProgress.key ? companionProgress : prev));
+  }, [companionProgress]);
+
+  // 節目の経営助言（保存済みの内容について、節目ごとに一度だけAIへ依頼する）
+  useEffect(() => {
+    if (!companionMilestone || !companionStores || !user?.id || !companyId || !strategyId) return;
+    const key = companionMilestone.key;
+    if (adviceKeyRef.current === key || adviceInFlightRef.current) return;
+    const savedText = readAdviceText(companionStores.session, user.id, companyId, key);
+    if (savedText) {
+      adviceKeyRef.current = key;
+      adviceCardActiveRef.current = true;
+      shownCompanionKeyRef.current = null;
+      setCompanionCard({
+        kind: 'advice', key, title: MILESTONE_LABEL[companionMilestone.milestone] + '：AIの助言', message: '', href: '', linkLabel: '',
+        canEdit: true, steps: [], body: savedText, status: 'ready',
+      });
+      return;
+    }
+    const now = Date.now();
+    if (!canRequestAdvice(companionStores, user.id, companyId, key, now)) return;
+    recordAdviceRequested(companionStores, user.id, companyId, key, now);
+
+    const milestone = companionMilestone.milestone;
+    const requestedCompany = companyId;
+    const requestedStrategy = strategyId;
+    const requestedUser = user.id;
+    adviceKeyRef.current = key;
+    adviceInFlightRef.current = true;
+    adviceCardActiveRef.current = true;
+    shownCompanionKeyRef.current = null;
+    const base: CompanionAction = {
+      kind: 'advice',
+      key,
+      title: MILESTONE_LABEL[milestone] + '：AIの助言',
+      message: '',
+      href: '',
+      linkLabel: '',
+      canEdit: true,
+      steps: [],
+      status: 'loading',
+    };
+    setCompanionCard(base);
+    void requestMilestoneAdvice({
+      milestone,
+      userId: requestedUser,
+      companyId: requestedCompany,
+      strategyId: requestedStrategy,
+      getAccessToken: async () => {
+        const { data } = await supabase.auth.getSession();
+        return data?.session?.access_token ?? null;
+      },
+    }).then((text) => {
+      adviceInFlightRef.current = false;
+      if (adviceKeyRef.current !== key) return;
+      if (activeCompanyIdRef.current !== requestedCompany) {
+        adviceKeyRef.current = null;
+        adviceCardActiveRef.current = false;
+        return;
+      }
+      if (!text) {
+        adviceCardActiveRef.current = false;
+        setCompanionCard(null);
+        return;
+      }
+      if (companionStores) writeAdviceText(companionStores.session, requestedUser, requestedCompany, key, text);
+      setCompanionCard({ ...base, body: text, status: 'ready' });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [milestoneKey, companionStores, user?.id, companyId, strategyId]);
+
+  const recordCompanionVisible = () => {
+    if (!companionCard || companionCard.kind !== 'progress' || !companionStores || !user?.id || !companyId) return;
+    if (recordedCompanionKeyRef.current === companionCard.key) return;
+    recordedCompanionKeyRef.current = companionCard.key;
+    recordCompanionShown(companionStores, user.id, companyId, companionCard, Date.now());
+  };
+  const dismissCompanion = () => {
+    shownCompanionKeyRef.current = null;
+    adviceCardActiveRef.current = false;
+    setCompanionCard(null);
+    setCompanionTick((n) => n + 1);
+  };
+  const askCompanion = (question: string) => {
+    dismissCompanion();
+    void send(question);
+  };
+  const toggleCompanion = () => {
+    if (!user?.id || !companionStores) return;
+    const next = !companionOn;
+    writeCompanionPref(companionStores.local, user.id, next);
+    setCompanionOn(next);
+    if (!next) dismissCompanion();
+  };
 
   // ====== 見た目 ======
   const rootCls = embedded
@@ -500,6 +661,29 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         </div>
       </header>
 
+      {companionAvailable && user?.id ? (
+        <div className="shrink-0 space-y-2 px-5 pt-2">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={toggleCompanion}
+              aria-pressed={companionOn}
+              className="text-[11px] text-zinc-500 hover:text-zinc-800"
+            >
+              自律伴走：{companionOn ? 'オン（オフにする）' : 'オフ（オンにする）'}
+            </button>
+          </div>
+          {companionCard ? (
+            <CEOChatCompanionCard
+              action={companionCard}
+              onDismiss={dismissCompanion}
+              onAsk={askCompanion}
+              askDisabled={sending}
+              onVisible={recordCompanionVisible}
+            />
+          ) : null}
+        </div>
+      ) : null}
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-3" aria-live="polite">
         {messages.map((m, i) => (
           <div key={i}
