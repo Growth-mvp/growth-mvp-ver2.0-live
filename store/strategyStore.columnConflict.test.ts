@@ -436,4 +436,33 @@ describe('保存中に加わった編集（保存済みと判定しない）', (
     expect(res.ok).toBe(true);
     expect(get().dirty).toBe(false);
   });
+
+  it('予約された再保存の前に戦略が切り替わったら、切り替え先へは保存しない', async () => {
+    await loadedStore(true);
+    localChange({ financeSummary: [{ year: 2025, revenue: 2000, operatingIncome: 150 }] });
+    db.beforeSave = () => localChange({ financeSummary: [{ year: 2025, revenue: 9999, operatingIncome: 150 }] });
+    await get().saveStrategyData({ force: true, reason: 'manual-save-button' });
+    useStrategyStore.setState({ strategyId: S_OTHER } as any);
+
+    await waitForSaves(2);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(db.saves).toHaveLength(1);
+    expect(db.saves[0].ok).toBe(true);
+    expect(get().strategyId).toBe(S_OTHER);
+  });
+
+  it('予約された再保存の前に企業が切り替わったら、切り替え先へは保存しない', async () => {
+    await loadedStore(true);
+    localChange({ financeSummary: [{ year: 2025, revenue: 2000, operatingIncome: 150 }] });
+    db.beforeSave = () => localChange({ financeSummary: [{ year: 2025, revenue: 9999, operatingIncome: 150 }] });
+    await get().saveStrategyData({ force: true, reason: 'manual-save-button' });
+    useStrategyStore.setState({ companyId: 'co-other' } as any);
+
+    await waitForSaves(2);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(db.saves).toHaveLength(1);
+    expect(get().companyId).toBe('co-other');
+  });
 });

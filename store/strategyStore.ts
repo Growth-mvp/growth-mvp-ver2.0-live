@@ -4233,9 +4233,13 @@ export const useStrategyStore = create<StrategyState>()(
             }));
 
             if (shouldRunAgain) {
-              // 非同期で後追い保存（直列化）
+              // 非同期で後追い保存（直列化）。企業・戦略が保存時から変わっていれば、切り替え先へは保存しない
+              const rerunCompanyId = s.companyId;
+              const rerunStrategyId = s.strategyId;
               setTimeout(() => {
-                void get().saveStrategyData({ force: true, reason: s._pendingSaveReason ?? 'pending' });
+                const now = get();
+                if (saveEpoch !== __scopeEpoch || now.companyId !== rerunCompanyId || now.strategyId !== rerunStrategyId) return;
+                void now.saveStrategyData({ force: true, reason: s._pendingSaveReason ?? 'pending' });
               }, 0);
             }
           }
