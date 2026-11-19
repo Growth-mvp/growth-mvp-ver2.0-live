@@ -1,6 +1,6 @@
 import type { ConfirmedStage2, PlanData, ProjectImpactRow } from '@/utils/export/buildPlanData';
 import type { BankFinancialPlanBlock } from '@/utils/stage6/bankFinancialPlan';
-import { formatMillionYenText } from './bankFinancialFormat';
+import { effectCellOf, formatMillionYenText } from './bankFinancialFormat';
 import { selectMainProjects } from './projectSelection';
 
 export const STAGE2_STORY_CHAR_LIMIT = 4000;
@@ -99,14 +99,19 @@ export function bankStage34Block(planData: PlanData & { bankFinancialPlan?: Bank
     const mainLines = main
       .map(
         (p) =>
-          `- ${p.title}（${p.departmentName}）：財務効果（売上） ${formatMillionYenText(p.revenueYen)} ／ 財務効果（営業利益） ${formatMillionYenText(p.operatingIncomeYen)} ／ 財務効果の確認 ${p.financeConfirmedCount > 0 ? '確認済み（財務計画に反映済み）' : '未確認'} ／ 計画の承認状態 ${p.planStatus === 'approved' ? '承認済み' : '承認未確認'}`,
+          `- ${p.title}（${p.departmentName}）：財務効果（売上） ${p.revenueYen !== null ? formatMillionYenText(p.revenueYen) : effectCellOf(null, p.financeRegisteredCount)} ／ 財務効果（営業利益） ${p.operatingIncomeYen !== null ? formatMillionYenText(p.operatingIncomeYen) : effectCellOf(null, p.financeRegisteredCount)} ／ 財務効果の確認 ${p.financeConfirmedCount > 0 ? '確認済み（財務計画に反映済み）' : '未確認'} ／ 計画の承認状態 ${p.planStatus === 'approved' ? '承認済み' : '承認未確認'}`,
       )
       .join('\n');
+    const totals = bankProjects && planData.bankFinancialPlan?.sections?.financialTargets.stage4Contributions;
+    const totalLine = totals && (totals.revenueYen !== null || totals.operatingIncomeYen !== null)
+      ? `確認済み財務効果の合計（最終予測年度・営業利益はOPEX控除後。計算済みの値のため、計算し直さずそのまま記載すること）：売上高 ${formatMillionYenText(totals.revenueYen)}、営業利益 ${formatMillionYenText(totals.operatingIncomeYen)}`
+      : '';
     return `【部門別戦略】（部門：${coverageNote(totalDepartments, shownDepartments.length)}）
 ${departmentLines}
 
 【主要な実行施策・期待効果】（施策：${coverageNote(bankProjects.totalCount, main.length)}。主要施策は売上寄与と投資額の大きい施策から選定）
 ${mainLines}
+${totalLine}
 ※本文では主要な施策のみ取り上げ、全件を列挙しないこと。掲載外の施策があることを前提に、全件が反映されたように書かないこと。全件は参考資料に掲載される。`;
   }
 

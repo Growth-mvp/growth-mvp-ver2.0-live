@@ -246,6 +246,8 @@ export type StrategyProjectRow = {
   operatingIncomeYen: number | null;
   /** 確認済み（STAGE6に反映）の財務効果の件数。承認状態（planStatus）とは別の項目 */
   financeConfirmedCount: number;
+  /** 登録された財務効果（確認済み・未確認を含む）の件数。0のときは「効果なし」と表示する */
+  financeRegisteredCount: number;
   investmentRecordCount: number;
   investmentYen: number | null;
 };
@@ -273,6 +275,7 @@ function strategyProjectRows(departments: Department[], items: InvestmentItem[])
         revenueYen: finance.confirmedRevenueYen,
         operatingIncomeYen: finance.confirmedOperatingYen,
         financeConfirmedCount: finance.confirmedCount,
+        financeRegisteredCount: finance.confirmedCount + finance.pendingCount,
         investmentRecordCount: own.filter((it) => it.duplicateStatus !== 'CANDIDATE').length,
         investmentYen: knownTotal(own),
       });

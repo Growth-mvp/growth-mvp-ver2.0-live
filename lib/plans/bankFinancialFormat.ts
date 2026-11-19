@@ -17,6 +17,12 @@ export function formatMillionYenText(yen: number | null | undefined): string {
   return text === UNCONFIRMED_TEXT ? text : `${text}百万円`;
 }
 
+/** 施策の財務効果（百万円）の表示。値がなければ、効果が登録されていないのか未確定なのかを区別する */
+export function effectCellOf(yen: number | null | undefined, registeredCount: number): string {
+  if (yen !== null && yen !== undefined && Number.isFinite(yen)) return formatMillionYen(yen);
+  return registeredCount > 0 ? UNCONFIRMED_TEXT : '効果なし';
+}
+
 export function formatPercent(fraction: number | null | undefined): string {
   if (fraction === null || fraction === undefined || !Number.isFinite(fraction)) return UNCONFIRMED_TEXT;
   return `${(fraction * 100).toFixed(1)}%`;

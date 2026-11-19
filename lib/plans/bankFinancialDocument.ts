@@ -4,6 +4,7 @@ import { toBusinessWording } from './businessWording';
 import {
   UNCONFIRMED_TEXT,
   collectAllowedFigures,
+  effectCellOf,
   formatMillionYen,
   formatMillionYenText,
   formatPercent,
@@ -386,8 +387,8 @@ export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefine
   const allProjectRows = inv.projects.rows.slice(0, APPENDIX_ROW_LIMIT).map((p) => [
     p.title,
     p.departmentName,
-    formatMillionYen(p.revenueYen),
-    formatMillionYen(p.operatingIncomeYen),
+    effectCellOf(p.revenueYen, p.financeRegisteredCount),
+    effectCellOf(p.operatingIncomeYen, p.financeRegisteredCount),
     p.investmentRecordCount > 0 ? `${p.investmentRecordCount}件` : '未登録',
     p.investmentRecordCount === 0 ? '未登録' : formatMillionYen(p.investmentYen),
     approvalLabel(p.planStatus),
