@@ -464,3 +464,60 @@ describe('自律伴走：助言の失敗と再依頼', () => {
     expect(companionCardText()).toContain('未保存の変更があります');
   });
 });
+
+describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回', () => {
+  const RISK_URL = '/api/companion/risk-review';
+
+  function completeStoreForReview() {
+    setStoreData({
+      companyName: '会社A',
+      financePL: [{ year: 2025, revenue: 1000 }],
+      stage1Issues: [{ id: 'i1' }],
+      answers12: [{ id: 'ch0-q1', answer: '回答' }],
+      finalStory: [{ title: '危機' }],
+      departments: [{ name: '営業部', projects: [{ title: 'A', planStatus: 'approved' }] }],
+      stage3_strategy_bridge: { strategicCore: {} },
+      dirty: false,
+    });
+  }
+
+  function riskCalls() {
+    return mockFetch.mock.calls.filter((c) => String(c[0]).includes(RISK_URL));
+  }
+
+  beforeEach(() => {
+    mockPathname = '/stage6';
+    mockFetch.mockImplementation(async (url: string) => {
+      if (String(url).includes(RISK_URL)) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ facts: ['- 2027年度：施策反映後の期末現預金が不足の見込み'], text: '仮説：回収の遅れが原因の可能性' }) };
+      }
+      return okResponse('節目の助言');
+    });
+  });
+
+  it('STAGE6で、事実があれば所見を一度だけ依頼し、事実を先に表示する。同じ日の再表示では依頼しない', async () => {
+    completeStoreForReview();
+    const view = await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(companionCardText()).toContain('仮説：回収の遅れ'));
+    expect(companionCardText()).toContain('事実（保存済みデータの計算結果）');
+    expect(companionCardText()).toContain('2027年度');
+    expect(riskCalls()).toHaveLength(1);
+
+    view.unmount();
+    const again = await renderReadyPanel();
+    await turnCompanionOn();
+    await flush();
+    expect(riskCalls()).toHaveLength(1);
+    again.unmount();
+  });
+
+  it('STAGE6以外の画面では、経営点検を依頼しない', async () => {
+    mockPathname = '/stage1';
+    completeStoreForReview();
+    await renderReadyPanel();
+    await turnCompanionOn();
+    await flush();
+    expect(riskCalls()).toHaveLength(0);
+  });
+});

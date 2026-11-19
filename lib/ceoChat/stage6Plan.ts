@@ -85,9 +85,9 @@ function actualLine(a: Actual | null, financeAbsent: boolean): string {
 }
 
 type Stored = ReturnType<typeof readStoredFinancePlan>;
-type OkStored = Extract<Stored, { kind: 'OK' }>;
+export type OkStored = Extract<Stored, { kind: 'OK' }>;
 
-function storedOf(csvFinanceData: unknown, companyId: string | null): Stored {
+export function storedOf(csvFinanceData: unknown, companyId: string | null): Stored {
   const csv = isRecord(csvFinanceData) ? csvFinanceData : {};
   return readStoredFinancePlan(csv.financePlanAssumptions, companyId);
 }
@@ -134,7 +134,9 @@ export function selectionOf(question: string | undefined): Selection {
 
 type Outlook = FinanceOutlook;
 
-function outlookOf(args: Args, domain: OkStored['domain']): Outlook | null {
+export type Stage6ArgsForOutlook = Args;
+
+export function outlookOf(args: Args, domain: OkStored['domain']): Outlook | null {
   try {
     return buildFinanceOutlook({
       financePL: Array.isArray(args.financePL) ? (args.financePL as any) : [],

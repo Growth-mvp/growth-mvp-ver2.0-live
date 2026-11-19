@@ -27,6 +27,7 @@ import { judgeCompanion, type CompanionAction } from '@/lib/companion/companionE
 import { buildCompanionSnapshot } from '@/lib/companion/companionSnapshot';
 import { detectMilestone, fingerprint, MILESTONE_LABEL } from '@/lib/companion/companionMilestones';
 import { requestMilestoneAdvice } from '@/lib/companion/companionAdviceClient';
+import { requestRiskReview, riskReviewBody } from '@/lib/companion/companionRiskClient';
 import {
   isCompanionKilled,
   readCompanionPref,
@@ -35,8 +36,11 @@ import {
   recordCompanionShown,
   canRequestAdvice,
   recordAdviceRequested,
+  canRequestRiskReview,
+  recordRiskReviewRequested,
   readAdviceText,
   writeAdviceText,
+  localDayKey,
   COMPANION_COOLDOWN_MS,
   type CompanionStores,
 } from '@/lib/companion/companionPolicy';
@@ -424,6 +428,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const adviceKeyRef = useRef<string | null>(null);
   const adviceInFlightRef = useRef<boolean>(false);
   const adviceCardActiveRef = useRef<boolean>(false);
+  const riskKeyRef = useRef<string | null>(null);
   const companionRetryRef = useRef<number | null>(null);
   const companionStores = useMemo<CompanionStores | null>(
     () => (typeof window === 'undefined' ? null : { local: window.localStorage, session: window.sessionStorage }),
@@ -507,6 +512,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     recordedCompanionKeyRef.current = null;
     adviceKeyRef.current = null;
     adviceCardActiveRef.current = false;
+    riskKeyRef.current = null;
     setCompanionCard(null);
   }, [companyId]);
 
@@ -610,6 +616,73 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [milestoneKey, companionStores, user?.id, companyId, strategyId]);
+
+  // 経営点検（STAGE5・6）：進行の案内がすべて済んだ後、会社ごとに1日1回。保存済みの事実があるときだけAIが所見を書く
+  const riskEligible =
+    companionAvailable &&
+    companionOn &&
+    companionSnapshot.ready &&
+    !companionSnapshot.dirty &&
+    !companionProgress &&
+    (pathname === '/execution' || pathname === '/stage6') &&
+    Boolean(user?.id && companyId && strategyId);
+  useEffect(() => {
+    if (!riskEligible || !companionStores || !user?.id || !companyId || !strategyId) return;
+    const requestedCompany = companyId;
+    const requestedUser = user.id;
+    const requestedStrategy = strategyId;
+    const key = `RISK:${requestedCompany}:${requestedStrategy}:${localDayKey(Date.now())}`;
+    if (riskKeyRef.current === key) return;
+    riskKeyRef.current = key;
+
+    const base: CompanionAction = {
+      kind: 'advice',
+      key,
+      title: '経営点検（STAGE5・6）：AIの助言',
+      message: '',
+      href: '',
+      linkLabel: '',
+      canEdit: true,
+      steps: [],
+      status: 'loading',
+    };
+    const saved = readAdviceText(companionStores.session, requestedUser, requestedCompany, key);
+    if (saved) {
+      adviceCardActiveRef.current = true;
+      shownCompanionKeyRef.current = null;
+      setCompanionCard({ ...base, body: saved, status: 'ready' });
+      return;
+    }
+    if (!canRequestRiskReview(companionStores, requestedUser, requestedCompany, Date.now())) return;
+    recordRiskReviewRequested(companionStores, requestedUser, requestedCompany, Date.now());
+
+    adviceCardActiveRef.current = true;
+    shownCompanionKeyRef.current = null;
+    setCompanionCard(base);
+    void requestRiskReview({
+      companyId: requestedCompany,
+      strategyId: requestedStrategy,
+      getAccessToken: async () => {
+        const { data } = await supabase.auth.getSession();
+        return data?.session?.access_token ?? null;
+      },
+    }).then((result) => {
+      if (riskKeyRef.current !== key || activeCompanyIdRef.current !== requestedCompany) {
+        if (riskKeyRef.current === key) riskKeyRef.current = null;
+        adviceCardActiveRef.current = false;
+        return;
+      }
+      if (!result || result.facts.length === 0) {
+        adviceCardActiveRef.current = false;
+        setCompanionCard(null);
+        return;
+      }
+      const body = riskReviewBody(result);
+      writeAdviceText(companionStores.session, requestedUser, requestedCompany, key, body);
+      setCompanionCard({ ...base, body, status: 'ready' });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [riskEligible, companionStores, user?.id, companyId, strategyId, pathname]);
 
   const recordCompanionVisible = () => {
     if (!companionCard || companionCard.kind !== 'progress' || !companionStores || !user?.id || !companyId) return;

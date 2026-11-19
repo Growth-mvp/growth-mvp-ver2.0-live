@@ -54,6 +54,11 @@
       "maxCompletionTokens": 2500,
       "jsonMode": false
     },
+    "ceoRiskReview": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 1500,
+      "jsonMode": false
+    },
     "stage2Ot": {
       "modelRole": "reasoning",
       "maxCompletionTokens": 3000,

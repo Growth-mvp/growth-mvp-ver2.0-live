@@ -149,6 +149,25 @@ export function recordAdviceRequested(
   }
 }
 
+const RISK_PREFIX = 'growth.ceoCompanion.risk.v1';
+
+/** 経営点検（STAGE5・6）を、この会社で今日まだ依頼していなければ依頼してよい（1日1回） */
+export function canRequestRiskReview(stores: CompanionStores, userId: string, companyId: string, now: number): boolean {
+  try {
+    return stores.local.getItem(scoped(RISK_PREFIX, userId, companyId)) !== localDayKey(now);
+  } catch {
+    return false;
+  }
+}
+
+export function recordRiskReviewRequested(stores: CompanionStores, userId: string, companyId: string, now: number): void {
+  try {
+    stores.local.setItem(scoped(RISK_PREFIX, userId, companyId), localDayKey(now));
+  } catch {
+    /* 記録できない環境では、依頼は1回の表示に留める（再読み込みで重ねない判定は表示側の保存に任せる） */
+  }
+}
+
 const ADVICE_TEXT_PREFIX = 'growth.ceoCompanion.adviceText.v1';
 
 /** 依頼済みの助言の本文を、このタブの中でだけ保持する（再読み込み後も再依頼せずに読めるように） */

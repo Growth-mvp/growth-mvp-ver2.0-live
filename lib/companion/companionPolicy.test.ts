@@ -3,6 +3,8 @@ import {
   COMPANION_MAX_ADVICE_PER_DAY,
   COMPANION_MAX_PER_SESSION,
   canRequestAdvice,
+  canRequestRiskReview,
+  recordRiskReviewRequested,
   isCompanionKilled,
   localDayKey,
   readCompanionPref,
@@ -146,5 +148,21 @@ describe('経営助言（AI）の依頼の上限', () => {
     const local = memoryStorage();
     recordAdviceRequested(tab(local), 'u', 'co-a', 'K', DAY1);
     expect(canRequestAdvice(tab(local), 'u', 'co-b', 'K', DAY1)).toBe(true);
+  });
+});
+
+describe('経営点検（STAGE5・6）の依頼：会社ごとに1日1回', () => {
+  it('同じ会社・同じ日には、一度依頼したら再び依頼しない。翌日は依頼できる', () => {
+    const s = tab(memoryStorage());
+    expect(canRequestRiskReview(s, 'u', 'co-a', DAY1)).toBe(true);
+    recordRiskReviewRequested(s, 'u', 'co-a', DAY1);
+    expect(canRequestRiskReview(s, 'u', 'co-a', DAY1_LATER)).toBe(false);
+    expect(canRequestRiskReview(s, 'u', 'co-a', DAY2)).toBe(true);
+  });
+
+  it('会社が違えば、依頼の記録は別々に持つ', () => {
+    const s = tab(memoryStorage());
+    recordRiskReviewRequested(s, 'u', 'co-a', DAY1);
+    expect(canRequestRiskReview(s, 'u', 'co-b', DAY1)).toBe(true);
   });
 });

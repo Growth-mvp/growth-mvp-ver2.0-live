@@ -1,0 +1,157 @@
+/* STAGE5・6の経営点検（PHASE 3）。事実はプログラムで決め、AIには事実だけを渡して仮説と改善案を書かせる。
+ * 数値は既存の計算結果（資金繰り試算・見通し・計画と実績の照合・KRの実績・実施事項の進捗）をそのまま使う。 */
+
+import { fingerprint } from './companionMilestones';
+
+export type RiskCategory = 'CASH' | 'TARGET' | 'PLAN_GAP' | 'KR_OVERDUE' | 'ACTION_STALLED';
+
+export type RiskFact = { category: RiskCategory; text: string };
+
+export type CashYearInput = { year: number; isForecast: boolean; shortfallYen: number | null };
+export type TargetGapInput = { metric: '売上' | '営業利益'; fiscalYear: number | null; gapYen: number | null };
+export type PlanGapInput = {
+  label: string;
+  where: string;
+  fiscalYear: number;
+  planYen: number;
+  actualYen: number | null;
+  complete: boolean;
+};
+export type KrInput = {
+  label: string;
+  where: string;
+  kind: string;
+  unit: string;
+  due?: string;
+  target?: number;
+  actual?: number;
+};
+export type ActionInput = { where: string; inProgress: boolean; updatedAt: string };
+
+export type RiskInput = {
+  now: Date;
+  cash: CashYearInput[];
+  targets: TargetGapInput[];
+  planGaps: PlanGapInput[];
+  krs: KrInput[];
+  actions: ActionInput[];
+};
+
+export const STALL_DAYS = 30;
+export const PLAN_GAP_RATIO = 0.2;
+export const MAX_FACTS = 8;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const LOWER_IS_BETTER: ReadonlySet<string> = new Set(['CHURN', 'COST_FIXED', 'COST_VARIABLE']);
+
+const yen = (v: number) => `${Math.round(v).toLocaleString('ja-JP')}円`;
+
+/** 期限（YYYY-MM-DD または YYYY-MM）の終わりの時刻。解釈できなければ null */
+export function dueEndOf(due: string): Date | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(due)) return new Date(`${due}T23:59:59`);
+  const m = /^(\d{4})-(\d{2})$/.exec(due);
+  if (m) return new Date(Number(m[1]), Number(m[2]), 0, 23, 59, 59);
+  return null;
+}
+
+function krValueText(v: number, unit: string): string {
+  return unit === '%' ? `${Math.round(v * 1000) / 10}%` : `${v}${unit}`;
+}
+
+function krFacts(input: RiskInput): RiskFact[] {
+  const out: RiskFact[] = [];
+  for (const kr of input.krs) {
+    if (!kr.due) continue;
+    const end = dueEndOf(kr.due);
+    if (!end || end.getTime() >= input.now.getTime()) continue;
+    const name = `「${kr.label}」（${kr.where}）`;
+    if (kr.actual === undefined) {
+      out.push({ category: 'KR_OVERDUE', text: `期限（${kr.due}）を過ぎたが、実績が未登録：${name}` });
+      continue;
+    }
+    if (kr.target === undefined) continue;
+    const lower = LOWER_IS_BETTER.has(kr.kind);
+    const missed = lower ? kr.actual > kr.target : kr.actual < kr.target;
+    if (missed) {
+      out.push({
+        category: 'KR_OVERDUE',
+        text: `期限（${kr.due}）を過ぎ、実績 ${krValueText(kr.actual, kr.unit)} が目標 ${krValueText(kr.target, kr.unit)} に届いていない：${name}`,
+      });
+    }
+  }
+  return out;
+}
+
+export function detectRiskFacts(input: RiskInput): RiskFact[] {
+  const facts: RiskFact[] = [];
+
+  for (const y of input.cash) {
+    if (!y.isForecast || y.shortfallYen === null || y.shortfallYen <= 0) continue;
+    facts.push({
+      category: 'CASH',
+      text: `${y.year}年度：施策反映・借入反映後の期末現預金が最低現預金を ${yen(y.shortfallYen)} 下回る見込み（資金繰り試算）`,
+    });
+  }
+
+  for (const t of input.targets) {
+    if (t.gapYen === null || t.gapYen <= 0) continue;
+    const at = t.fiscalYear !== null ? `${t.fiscalYear}年度の` : '';
+    facts.push({
+      category: 'TARGET',
+      text: `${at}${t.metric}：経営目標に対して ${yen(t.gapYen)} 不足（施策反映後の見通し）`,
+    });
+  }
+
+  for (const g of input.planGaps) {
+    if (!g.complete || g.actualYen === null || g.planYen <= 0) continue;
+    if (g.actualYen >= g.planYen * (1 - PLAN_GAP_RATIO)) continue;
+    const pct = Math.round((g.actualYen / g.planYen) * 100);
+    facts.push({
+      category: 'PLAN_GAP',
+      text: `${g.fiscalYear}年度の売上効果「${g.label}」（${g.where}）：計画 ${yen(g.planYen)} に対し、登録実績 ${yen(g.actualYen)}（計画比 ${pct}%）`,
+    });
+  }
+
+  facts.push(...krFacts(input));
+
+  const cutoff = input.now.getTime() - STALL_DAYS * DAY_MS;
+  const stalled = input.actions.filter((a) => {
+    if (!a.inProgress) return false;
+    const at = Date.parse(a.updatedAt);
+    return Number.isFinite(at) && at <= cutoff;
+  });
+  if (stalled.length > 0) {
+    const names = stalled.slice(0, 3).map((a) => a.where).join('、');
+    facts.push({
+      category: 'ACTION_STALLED',
+      text: `進行中のまま${STALL_DAYS}日以上更新がない実施事項：${stalled.length}件（${names}${stalled.length > 3 ? ' ほか' : ''}）`,
+    });
+  }
+
+  return facts.slice(0, MAX_FACTS);
+}
+
+export function riskFingerprint(facts: RiskFact[]): string {
+  return fingerprint(facts.map((f) => f.text));
+}
+
+export function renderRiskFacts(facts: RiskFact[]): string[] {
+  return facts.map((f) => `- ${f.text}`);
+}
+
+export const RISK_GUARD = [
+  'あなたは経営コンサルタントです。',
+  '「事実」は、保存済みデータから既存の計算で得た確定した内容です。',
+  '- 事実の数値・年度・名称は、そのまま使う。変えたり、足したり、推測で補ったりしない。',
+  '- 原因や打ち手は「仮説」と明記し、事実と区別する（例：「仮説：〜の可能性があります」）。',
+  '- 改善策は「見直しの候補」として示し、決定は利用者に委ねる。',
+  '- 部門をまたぐ論点を、最大3点、短く示す（目的と手段の違い、部門間の認識のずれ、社員が自分で判断して動けるかを観点にする）。',
+  '- 画面の操作手順は書かない。',
+  '- 事実が不足する点は「未登録のため判断できない」と書く。',
+  '- 全体で600字以内。見出しは「仮説」「見直しの候補」「部門横断の論点」の3つだけにする。',
+].join('\n');
+
+export function buildRiskPrompt(factLines: string[]): string {
+  return ['以下の事実を読み、経営点検の所見を書いてください。', '', '事実：', ...factLines].join('\n');
+}
+
+export const RISK_FACT_LABEL = '経営点検（STAGE5・6、保存済みデータの計算結果）';
