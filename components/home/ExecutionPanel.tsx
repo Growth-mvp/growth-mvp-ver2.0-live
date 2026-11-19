@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
-import { achievementPct, buildTargetSummary, formatPct, type MetricSummary } from '@/components/stage6/financeSummaryModel';
+import { PerformanceBarChart } from '@/components/stage6/PerformanceBarChart';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
 import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
 import { readStoredFinancePlan } from '@/utils/stage6/financePlanSnapshot';
+import { planActualProjectsOf } from '@/utils/stage6/planActualComparison';
+import { performanceViewOf, type PerformanceMetric } from '@/utils/stage6/performanceView';
 import { safeGetSession } from '@/utils/supabase/client';
 
 const EMPTY_DEPARTMENTS: Department[] = [];
@@ -51,15 +53,6 @@ type ExecutionSummary = {
   recentProjectUpdates: ProjectUpdateItem[];
 };
 
-function formatOkuFromMJPY(n: number) {
-  if (!Number.isFinite(n)) return '—';
-  const oku = n / 100;
-  return `${oku.toLocaleString('ja-JP', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })}億円`;
-}
-
 function formatUpdateType(type: ProjectUpdateItem['latestUpdateType']) {
   switch (type) {
     case 'progress':
@@ -95,73 +88,6 @@ const stageBtnClass =
   'inline-flex items-center rounded-xl border border-neutral-300 ' +
   'bg-white px-6 py-3 shadow-sm hover:bg-neutral-100 transition-colors ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
-
-function Stage6MetricRow({
-  label,
-  current,
-  forecast,
-  target,
-  achievementRate,
-  note,
-}: {
-  label: string;
-  current: string;
-  forecast: string;
-  target: string;
-  achievementRate: string;
-  note: string | null;
-}) {
-  return (
-    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
-      <div className="text-xs font-semibold text-neutral-700 xl:dark:text-neutral-200">{label}</div>
-      <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <div>
-          <div className="text-[11px] text-neutral-500">現状</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{current}</div>
-        </div>
-        <div>
-          <div className="text-[11px] text-neutral-500">見込み</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{forecast}</div>
-        </div>
-        <div>
-          <div className="text-[11px] text-neutral-500">目標</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{target}</div>
-        </div>
-        <div>
-          <div className="text-[11px] text-neutral-500">達成率</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{achievementRate}</div>
-        </div>
-      </div>
-      {note && <div className="mt-2 text-[11px] leading-5 text-neutral-500">{note}</div>}
-    </div>
-  );
-}
-
-type Stage6MetricView = {
-  current: string;
-  forecast: string;
-  target: string;
-  achievementRate: string;
-  note: string | null;
-};
-
-function metricViewOf(metric: MetricSummary, currentYen: number | null): Stage6MetricView {
-  const pct = achievementPct(metric);
-  const forecastYen = metric.status === 'READY' ? metric.planYen : null;
-  const targetYen = 'targetYen' in metric ? metric.targetYen : null;
-  let note: string | null = null;
-  if (metric.status === 'READY') note = `${metric.fiscalYear}年度時点の見込み（既存事業＋確認済みの財務効果）`;
-  else if (metric.status === 'PLAN_UNKNOWN') note = `${metric.fiscalYear}年度：${metric.reason}`;
-  else if (metric.status === 'OUT_OF_RANGE') note = `目標年度（${metric.fiscalYear}年度）が試算期間の外のため、見込みを算出していません`;
-  else if (metric.status === 'NO_DUE_YEAR') note = '目標年度が未設定のため、見込みを算出していません';
-  return {
-    current: currentYen === null ? '—' : formatOkuFromMJPY(currentYen / 1_000_000),
-    forecast: forecastYen === null ? '—' : formatOkuFromMJPY(forecastYen / 1_000_000),
-    target: targetYen === null ? '—' : formatOkuFromMJPY(targetYen / 1_000_000),
-    achievementRate: pct === null ? '—' : formatPct(pct),
-    note,
-  };
-}
 
 type OrgAlignmentSummary = {
   sourceCaseCount: number;
@@ -375,7 +301,9 @@ export default function ExecutionPanel() {
 
   const plannedDepartments = useMemo(() => stage6PlanDepartments(departments) as Department[], [departments]);
 
-  const stage6Summary = useMemo(() => {
+  const [perfMetric, setPerfMetric] = useState<PerformanceMetric>('REVENUE');
+
+  const stage6Perf = useMemo(() => {
     const stored = readStoredFinancePlan(storedFinancePlan, strategyCompanyId);
     const outlook = buildFinanceOutlook({
       financePL,
@@ -386,13 +314,30 @@ export default function ExecutionPanel() {
       domain: stored.kind === 'OK' ? stored.domain : null,
       currentYear: NOW_YEAR,
     });
-    const targetSummary = buildTargetSummary({ unifiedPl: outlook.unifiedPl, target: outlook.target });
     const actualYear = outlook.baselinePlan.years.find((y) => y.kind === 'ACTUAL');
+    const current = actualYear
+      ? { fiscalYear: actualYear.year, revenueYen: actualYear.revenue.value, operatingIncomeYen: actualYear.operatingIncome.value }
+      : null;
     return {
-      revenue: metricViewOf(targetSummary.revenue, actualYear?.revenue.value ?? null),
-      op: metricViewOf(targetSummary.operatingIncome, actualYear?.operatingIncome.value ?? null),
+      outlook,
+      current,
+      projects: planActualProjectsOf(plannedDepartments, fiscalYearEnd),
     };
   }, [financePL, financeBS, plannedDepartments, fiscalYearEnd, companyTargets, storedFinancePlan, strategyCompanyId]);
+
+  const perfView = useMemo(
+    () =>
+      performanceViewOf({
+        metric: perfMetric,
+        now: new Date(),
+        fiscalYearEnd,
+        current: stage6Perf.current,
+        target: stage6Perf.outlook.target,
+        trialYears: stage6Perf.outlook.effectTrial.years,
+        projects: stage6Perf.projects,
+      }),
+    [stage6Perf, perfMetric, fiscalYearEnd],
+  );
 
   return (
     <div className="space-y-3">
@@ -475,27 +420,10 @@ export default function ExecutionPanel() {
               <div className="text-[12px] font-normal text-neutral-500">業績シミュレーション</div>
             </div>
           </Link>
-          <div className="text-sm font-medium">売上・営業利益の要約</div>
         </div>
 
-        <div className="mt-3 space-y-3">
-          <Stage6MetricRow
-            label="売上"
-            current={stage6Summary.revenue.current}
-            forecast={stage6Summary.revenue.forecast}
-            target={stage6Summary.revenue.target}
-            achievementRate={stage6Summary.revenue.achievementRate}
-            note={stage6Summary.revenue.note}
-          />
-
-          <Stage6MetricRow
-            label="営業利益"
-            current={stage6Summary.op.current}
-            forecast={stage6Summary.op.forecast}
-            target={stage6Summary.op.target}
-            achievementRate={stage6Summary.op.achievementRate}
-            note={stage6Summary.op.note}
-          />
+        <div className="mt-4 px-1">
+          <PerformanceBarChart view={perfView} onMetricChange={setPerfMetric} compact />
         </div>
       </div>
 

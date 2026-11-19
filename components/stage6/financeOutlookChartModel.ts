@@ -45,16 +45,16 @@ function headlineOf(metric: MetricSummary, label: string): string {
   switch (metric.status) {
     case 'READY': {
       const pct = achievementPct(metric);
-      return pct === null ? '目標がゼロ以下のため達成率は表示しません' : `達成率 ${formatPct(pct)}（${metric.fiscalYear}年度）`;
+      return pct === null ? '目標がゼロ以下のため計画上の達成見込みは表示しません' : `計画上の達成見込み ${formatPct(pct)}（${metric.fiscalYear}年度）`;
     }
     case 'PLAN_UNKNOWN':
       return `${metric.fiscalYear}年度の${label}は未算定（理由は下記）`;
     case 'NO_TARGET':
       return `${label}の経営目標が未設定です（STAGE2で設定）`;
     case 'NO_DUE_YEAR':
-      return `${label}の目標年度が未設定のため、達成率は出していません`;
+      return `${label}の目標年度が未設定のため、計画上の達成見込みは出していません`;
     case 'OUT_OF_RANGE':
-      return `目標年度（${metric.fiscalYear}年度）が試算期間の外のため、達成率は出していません`;
+      return `目標年度（${metric.fiscalYear}年度）が試算期間の外のため、計画上の達成見込みは出していません`;
   }
 }
 

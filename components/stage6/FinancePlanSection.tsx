@@ -40,6 +40,14 @@ import { PlanActualByProject } from './PlanActualByProject';
 import { buildOutlookCharts } from './financeOutlookChartModel';
 import { FundingDemandSection } from './FundingDemandSection';
 import { BaseScenarioPanel } from './BaseScenarioPanel';
+import { PerformanceBarChart, formatBarMillion } from './PerformanceBarChart';
+import { CashBalanceChart } from './CashBalanceChart';
+import { planActualProjectsOf } from '@/utils/stage6/planActualComparison';
+import {
+  performanceViewOf,
+  projectPerformanceTableOf,
+  type PerformanceMetric,
+} from '@/utils/stage6/performanceView';
 import {
   FINANCE_TABS,
   SAVE_STATUS_LABEL,
@@ -245,6 +253,40 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
 
   // 資金判定：既存事業の増減＋確認済み施策効果（統一PL）を前提にし、目標補間は使わない（銀行向け計画書と同じ計算）
   const fundingPlan = financeOutlook.financedPlan;
+
+  const [perfMetric, setPerfMetric] = useState<PerformanceMetric>('REVENUE');
+  const planActualProjects = useMemo(() => planActualProjectsOf(departments, fiscalYearEnd), [departments, fiscalYearEnd]);
+  const perfCurrent = useMemo(() => {
+    const actual = baselinePlan.years.find((y) => y.kind === 'ACTUAL');
+    return actual
+      ? { fiscalYear: actual.year, revenueYen: actual.revenue.value, operatingIncomeYen: actual.operatingIncome.value }
+      : null;
+  }, [baselinePlan]);
+  const perfView = useMemo(
+    () =>
+      performanceViewOf({
+        metric: perfMetric,
+        now: new Date(),
+        fiscalYearEnd,
+        current: perfCurrent,
+        target: unifiedTarget,
+        trialYears: effectTrial.years,
+        projects: planActualProjects,
+      }),
+    [perfMetric, fiscalYearEnd, perfCurrent, unifiedTarget, effectTrial, planActualProjects],
+  );
+  const perfTable = useMemo(
+    () =>
+      projectPerformanceTableOf({
+        metric: perfMetric,
+        currentFiscalYear: perfView.currentFiscalYear,
+        fiscalYearEnd,
+        trialProjects: effectTrial.projects,
+        projects: planActualProjects,
+        departments,
+      }),
+    [perfMetric, perfView, fiscalYearEnd, effectTrial, planActualProjects, departments],
+  );
 
   const currentMeta: CalcSnapshotMeta = useMemo(
     () => ({
@@ -460,26 +502,138 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           </div>
         )}
 
-        <div className="space-y-2">
-          <h3 className="text-sm font-bold text-slate-900">① 経営目標に届くか</h3>
+        <div className="space-y-6">
+          <h3 className="text-base font-semibold tracking-tight text-slate-900">① 現場はどれだけ成果を上げているか</h3>
+          <PerformanceBarChart view={perfView} onMetricChange={setPerfMetric} />
+          <div className="space-y-4">
+            {perfTable.groups.map((group) => (
+              <div key={group.deptName} className="min-w-0 overflow-x-auto">
+                <div className="text-sm font-semibold text-slate-900">{group.deptName}</div>
+                <table className="mt-2 w-full table-fixed text-sm">
+                  <colgroup>
+                    <col />
+                    <col className="w-[22%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[18%]" />
+                  </colgroup>
+                  <thead>
+                    <tr className="text-[11px] text-slate-500">
+                      <th className="py-1 pr-2 text-left font-medium">プロジェクト名</th>
+                      <th className="py-1 px-2 text-right font-medium whitespace-nowrap">目標</th>
+                      <th className="py-1 px-2 text-right font-medium whitespace-nowrap">実績</th>
+                      <th className="py-1 pl-2 text-right font-medium whitespace-nowrap">達成率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.rows.map((r) => (
+                      <tr key={`${group.deptName}-${r.projectTitle}`} className="border-t border-slate-100 align-top">
+                        <td className="py-3 pr-3 leading-snug text-slate-900">{r.projectTitle}</td>
+                        <td className="py-3 px-2 text-right tabular-nums text-slate-900">
+                          {r.targetYen !== null ? (
+                            <span className="text-base font-semibold">{formatBarMillion(r.targetYen)}</span>
+                          ) : (
+                            <span className="whitespace-nowrap text-xs font-medium text-slate-500">{r.targetLabel ?? '未算定'}</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-2 text-right tabular-nums text-slate-900">
+                          {r.actualYen !== null ? (
+                            <span className="text-base font-semibold">{formatBarMillion(r.actualYen)}</span>
+                          ) : (
+                            <span className="whitespace-nowrap text-xs font-medium text-slate-500">{r.actualLabel ?? '未登録'}</span>
+                          )}
+                          {r.actualNote && <div className="text-[11px] text-amber-700">{r.actualNote}</div>}
+                        </td>
+                        <td className="py-3 pl-2 text-right tabular-nums text-slate-900">
+                          {r.achievement.pct !== null ? (
+                            <span className="text-base font-semibold">
+                              {r.achievement.pct.toLocaleString('ja-JP', { maximumFractionDigits: 1 })}
+                              <span className="text-xs font-medium text-slate-500">%</span>
+                              {r.achievement.reference && <span className="ml-1 rounded-full bg-amber-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-800">参考</span>}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] leading-snug text-slate-500">{r.achievement.text}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            <table className="w-full table-fixed border-t-2 border-slate-900 text-sm">
+              <colgroup>
+                <col />
+                <col className="w-[22%]" />
+                <col className="w-[22%]" />
+                <col className="w-[18%]" />
+              </colgroup>
+              <tbody>
+                <tr className="align-top">
+                  <td className="py-3 pr-3 font-semibold text-slate-900">全社合計</td>
+                  <td className="py-3 px-2 text-right tabular-nums text-slate-900">
+                    {perfTable.total.targetYen !== null ? (
+                      <span className="text-base font-semibold">{formatBarMillion(perfTable.total.targetYen)}</span>
+                    ) : (
+                      <span className="text-[11px] font-medium text-slate-500">{perfTable.total.targetLabel ?? '未算定'}</span>
+                    )}
+                  </td>
+                  <td className="py-3 px-2 text-right tabular-nums text-slate-900">
+                    {perfTable.total.actualYen !== null ? (
+                      <span className="text-base font-semibold">{formatBarMillion(perfTable.total.actualYen)}</span>
+                    ) : (
+                      <span className="whitespace-nowrap text-xs font-medium text-slate-500">{perfTable.total.actualLabel ?? '未登録'}</span>
+                    )}
+                    {perfTable.total.actualNote && <div className="text-[11px] text-amber-700">{perfTable.total.actualNote}</div>}
+                  </td>
+                  <td className="py-3 pl-2 text-right tabular-nums text-slate-900">
+                    {perfTable.total.achievement.pct !== null ? (
+                      <span className="text-base font-semibold">
+                        {perfTable.total.achievement.pct.toLocaleString('ja-JP', { maximumFractionDigits: 1 })}
+                        <span className="text-xs font-medium text-slate-500">%</span>
+                        {perfTable.total.achievement.reference && <span className="ml-1 rounded-full bg-amber-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-800">参考</span>}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] leading-snug text-slate-500">{perfTable.total.achievement.text}</span>
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <details className="rounded-lg bg-slate-50 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-800">プロジェクト別の財務効果・登録状況・月次実績</summary>
+            <div className="mt-3 space-y-3">
+              <FinanceEffectProjectList projects={effectTrial.projects} years={effectTrial.years} />
+              <PlanActualByProject departments={departments} fiscalYearEnd={fiscalYearEnd} />
+            </div>
+          </details>
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="text-base font-semibold tracking-tight text-slate-900">② 経営目標は実現できそうか</h3>
           <FinanceOutlookCharts charts={outlookCharts} />
         </div>
 
-        <div className="space-y-2">
-          <h3 className="text-sm font-bold text-slate-900">② どの施策が業績を改善するか</h3>
-          <FinanceEffectProjectList projects={effectTrial.projects} years={effectTrial.years} />
-          <PlanActualByProject departments={departments} fiscalYearEnd={fiscalYearEnd} />
-        </div>
-
-        <div className="space-y-2">
-          <h3 className="text-sm font-bold text-slate-900">③ 資金は足りるか</h3>
-          <FinanceSummary
-            cash={cashSummary}
-            funding={fundingStatus}
-            requiredItem={requiredItem}
-            onNavigate={setTab}
+        <div className="space-y-3">
+          <h3 className="text-base font-semibold tracking-tight text-slate-900">③ 資金は足りるか</h3>
+          <CashBalanceChart
+            cf={conditionalCf}
+            minCashYen={assumptions.minCashYen}
+            fundingLabel={fundingStatus.label}
+            fundingDetail={fundingStatus.detail}
           />
-          <p className="text-xs text-slate-600">投資・運転資金・借入返済・キャッシュフローの詳細は「詳しく確認する」にあります。</p>
+          <details className="rounded-lg bg-slate-50 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-800">営業CF・資金判定の詳細</summary>
+            <div className="mt-3">
+              <FinanceSummary
+                cash={cashSummary}
+                funding={fundingStatus}
+                requiredItem={requiredItem}
+                onNavigate={setTab}
+              />
+            </div>
+          </details>
+          <p className="text-xs text-slate-600">投資・運転資金・借入返済・キャッシュフローの詳細は「財務計画の詳細・設定」にあります。</p>
         </div>
       </section>
 
@@ -487,7 +641,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
         className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         onToggle={(e) => setDetailOpen(e.currentTarget.open)}
       >
-        <summary className="cursor-pointer text-lg font-bold text-slate-900">詳しく確認する</summary>
+        <summary className="cursor-pointer text-lg font-bold text-slate-900">財務計画の詳細・設定</summary>
         <div className="mt-4 space-y-4">
         <div role="tablist" aria-label="財務計画の作業タブ" className="grid grid-cols-2 gap-2 md:grid-cols-5">
         {FINANCE_TABS.map((t) => {

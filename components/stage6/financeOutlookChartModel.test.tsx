@@ -92,7 +92,7 @@ describe('STAGE6 経年グラフ：共通の財務試算と同じ値を示す', 
     expect(c.revenue.targetFiscalYear).toBe(2027);
     expect(c.revenue.targetInRange).toBe(true);
     expect(c.revenue.achievementPct).toBeCloseTo((1_060 / 1_200) * 100, 6);
-    expect(c.revenue.headline).toBe('達成率 88.3%（2027年度）');
+    expect(c.revenue.headline).toBe('計画上の達成見込み 88.3%（2027年度）');
     expect(c.operatingIncome.achievementPct).toBeCloseTo((100 / 100) * 100, 6);
   });
 
