@@ -183,18 +183,19 @@ describe('確認記録がないことを、遅れと断定しない', () => {
 });
 
 describe('実績・目標・予測の区分（Q2・Q5）', () => {
-  it('Q5：現預金の実績と最低現預金を出し、将来の期末現預金は予測未算出とする', async () => {
+  it('Q5：現預金の実績と最低現預金を出し、将来の期末現預金は現在のデータからの見通しとして区別する', async () => {
     const { prompt } = await ask('来年度の利益と資金繰りはどうなるか？');
     expect(prompt).toContain('期末現預金');
     expect(prompt).toContain('最低現預金（登録前提）');
-    expect(prompt).toContain('期末現預金の予測：未算出');
+    expect(prompt).toContain('年度別（施策反映後');
+    expect(prompt).not.toContain('予測未算出');
     expect(prompt).not.toMatch(/2027年度（予測）/);
   });
 
   it('Q2：登録目標は目標として出し、予測として出さない', async () => {
     const { prompt } = await ask('今の戦略で3年後に成長できるか？');
     expect(prompt).toContain('目標（経営者が登録）');
-    expect(prompt).toContain('予測未算出');
+    expect(prompt).toContain('登録目標は見通しではなく目標として扱うこと');
     expect(prompt).not.toMatch(/2027年度（予測）/);
   });
 

@@ -7,6 +7,7 @@ export const GUIDANCE_MAX_OPERATIONS = 6;
 export const COMPOUND_MAX_OPERATIONS = 2;
 const MATCH_THRESHOLD = 2;
 const STEPS_SHOWN = 3;
+const NAVIGATION_SCREENS = new Set(['home', 'stage0', 'admin-invites', 'admin-members']);
 
 const ROLE_RANK: Record<OperationRole, number> = { member: 0, manager: 1, admin: 2 };
 const ROLE_LABEL: Record<OperationRole, string> = {
@@ -19,8 +20,11 @@ export type QuestionKind = 'operation' | 'compound' | 'consult' | 'none';
 
 const ONBOARDING_CUE = /(初めて|はじめて|何から)/;
 const STRONG_OPERATION_CUE = /(この画面|次は|次に|使い方|使う|ボタン|タブ|見当たら|保存)/;
-const WEAK_OPERATION_CUE = /(どうすれば|どうやって|どうしたら|やり方|進め方|手順|作りたい|作る|作成|生成|入力|追加|削除|編集|更新|共有|依頼|何をす|何のため|目的|どこ|開く)/;
-const APP_OBJECT = /(画面|欄|部門|SWOT|たたき台|論点|計画書|ルーム|セグメント|財務データ|業績目標|メトリクス|分析|KPI|OKR|STAGE|ステージ|GROWTH|アプリ)/i;
+const WEAK_OPERATION_CUE = /(どうすれば|どうやって|どうしたら|やり方|進め方|手順|作りたい|作る|作成|生成|入力|追加|削除|編集|更新|共有|公開|依頼|何をす|何のため|目的|どこ|開く)/;
+const APP_OBJECT = /(画面|欄|部門|SWOT|たたき台|論点|計画書|ルーム|セグメント|財務データ|業績目標|メトリクス|分析|KPI|OKR|STAGE|ステージ|GROWTH|アプリ|違和感|プロジェクト|借入|返済|設備投資|達成率|招待|権限)/i;
+const OPERATION_ASK_CUE = /(修正|変更|どこ|招待|出力|PDF|ダウンロード|解消|公開|見られ|見え|知られ|再生成|中止|外す|表示されな)/;
+const OPERATION_TERM = /(招待|権限|達成率|PDF|違和感|公開)/;
+const REGISTRY_MATCH_MIN = 4;
 const CONSULT_CUE = /(売上|利益|伸び|成果|効果|本当に|正しい|根拠|判断|リスク|投資|収益|原価|なぜ|動か|動いて|やる気|不満|反発|業績|市場|競合|戦略は|戦略で|勝て|方向性|どう思う)/;
 const ELEMENT_WORD = /(ボタン|タブ|項目|欄|リンク)/;
 /* 画面の用語（財務効果・算定根拠など）は、経営相談の判定から外す。「効果」「根拠」は経営の語としても使われるため */
@@ -50,6 +54,13 @@ export function normalizeRole(role: unknown): OperationRole {
   return role === 'admin' || role === 'manager' ? role : 'member';
 }
 
+function registryScore(text: string): number {
+  const pairs = bigrams(text);
+  let best = 0;
+  for (const op of OPERATIONS) best = Math.max(best, relevance(op, pairs));
+  return best;
+}
+
 export function classifyQuestion(text: string): QuestionKind {
   const mentioned = detectMentionedScreenIds(text).length > 0;
   const object = mentioned || APP_OBJECT.test(text);
@@ -59,7 +70,8 @@ export function classifyQuestion(text: string): QuestionKind {
     ONBOARDING_CUE.test(text) ||
     STRONG_OPERATION_CUE.test(text) ||
     (WEAK_OPERATION_CUE.test(text) && object && !validityAsk) ||
-    (appTerm && APP_TERM_OPERATION_CUE.test(text));
+    (appTerm && APP_TERM_OPERATION_CUE.test(text)) ||
+    (OPERATION_ASK_CUE.test(text) && (registryScore(text) >= REGISTRY_MATCH_MIN || OPERATION_TERM.test(text)));
   const consult = CONSULT_CUE.test(text.replace(APP_TERM_IN_CONSULT_CHECK, ''));
   if (operation && consult) return 'compound';
   if (operation) return 'operation';
@@ -240,7 +252,8 @@ export function buildOperationGuidance(input: GuidanceInput): GuidanceResult {
   if (mentioned.length === 0 && labelMatch?.screenIds.length) {
     focusScreens = [labelMatch.screenIds[0]];
   }
-  if (mentioned.length === 0 && ONBOARDING_CUE.test(input.query) && !(input.screenId && isGuidanceEnabled(input.screenId))) {
+  const workScreenHere = input.screenId !== undefined && input.screenId !== null && isGuidanceEnabled(input.screenId) && !NAVIGATION_SCREENS.has(input.screenId);
+  if (mentioned.length === 0 && ONBOARDING_CUE.test(input.query) && !workScreenHere) {
     focusScreens = ['stage1'];
   }
 

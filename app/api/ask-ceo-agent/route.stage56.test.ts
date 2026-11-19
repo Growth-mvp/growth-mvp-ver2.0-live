@@ -248,10 +248,11 @@ describe('評価の7問：必要な STAGE5・6 の情報が届く（モック）
     expect(p).not.toContain('営業部 / 新規顧客開拓（最終確認');
   });
 
-  it('4. このままでは3年後の利益はいくらになるか？：目標と予測を区別し、予測は未算出と明示する', async () => {
+  it('4. このままでは3年後の利益はいくらになるか？：目標と見通しを区別し、見通しは現在のデータから計算した値と明示する', async () => {
     const p = await ask('このままでは3年後の利益はいくらになるか？');
     expect(p).toContain(PLAN);
-    expect(p).toContain('予測未算出');
+    expect(p).toContain('年度別（施策反映後');
+    expect(p).toContain('登録目標は見通しではなく目標として扱うこと');
     expect(p).not.toMatch(/\d{4}年度（予測）/);
     expect(p).not.toContain(PROGRESS);
   });
@@ -305,7 +306,7 @@ describe('未登録・他社・古い前提の扱い', () => {
 
   it('保存済みのシミュレーションは、保存時点の結果として出す', async () => {
     const p = await ask(
-      '来年度の資金繰りは大丈夫か？',
+      '前回のシミュレーションでは来年度の資金繰りは大丈夫か？',
       strategyRow({
         simulationResults: [
           {

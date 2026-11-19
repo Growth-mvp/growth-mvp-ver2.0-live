@@ -47,23 +47,23 @@ describe('プロンプト組み立て：操作質問には正しい画面の案�
   it('「財務効果は何を入力すればいい？」（STAGE4）→ 財務効果の操作を、現在の画面つきで渡す', () => {
     const { systemBase } = composeSystemPrompt(STAGE4, '財務効果は何を入力すればいい？');
     expect(systemBase).toContain('【現在の画面】STAGE4 現場は何をするのか（/okr）');
-    expect(systemBase).toContain('「効果の種類」');
-    expect(systemBase).toContain('「金額の単位」');
+    expect(systemBase).toContain('「計算方式」');
+    expect(systemBase).toContain('「開始年月」');
     expect(systemBase).toContain('任意');
     expect(systemBase).toContain('例（架空）');
   });
 
-  it('「算定根拠って何？」（STAGE4）→ 算定根拠の欄を案内する', () => {
+  it('「算定根拠って何？」（STAGE4）→ 登録にない欄名を作らず、財務効果の入力と保存を案内する', () => {
     const { systemBase } = composeSystemPrompt(STAGE4, '算定根拠って何？');
-    expect(systemBase).toContain('「算定根拠・出所」');
+    expect(systemBase).toContain('「財務効果を設定する（STAGE6へ反映）」');
+    expect(systemBase).toContain('「計画を保存」');
   });
 
-  it('「確認済みとこの案を財務効果の候補にするの違いは？」（STAGE4）→ 2つの操作を別物として案内する', () => {
+  it('「確認済みとこの案を財務効果の候補にするの違いは？」（STAGE4）→ 登録にない「候補にする」の操作を作らず、保存で反映する流れを案内する', () => {
     const { systemBase } = composeSystemPrompt(STAGE4, '確認済みとこの案を財務効果の候補にするの違いは？');
-    expect(systemBase).toContain('「内容を確認し、確認済みにする」');
-    expect(systemBase).toContain('「この案を財務効果の候補にする」');
-    expect(systemBase).toContain('未確認');
-    expect(systemBase).toContain('別の操作');
+    expect(systemBase).not.toContain('「この案を財務効果の候補にする」');
+    expect(systemBase).toContain('「計画を保存」');
+    expect(systemBase).toContain('利用者自身が内容を確かめて');
   });
 
   it('「KR実績はどこで入力する？」（STAGE5の画面）→ 実績を記録の操作を、実行画面の経路で渡す', () => {
@@ -97,7 +97,7 @@ describe('プロンプト組み立て：経営相談には操作説明を押し�
   it('複合の質問は、操作案内を短く添え、経営判断は通常どおり答えるよう指示する', () => {
     const { systemBase } = composeSystemPrompt(STAGE4, '財務効果は何を入力すればいい？この戦略で売上は伸びる？');
     expect(systemBase).toContain('この質問には経営相談の要素も含まれています');
-    expect(systemBase).toMatch(/「(効果の種類|効果の開始月|内容を確認し、確認済みにする|財務効果の算定根拠（任意）)」/);
+    expect(systemBase).toMatch(/「(計算方式|開始年月|計画を保存|財務効果を設定する（STAGE6へ反映）)」/);
     expect(systemBase).toContain('経営判断は通常どおり答えてください');
   });
 });
@@ -148,13 +148,13 @@ describe('プロンプト組み立て：案内の品質（初心者向けの合�
     for (const phrase of ['自動で確定', '自動的に確定', '自動で反映', '自動的に反映', 'AIが確定', 'AIが反映']) {
       expect({ phrase, found: systemBase.includes(phrase) }).toEqual({ phrase, found: false });
     }
-    expect(systemBase).toContain('「内容を確認し、確認済みにする」');
-    expect(systemBase).toContain('利用者自身が財務効果の内容を確認');
+    expect(systemBase).toContain('「計画を保存」');
+    expect(systemBase).toContain('利用者自身が内容を確かめて');
   });
 
-  it('分からないときは無理に入力させない（金額が分からない施策は未設定のままでよい）', () => {
+  it('分からないときは無理に入力させない（入力が足りない効果は未算定と表示され、STAGE6に入らない）', () => {
     const { guidance } = composeSystemPrompt(STAGE4, '金額が分からない施策はどうすればいい？');
-    expect(guidance.text).toContain('未設定のままでよい');
+    expect(guidance.text).toContain('入力不足のため未算定');
   });
 });
 
@@ -162,7 +162,7 @@ describe('プロンプト組み立て：画面が違っても、質問の対象�
   it('STAGE1の画面で「財務効果」を聞かれても、財務効果の画面（STAGE4）の操作を案内する', () => {
     const { guidance, systemBase } = composeSystemPrompt({ screenId: 'stage1' }, '財務効果は何を入力すればいい？');
     expect(guidance.screenIds).toEqual(['stage4']);
-    expect(systemBase).toContain('「財務効果の算定根拠（任意）」');
+    expect(systemBase).toContain('「財務効果を設定する（STAGE6へ反映）」');
   });
 
   it('画面が特定できないとき、推測で画面を選ばず、尋ね返す案内を渡す', () => {

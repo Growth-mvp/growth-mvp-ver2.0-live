@@ -22,7 +22,7 @@ describe('操作登録簿：一意性', () => {
 
   it('operationId は「領域.名前」の形式（小文字・数字・ハイフン）', () => {
     for (const op of OPERATIONS) {
-      expect({ id: op.operationId, ok: /^(stage[1-6]|org|plan|common)\.[a-z0-9-]+$/.test(op.operationId) }).toEqual({
+      expect({ id: op.operationId, ok: /^(stage[0-6]|home|org|plan|common|admin)\.[a-z0-9-]+$/.test(op.operationId) }).toEqual({
         id: op.operationId,
         ok: true,
       });
@@ -287,6 +287,6 @@ describe('操作登録簿：検索と案内の対象', () => {
   it('案内の有効可否は、登録簿の helpEnabled と用途未確定の状態で決まる', () => {
     expect(isGuidanceEnabled('stage2')).toBe(true);
     expect(isGuidanceEnabled('stage4-page')).toBe(false);
-    expect(isGuidanceEnabled('admin-members')).toBe(false);
+    expect(isGuidanceEnabled('admin-console')).toBe(false);
   });
 });

@@ -42,8 +42,8 @@ export function selectContextSources(query: string): ContextSelection {
   return { operation, finance, rationale, alignment, unclear: !operation && !finance && !rationale && !alignment };
 }
 
-const PROGRESS_CUE = /進捗|遅れ|遅延|未達|障害|実行|進み|滞|達成できない/;
-const PLAN_CUE = /利益|資金|キャッシュ|借入|返済|DSCR|現預金|設備投資|来年度|来期|年度|3年後|業績|シミュレーション|予測|営業CF|投資CF/i;
+const PROGRESS_CUE = /進捗|遅れ|遅延|未達|障害|実行|進み|滞|達成できない|成果|達成/;
+const PLAN_CUE = /利益|資金|キャッシュ|借入|返済|DSCR|現預金|設備投資|来年度|来期|年度|3年後|業績|シミュレーション|予測|営業CF|投資CF|達成率|実績|年3月期/i;
 const BROAD_CUE = /優先|経営課題|全体|全般|全社|今後/;
 
 export type StageSources = { progress: boolean; plan: boolean };

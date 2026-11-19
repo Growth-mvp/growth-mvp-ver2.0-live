@@ -714,6 +714,7 @@ export async function POST(req: Request) {
             currentYear: new Date().getFullYear(),
             companyTargets: (strategy as any)?.companyTargets,
             simulationResults: (strategy as any)?.simulationResults,
+            question: lastUser,
           });
           stage6Facts = { scope: 'plan', financeEmpty: financeAbsent, ...classifyStage6Text(planText) };
           systemBase += '\n\n' + planText;
@@ -725,6 +726,11 @@ export async function POST(req: Request) {
             companyId,
             financePL: (strategy as any)?.financePL,
             financeBS: (strategy as any)?.financeBS,
+            departments: stage6PlanDepartments((strategy as any)?.departments),
+            fiscalYearEnd: (strategy as any)?.fiscalYearEnd,
+            currentYear: new Date().getFullYear(),
+            companyTargets: (strategy as any)?.companyTargets,
+            question: lastUser,
           });
           stage6Facts = { scope: 'cash', financeEmpty: financeAbsent, ...classifyStage6Text(cashText) };
           systemBase += '\n\n' + cashText;

@@ -159,8 +159,8 @@ describe('登録簿に情報がない場合・画面が特定できない場合'
     expect(r.text).not.toContain('（stage4.');
   });
 
-  it('案内を有効にしていない画面（管理画面）では、操作を案内しない', () => {
-    const r = buildOperationGuidance({ screenId: 'admin-members', query: '使い方を教えて', role: 'admin' });
+  it('案内を有効にしていない画面（管理コンソール）では、操作を案内しない', () => {
+    const r = buildOperationGuidance({ screenId: 'admin-console', query: '使い方を教えて', role: 'admin' });
     expect(r.operationCount).toBe(0);
     expect(r.text).toContain('登録されていません');
   });

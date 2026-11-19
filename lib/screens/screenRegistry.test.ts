@@ -52,16 +52,20 @@ describe('画面レジストリの属性', () => {
     );
   });
 
-  it('helpEnabled は主要画面（STAGE1〜6、組織変革、経営計画書）だけが有効', () => {
+  it('helpEnabled は主要画面（トップ、STAGE0〜6、組織変革、経営計画書、招待と権限）だけが有効', () => {
     const enabled = SCREENS.filter((s) => s.helpEnabled === true).map((s) => s.id).sort();
     expect(enabled).toEqual(
       [
+        'admin-invites',
+        'admin-members',
+        'home',
         'org-personal',
         'org-shared',
         'plan-bank',
         'plan-employee',
         'plan-hub',
         'plan-shareholder',
+        'stage0',
         'stage1',
         'stage2',
         'stage3',

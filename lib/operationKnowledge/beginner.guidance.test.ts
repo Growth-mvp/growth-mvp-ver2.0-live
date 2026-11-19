@@ -18,12 +18,12 @@ function operationLines(text: string): { label: string; id: string }[] {
 
 describe('初心者の質問：操作案内の内容', () => {
   it.each([
-    ['stage4', '財務効果の種類と単位の違いを教えて', ['「効果の種類」', '「金額の単位」']],
-    ['stage4', '財務効果は何を入れればいいですか', ['「財務効果の算定根拠（任意）」', '任意']],
-    ['stage4', '確認済みとこの案を財務効果の候補にするの違いは何ですか', ['「内容を確認し、確認済みにする」', '「この案を財務効果の候補にする」', '未確認']],
-    ['stage4', '算定根拠はどう考えればいいですか', ['「算定根拠・出所」']],
-    ['stage4', 'この案を財務効果の候補にするとどうなりますか', ['「この案を財務効果の候補にする」']],
-    ['stage4', '金額が分からない施策はどうすればいいですか', ['任意']],
+    ['stage4', '財務効果の種類と単位の違いを教えて', ['「計算方式」', '「開始年月」']],
+    ['stage4', '財務効果は何を入れればいいですか', ['「財務効果を設定する（STAGE6へ反映）」', '任意']],
+    ['stage4', '確認済みとこの案を財務効果の候補にするの違いは何ですか', ['「計画を保存」']],
+    ['stage4', '算定根拠はどう考えればいいですか', ['「財務効果を設定する（STAGE6へ反映）」']],
+    ['stage4', 'この案を財務効果の候補にするとどうなりますか', ['「計画を保存」']],
+    ['stage4', '金額が分からない施策はどうすればいいですか', ['任意', '入力不足のため未算定']],
     ['stage5', 'KRの実績はどこで入力しますか', ['「実績を保存」', '例（架空）']],
     ['stage6', '条件付きPLとCFの見方を教えて', ['「1. 目標に届くか」', '達成可能性']],
     ['stage6', '未算定と出たときはどうすればいいですか', ['「税率」']],
@@ -65,13 +65,13 @@ describe('初心者の質問：安全・整合（存在しないボタン・勝�
     }
   });
 
-  it('財務効果の確認は利用者の操作として書く（案内の手順に「自動」で確定させる記述がない）', () => {
+  it('財務効果の反映は利用者が「計画を保存」で行うと書く（案内の手順に「自動」で反映させる記述がない）', () => {
     const r = buildOperationGuidance({ screenId: 'stage4', query: '財務効果を確認するにはどうすればいい？', role: 'admin' });
-    const confirm = getOperation('stage4.confirm-finance-effect');
-    expect(confirm).not.toBeNull();
-    expect(confirm!.steps.join('')).toContain('「内容を確認し、確認済みにする」を押す');
-    expect(confirm!.steps.join('')).not.toContain('自動');
-    expect(r.text).toContain('「内容を確認し、確認済みにする」');
+    const entry = getOperation('stage4.open-finance-effect');
+    expect(entry).not.toBeNull();
+    expect(entry!.steps.join('')).toContain('「計画を保存」');
+    expect(entry!.steps.join('')).not.toContain('自動');
+    expect(r.text).toContain('「計画を保存」');
   });
 });
 

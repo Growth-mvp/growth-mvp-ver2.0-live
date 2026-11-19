@@ -26,9 +26,9 @@ export type ScreenEntry = {
 };
 
 export const SCREENS: readonly ScreenEntry[] = [
-  { id: 'home', pathname: '/', label: 'トップページ', area: 'home', navVisible: true, status: 'active' },
+  { id: 'home', helpEnabled: true, pathname: '/', label: 'トップページ', area: 'home', navVisible: true, status: 'active' },
 
-  { id: 'stage0', pathname: '/stage0', label: 'STAGE0 アイスブレイク', area: 'stage', stage: 0, navVisible: true, status: 'active' },
+  { id: 'stage0', helpEnabled: true, pathname: '/stage0', label: 'STAGE0 アイスブレイク', area: 'stage', stage: 0, navVisible: true, status: 'active' },
   { id: 'stage1', helpEnabled: true, pathname: '/stage1', label: 'STAGE1 会社の現状はどうか', area: 'stage', stage: 1, navVisible: true, status: 'active' },
   { id: 'stage2', helpEnabled: true, pathname: '/stage2', label: 'STAGE2 会社は何を目指すのか', area: 'stage', stage: 2, navVisible: true, status: 'active' },
   { id: 'stage3', helpEnabled: true, pathname: '/cascade', label: 'STAGE3 各部門の役割は何か', area: 'stage', stage: 3, navVisible: true, status: 'active' },
@@ -108,8 +108,8 @@ export const SCREENS: readonly ScreenEntry[] = [
   },
 
   { id: 'admin-console', pathname: '/admin', label: '管理コンソール（戦略データ管理）', area: 'admin', requiredRole: 'admin', navVisible:false, status: 'active' },
-  { id: 'admin-members', pathname: '/admin/members', label: '管理者専用：メンバー管理', area: 'admin', requiredRole: 'admin', navVisible:true, status: 'active' },
-  { id: 'admin-invites', pathname: '/admin/invites', label: '招待', area: 'admin', requiredRole: 'admin', navVisible:false, status: 'active' },
+  { id: 'admin-members', helpEnabled: true, pathname: '/admin/members', label: '管理者専用：メンバー管理', area: 'admin', requiredRole: 'admin', navVisible:true, status: 'active' },
+  { id: 'admin-invites', helpEnabled: true, pathname: '/admin/invites', label: '招待', area: 'admin', requiredRole: 'admin', navVisible:false, status: 'active' },
   { id: 'admin-data', pathname: '/admin/data-management', label: 'データ管理', area: 'admin', requiredRole: 'admin', navVisible:false, status: 'active' },
   { id: 'admin-org-insights', pathname: '/admin/org-insights', label: '組織論点ダッシュボード', area: 'admin', requiredRole: 'admin', navVisible:false, status: 'active' },
 

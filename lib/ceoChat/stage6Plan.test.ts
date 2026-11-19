@@ -1,5 +1,6 @@
-import { buildStage6PlanBlock, buildCashPositionBlock, latestActual } from './stage6Plan';
+import { buildStage6PlanBlock, buildCashPositionBlock, latestActual, yearsMentionedIn } from './stage6Plan';
 import { buildFinanceOutlook } from '@/utils/stage6/financeOutlook';
+import { computeStage6FinancePlan } from '@/utils/stage6/financePlanPipeline';
 import { buildStoredFinancePlan, FINANCE_PLAN_CALC_VERSION, readStoredFinancePlan, type FinancePlanDomain } from '@/utils/stage6/financePlanSnapshot';
 import { formatAmount } from './stage1Blocks';
 import { FICTIONAL_STRATEGY_ROW, FICTIONAL_COMPANY_ID } from '../../eval/quality/fictionalCompany';
@@ -76,13 +77,13 @@ describe('実績・目標・予測の区分（Q2・Q5の誤りの再現と防止
     expect(text).toContain('登録目標は見通しではなく目標として扱うこと');
   });
 
-  it('期末現預金の見通しは未算定の項目を未算定と書き、現在の実績とは別の区分にする（Q5）', () => {
+  it('期末現預金の見通しは未算定の項目を未算定と書き、STAGE6と同じ計算だと明示する（Q5）', () => {
     const text = block();
     expect(text).toContain('期末現預金 未算定');
-    expect(text).toContain('現在の実績（STAGE1登録）とは別の区分');
+    expect(text).toContain('トップ画面・STAGE6・銀行向け計画書と同じ計算');
   });
 
-  it('年度別の売上・営業利益・期末現預金は、STAGE6と同じ buildFinanceOutlook の結果と一致する', () => {
+  it('年度別の売上・営業利益・期末現預金は、STAGE6と同じ buildFinanceOutlook の結果と一致する（目標年度の行）', () => {
     const stored = readStoredFinancePlan(storedFor(COMPANY_A), COMPANY_A);
     if (stored.kind !== 'OK') throw new Error('stored plan must be OK');
     const outlook = buildFinanceOutlook({
@@ -94,15 +95,16 @@ describe('実績・目標・予測の区分（Q2・Q5の誤りの再現と防止
       domain: stored.domain,
       currentYear: CURRENT_YEAR,
     });
-    const forecast = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST').slice(0, 3);
-    expect(forecast.length).toBeGreaterThan(0);
+    const year = 2027;
+    const u = outlook.unifiedPl.years.find((r) => r.fiscalYear === year);
+    const c = outlook.financedPlan.years.find((r) => r.year === year);
+    expect(u && c).toBeTruthy();
     const text = block();
-    for (const y of forecast) {
-      const cash = typeof y.closingCashAfterFinancing.value === 'number' ? formatAmount(y.closingCashAfterFinancing.value) : '未算定';
-      expect(text).toContain(
-        `・${y.year}年度：売上 ${formatAmount(y.revenue.value as number)}・営業利益 ${formatAmount(y.operatingIncome.value as number)}・期末現預金 ${cash}`
-      );
-    }
+    expect(text).toContain(
+      `・${year}年度｜売上 ${formatAmount(u!.plan.revenueYen as number)}（既存事業 ${formatAmount(u!.baseline.revenueYen as number)}・施策効果 ${formatAmount(u!.effect.revenueUpYen)}）｜営業利益 ${formatAmount(u!.plan.operatingIncomeYen as number)}（既存事業 ${formatAmount(u!.baseline.operatingIncomeYen as number)}・施策効果 ${formatAmount(u!.confirmedOperatingImprovementYen)}）｜期末現預金 ${
+        typeof c!.closingCashAfterFinancing.value === 'number' ? formatAmount(c!.closingCashAfterFinancing.value) : '未算定'
+      }`
+    );
   });
 
   it('実績は STAGE1 の最新年度（売上・営業利益・期末現預金）を使い、区分名を付ける', () => {
@@ -172,10 +174,89 @@ describe('保存済みの前提が使えないとき', () => {
     expect(block({ fiscalYearEnd: undefined })).toContain('決算月が未登録');
   });
 
-  it('前提の保存日時と、現在のデータとの一致は未検証であることを書く', () => {
+  it('前提の保存日時と、保存時点から元データが変わったことを書く（画面と同じ判定）', () => {
     const text = block();
     expect(text).toContain('前提の保存日時: 2026-10-20');
-    expect(text).toContain('保存済みの前提も、現在のSTAGE1・4のデータとの一致は未検証です');
+    expect(text).toContain('- 保存状態：過去の計算です（');
+    expect(text).toContain('STAGE1またはSTAGE4の元データが変わりました');
+  });
+
+  it('画面と同じ入力の保存値なら、保存状態は一致と書く', () => {
+    const stored = readStoredFinancePlan(storedFor(COMPANY_A), COMPANY_A);
+    if (stored.kind !== 'OK') throw new Error('stored plan must be OK');
+    const computed = computeStage6FinancePlan({
+      financePL: PL as any,
+      financeBS: BS as any,
+      departments: [],
+      fiscalYearEnd: '3',
+      domain: stored.domain,
+      currentYear: CURRENT_YEAR,
+    });
+    const saved = buildStoredFinancePlan({
+      domain: stored.domain,
+      companyId: COMPANY_A,
+      savedAt: '2026-10-20T00:00:00Z',
+      meta: {
+        calcVersion: FINANCE_PLAN_CALC_VERSION,
+        companyId: COMPANY_A,
+        baseYear: computed.basePlan.baseYear,
+        bsBaseYear: computed.basePlan.bsBaseYear,
+        assumptionsHash: computed.assumptionsHash,
+        sourceHash: computed.sourceHash,
+        unconfirmed: { unapprovedReadyYen: 0, unclassifiedYen: 0, unscheduledYen: 0, candidateYen: 0, basisPendingYen: 0 },
+        computedAt: '2026-10-20T00:00:00Z',
+      },
+    });
+    const text = block({ csvFinanceData: { financePlanAssumptions: saved } });
+    expect(text).toContain('- 保存状態：保存済みの前提と最新の元データが一致');
+  });
+});
+
+describe('質問に応じた参照（関係する年度と区画だけを出す）', () => {
+  it('質問の年度（2026年度）と、経営目標の年度（2027年度）を参照する', () => {
+    const text = block({ question: '2026年度の売上高の見込みは？' });
+    expect(text).toMatch(/・2026年度｜売上/);
+    expect(text).toMatch(/・2027年度｜売上/);
+    expect(text).not.toMatch(/・2028年度｜売上/);
+  });
+
+  it('予測期間の外の年度は、算出していないと書く', () => {
+    const text = block({ question: '2035年度の売上高は？' });
+    expect(text).toContain('指定の2035年度は予測期間');
+    expect(text).toContain('の外のため、算出していません');
+  });
+
+  it('売上・利益の質問では、借入・プロジェクト・保存済みシミュレーションの区画を出さない', () => {
+    const text = block({ question: '2027年度の売上高と営業利益の見込みは？', simulationResults: [] });
+    expect(text).toContain('・2027年度｜売上');
+    expect(text).not.toContain('設備投資・借入・返済・資金（年度別');
+    expect(text).not.toContain('プロジェクト別の財務効果');
+    expect(text).not.toContain('保存済みシミュレーションはありません');
+    expect(text).not.toContain('- 保存済み（保存時点の計算結果）');
+  });
+
+  it('資金の質問では、設備投資・借入・返済・資金不足を出す', () => {
+    const text = block({ question: '資金不足や借入返済の懸念は？' });
+    expect(text).toContain('- 設備投資・借入・返済・資金（年度別、借入反映後）：');
+    expect(text).toContain('元本返済');
+    expect(text).toContain('返済余力（DSCR）');
+  });
+
+  it('達成率の質問では、STAGE5の登録済みの実績と達成率を出す', () => {
+    const text = block({ question: '達成率が表示されないのはなぜですか？' });
+    expect(text).toContain('登録済みの実績と達成率（STAGE5・当会計年度');
+  });
+
+  it('年度の表記（2027年3月期・2030年度）を質問から読む', () => {
+    expect(yearsMentionedIn('2027年3月期の実績は？')).toEqual([2027]);
+    expect(yearsMentionedIn('2030年度の見込み、2028年の現預金')).toEqual([2028, 2030]);
+    expect(yearsMentionedIn('KPIの目標値は？')).toEqual([]);
+  });
+
+  it('質問の無い従来の呼び出しは、全区画を出す', () => {
+    const text = block();
+    expect(text).toContain('- 設備投資・借入・返済・資金（年度別、借入反映後）：');
+    expect(text).toContain('保存済みシミュレーションはありません');
   });
 });
 
@@ -216,17 +297,37 @@ describe('保存済みシミュレーションは、保存時点の結果とし�
 });
 
 describe('現預金の区分（資金の相談で単独に使う）', () => {
-  it('現預金の実績と最低現預金、予測未算出を出す', () => {
+  it('現預金の実績と最低現預金、STAGE6と同じ年度別の期末現預金を出す', () => {
     const text = buildCashPositionBlock({
       csvFinanceData: { financePlanAssumptions: storedFor(COMPANY_A) },
       companyId: COMPANY_A,
       financePL: PL,
       financeBS: BS,
+      departments: [],
+      fiscalYearEnd: '3',
+      currentYear: CURRENT_YEAR,
+      companyTargets: [],
     });
     expect(text).toContain(`期末現預金 ${formatAmount(210_000_000)}`);
     expect(text).toContain(`最低現預金（登録前提）：${formatAmount(150_000_000)}`);
-    expect(text).toContain('期末現預金の予測：未算出');
+    expect(text).toContain('- 期末現預金（施策反映後・借入反映後）：2027年度 未算定');
+    expect(text).toContain('期末現預金（施策反映後・借入反映後）');
+    expect(text).not.toContain('期末現預金の予測：未算出');
     expect(text).not.toMatch(/年度（予測）/);
+  });
+
+  it('保存済みの計画が無ければ、現預金の予測は未算出と書く', () => {
+    const text = buildCashPositionBlock({
+      csvFinanceData: { financeBS: [] },
+      companyId: COMPANY_A,
+      financePL: PL,
+      financeBS: BS,
+      departments: [],
+      fiscalYearEnd: '3',
+      currentYear: CURRENT_YEAR,
+      companyTargets: [],
+    });
+    expect(text).toContain('期末現預金の予測：未算出');
   });
 
   it('最低現預金が未登録と確認できれば未登録と書く', () => {
@@ -235,12 +336,25 @@ describe('現預金の区分（資金の相談で単独に使う）', () => {
       companyId: COMPANY_A,
       financePL: PL,
       financeBS: BS,
+      departments: [],
+      fiscalYearEnd: '3',
+      currentYear: CURRENT_YEAR,
+      companyTargets: [],
     });
     expect(text).toContain('最低現預金：未登録です');
   });
 
   it('保存データが空で未登録と確認できなければ、未登録と断定しない', () => {
-    const text = buildCashPositionBlock({ csvFinanceData: {}, companyId: COMPANY_A, financePL: PL, financeBS: BS });
+    const text = buildCashPositionBlock({
+      csvFinanceData: {},
+      companyId: COMPANY_A,
+      financePL: PL,
+      financeBS: BS,
+      departments: [],
+      fiscalYearEnd: '3',
+      currentYear: CURRENT_YEAR,
+      companyTargets: [],
+    });
     expect(text).not.toContain('最低現預金：未登録です');
     expect(text).toContain('最低現預金：保存済みの資金計画は今回参照した情報では確認できません');
   });

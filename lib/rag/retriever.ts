@@ -3,6 +3,8 @@
 
 import type { RagChunk, RagHit, RagRetrieveResult, RagIndex } from './types';
 
+const RAG_MIN_HIT_SCORE = 0.1;
+
 // 重要キーワード（重み増加）
 const STRONG_KEYWORDS = [
   'stage1', 'stage2', 'stage3', 'stage4', 'stage5', 'stage6',
@@ -131,7 +133,7 @@ export function retrieveGrowthKnowledge(
         reasons,
       };
     })
-    .filter((hit) => hit.score > 0) // スコア 0 は除外
+    .filter((hit) => hit.score >= RAG_MIN_HIT_SCORE) // 関係の薄い断片（一般的な語だけの一致）は入れない
     .sort((a, b) => b.score - a.score) // スコア順
     .slice(0, topK); // 上位 topK
 
