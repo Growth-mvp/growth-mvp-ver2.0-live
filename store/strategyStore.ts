@@ -1193,6 +1193,21 @@ async function reconcileAfterConflict(args: {
 const DEPARTMENTS_CONFLICT_MESSAGE =
   '他の利用者が同じ内容を更新しました。あなたの未保存の変更は画面に残しています。内容を確認してから、もう一度保存してください。';
 
+/** 保存中に編集された項目は、保存時点のサーバーの値で戻さない（画面の編集を消さない） */
+function minimalWithoutEditedFields(
+  minimal: Partial<StrategyState>,
+  payload: object,
+  live: StrategyState,
+): Partial<StrategyState> {
+  const saved = payload as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(minimal)) {
+    const edited = key in saved && stableHash((live as unknown as Record<string, unknown>)[key]) !== stableHash(saved[key]);
+    if (!edited) out[key] = value;
+  }
+  return out as Partial<StrategyState>;
+}
+
 function extractServerDecidedPatch(
   resData: Partial<StrategyState> & { revision?: number },
   current: StrategyState
@@ -3893,6 +3908,7 @@ export const useStrategyStore = create<StrategyState>()(
               const state = get();
               reportDuplicateProjectIds(state.departments);
               const payload = buildSavePayload(state as StrategyState);
+              const payloadHashAtStart = stableHash(payload);
 
               // [DEBUG] payload に okrsV2 の ID が含まれているか確認
               if (reason === 'manual-save-button' || reason?.startsWith('stage3:')) {
@@ -4135,9 +4151,13 @@ export const useStrategyStore = create<StrategyState>()(
                 console.error('[strategyStore] 保存後の revision が想定どおり進みませんでした。以後の保存を止めます', { reason: revisionCheck.reason, before: state.revision, after: returnedRevision, caller: reason });
               }
               const nowMs = Date.now();
+              // 保存中に利用者が編集した場合は、保存済みと判定せず、保存し直す（同じ内容なら未保存としない）
+              const editedDuringSave = stableHash(buildSavePayload(get() as StrategyState)) !== payloadHashAtStart;
+              const serverPatch = editedDuringSave ? minimalWithoutEditedFields(minimal, payload, get()) : minimal;
 
               const safePatch: Partial<StrategyState> = {
-                dirty: false,
+                dirty: editedDuringSave,
+                ...(editedDuringSave && { _pendingSave: true, _pendingSaveReason: 'edited-during-save' }),
                 __lastSavedHash: currentHash,
                 financePlanSavedHash: workingHashOf((payload as { csvFinanceData?: unknown }).csvFinanceData),
                 /* ★ DB is source of truth for revision */
@@ -4165,8 +4185,8 @@ export const useStrategyStore = create<StrategyState>()(
               if (__revisionAnomaly) set({ saveError: REVISION_ANOMALY_MESSAGE } as any);
 
               // ★ CRITICAL: After safePatch is set, reflect extracted server data（including stage3_strategy_bridge）
-              if (Object.keys(minimal).length > 0) {
-                set(minimal);
+              if (Object.keys(serverPatch).length > 0) {
+                set(serverPatch);
               }
 
               // ★ CRITICAL: 保存後に完全版bridge を復元（payloadまたはserverDataから）
@@ -4187,7 +4207,8 @@ export const useStrategyStore = create<StrategyState>()(
                 bridgeToRestore = restorePayloadBridge;
               }
 
-              if (bridgeToRestore?.strategicCore) {
+              const keepLiveBridge = editedDuringSave && !!restoreCurrentStoreState.stage3_strategy_bridge?.strategicCore;
+              if (bridgeToRestore?.strategicCore && !keepLiveBridge) {
                 set({ stage3_strategy_bridge: bridgeToRestore });
               }
 

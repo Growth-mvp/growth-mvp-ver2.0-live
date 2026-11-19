@@ -392,3 +392,48 @@ describe('revision 異常時の保護', () => {
     expect(dbJson()).toContain('7777');
   });
 });
+
+/** 予約された再保存（setTimeout で起動）が終わるまで待つ */
+async function waitForSaves(count: number) {
+  for (let i = 0; i < 200 && db.saves.length < count; i++) await new Promise((r) => setTimeout(r, 0));
+}
+
+describe('保存中に加わった編集（保存済みと判定しない）', () => {
+  it('保存の途中で利用者が編集したら、その編集は未保存のまま残り、dirty は true のまま', async () => {
+    await loadedStore(true);
+    localChange({ financeSummary: [{ year: 2025, revenue: 2000, operatingIncome: 150 }] });
+    db.beforeSave = () => localChange({ financeSummary: [{ year: 2025, revenue: 9999, operatingIncome: 150 }] });
+
+    const res = await get().saveStrategyData({ force: true, reason: 'manual-save-button' });
+
+    expect(res.ok).toBe(true);
+    expect(dbJson()).toContain('2000');
+    expect(dbJson()).not.toContain('9999');
+    expect(get().financeSummary[0].revenue).toBe(9999);
+    expect(get().dirty).toBe(true);
+    await waitForSaves(2);
+  });
+
+  it('保存中の編集は、予約された再保存で DB に入り、そのあと未保存とはしない（再読み込みで消えない）', async () => {
+    await loadedStore(true);
+    localChange({ financeSummary: [{ year: 2025, revenue: 2000, operatingIncome: 150 }] });
+    db.beforeSave = () => localChange({ financeSummary: [{ year: 2025, revenue: 9999, operatingIncome: 150 }] });
+    await get().saveStrategyData({ force: true, reason: 'manual-save-button' });
+    await waitForSaves(2);
+
+    expect(db.saves.map((s) => s.ok)).toEqual([true, true]);
+    expect(dbJson()).toContain('9999');
+    expect(get().dirty).toBe(false);
+  });
+
+  it('保存中の編集が保存された内容と同じなら、未保存とはしない', async () => {
+    await loadedStore(true);
+    localChange({ financeSummary: [{ year: 2025, revenue: 2000, operatingIncome: 150 }] });
+    db.beforeSave = () => localChange({ financeSummary: [{ year: 2025, revenue: 2000, operatingIncome: 150 }] });
+
+    const res = await get().saveStrategyData({ force: true, reason: 'manual-save-button' });
+
+    expect(res.ok).toBe(true);
+    expect(get().dirty).toBe(false);
+  });
+});
