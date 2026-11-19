@@ -4029,9 +4029,10 @@ useEffect(() => {
   // 6問の部品が持つ「未保存の回答を保存する」関数（部門ごと）
   const deptAnswerFlushRef = useRef<Record<number, () => void>>({});
 
-  // 再生成の前に、入力中の回答を渡して既存の保存処理で保存し、成功を確認する（未保存の有無によらず毎回保存する）。
+  // 再生成の前に、未保存の回答だけを既存の保存処理で保存し、成功を確認する。回答を変えていなければ保存しない。
   const prepareRegenerationForDept = async (index: number): Promise<{ ok: true } | { ok: false; message: string }> => {
     deptAnswerFlushRef.current[index]?.();
+    if (!useStrategyStore.getState().dirty) return { ok: true };
     const saved = await useStrategyStore.getState().saveStrategyData({ force: true, reason: 'stage3:regen-answers' });
     if (saved.ok) return { ok: true };
     return {

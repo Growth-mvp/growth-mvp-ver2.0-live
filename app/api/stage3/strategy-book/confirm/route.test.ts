@@ -151,9 +151,18 @@ const newProjectCandidate = {
   },
 };
 
+const analyzedWithoutCandidates = {
+  draftId: null,
+  draftVersion: null,
+  createdAt: '2026-01-03T00:00:00.000Z',
+  candidates: [],
+  rejectedCandidates: 0,
+  rejectedReferences: 0,
+};
+
 const decidedAll: Partial<WorkspaceState> = {
   status: 'draft',
-  analysis: null,
+  analysis: analyzedWithoutCandidates as unknown as WorkspaceState['analysis'],
   selections: selections({ sales: 'applied', mkt: 'applied' }),
 };
 
@@ -190,6 +199,14 @@ beforeEach(() => {
 });
 
 describe('POST /api/stage3/strategy-book/confirm', () => {
+  it('2部門以上で部門間の調整が未分析なら、正式データも作業状態も変えずに確定を拒否する', async () => {
+    tables.stage3_strategy_books = [workspaceWith({ ...decidedAll, analysis: null })];
+    const res = await POST(post(body));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ ok: false, error: 'analysis_required' });
+    expect(rpcCalls).toEqual([]);
+  });
+
   it('採用された変更案を、関数を1回呼んで反映する。旧データのIDは付けない（既存の計画は変えない）', async () => {
     const res = await POST(post(body));
     expect(res.status).toBe(200);

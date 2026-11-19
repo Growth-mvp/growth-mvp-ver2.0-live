@@ -52,3 +52,9 @@ export function judgmentBlockerOf(summary: JudgmentSummary): string | null {
   if (summary.blockers === 0) return null;
   return `部門間調整の判断が${summary.blockers}件残っています。採用・保留・不採用のいずれかを選んでください。`;
 }
+
+/** 2部門以上では、部門間調整を分析してから確定する。1部門なら分析は不要。分析済みで候補0件なら確定できる。 */
+export function analysisBlockerOf(departmentCount: number, analyzed: boolean): string | null {
+  if (departmentCount < 2 || analyzed) return null;
+  return '部門間の調整がまだ分析されていません。「部門間の調整」で計画案を分析してから、確定してください。';
+}

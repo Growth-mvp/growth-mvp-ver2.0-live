@@ -72,11 +72,15 @@ export async function loadAndHydrate(companyId: string) {
   // 会社切替（ローカル破壊はしない：pendingCompanyId に退避）
   store.setCompanyScope(companyId);
 
+  let restored = false;
   try {
     // store 側の正規ルートで取得・正規化・hydrated を完了させる
     if (DEBUG) console.log('[loadAndHydrate] 📡 refetchFromServer 実行前');
     await store.refetchFromServer();
     if (DEBUG) console.log('[loadAndHydrate] ✅ refetchFromServer 完了');
+
+    const after = useStrategyStore.getState();
+    restored = after.restoreReady === true && after.companyId === companyId;
 
     if (DEBUG) console.log('[loadAndHydrate] 🎉 成功完了', {
       hydrated: useStrategyStore.getState().hydrated,
@@ -100,13 +104,13 @@ export async function loadAndHydrate(companyId: string) {
     // ★ finally 内で getState() を取り直して、最新の store 参照を使う
     const freshStore = useStrategyStore.getState();
 
-    // 成功/失敗に関わらず必ず markLoaded を呼んで loaded:true にする（画面固まり防止）
-    if (DEBUG) console.log('[loadAndHydrate] 🔧 finally ブロック：markLoaded 実行');
-    if (freshStore.markLoaded) {
+    // 復元できた場合のみ hydrated にして保存を許可する。失敗時は画面を固めないため loaded だけ立て、保存は止めたままにする
+    if (restored) {
+      if (DEBUG) console.log('[loadAndHydrate] 🔧 finally ブロック：markLoaded 実行');
       freshStore.markLoaded();
     } else {
-      console.warn('[loadAndHydrate] markLoaded が存在しません（手動設定）');
-      useStrategyStore.setState((s) => ({ ...s, loaded: true, hydrated: true }));
+      console.warn('[loadAndHydrate] 復元できなかったため、保存を止めたまま表示だけ進めます');
+      useStrategyStore.setState({ loaded: true, hydrated: false });
     }
 
     // setHydrating も最新の参照で実行

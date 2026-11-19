@@ -14,6 +14,7 @@ import { failResponse } from '@/lib/server/stage3DepartmentWrite';
 import { loadStrategyAccess } from '@/lib/server/stage3Adjustment';
 import { confirmAtomically, loadWorkspace } from '@/lib/server/stage3StrategyBook';
 import { verifyWorkspaceState, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
+import { analysisBlockerOf } from '@/lib/cascade/stage3Judgments';
 import { buildConfirmPlan } from '@/lib/server/stage3ConfirmPlan';
 import { settleLegacySelections } from '@/lib/cascade/stage3Settle';
 
@@ -46,6 +47,9 @@ export async function POST(req: Request) {
     const verified = verifyWorkspaceState(loaded.workspace.state, who.departments);
     if (!verified.ok) return failResponse(409, verified.error);
     if (verified.state.status === 'confirmed') return failResponse(409, 'already_confirmed');
+    if (analysisBlockerOf(who.departments.length, verified.state.analysis !== null) !== null) {
+      return failResponse(409, 'analysis_required');
+    }
     const current = settleLegacySelections(verified.state, who.departments).state;
 
     const built = await buildConfirmPlan(admin, {

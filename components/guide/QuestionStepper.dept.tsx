@@ -593,7 +593,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                   <span className={title ? 'flex-1 text-sm leading-6 text-gray-900' : 'flex-1 text-sm leading-6 text-gray-400'}>
                     {title || '未生成'}
                   </span>
-                  <span className="shrink-0 pt-0.5 text-xs text-gray-500">{answered ? '回答済み' : item ? '空欄' : ''}</span>
+                  <span className="shrink-0 pt-0.5 text-xs text-gray-500">{answered ? '回答済み' : title ? '未回答' : ''}</span>
                 </button>
 
                 {active && (

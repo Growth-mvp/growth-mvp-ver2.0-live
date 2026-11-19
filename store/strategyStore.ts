@@ -22,6 +22,7 @@ import {
   assessRevisionAdvance,
   mergeDepartmentsForConflict,
   type DepartmentsConflict,
+  hasLocalDepartmentEdits,
   sameJson,
 } from '@/lib/strategy/departmentsMerge';
 import { checkRevisionAfterUpdate } from '@/lib/strategy/revisionCheck';
@@ -4471,6 +4472,7 @@ export const useStrategyStore = create<StrategyState>()(
 
           // ★ TRACE POINT 9: refetch - server response (patch) の departments/projects
           const patchDepts = Array.isArray((patch as any).departments) ? (patch as any).departments : [];
+          const lastSyncedDepts = __syncedRaw?.departments;
           if (!isStale) __syncedRaw = cloneState(patch);
           const patchProjCount = patchDepts.reduce((s: number, d: any) => {
             return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
@@ -4493,6 +4495,8 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           if (wasDirty) {
+            // 最後に同期した部門から変わっていない場合は、キャッシュ由来の古い部門を残さず DB を正とする
+            const keepLocalDepartments = hasLocalDepartmentEdits(cur.departments, lastSyncedDepts);
             // ★ TRACE POINT 10a: extractServerDecidedPatch 前 - base state
             const baseDepts = Array.isArray((get() as any).departments) ? (get() as any).departments : [];
             const baseProjCount = baseDepts.reduce((s: number, d: any) => {
@@ -4538,7 +4542,7 @@ export const useStrategyStore = create<StrategyState>()(
                 ...(keepLocalSwot ? { swotSuggestions: base.swotSuggestions ?? patch.swotSuggestions } : {}),
 
                 // 危険な構造体だけ base 優先（有効値の時のみ）
-                departments: Array.isArray(base.departments) ? base.departments : patch.departments,
+                departments: keepLocalDepartments && Array.isArray(base.departments) ? base.departments : patch.departments,
                 stage4Plans: Array.isArray(base.stage4Plans) ? base.stage4Plans : patch.stage4Plans,
                 executionPlanBaseline: base.executionPlanBaseline != null ? base.executionPlanBaseline : patch.executionPlanBaseline,
                 projectTargetImpacts: Array.isArray(base.projectTargetImpacts) ? base.projectTargetImpacts : patch.projectTargetImpacts,

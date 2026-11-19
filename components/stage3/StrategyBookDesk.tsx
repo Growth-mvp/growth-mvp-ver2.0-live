@@ -7,7 +7,6 @@ import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import {
   ADJUSTMENT_KIND_LABEL,
   PROPOSAL_ITEM_LABEL,
-  adjustmentConclusion,
   departmentKeyOf,
   displayTextOf,
   internalIdNamesOf,
@@ -46,7 +45,8 @@ import {
 import type { Department } from '@/types/strategy';
 import { StrategyBookDocument, type DocProject, type SectionEdit, type StrategyDocumentProps, type TextItemKey } from '@/components/stage3/StrategyBookDocument';
 import { projectDetailOf, type DraftProjectInput } from '@/lib/cascade/stage3ProjectDetail';
-import { judgmentBlockerOf, judgmentSummaryOf } from '@/lib/cascade/stage3Judgments';
+import { analysisBlockerOf, judgmentBlockerOf, judgmentSummaryOf } from '@/lib/cascade/stage3Judgments';
+import { replayDecisions, settleSentDecisions, type DecisionEntry } from '@/lib/cascade/stage3DecisionQueue';
 import type { SettleCounts } from '@/lib/cascade/stage3Settle';
 import { projectTextOf } from '@/lib/cascade/stage3Confirm';
 import {
@@ -231,6 +231,7 @@ const ERROR_MESSAGE: Record<string, string> = {
     '同じ計画を戦略書で編集しているか、計画から外す予定のため、変更候補を採用できません。どちらかを取り消してから、もう一度お試しください。',
   project_proposal_duplicated: '同じ計画への変更候補が重複しています。画面を再読み込みしてください。',
   confirmed_with_undecided_candidate: '未判断の調整候補が残っています。採用・保留・不採用のいずれかを選んでください。',
+  analysis_required: '部門間の調整がまだ分析されていないため、確定できません。「部門間の調整」で計画案を分析してから、確定してください。',
   already_confirmed: 'この内容はすでに確定済みです。',
   current_value_changed:
     '正式データの値が変更案を作った後に変わっていたため、この変更は反映していません。回答と判断は残っています。該当部門の「6問を反映して戦略書を再生成」で変更案を作り直してから、もう一度確定してください。',
@@ -267,6 +268,7 @@ const ERROR_MESSAGE: Record<string, string> = {
 };
 
 const DEFAULT_ERROR = '処理に失敗しました。時間をおいて再度お試しください。';
+const DECISIONS_UNSAVED_MESSAGE = '採否の保存が終わっていません。保存が終わってから操作してください。';
 
 function linkedProjectOf(departments: readonly unknown[], candidateId: string): AnyRecord | undefined {
   for (const dept of departments) {
@@ -761,6 +763,7 @@ export function StrategyBookDesk({
 
   const stage2Ready = stage2.status === 'confirmed';
   const stage2Message = (): string | undefined => (stage2.status === 'error' ? stage2.message : undefined);
+  const decisionsUnsaved = Object.keys(pendingChoices).length > 0;
   const blockerFor = (busyNow: boolean) =>
     generationBlockerOf({
       loaded,
@@ -769,7 +772,7 @@ export function StrategyBookDesk({
       stage2Status: stage2.status,
       stage2Message: stage2Message(),
       workspaceErrorCode,
-    });
+    }) ?? (decisionsUnsaved ? DECISIONS_UNSAVED_MESSAGE : null);
 
   /* 生成（初回たたき台・6問反映後の再生成）。対象の部門だけ作り直し、他の部門の草案・候補・判断は残す */
   const generateFor = async (indices: number[], kind: 'initial' | 'regenerated') => {
@@ -778,11 +781,10 @@ export function StrategyBookDesk({
       setNotice(blocker);
       return;
     }
-    const g = gate();
-    if (!g) return;
     setBusy(kind);
     setNotice('');
     try {
+      // 未保存の回答は、書き込みゲートの判定より先に保存する（保存後にゲートを確認する）
       if (kind === 'regenerated' && prepareRegeneration) {
         for (const i of indices) {
           const prepared = await prepareRegeneration(i);
@@ -792,6 +794,8 @@ export function StrategyBookDesk({
           }
         }
       }
+      const g = gate();
+      if (!g) return;
       const generated: Record<string, StrategyBookGenerateResult> = {};
       const failed: string[] = [];
       for (const i of indices) {
@@ -877,6 +881,11 @@ export function StrategyBookDesk({
     }
     const g = gate();
     if (!g) return;
+    const existing = state.analysis;
+    if (existing && draftRef && existing.draftId === draftRef.draftId && existing.draftVersion === draftRef.version) {
+      setNotice('部門間の調整は、この計画案で分析済みです。');
+      return;
+    }
     setBusy('analyze');
     try {
       const requestedVersion = versionRef.current;
@@ -1046,11 +1055,10 @@ export function StrategyBookDesk({
     }
   };
 
-  type DecisionPatch = { key: string; patch: (s: WorkspaceState) => WorkspaceState };
-  const decisionPatchesRef = useRef<DecisionPatch[]>([]);
+  const decisionPatchesRef = useRef<DecisionEntry<WorkspaceState>[]>([]);
   const decisionDraftRef = useRef<WorkspaceState | null>(null);
-  const decisionAfterRef = useRef<Array<() => void>>([]);
   const decisionRunRef = useRef<Promise<void>>(Promise.resolve());
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   const releaseDecisionKeys = (keys: string[]) => {
     const still = new Set(decisionPatchesRef.current.map((p) => p.key));
@@ -1058,27 +1066,20 @@ export function StrategyBookDesk({
     if (done.length > 0) setPendingChoices((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !done.includes(k))));
   };
 
-  /* 採否の保存は1つずつ順に行う。競合したら最新の状態を読み直し、まだ保存していない判断を積み直して書き直す（判断は消えない） */
+  /* 採否の保存は1つずつ順に行う。送信した判断だけを保存済みにし、送信中に追加された判断は次の保存に残す。
+     競合したら最新の状態に判断を積み直して書き直す。失敗した判断は画面に残し、再試行できるようにする */
   const flushDecisions = async (failureNote: string) => {
-    const batch = [...decisionPatchesRef.current];
-    if (batch.length === 0) return;
-    const keys = [...new Set(batch.map((p) => p.key))];
-    const after = decisionAfterRef.current.splice(0);
+    if (decisionPatchesRef.current.length === 0) return;
     const g = gate();
-    const failAll = (message: string) => {
-      decisionPatchesRef.current = [];
-      decisionDraftRef.current = null;
-      setNotice(failureNote + message);
-      setPendingChoices({});
-    };
     if (!g || versionRef.current === null) {
-      failAll('作業内容を読み込めませんでした。時間をおいて再度お試しください。');
+      setDecisionError(`${failureNote}作業内容を読み込めませんでした。時間をおいて再度お試しください。`);
       return;
     }
-    const replay = (base: WorkspaceState) => decisionPatchesRef.current.reduce((s, p) => p.patch(s), base);
     try {
-      let draft = decisionDraftRef.current ?? replay(state);
+      let draft = decisionDraftRef.current ?? replayDecisions(state, decisionPatchesRef.current);
+      let sent: DecisionEntry<WorkspaceState>[] = [];
       for (let attempt = 0; ; attempt += 1) {
+        sent = [...decisionPatchesRef.current];
         try {
           const res = await putWorkspace(g, draft, versionRef.current);
           versionRef.current = res.version;
@@ -1088,17 +1089,23 @@ export function StrategyBookDesk({
           const latest = await fetchWorkspace(g);
           if (!latest) throw e;
           versionRef.current = latest.version;
-          draft = replay(latest.state);
+          draft = replayDecisions(latest.state, decisionPatchesRef.current);
         }
       }
+      const settled = settleSentDecisions(decisionPatchesRef.current, sent, draft);
+      decisionPatchesRef.current = settled.rest;
+      decisionDraftRef.current = settled.draft;
       setState(draft);
-      decisionPatchesRef.current = decisionPatchesRef.current.slice(batch.length);
-      decisionDraftRef.current = decisionPatchesRef.current.length > 0 ? draft : null;
-      releaseDecisionKeys(keys);
-      after.forEach((fn) => fn());
+      setDecisionError(null);
+      releaseDecisionKeys(settled.done.map((p) => p.key));
+      settled.done.forEach((p) => p.after?.());
     } catch (e) {
-      failAll(errorMessage(e));
+      setDecisionError(`${failureNote}${errorMessage(e)} 未保存の採否は画面に残っています。`);
     }
+  };
+
+  const retryDecisions = () => {
+    decisionRunRef.current = decisionRunRef.current.then(() => flushDecisions('採否を保存できませんでした。'));
   };
 
   const decide = (
@@ -1112,9 +1119,8 @@ export function StrategyBookDesk({
       setNotice('作業内容を読み込めませんでした。時間をおいて再度お試しください。');
       return;
     }
-    decisionPatchesRef.current = [...decisionPatchesRef.current, { key, patch }];
+    decisionPatchesRef.current = [...decisionPatchesRef.current, { key, apply: patch, after: afterSaved }];
     decisionDraftRef.current = patch(decisionDraftRef.current ?? state);
-    if (afterSaved) decisionAfterRef.current.push(afterSaved);
     setPendingChoices((prev) => ({ ...prev, [key]: value }));
     decisionRunRef.current = decisionRunRef.current.then(() => flushDecisions(failureNote));
   };
@@ -1176,6 +1182,7 @@ export function StrategyBookDesk({
     const g = gate();
     const current = base.analysis;
     if (!g || !current || current.candidates.length === 0) return;
+    if (current.candidates.every((c) => base.adjustmentProposals.some((p) => p.candidateId === c.id))) return;
     setBusy('proposal');
     setNotice('');
     setEditingProposal(null);
@@ -1432,6 +1439,11 @@ export function StrategyBookDesk({
       setConfirmResult({ tone: 'error', message: blocker });
       return;
     }
+    const analysisBlock = analysisBlockerOf(departments.length, !!state.analysis);
+    if (analysisBlock) {
+      setConfirmResult({ tone: 'error', message: analysisBlock });
+      return;
+    }
     const undecided = (state.analysis?.candidates ?? []).filter((c) => !state.candidateDecisions[c.id]).length;
     const pending = state.selections.filter((s) => s.decision === 'pending').length;
     if (pending > 0) {
@@ -1485,7 +1497,16 @@ export function StrategyBookDesk({
   const latest = latestDraft(state);
   const confirmed = state.status === 'confirmed';
   const isBusy = busy !== null;
-  const canOperate = canEdit && loaded && !isBusy;
+  const writeGate = getWriteGate();
+  const writeBlocker = writeGate.ok ? null : writeGate.reason;
+  const canOperate = canEdit && loaded && !isBusy && writeBlocker === null;
+  const operateBlocker = !canEdit
+    ? '編集は管理者・管理職のみ行えます。'
+    : !loaded
+      ? '作業内容を読み込んでいます。'
+      : isBusy
+        ? '処理が終わるまでお待ちください。'
+        : writeBlocker;
   const analysis = state.analysis;
   const staleAnalysis = !!analysis && (!latest || analysis.draftVersion !== latest.version);
   const undecidedCandidateCount = (analysis?.candidates ?? []).filter((c) => !state.candidateDecisions[c.id]).length;
@@ -1576,7 +1597,8 @@ export function StrategyBookDesk({
       ? (stage2.status === 'loading' ? '読み込み中です' : 'STAGE2の確定後に確定できます')
       : state.drafts.length === 0
         ? '先に、部門の戦略書のたたき台を作成してください'
-        : judgmentBlockerOf(judgments);
+        : analysisBlockerOf(departments.length, !!state.analysis) ??
+          (decisionsUnsaved ? DECISIONS_UNSAVED_MESSAGE : judgmentBlockerOf(judgments));
 
   const confirmResultNote = confirmResult && (
     <p
@@ -1598,9 +1620,16 @@ export function StrategyBookDesk({
         const adopted = state.projectSelections.filter((p) => p.departmentKey === k && p.decision === 'applied').length;
         const edits = state.projectEdits.filter((e) => e.departmentKey === k).length;
         const removals = state.projectRemovals.filter((r) => r.departmentKey === k).length;
+        const itemNames = [
+          ...new Set(
+            state.selections
+              .filter((s) => s.departmentKey === k && s.decision === 'applied')
+              .map((s) => (DEPT_PROPOSAL_ITEMS as Record<string, { label: string }>)[s.item]?.label ?? s.item),
+          ),
+        ];
         return (
           <p key={k}>
-            <span className="font-semibold text-zinc-900">{d.name}</span>：文章の変更 {items}項目・新規プロジェクトの採用 {adopted}件・既存プロジェクトの編集 {edits}件・計画から外す {removals}件
+            <span className="font-semibold text-zinc-900">{d.name}</span>：文章の変更 {items}項目{itemNames.length > 0 ? `（${itemNames.join('・')}）` : ''}・新規プロジェクトの採用 {adopted}件・既存プロジェクトの編集 {edits}件・計画から外す {removals}件
           </p>
         );
       })}
@@ -2031,6 +2060,7 @@ export function StrategyBookDesk({
         {isOpen(5) && (
         <section className={sectionClass}>
           <h4 className={summaryClass}>STEP4：重点プロジェクトを選ぶ</h4>
+          {reasonLine(operateBlocker)}
           <div className="space-y-6 border-t px-4 py-4">
             <div className="space-y-3">
               <h4 className="text-sm font-semibold">AIが提案した新規プロジェクト候補（{dept.name}）</h4>
@@ -2380,14 +2410,19 @@ export function StrategyBookDesk({
       )}
 
       {notice && <p className="rounded-lg bg-gray-50 px-4 py-2 text-sm text-gray-800">{notice}</p>}
+      {decisionError && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <span>{decisionError}</span>
+          <Button variant="outline" onClick={retryDecisions} className="h-8 rounded-full px-3 text-xs">
+            もう一度保存する
+          </Button>
+        </div>
+      )}
 
       {departments.length === 0 && tab !== 'compare' && (
         <section className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-5">
           <h3 className="font-semibold">最初に事業・部門を登録します</h3>
           <p className="text-sm text-zinc-700">戦略書を作る部門がありません。上の「事業・部門の追加・管理」から追加してください。</p>
-          {canManageDepartments && (
-            <Button onClick={() => setMgmtOpen(true)} className="rounded-full h-9 px-4">事業・部門を追加する</Button>
-          )}
         </section>
       )}
 
@@ -2405,9 +2440,12 @@ export function StrategyBookDesk({
             {departments.length < 2 && <p className="text-xs text-zinc-600">部門が2つ以上あると分析できます（部門間の調整対象はありません）。</p>}
             {!latest && departments.length >= 2 && <p className="text-xs text-zinc-600">先に、部門のたたき台を作成してください。</p>}
             {staleAnalysis && <p className="text-xs text-amber-800">分析の後に計画が変わっています。補助操作から分析し直してください。</p>}
+            {reasonLine(operateBlocker)}
           </div>
 
-          {!analysis && (
+          {!loaded && <p className="text-sm text-zinc-700">作業内容を読み込んでいます…</p>}
+
+          {loaded && !analysis && (
             <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
               <p className="text-sm text-zinc-800">部門間の調整はまだ分析されていません。</p>
               <Button
@@ -2440,13 +2478,16 @@ export function StrategyBookDesk({
                 <div className="flex flex-wrap items-center gap-3 rounded-lg bg-zinc-50 p-3 text-sm text-zinc-800">
                   <span>まだAI調整案がありません。</span>
                   {canEdit && (
-                    <Button
-                      onClick={() => generateProposalsFor(state)}
-                      disabled={!!genBlocker || busy === 'proposal'}
-                      className="rounded-full h-8 px-3 text-xs"
-                    >
-                      {busy === 'proposal' ? 'AI調整案を作っています…' : 'AI調整案を作る'}
-                    </Button>
+                    <>
+                      <Button
+                        onClick={() => generateProposalsFor(state)}
+                        disabled={!!genBlocker || busy === 'proposal'}
+                        className="rounded-full h-8 px-3 text-xs"
+                      >
+                        {busy === 'proposal' ? 'AI調整案を作っています…' : 'AI調整案を作る'}
+                      </Button>
+                      {reasonLine(genBlocker)}
+                    </>
                   )}
                 </div>
               )}
@@ -2471,7 +2512,7 @@ export function StrategyBookDesk({
                       </div>
 
                       {proposal ? (
-                        <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-900">{adjustmentConclusion(shown)}</p>
+                        <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-900">{shown}</p>
                       ) : (
                         <p className="text-sm text-zinc-600">AI調整案はまだありません。</p>
                       )}
@@ -2760,7 +2801,11 @@ export function StrategyBookDesk({
             <p className="text-xs text-zinc-700">
               確定する内容（事業別の戦略の変更、採用した部門間調整、採用したプロジェクト）を確認してから確定してください。
             </p>
-            {renderConfirmSummary()}
+            {loaded ? (
+              renderConfirmSummary()
+            ) : (
+              <p className="text-xs text-gray-700">作業内容を読み込んでいます。確定する内容は読み込み後に表示されます。</p>
+            )}
             {renderConfirm()}
           </div>
         </section>

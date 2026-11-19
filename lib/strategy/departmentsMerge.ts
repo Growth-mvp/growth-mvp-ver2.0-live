@@ -21,6 +21,9 @@ const stableJson = (v: unknown): string => {
   return JSON.stringify(v);
 };
 export const sameJson = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
+/* 最後に同期した部門から利用者が変えた場合だけ true。キャッシュ由来の部門は同期済みと同じなので、DBを正とする */
+export const hasLocalDepartmentEdits = (local: unknown, lastSynced: unknown): boolean =>
+  lastSynced !== undefined && !sameJson(local, lastSynced);
 const same = sameJson;
 const deptKey = (d: AnyRecord) => String(d?.name ?? '');
 const projKey = (p: AnyRecord) => String(p?.id ?? `title:${p?.title ?? ''}`);
