@@ -12,13 +12,10 @@ export type FinanceYearCandidate = {
   netAssets?: FieldCandidate<number>;
 };
 
-export type FilingCandidate = {
+/** 承認して反映できる候補の共通部分（EDINET・公開情報・資料のいずれからも作れる） */
+export type ApplicableCandidate = {
   filer: { name: string; secCode: string | null; edinetCode: string | null };
-  docId: string;
-  docTypeCode: string | null;
-  periodEnd: string | null;
   fiscalYear: number | null;
-  amendedFromDocId: string | null;
   profile: CompanyProfileCandidate;
   profileExtra: Partial<{
     location: FieldCandidate<string>;
@@ -28,8 +25,15 @@ export type FilingCandidate = {
   }>;
   finance: FinanceYearCandidate[];
   segments: SegmentsCandidate | null;
-  reports: ReportRef[];
   issues: string[];
+};
+
+export type FilingCandidate = ApplicableCandidate & {
+  docId: string;
+  docTypeCode: string | null;
+  periodEnd: string | null;
+  amendedFromDocId: string | null;
+  reports: ReportRef[];
 };
 
 export type SegmentItemCandidate = { name: string | null; memberCode: string; sales?: number; operatingIncome?: number };
@@ -80,7 +84,7 @@ export function buildFilingCandidate(args: {
   const issues: string[] = [...facts.issues];
   if (args.amendedFromDocId) issues.push(`訂正報告書（${doc.docId}）の値を採用（元の有価証券報告書 ${args.amendedFromDocId} より後に提出）`);
 
-  const source: SourceRef = { source: 'EDINET', docId: doc.docId, docTypeCode: doc.docTypeCode, periodEnd: doc.periodEnd, fetchedAt };
+  const source: Extract<SourceRef, { source: 'EDINET' }> = { source: 'EDINET', docId: doc.docId, docTypeCode: doc.docTypeCode, periodEnd: doc.periodEnd, fetchedAt };
   const consolidation: Consolidation = facts.consolidationConfirmed ? 'CONSOLIDATED' : 'UNKNOWN';
   const fy = facts.fiscalYear;
 
@@ -165,7 +169,7 @@ function isEmpty(v: unknown): boolean {
   return false;
 }
 
-function candidateValueOf(c: FilingCandidate, key: ProfileKey): string | boolean | number | undefined {
+function candidateValueOf(c: ApplicableCandidate, key: ProfileKey): string | boolean | number | undefined {
   if (key === 'companyName') return c.profile.fields.companyName?.value;
   if (key === 'ticker') return c.profile.fields.ticker?.value;
   if (key === 'fiscalYearEnd') return c.profile.fields.fiscalYearEnd?.value;
@@ -180,7 +184,7 @@ function candidateValueOf(c: FilingCandidate, key: ProfileKey): string | boolean
 export function planFilingApply(args: {
   current: CurrentFilingProfile;
   currentFinance: CurrentFinanceRow[];
-  candidate: FilingCandidate;
+  candidate: ApplicableCandidate;
   selectedProfile: ProfileKey[];
   overwriteProfile: ProfileKey[];
   selectedYears: number[];
@@ -256,7 +260,7 @@ export function planFilingApply(args: {
 }
 
 /** セグメントは、名前が分かるものだけ反映する。売上・利益は百万円（四捨五入）に直す。既存のセグメントがあれば上書きを選んだ時だけ */
-function planSegments(args: { candidate: FilingCandidate; selectedSegments?: boolean; overwriteSegments?: boolean; currentSegmentCount?: number }): {
+function planSegments(args: { candidate: ApplicableCandidate; selectedSegments?: boolean; overwriteSegments?: boolean; currentSegmentCount?: number }): {
   patch: SegmentPatchItem[] | null;
   skipped: FilingApplyPlan['segmentsSkipped'];
 } {

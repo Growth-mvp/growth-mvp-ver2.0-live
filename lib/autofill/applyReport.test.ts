@@ -52,7 +52,7 @@ describe('反映結果の報告（反映・残した・未取得）', () => {
     expect(report.applied).toContain('企業情報：会社名、証券コード');
     expect(report.applied).toContain('財務：2026年度');
     expect(report.kept).toContain('登録済みのため変えていない企業情報：所在地');
-    expect(report.unfetched).toContain('業種（EDINETの業種を対応表で区分できず）');
+    expect(report.unfetched).toContain('業種（東証33業種として区分できず）');
     expect(report.unfetched).toContain('事業セグメント');
     expect(report.unfetched).toContain('2022年3月期の有価証券報告書');
   });

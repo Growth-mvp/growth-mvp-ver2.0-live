@@ -16,13 +16,10 @@ export type EdinetDocument = {
   withdrawn: boolean;
 };
 
-export type SourceRef = {
-  source: 'EDINET';
-  docId: string;
-  docTypeCode: string | null;
-  periodEnd: string | null;
-  fetchedAt: string;
-};
+export type SourceRef =
+  | { source: 'EDINET'; docId: string; docTypeCode: string | null; periodEnd: string | null; fetchedAt: string }
+  | { source: 'WEB'; url: string; title: string; confirmedOn: string; verified: false }
+  | { source: 'DOCUMENT'; fileName: string; periodEnd: string | null; fetchedAt: string };
 
 export type FieldCandidate<T> = {
   value: T;

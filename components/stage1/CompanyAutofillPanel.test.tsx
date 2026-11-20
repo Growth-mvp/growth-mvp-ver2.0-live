@@ -256,6 +256,49 @@ describe('公開資料からの基本情報の候補（承認するまで反映�
   });
 });
 
+describe('公開情報・添付資料からの候補（承認の前に、企業と円単位を確認する）', () => {
+  const { buildWebProfileCandidate, buildDocumentCandidate } = require('@/lib/autofill/publicCandidate') as typeof import('@/lib/autofill/publicCandidate');
+  const DOC_CONFIRM = /金額が円単位で記載されていることを確認しました/;
+
+  it('添付資料の候補は、登録中の企業と円単位を確認するまで承認できず、確認後に反映・保存する', async () => {
+    const doc = buildDocumentCandidate({
+      profiles: [],
+      fetchedAt: 'now',
+      candidates: [{ kind: 'companyPL', year: 2025, source: 'FY2025.xlsx', confidence: 0.9, fields: { revenue: 1000000, operatingIncome: 100000 } }],
+    });
+    if (doc.status !== 'FOUND') throw new Error('expected FOUND');
+    useAutofillStore.setState({ pending: { companyId: 'co-a', strategyId: 'st-a', fetchedAt: 'now', candidate: doc.candidate } });
+    render(<CandidatePanel />);
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toBeTruthy());
+    expect((screen.getByRole('button', { name: APPROVE }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('checkbox', { name: DOC_CONFIRM }));
+    fireEvent.click(screen.getByRole('button', { name: APPROVE }));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    const y2025 = (useStrategyStore.getState().financePL as any[]).find((r) => r.year === 2025);
+    expect(y2025).toMatchObject({ revenue: 1000000, operatingIncome: 100000 });
+  });
+
+  it('公開情報の候補は、出典（URL・確認日）を示し、登録中の企業が空なら確認なしで反映できる', async () => {
+    const web = buildWebProfileCandidate({
+      query: '株式会社サンプル製作所',
+      facts: [{ text: '会社名: 株式会社サンプル製作所', sources: [{ title: '会社概要', url: 'https://sample.co.jp/company' }] }],
+      confirmedOn: '2026-11-20',
+    });
+    if (web.status !== 'FOUND') throw new Error('expected FOUND');
+    useAutofillStore.setState({ pending: { companyId: 'co-a', strategyId: 'st-a', fetchedAt: 'now', candidate: web.candidate } });
+    render(<CandidatePanel />);
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toBeTruthy());
+    expect(screen.queryByRole('checkbox', { name: /異なります/ })).toBeNull();
+    expect(screen.getByText(/https:\/\/sample\.co\.jp\/company/)).toBeTruthy();
+    expect(screen.getAllByText(/出典未照合/).length).toBeGreaterThan(0);
+    expect((screen.getByRole('button', { name: APPROVE }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('checkbox', { name: /出典のURLを開き/ }));
+    fireEvent.click(screen.getByRole('button', { name: APPROVE }));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    expect(useStrategyStore.getState().companyName).toBe('株式会社サンプル製作所');
+  });
+});
+
 describe('取り違えの防止（登録中の企業と取得対象の企業）', () => {
   it('登録中の企業と取得対象が違うと、確認するまで反映できない', async () => {
     setStore({ companyName: '別の会社株式会社', ticker: '1234' });
@@ -282,5 +325,48 @@ describe('取り違えの防止（登録中の企業と取得対象の企業）'
     expect(differsFromRegistered('別の会社', '', CANDIDATE)).toBe(true);
     expect(differsFromRegistered('', '1234', CANDIDATE)).toBe(true);
     expect(NISSHIN_FILER.secCode).toBe('5905');
+  });
+});
+
+describe('候補の編集（承認前に値を直して、直した値を保存する）', () => {
+  it('所在地を直して承認すると、直した値が保存され、編集していない項目の出典は変わらない', async () => {
+    const { buildWebProfileCandidate } = require('@/lib/autofill/publicCandidate') as typeof import('@/lib/autofill/publicCandidate');
+    const web = buildWebProfileCandidate({
+      query: '株式会社サンプル製作所',
+      facts: [
+        { text: '会社名: 株式会社サンプル製作所', sources: [{ title: '会社概要', url: 'https://sample.co.jp/company' }] },
+        { text: '所在地: 東京都千代田区1-1-1', sources: [{ title: '会社概要', url: 'https://sample.co.jp/company' }] },
+      ],
+      confirmedOn: '2026-11-20',
+    });
+    if (web.status !== 'FOUND') throw new Error('expected FOUND');
+    useAutofillStore.setState({ pending: { companyId: 'co-a', strategyId: 'st-a', fetchedAt: 'now', candidate: web.candidate } });
+    render(<CandidatePanel />);
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toBeTruthy());
+    fireEvent.change(screen.getByRole('textbox', { name: '編集（所在地）' }), { target: { value: '大阪府大阪市北区1-2-3' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /出典のURLを開き/ }));
+    fireEvent.click(screen.getByRole('button', { name: APPROVE }));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    expect(useStrategyStore.getState().location).toBe('大阪府大阪市北区1-2-3');
+    expect(useStrategyStore.getState().companyName).toBe('株式会社サンプル製作所');
+  });
+
+  it('従業員数に数字以外を入れると、承認を止め、入力し直しを促す', async () => {
+    const { buildWebProfileCandidate } = require('@/lib/autofill/publicCandidate') as typeof import('@/lib/autofill/publicCandidate');
+    const web = buildWebProfileCandidate({
+      query: '株式会社サンプル製作所',
+      facts: [
+        { text: '会社名: 株式会社サンプル製作所', sources: [{ title: '会社概要', url: 'https://sample.co.jp/company' }] },
+        { text: '従業員数: 120名', sources: [{ title: '採用', url: 'https://sample.co.jp/recruit' }] },
+      ],
+      confirmedOn: '2026-11-20',
+    });
+    if (web.status !== 'FOUND') throw new Error('expected FOUND');
+    useAutofillStore.setState({ pending: { companyId: 'co-a', strategyId: 'st-a', fetchedAt: 'now', candidate: web.candidate } });
+    render(<CandidatePanel />);
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toBeTruthy());
+    fireEvent.change(screen.getByRole('textbox', { name: '編集（従業員数）' }), { target: { value: '多数' } });
+    expect((screen.getByRole('button', { name: APPROVE }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('従業員数は1以上の数字で入力してください')).toBeTruthy();
   });
 });

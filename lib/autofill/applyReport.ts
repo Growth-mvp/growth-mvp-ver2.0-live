@@ -1,5 +1,5 @@
 /* 反映・保存が終わった後の結果（反映した項目・変えなかった項目・未取得の項目）を、利用者向けの文章にする。 */
-import { FINANCE_KEYS, PROFILE_LABEL, type FilingApplyPlan, type FilingCandidate, type FinanceKey } from './filingCandidates';
+import { FINANCE_KEYS, PROFILE_LABEL, type ApplicableCandidate, type FilingApplyPlan, type FinanceKey } from './filingCandidates';
 
 export type ApplyReport = { applied: string[]; kept: string[]; unfetched: string[] };
 
@@ -11,14 +11,14 @@ export const FINANCE_SHORT_LABEL: Record<FinanceKey, string> = {
   netAssets: '純資産',
 };
 
-const FILL_TARGETS: Array<{ label: string; missing: (c: FilingCandidate) => boolean }> = [
-  { label: '業種（EDINETの業種を対応表で区分できず）', missing: (c) => !c.profileExtra.industry },
+const FILL_TARGETS: Array<{ label: string; missing: (c: ApplicableCandidate) => boolean }> = [
+  { label: '業種（東証33業種として区分できず）', missing: (c) => !c.profileExtra.industry },
   { label: '所在地', missing: (c) => !c.profileExtra.location },
   { label: '従業員数', missing: (c) => !c.profileExtra.employees },
   { label: '事業内容', missing: (c) => !c.profileExtra.businessContent },
 ];
 
-export function buildApplyReport(args: { plan: FilingApplyPlan; candidate: FilingCandidate; missingPeriods: string[] }): ApplyReport {
+export function buildApplyReport(args: { plan: FilingApplyPlan; candidate: ApplicableCandidate; missingPeriods: string[] }): ApplyReport {
   const { plan, candidate } = args;
   const applied: string[] = [];
   const kept: string[] = [];

@@ -5,7 +5,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { openCeoChatRequest, updateCeoChatMessages, useCeoChatStore } from '@/store/ceoChatStore';
 import { supabase } from '@/utils/supabase/client';
 import { getIndustryLabel } from '@/utils/industryTemplates';
-import { useAutofillStore, type PendingAutofill } from '@/lib/autofill/autofillStore';
+import { useAutofillStore, type AutofillCandidate, type PendingAutofill } from '@/lib/autofill/autofillStore';
 import { combineFinance, splitFinanceWrite } from '@/lib/autofill/financeWrite';
 import { runAutofillPipeline, type IdentifyCandidate, type PipelineProgress, type PipelineResult } from '@/lib/autofill/client';
 import { normalizeCompanyName } from '@/lib/autofill/edinetIdentify';
@@ -15,11 +15,16 @@ import {
   PROFILE_KEYS,
   PROFILE_LABEL,
   planFilingApply,
+  type ApplicableCandidate,
   type CurrentFilingProfile,
-  type FilingCandidate,
   type FinanceKey,
   type ProfileKey,
 } from '@/lib/autofill/filingCandidates';
+import type { PublicCandidate } from '@/lib/autofill/publicCandidate';
+import { applyCandidateEdits, editsAreValid, EDITABLE_KEYS, type CandidateEdits, type EditableKey } from '@/lib/autofill/candidateEdits';
+
+const isEditableKey = (k: ProfileKey): k is EditableKey => (EDITABLE_KEYS as readonly string[]).includes(k);
+import type { SourceRef } from '@/lib/autofill/companyCandidates';
 
 const ERROR_TEXT: Record<string, string> = {
   autofill_disabled: 'この機能は停止されています',
@@ -35,11 +40,26 @@ const ERROR_TEXT: Record<string, string> = {
 
 const DISPLAY_TEXT_MAX = 60;
 const toMillion = (v: number) => Math.round(v / 1_000_000);
-const millionText = (v: number | undefined) => (v === undefined ? '未取得' : toMillion(v).toLocaleString('ja-JP'));
+const millionText = (v: number | undefined) =>
+  v === undefined ? '未取得' : Math.abs(v) < 1_000_000 ? `${v.toLocaleString('ja-JP')}円` : toMillion(v).toLocaleString('ja-JP');
 
 type RowStatus = 'empty' | 'same' | 'differs' | 'none';
 
-function candidateRaw(k: ProfileKey, c: FilingCandidate): string {
+const isPublic = (c: AutofillCandidate): c is PublicCandidate => 'origin' in c;
+
+function targetLabel(c: AutofillCandidate): string {
+  if (!isPublic(c)) return `${c.filer.name}（証券コード ${c.filer.secCode ?? '未確認'}・${c.docTypeCode === '130' ? '訂正有価証券報告書' : '有価証券報告書'} ${c.docId}）`;
+  if (c.origin === 'WEB') return `${c.filer.name}（公開情報・出典${c.sources.length}件・出典未照合）`;
+  return `取り込んだ資料（${c.sources.map((s) => (s.source === 'DOCUMENT' ? s.fileName : '')).filter(Boolean).join('、') || '資料名未確認'}）`;
+}
+
+function sourceText(s: SourceRef): string {
+  if (s.source === 'WEB') return `${s.title}（${s.url}）・確認日 ${s.confirmedOn}・出典未照合（原文を確認していない要約）`;
+  if (s.source === 'DOCUMENT') return `資料：${s.fileName}（利用者が取り込んだ資料）`;
+  return `EDINET ${s.docId}`;
+}
+
+function candidateRaw(k: ProfileKey, c: ApplicableCandidate): string {
   switch (k) {
     case 'companyName':
       return c.profile.fields.companyName?.value ?? '';
@@ -99,7 +119,7 @@ function existingFinance(year: number, k: FinanceKey, pl: ReadonlyArray<Existing
 type FinanceCell = { value: number; status: RowStatus; registered?: number };
 type FinanceYearView = { year: number; cells: Partial<Record<FinanceKey, FinanceCell>>; hasEmpty: boolean; hasDiffers: boolean };
 
-function financeYearViews(c: FilingCandidate, pl: ReadonlyArray<ExistingYearRow>, bs: ReadonlyArray<ExistingYearRow>): FinanceYearView[] {
+function financeYearViews(c: ApplicableCandidate, pl: ReadonlyArray<ExistingYearRow>, bs: ReadonlyArray<ExistingYearRow>): FinanceYearView[] {
   return c.finance.map((y) => {
     const cells: Partial<Record<FinanceKey, FinanceCell>> = {};
     let hasEmpty = false;
@@ -126,7 +146,7 @@ function saveFailureCause(reason: string, code?: string): string {
 const toggle = <T,>(list: T[], v: T): T[] => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
 /** 登録中の企業と取得対象の企業が違うか（取り違え防止）。登録中の情報が空なら違いとはしない */
-export function differsFromRegistered(registeredName: string, registeredTicker: string, candidate: FilingCandidate): boolean {
+export function differsFromRegistered(registeredName: string, registeredTicker: string, candidate: Pick<ApplicableCandidate, 'filer'>): boolean {
   const nameDiffers = registeredName.trim() !== '' && normalizeCompanyName(registeredName) !== normalizeCompanyName(candidate.filer.name);
   const tickerDiffers = registeredTicker.trim() !== '' && candidate.filer.secCode !== null && registeredTicker.trim() !== candidate.filer.secCode;
   return nameDiffers || tickerDiffers;
@@ -176,6 +196,8 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
   const [overYears, setOverYears] = useState<number[]>([]);
   const [otherCompanyOk, setOtherCompanyOk] = useState(false);
   const [done, setDone] = useState<ApplyReport | null>(null);
+  const [edits, setEdits] = useState<CandidateEdits>({});
+  const [webChecked, setWebChecked] = useState(false);
 
   useEffect(() => {
     if (!pending) return;
@@ -191,9 +213,11 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
     setOverProfile([]);
     setOverYears([]);
     setOtherCompanyOk(false);
+    setEdits({});
+    setWebChecked(false);
   }, [view]);
 
-  const candidate = view?.candidate ?? null;
+  const candidate = useMemo(() => (view ? applyCandidateEdits(view.candidate, edits) : null), [view, edits]);
 
   const selection = useMemo(() => {
     if (!candidate) return null;
@@ -262,9 +286,11 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
     }
   };
 
-  const mismatch = candidate ? differsFromRegistered(storedName, storedTicker, candidate) : false;
+  const fromDocument = candidate !== null && isPublic(candidate) && candidate.origin === 'DOCUMENT';
+  const mismatch = candidate ? fromDocument || differsFromRegistered(storedName, storedTicker, candidate) : false;
   const nothingToApply = selection ? selection.applyCount === 0 : true;
-  const approveDisabled = Boolean(disabled) || saving || (mismatch && !otherCompanyOk) || nothingToApply;
+  const webUnverified = candidate !== null && isPublic(candidate) && candidate.origin === 'WEB';
+  const approveDisabled = Boolean(disabled) || saving || (mismatch && !otherCompanyOk) || nothingToApply || !editsAreValid(edits) || (webUnverified && !webChecked);
 
   const cancelView = () => {
     setView(null);
@@ -273,6 +299,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
 
   const approve = async () => {
     if (!view || !selection || approveDisabled) return;
+    const toApply = applyCandidateEdits(view.candidate, edits);
     const before = useStrategyStore.getState();
     if ((before.companyId ?? null) !== view.companyId || (before.strategyId ?? null) !== view.strategyId) {
       setError('企業が切り替わったため、反映しません。候補を取得し直してください');
@@ -303,7 +330,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
           industry: now.industry ?? '',
         },
         currentFinance: combineFinance(pl as never, bs as never),
-        candidate: view.candidate,
+        candidate: toApply,
         selectedProfile: selection.profileTargets,
         overwriteProfile: overProfile,
         selectedYears: selection.yearTargets,
@@ -334,12 +361,12 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         return;
       }
 
-      const report = buildApplyReport({ plan, candidate: view.candidate, missingPeriods });
+      const report = buildApplyReport({ plan, candidate: toApply, missingPeriods });
       setDone(report);
       setView(null);
       const ticket = openCeoChatRequest(useCeoChatStore.getState().ownerKey);
       if (ticket) {
-        const content = formatApplyReportText({ companyName: view.candidate.filer.name, report });
+        const content = formatApplyReportText({ companyName: toApply.filer.name || '取り込んだ資料', report });
         updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
       }
     } catch {
@@ -390,13 +417,25 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
 
       {candidate && view && selection ? (
         <div className="space-y-2 rounded border bg-white p-2 text-xs">
+          <div className="font-medium text-slate-800">候補を確認・承認・保存</div>
+          {candidate && isPublic(candidate) && candidate.origin === 'WEB' ? (
+            <div className="rounded border border-rose-300 bg-rose-50 p-2 text-rose-800">
+              出典未照合：以下はAIが公開情報の検索結果を要約したもので、出典の原文はまだ確認していません。出典のURLを開いて内容を確認するまで、反映できません。
+              <label className="mt-1 flex items-start gap-2">
+                <input type="checkbox" className="mt-0.5" checked={webChecked} onChange={(e) => setWebChecked(e.target.checked)} disabled={disabled || saving} />
+                出典のURLを開き、反映する内容が原文に書かれていることを確認しました
+              </label>
+            </div>
+          ) : null}
           <div>
-            取得対象：<span className="font-medium">{candidate.filer.name}</span>（証券コード {candidate.filer.secCode ?? '未確認'}・{candidate.docTypeCode === '130' ? '訂正有価証券報告書' : '有価証券報告書'} {candidate.docId}）
+            取得対象：<span className="font-medium">{targetLabel(candidate)}</span>
           </div>
           {mismatch ? (
             <label className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-800">
               <input type="checkbox" className="mt-0.5" checked={otherCompanyOk} onChange={(e) => setOtherCompanyOk(e.target.checked)} disabled={disabled || saving} />
-              登録中の企業（{storedName || '未入力'}）と取得対象の企業が異なります。取得対象の企業の情報として反映することを確認しました。
+              {fromDocument
+                ? `取り込んだ資料が、登録中の企業（${storedName || '未入力'}）の決算資料で、金額が円単位で記載されていることを確認しました。`
+                : `登録中の企業（${storedName || '未入力'}）と取得対象の企業が異なります。取得対象の企業の情報として反映することを確認しました。`}
             </label>
           ) : null}
           <div className="text-slate-600">
@@ -410,7 +449,22 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
               {selection.profile.map((r) => (
                 <tr key={r.key} className="border-t align-top">
                   <th className="w-20 whitespace-nowrap py-1 pr-2 text-left font-medium text-slate-600">{PROFILE_LABEL[r.key]}</th>
-                  <td className="break-all py-1 pr-2">{displayRaw(r.key, r.cand) || <span className="text-slate-400">取得できず</span>}</td>
+                  <td className="break-all py-1 pr-2">
+                    {isEditableKey(r.key) && (r.cand !== '' || edits[r.key] !== undefined) ? (
+                      <input
+                        aria-label={`編集（${PROFILE_LABEL[r.key]}）`}
+                        className="w-full rounded border px-1 py-0.5"
+                        value={edits[r.key] ?? r.cand}
+                        onChange={(e) => setEdits((prev) => ({ ...prev, [r.key as EditableKey]: e.target.value }))}
+                        disabled={disabled || saving}
+                      />
+                    ) : (
+                      displayRaw(r.key, r.cand) || <span className="text-slate-400">取得できず</span>
+                    )}
+                    {r.key === 'employees' && edits.employees !== undefined && !editsAreValid(edits) ? (
+                      <div className="text-rose-700">従業員数は1以上の数字で入力してください</div>
+                    ) : null}
+                  </td>
                   <td className="whitespace-nowrap py-1 text-right">
                     {r.status === 'none' ? <span className="text-slate-400">―</span> : null}
                     {r.status === 'empty' ? '未入力 → 反映' : null}
@@ -519,8 +573,21 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
           <details className="text-[11px] text-slate-600">
             <summary className="cursor-pointer">出典・注意（{candidate.issues.length}件）</summary>
             <div className="mt-1">
-              取得元：{candidate.filer.name}（EDINET {candidate.filer.edinetCode}）・書類 {candidate.docId}・期末 {candidate.periodEnd ?? '未確認'}・金額の単位は円（表示は百万円に丸め）
-              {candidate.amendedFromDocId ? `・元の書類 ${candidate.amendedFromDocId} より後の訂正を採用` : ''}
+              {isPublic(candidate) ? (
+                <>
+                  <div>取得元（金額は円・表示は百万円に丸め）：</div>
+                  <ul className="list-disc pl-5">
+                    {candidate.sources.map((s) => (
+                      <li key={s.source === 'WEB' ? s.url : s.source === 'DOCUMENT' ? s.fileName : s.docId}>{sourceText(s)}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <>
+                  取得元：{candidate.filer.name}（EDINET {candidate.filer.edinetCode}）・書類 {candidate.docId}・期末 {candidate.periodEnd ?? '未確認'}・金額の単位は円（表示は百万円に丸め）
+                  {candidate.amendedFromDocId ? `・元の書類 ${candidate.amendedFromDocId} より後の訂正を採用` : ''}
+                </>
+              )}
             </div>
             <ul className="list-disc pl-5">
               {candidate.issues.map((t) => (

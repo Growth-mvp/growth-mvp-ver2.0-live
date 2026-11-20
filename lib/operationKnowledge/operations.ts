@@ -160,7 +160,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-fetch',
     screenIds: ['stage1'],
     label: '候補を取得',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 363 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 390 },
     purpose:
       '会社名または証券コード（4桁）から、公開資料（有価証券報告書）の企業情報・業種・直近5期の財務・事業セグメントの候補を作る。候補を作るだけで、入力欄は変わらない。AI経営コンサルタントに「〇〇の基本情報を入力して」と依頼しても、同じ候補を作れる（結果はチャットに出る）。',
     steps: [
@@ -183,7 +183,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-approve',
     screenIds: ['stage1'],
     label: '承認して反映・保存',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 539 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 606 },
     purpose:
       '候補の内容を入力欄へ反映し、そのまま戦略データを保存する。完了は保存できたことを確認してから表示し、AI経営コンサルタントのチャットに、反映した項目・残した項目・未取得の項目を報告する。',
     steps: [
@@ -192,9 +192,72 @@ export const OPERATIONS: readonly OperationEntry[] = [
       '「承認して反映・保存」を押す。保存できると「反映し、保存しました」と表示される',
     ],
     conditions:
-      '編集権限（管理者・管理職）が必要。ほかに未保存の変更があるときは反映しない（先に「全体保存」を押す）。保存できなかったときは、入力欄に残った内容を「全体保存」で保存する',
+      '編集権限（管理者・管理職）が必要。ほかに未保存の変更があるときは反映しない（先に「全体保存」を押す）。チャットから渡された添付資料の候補は、登録中の企業の資料か・金額が円単位かの確認にチェックを入れるまで承認できない。保存できなかったときは、入力欄に残った内容を「全体保存」で保存する',
     permission: MANAGER_UI,
     save: { kind: 'manual', target: '承認の操作の中で、既存の保存処理（saveStrategyData）を1回呼ぶ' },
+  },
+  {
+    operationId: 'stage1.autofill-review',
+    screenIds: ['stage1'],
+    label: '候補を確認・承認・保存',
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 420 },
+    purpose:
+      'AI経営コンサルタントのチャット（Webから会社情報を取得・資料を添付）や公開資料から作った候補を、出典と確認日を見ながら確認し、必要な値を直してから承認する。承認するまで入力欄は変わらない。',
+    steps: [
+      '候補の「取得対象」と「出典・注意」で、取得元（公式サイトのURL・確認日、または資料名）を確認する',
+      '項目の値を直す場合は、その欄を編集する（空にすると、その項目は反映しない。従業員数は1以上の数字）',
+      '登録中の企業と違う場合、または資料の場合は、確認のチェックを入れる。「承認して反映・保存」を押す',
+    ],
+    conditions:
+      '編集権限（管理者・管理職）が必要。候補の項目は、取得元がある項目だけ編集できる。推測で補われた値はない。取り込めなかった項目は「未取得」と表示される',
+    permission: MANAGER_UI,
+    save: { kind: 'manual', target: '承認の操作の中で、既存の保存処理（saveStrategyData）を1回呼ぶ' },
+  },
+  {
+    operationId: 'common.web-company-profile',
+    screenIds: ['stage1'],
+    label: 'Webから会社情報を取得',
+    source: { file: 'components/CEOChatPanel.tsx', line: 151 },
+    purpose:
+      'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
+    steps: [
+      'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力して送信する',
+      '「Webから会社情報を取得しています…」の表示が終わるまで待つ',
+      'STAGE1の候補欄（「候補を確認・承認・保存」）で、出典を確認して承認する',
+    ],
+    conditions:
+      '編集権限（管理者・管理職）が必要。会社名が公開情報の会社名と一致しない時は候補を作らない。「当社」など自社を指す依頼では検索しない。推測で補う項目はなく、見つからない項目は未取得のまま。取得した値はAIの要約で、出典の原文は未照合と表示される。出典のURLを開いて内容を確認するチェックを入れるまで承認できない',
+    permission: {
+      minRole: 'manager',
+      enforcement: 'ui-and-api',
+      apiRoute: 'app/api/stage1/autofill/web/route.ts',
+      mfaRequired: false,
+      note: '検索のAPIは所属確認に加え assertMinRole(manager) を行う。送るのは会社名だけ',
+    },
+    save: { kind: 'none', target: '保存しない（候補を作るだけ。承認の操作で初めて保存する）' },
+  },
+  {
+    operationId: 'common.attach-documents',
+    screenIds: ['stage1'],
+    label: '資料を添付',
+    source: { file: 'components/CEOChatPanel.tsx', line: 1026 },
+    purpose:
+      'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
+    steps: [
+      'AI経営コンサルタントのチャット欄の下の「資料を添付」から、PDF・Excel・CSVを選ぶ',
+      '「資料を読み込んでいます…」の後に出る案内を読む（読み取れなかった項目・単位・連結単体の注意が出る）',
+      'STAGE1の候補欄（「候補を確認・承認・保存」）で、資料が登録中の企業のものか、金額が円単位かを確認して承認する',
+    ],
+    conditions:
+      '編集権限（管理者・管理職）が必要。億円・万円など対応していない単位の金額は取り込まない。単位の表記が無い金額は、円と仮定して承認の時に確認を求める。連結・単体は資料の名称で判断できない時は未確認と表示する。',
+    permission: {
+      minRole: 'manager',
+      enforcement: 'ui-and-api',
+      apiRoute: 'app/api/stage1/import/route.ts',
+      mfaRequired: false,
+      note: '資料の読み込みは所属確認に加え管理者・管理職を要求する。読み込み自体は保存しない',
+    },
+    save: { kind: 'none', target: '保存しない（候補を作るだけ。承認の操作で初めて保存する）' },
   },
 
   // ---- STAGE2 ----

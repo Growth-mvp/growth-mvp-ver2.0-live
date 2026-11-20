@@ -25,6 +25,14 @@ import {
   cleanupExpiredCache,
 } from '@/utils/stage1/importers/cache';
 import { parseCSV, parseExcel, detectFileType, type ExtractedTable } from '@/utils/stage1/importers/excelCsvImporter';
+import {
+  extractProfileFromPages,
+  extractProfileFromTable,
+  mergeProfiles,
+  type DocumentProfile,
+} from '@/utils/stage1/importers/profileExtract';
+
+type CachedImport = { candidates: Stage1ImportCandidate[]; profile: DocumentProfile };
 // ★ CRITICAL: pdfImporter は PDF 処理時のみ dynamic import（DOMMatrix 要求避け）
 // import { parsePdf, isPdfBuffer } from '@/utils/stage1/importers/pdfImporter';
 import {
@@ -694,6 +702,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const allCandidates: Stage1ImportCandidate[] = [];
+    const documentProfiles: Array<{ fileName: string; profile: DocumentProfile }> = [];
     const warnings: string[] = [];
     const tableHints: string[] = [];
 
@@ -755,13 +764,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         throw cacheErr;
       }
 
-      const cached = getFromCache<Stage1ImportCandidate[]>(cacheKey);
-      if (cached) {
+      const cached = getFromCache<CachedImport>(cacheKey);
+      if (cached && Array.isArray(cached.candidates)) {
         console.log(`[stage1/import] [${reqId}] Cache hit for ${file.name}`, {
-          cachedCandidatesCount: cached.length,
+          cachedCandidatesCount: cached.candidates.length,
           timestamp: new Date().toISOString(),
         });
-        allCandidates.push(...cached);
+        allCandidates.push(...cached.candidates);
+        documentProfiles.push({ fileName: file.name, profile: cached.profile ?? {} });
         tableHints.push(`${file.name}: キャッシュから読み込み`);
         continue;
       }
@@ -783,6 +793,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
 
       let candidates: Stage1ImportCandidate[] = [];
+      let fileProfile: DocumentProfile = {};
 
       try {
         if (fileType === 'csv') {
@@ -843,6 +854,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
           // 標準解析（既存）
           candidates = buildCandidatesFromTable(table);
+          fileProfile = extractProfileFromTable(table, file.name);
 
           // ★ DEBUG：buildCandidatesFromTable 結果
           console.log('[stage1/import] buildCandidatesFromTable result', {
@@ -926,6 +938,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 timestamp: new Date().toISOString(),
               });
               candidates.push(...buildCandidatesFromTable(t));
+              fileProfile = mergeProfiles([fileProfile, extractProfileFromTable(t, `${file.name}（${sheetName}）`)]);
               const afterLen = candidates.length;
               console.log(`[stage1/import] [${reqId}] [Step 10] Sheet processed: ${sheetName}`, {
                 candidatesAdded: afterLen - beforeLen,
@@ -967,6 +980,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               timestamp: new Date().toISOString(),
             });
             candidates = buildCandidatesFromPdfText(pdfResult.pages);
+            fileProfile = extractProfileFromPages(pdfResult.pages, file.name);
             console.log(`[stage1/import] [${reqId}] [PDF] buildCandidatesFromPdfText completed for ${file.name}`, {
               candidatesCount: candidates.length,
               timestamp: new Date().toISOString(),
@@ -1000,7 +1014,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         try {
           if (candidates.length > 0) {
-            saveToCache(cacheKey, candidates);
+            saveToCache(cacheKey, { candidates, profile: fileProfile } satisfies CachedImport);
             console.log(`[stage1/import] [${reqId}] Candidates cached for ${file.name}`, {
               candidatesCount: candidates.length,
               timestamp: new Date().toISOString(),
@@ -1016,6 +1030,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
 
         allCandidates.push(...candidates);
+        documentProfiles.push({ fileName: file.name, profile: fileProfile });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : undefined;
@@ -1077,8 +1092,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       timestamp: new Date().toISOString(),
     });
 
-    const result: Stage1ImportResult = {
+    const result: Stage1ImportResult & { documentProfiles: typeof documentProfiles } = {
       success: true,
+      documentProfiles,
       candidates: normalized,
       tableHints,
       previewText: warnings.length > 0 ? warnings.join('\n') : undefined,

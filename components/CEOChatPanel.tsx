@@ -23,9 +23,10 @@ import { supabase } from '@/utils/supabase/client';
 import { usePathname } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
 import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
-import { isAutofillRequest } from '@/lib/autofill/intent';
+import { isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
 import { useAutofillStore } from '@/lib/autofill/autofillStore';
 import { runAutofillPipeline } from '@/lib/autofill/client';
+import { runDocumentFinance, runPublicProfile } from '@/lib/autofill/publicClient';
 import { judgeCompanion, type CompanionAction } from '@/lib/companion/companionEngine';
 import { buildCompanionSnapshot } from '@/lib/companion/companionSnapshot';
 import { detectMilestone, fingerprint, MILESTONE_LABEL } from '@/lib/companion/companionMilestones';
@@ -128,6 +129,91 @@ async function requestAutofillFromChat(args: {
   }
 }
 
+const PUBLIC_PROFILE_MESSAGE: Record<string, string> = {
+  NOT_FOUND: '公開情報から該当する会社を見つけられませんでした。正式な会社名で依頼し直してください。',
+  SEARCH_TIMEOUT: '公開情報の検索が時間内に終わりませんでした。時間をおいて再度依頼してください。',
+  SEARCH_FAILED: '公開情報の検索に失敗しました。時間をおいて再度依頼してください。',
+  QUERY_UNCLEAR: '会社名を含めて依頼してください。',
+};
+
+/** 非上場企業の公開情報（会社名で検索）から候補を作り、STAGE1の承認欄へ渡す（反映はしない。AIの会話は使わない） */
+async function requestPublicProfileFromChat(args: {
+  ticket: Parameters<typeof updateCeoChatMessages>[0];
+  name: string;
+  companyId: string;
+  strategyId: string;
+  isStale: () => boolean;
+}): Promise<void> {
+  const setLast = (content: string) => {
+    if (args.isStale()) return;
+    updateCeoChatMessages(args.ticket, (msgs) => [...msgs.slice(0, -1), { role: 'assistant', content }]);
+  };
+  updateCeoChatMessages(args.ticket, (msgs) => [...msgs, { role: 'assistant', content: `「${args.name}」のWebから会社情報を取得しています…` }]);
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return setLast('ログインが必要です。');
+    const result = await runPublicProfile({ name: args.name, companyId: args.companyId, strategyId: args.strategyId, token });
+    if (args.isStale()) return;
+    if (result.status === 'FOUND') {
+      useAutofillStore.getState().setPending({ companyId: args.companyId, strategyId: args.strategyId, fetchedAt: result.fetchedAt, candidate: result.candidate });
+      return setLast(
+        [
+          `「${result.candidate.filer.name}」の公開情報から候補を作りました（出典と確認日を付けています）。`,
+          'STAGE1の「①企業情報・事業内容」にある候補欄で内容と出典を確認し、承認すると反映して保存されます。承認するまで入力欄は変わりません。',
+          '取得できなかった項目は未入力のままです（推測で補っていません）。',
+          '出典の原文はまだ確認していません（出典未照合）。承認画面で出典のURLを開いて内容を確認してから承認してください。',
+        ].join('\n'),
+      );
+    }
+    return setLast(result.message ?? PUBLIC_PROFILE_MESSAGE[result.status] ?? '公開情報から候補を作れませんでした。');
+  } catch {
+    setLast('公開情報からの取得に失敗しました。時間をおいて再度お試しください。');
+  }
+}
+
+/** 添付された資料（PDF・Excel・CSV）から財務の候補を作り、STAGE1の承認欄へ渡す（反映はしない） */
+async function requestDocumentFromChat(args: {
+  ticket: Parameters<typeof updateCeoChatMessages>[0];
+  files: File[];
+  companyId: string;
+  strategyId: string;
+  isStale: () => boolean;
+}): Promise<void> {
+  const setLast = (content: string) => {
+    if (args.isStale()) return;
+    updateCeoChatMessages(args.ticket, (msgs) => [...msgs.slice(0, -1), { role: 'assistant', content }]);
+  };
+  updateCeoChatMessages(args.ticket, (msgs) => [...msgs, { role: 'assistant', content: '資料を読み込んでいます…' }]);
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return setLast('ログインが必要です。');
+    const result = await runDocumentFinance({ files: args.files, token });
+    if (args.isStale()) return;
+    if (result.status === 'FOUND') {
+      useAutofillStore.getState().setPending({
+        companyId: args.companyId,
+        strategyId: args.strategyId,
+        fetchedAt: new Date().toISOString(),
+        candidate: result.candidate,
+      });
+      const years = result.candidate.finance.map((y) => `${y.year}年度`).join('・');
+      return setLast(
+        [
+          `資料から財務の候補を作りました（${years}）。`,
+          'STAGE1の「①企業情報・事業内容」にある候補欄で、資料が登録中の企業のものか確認し、承認すると反映して保存されます。承認するまで入力欄は変わりません。',
+          ...result.candidate.issues,
+        ].join('\n'),
+      );
+    }
+    return setLast(result.message);
+  } catch (e) {
+    const code = e instanceof Error ? e.message : '';
+    setLast(code === 'insufficient_role' || code === 'forbidden' ? '資料の読み込みは管理者または管理職のみ実行できます。' : '資料の読み込みに失敗しました。時間をおいて再度お試しください。');
+  }
+}
+
 export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
   // 会社切替の検知用。会話履歴と進行中の応答はこの会社に紐づける
@@ -207,6 +293,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
   // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
   const activeCompanyIdRef = useRef<string | null>(companyId ?? null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const nextCompanyId = companyId ?? null;
     if (activeCompanyIdRef.current === nextCompanyId) return;
@@ -364,6 +451,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         return true;
       }
 
+      const publicName = publicProfileQuery(trimmed);
+      if (publicName) {
+        if (latestStrategyId && requestCompanyId) {
+          await requestPublicProfileFromChat({ ticket, name: publicName, companyId: requestCompanyId, strategyId: latestStrategyId, isStale });
+        } else {
+          updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: '戦略データを読み込み中です…少々お待ちください。' }]);
+        }
+        return true;
+      }
+
       const screenId = screenIdForPathname(pathname ?? '');
       const consult = consultPayloadFor(useConsultFocusStore.getState().entries, pathname ?? '', latestStrategyId ?? null);
 
@@ -455,6 +552,27 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const onSubmit = () => { if (input.trim()) void send(input); };
 
   // ★ Sprint 3A': Shift+Enter で AI診断送信
+  const attachDocuments = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0 || useCeoChatStore.getState().pending) return;
+    const strategyIdNow = useStrategyStore.getState().strategyId;
+    const requestCompanyId = activeCompanyIdRef.current;
+    if (!strategyIdNow || !requestCompanyId) {
+      setNotice('戦略データを読み込み中です…少々お待ちください。');
+      return;
+    }
+    const ticket = openCeoChatRequest(ownerKey);
+    const isStale = () => activeCompanyIdRef.current !== requestCompanyId || (ticket !== null && !isCeoChatRequestCurrent(ticket));
+    setCeoChatPending(ticket, true);
+    updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'user', content: `資料を添付：${files.map((f) => f.name).join('、')}` }]);
+    try {
+      await requestDocumentFromChat({ ticket, files, companyId: requestCompanyId, strategyId: strategyIdNow, isStale });
+    } finally {
+      if (!isStale()) setCeoChatPending(ticket, false);
+    }
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Mac/Windows の日本語IME入力中は送信しない
     if (e.nativeEvent.isComposing) return;
@@ -899,6 +1017,23 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               Enterで送信
             </span>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending || !userOK || shouldWaitForRestore}
+                className="rounded-md px-3 py-2 text-[12px] hover:bg-gray-100 min-h-[2.5rem] sm:min-h-auto disabled:text-gray-400"
+                type="button"
+              >
+                資料を添付
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.xlsx,.xls,.csv"
+                multiple
+                className="hidden"
+                aria-label="資料を添付"
+                onChange={attachDocuments}
+              />
               <button
                 onClick={() => { clearCeoChat(); }}
                 className="rounded-md px-3 py-2 text-[12px] hover:bg-gray-100 min-h-[2.5rem] sm:min-h-auto"

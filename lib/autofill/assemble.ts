@@ -54,7 +54,7 @@ export function buildMultiYearCandidate(args: { filer: FilerInfo; reports: Repor
   const latest = reports[0];
   const fy = Number(latest.periodEnd.slice(0, 4));
   const issues: string[] = [];
-  const srcOf = (r: ReportExtract): SourceRef => ({ source: 'EDINET', docId: r.docId, docTypeCode: r.docTypeCode, periodEnd: r.periodEnd, fetchedAt });
+  const srcOf = (r: ReportExtract): Extract<SourceRef, { source: 'EDINET' }> => ({ source: 'EDINET', docId: r.docId, docTypeCode: r.docTypeCode, periodEnd: r.periodEnd, fetchedAt });
   const latestSrc = srcOf(latest);
 
   if (!sameFiscalYearEnd(reports.map((r) => r.periodEnd))) {

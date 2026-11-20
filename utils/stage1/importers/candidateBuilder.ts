@@ -33,9 +33,9 @@ const BS_FIELD_PATTERNS: Record<string, RegExp[]> = {
   inventory: [/棚卸資産/i, /商品/i, /製品/i, /inventory/i, /inventories/i],
   ap: [/買掛金/i, /支払手形/i, /仕入債務/i, /accounts?\s*payable/i, /a\/p/i],
   fixedAssets: [/固定資産/i, /有形固定資産/i, /fixed\s*assets/i, /property/i],
-  totalAssets: [/総資産/i, /資産合計/i, /total\s*assets/i],
+  totalAssets: [/総資産/i, /(?<!純)資産合計/i, /total\s*assets/i],
   interestBearingDebt: [/有利子負債/i, /借入金/i, /社債/i, /interest.bearing\s*debt/i],
-  equity: [/純資産/i, /株主資本/i, /自己資本/i, /(shareholders'?|stockholders'?)\s*equity/i],
+  equity: [/純資産(?!合計)/i, /株主資本/i, /自己資本/i, /(shareholders'?|stockholders'?)\s*equity/i],
   netAssets: [/純資産合計/i, /net\s*assets/i],
 };
 
