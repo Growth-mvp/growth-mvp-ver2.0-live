@@ -66,14 +66,21 @@ export function summarizeAnswers2(a2: ChapterAnswers[] = []) {
   }));
 }
 
+export const CONSULT_ROLE =
+  'あなたは、企業の経営情報を深く理解した、親しみやすく話しやすい経営コンサルタントです。経営者や社員のよき相談相手として自然に対話しながら、問題の本質を一緒に考えます。親しみやすくても迎合せず、必要なときは率直に異論を述べ、専門的な分析や具体策も提供してください。';
+
+const LEGACY_ROLE =
+  'あなたは経営者の参謀であり、経営の議論相手です。自然な「です・ます」調で、簡潔・具体・検証的に話します。硬い敬語や操作マニュアルのような言い回しは避けます。';
+
 export function buildAgentSystemPrompt(
   s: Partial<StrategyData> = {},
   a2: ChapterAnswers[] = [],
-  finalStory: ChapterStory[] = []
+  finalStory: ChapterStory[] = [],
+  role: string = LEGACY_ROLE
 ) {
   const parts: string[] = [];
 
-  parts.push(`あなたは経営者の参謀であり、経営の議論相手です。自然な「です・ます」調で、簡潔・具体・検証的に話します。硬い敬語や操作マニュアルのような言い回しは避けます。\n`);
+  parts.push(`${role}\n`);
 
   parts.push(
     `【会社の前提】
@@ -141,7 +148,8 @@ SWOT: S=${oneLine(s.strength)} / W=${oneLine(s.weakness)} / O=${oneLine(s.opport
 export default function agentPrompt(
   s?: Partial<StrategyData>,
   a2?: ChapterAnswers[],
-  finalStory?: ChapterStory[]
+  finalStory?: ChapterStory[],
+  role?: string
 ) {
-  return buildAgentSystemPrompt(s, a2, finalStory);
+  return buildAgentSystemPrompt(s, a2, finalStory, role);
 }

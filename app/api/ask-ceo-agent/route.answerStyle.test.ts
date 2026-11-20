@@ -25,6 +25,7 @@ jest.mock('@/lib/agentPrompt', () => ({
   __esModule: true,
   default: jest.fn(() => 'AGENT_PROMPT'),
   buildExternalFinancialBlock: jest.fn(() => ''),
+  CONSULT_ROLE: 'CONSULT_ROLE_TEST',
 }));
 jest.mock('@/lib/supabase/agentLogs', () => ({
   insertAgentLog: jest.fn(async () => undefined),
@@ -235,6 +236,27 @@ describe('会話履歴に基づく回答スタイル（繰り返し・異議・�
     expect(sent.system).toContain('【今回の回答スタイル：詳細】');
     expect(sent.system).not.toContain('同じ質問の繰り返し');
     expect(sent.system).not.toContain('相手の制約・異議を受けて');
+  });
+});
+
+describe('役割定義は通常の手動相談だけ置き換える', () => {
+  const roleArg = () => (agentPrompt as unknown as jest.Mock).mock.calls.at(-1)?.[3];
+
+  it('通常の手動チャットは、新しい役割定義を渡す', async () => {
+    await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
+    expect(roleArg()).toBe('CONSULT_ROLE_TEST');
+  });
+
+  it('facilitator・JSON では役割定義を置き換えない（従来どおり）', async () => {
+    await POST(req(body([{ role: 'user', content: Q_PROFIT }], { meta: { mode: 'facilitator', output: 'text' } })));
+    expect(roleArg()).toBeUndefined();
+    await POST(req(body([{ role: 'user', content: Q_PROFIT }], { meta: { output: 'json' } })));
+    expect(roleArg()).toBeUndefined();
+  });
+
+  it('操作案内が付く質問では役割定義を置き換えない', async () => {
+    await POST(req({ ...body([{ role: 'user', content: 'この画面では何をすればいい？' }]), screen: { screenId: 'stage1' } }));
+    expect(roleArg()).toBeUndefined();
   });
 });
 

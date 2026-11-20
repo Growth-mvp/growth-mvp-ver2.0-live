@@ -35,7 +35,7 @@ import { detectAutoMode } from '@/lib/autoModeRouter';
 import { buildHelpSystemPrompt } from '@/lib/helpPrompt';
 import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
 import { searchExternalFinancialData } from '@/lib/externalFinancialSearch';
-import { buildExternalFinancialBlock } from '@/lib/agentPrompt';
+import { CONSULT_ROLE, buildExternalFinancialBlock } from '@/lib/agentPrompt';
 import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
 import { selectCanonicalStory } from '@/lib/ceoChat/strategyRationale';
 import {
@@ -690,7 +690,7 @@ export async function POST(req: Request) {
 
       systemBase =
         (shouldUseAgentPrompt
-          ? agentPrompt(strategy as any, answers2 as any, finalStory as any) +
+          ? agentPrompt(strategy as any, answers2 as any, finalStory as any, isManual ? CONSULT_ROLE : undefined) +
             (externalFinancialBlock ? '\n\n' + externalFinancialBlock : '') +
             '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
           : 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION) +
