@@ -84,7 +84,8 @@ describe('実ファイル形式のExcelから、基本情報と財務の候補�
     const r = buildDocumentCandidate({ candidates, profiles, fetchedAt: FETCHED });
     if (r.status !== 'FOUND') throw new Error('expected FOUND');
     const refs = r.candidate.sources.map((s) => (s.source === 'DOCUMENT' ? s.fileName : ''));
-    expect(refs.some((n) => n.includes('会社概要'))).toBe(true);
+    expect(refs).toContain('会社資料.xlsx');
+    expect(refs.some((n) => n.includes('全社PL'))).toBe(true);
   });
 });
 

@@ -979,7 +979,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               warningsCount: pdfResult.warnings.length,
               timestamp: new Date().toISOString(),
             });
-            candidates = buildCandidatesFromPdfText(pdfResult.pages);
+            candidates = buildCandidatesFromPdfText(pdfResult.pages).map((c) => ({ ...c, source: file.name }));
             fileProfile = extractProfileFromPages(pdfResult.pages, file.name);
             console.log(`[stage1/import] [${reqId}] [PDF] buildCandidatesFromPdfText completed for ${file.name}`, {
               candidatesCount: candidates.length,

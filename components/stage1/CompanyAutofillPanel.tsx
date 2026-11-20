@@ -420,10 +420,10 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
           <div className="font-medium text-slate-800">候補を確認・承認・保存</div>
           {candidate && isPublic(candidate) && candidate.origin === 'WEB' ? (
             <div className="rounded border border-rose-300 bg-rose-50 p-2 text-rose-800">
-              出典未照合：以下はAIが公開情報の検索結果を要約したもので、出典の原文はまだ確認していません。出典のURLを開いて内容を確認するまで、反映できません。
+              出典未照合：以下はAIが公開情報の検索結果を要約したもので、出典の原文はまだ確認していません。システムは出典の原文を照合していません。出典のURLを開いて内容を確認するまで、反映できません。
               <label className="mt-1 flex items-start gap-2">
                 <input type="checkbox" className="mt-0.5" checked={webChecked} onChange={(e) => setWebChecked(e.target.checked)} disabled={disabled || saving} />
-                出典のURLを開き、反映する内容が原文に書かれていることを確認しました
+                （本人の確認）出典のURLを開き、反映する内容が原文に書かれていることを、利用者として確認しました
               </label>
             </div>
           ) : null}

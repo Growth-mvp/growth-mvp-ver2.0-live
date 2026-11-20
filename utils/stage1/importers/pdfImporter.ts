@@ -1,13 +1,16 @@
 // /utils/stage1/importers/pdfImporter.ts
 /**
  * PDF ファイルからテキストを抽出
- * - pdf-parse を使用
- * - 巨大PDF対策：ページ分割、優先ページ抽出、上限設定
+ * - pdf-parse（v2 の PDFParse）を使用。ページごとのテキストを取得する
+ * - 巨大PDF対策：優先ページ抽出、上限設定
  */
 
-// pdf-parse は CommonJS モジュールのため require を使用
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdf = require('pdf-parse');
+type PdfParseModule = typeof import('pdf-parse');
+
+// Next のバンドルに含めず、Node の標準の読み込みで pdf-parse を使う（PDF.js のワーカーを正しく解決するため）
+const loadNative = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<PdfParseModule>;
+let pdfParseModule: Promise<PdfParseModule> | null = null;
+const loadPdfParse = () => (pdfParseModule ??= loadNative('pdf-parse'));
 
 /** ページごとの抽出結果 */
 export type PdfPageText = {
@@ -70,112 +73,62 @@ const FALLBACK_SAMPLE_PAGES = 10;
  */
 export async function parsePdf(buffer: Buffer): Promise<PdfExtractResult> {
   const warnings: string[] = [];
+  const { PDFParse } = await loadPdfParse();
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
 
-  // pdf-parse で全体を解析
-  const data = await pdf(buffer, {
-    // ページ数だけ取得するためのオプション
-    max: 0, // 0 = ページ数だけ取得、テキストは取らない
-  });
+  try {
+    const info = await parser.getInfo();
+    const totalPages: number = info.total;
 
-  const totalPages = data.numpages;
+    if (totalPages === 0) {
+      return {
+        totalPages: 0,
+        processedPages: 0,
+        pages: [],
+        warnings: ['PDFにページがありません'],
+      };
+    }
 
-  if (totalPages === 0) {
+    if (totalPages > MAX_PAGES) {
+      warnings.push(`PDFが${totalPages}ページあります。先頭${MAX_PAGES}ページを解析します。`);
+    }
+
+    const text = await parser.getText({ first: Math.min(totalPages, MAX_PAGES) });
+
+    const analyzedPages: PdfPageText[] = text.pages.map((page: { num: number; text: string }) => {
+      const { isPriority, reason } = checkPriority(page.text);
+      return {
+        pageNumber: page.num,
+        text: page.text,
+        isPriority,
+        priorityReason: reason,
+      };
+    });
+
+    // 優先ページがあればそれを優先、なければ先頭/末尾をサンプリング
+    const priorityPages = analyzedPages.filter((p) => p.isPriority);
+
+    if (priorityPages.length === 0 && analyzedPages.length > FALLBACK_SAMPLE_PAGES) {
+      const half = Math.floor(FALLBACK_SAMPLE_PAGES / 2);
+      const frontPages = analyzedPages.slice(0, half);
+      const backPages = analyzedPages.slice(-half);
+
+      for (const p of [...frontPages, ...backPages]) {
+        p.isPriority = true;
+        p.priorityReason = 'サンプリング（優先キーワードなし）';
+      }
+    }
+
     return {
-      totalPages: 0,
-      processedPages: 0,
-      pages: [],
-      warnings: ['PDFにページがありません'],
+      totalPages,
+      processedPages: analyzedPages.length,
+      pages: analyzedPages,
+      metadata: info.info,
+      warnings,
     };
+  } finally {
+    await parser.destroy();
   }
-
-  // ページ制限チェック
-  if (totalPages > MAX_PAGES) {
-    warnings.push(`PDFが${totalPages}ページあります。先頭${MAX_PAGES}ページを解析します。`);
-  }
-
-  // 実際にテキストを抽出（ページ制限あり）
-  const fullData = await pdf(buffer, {
-    max: Math.min(totalPages, MAX_PAGES),
-  });
-
-  // ページごとにテキストを分割（pdf-parseは全テキストを1つの文字列で返す）
-  // ページ区切りのパターンを使って分割を試みる
-  const pages = splitIntoPages(fullData.text, Math.min(totalPages, MAX_PAGES));
-
-  // 優先ページを特定
-  const analyzedPages = pages.map((text, index) => {
-    const pageNumber = index + 1;
-    const { isPriority, reason } = checkPriority(text);
-    return {
-      pageNumber,
-      text,
-      isPriority,
-      priorityReason: reason,
-    };
-  });
-
-  // 優先ページがあればそれを優先、なければ先頭/末尾をサンプリング
-  const priorityPages = analyzedPages.filter((p) => p.isPriority);
-
-  if (priorityPages.length === 0 && analyzedPages.length > FALLBACK_SAMPLE_PAGES) {
-    // 優先ページがない場合、先頭と末尾からサンプリング
-    const half = Math.floor(FALLBACK_SAMPLE_PAGES / 2);
-    const frontPages = analyzedPages.slice(0, half);
-    const backPages = analyzedPages.slice(-half);
-
-    // フラグを立てる
-    for (const p of [...frontPages, ...backPages]) {
-      p.isPriority = true;
-      p.priorityReason = 'サンプリング（優先キーワードなし）';
-    }
-  }
-
-  return {
-    totalPages,
-    processedPages: analyzedPages.length,
-    pages: analyzedPages,
-    metadata: data.info,
-    warnings,
-  };
-}
-
-/**
- * テキストをページに分割（簡易実装）
- * pdf-parse は全テキストを1つの文字列で返すため、ヒューリスティックで分割
- */
-function splitIntoPages(fullText: string, expectedPages: number): string[] {
-  if (expectedPages <= 1) {
-    return [fullText];
-  }
-
-  // ページ区切りパターン（フォームフィードや連続改行）
-  const pageBreakPatterns = [
-    /\f/g, // フォームフィード
-    /\n{4,}/g, // 4連続以上の改行
-  ];
-
-  let pages: string[] = [];
-
-  for (const pattern of pageBreakPatterns) {
-    const parts = fullText.split(pattern).filter((p) => p.trim());
-    if (parts.length >= expectedPages * 0.5) {
-      pages = parts;
-      break;
-    }
-  }
-
-  // 分割できなかった場合は均等分割
-  if (pages.length === 0 || pages.length === 1) {
-    const chunkSize = Math.ceil(fullText.length / expectedPages);
-    pages = [];
-    for (let i = 0; i < expectedPages; i++) {
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, fullText.length);
-      pages.push(fullText.slice(start, end));
-    }
-  }
-
-  return pages;
 }
 
 /**

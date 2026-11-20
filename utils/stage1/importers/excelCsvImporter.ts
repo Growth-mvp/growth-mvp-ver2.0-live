@@ -209,6 +209,11 @@ export function detectFileType(
     }
   }
 
+  // PDF はバイナリ内に区切り文字を含むため、テキスト判定より前に除外する（呼び出し側で PDF として扱う）
+  if (buffer.length >= 5 && buffer.slice(0, 5).toString('ascii') === '%PDF-') {
+    return 'unknown';
+  }
+
   // テキストとして読めるかどうか
   try {
     const text = buffer.toString('utf-8').slice(0, 1000);

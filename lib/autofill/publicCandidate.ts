@@ -133,6 +133,11 @@ function yenFactor(c: Stage1ImportCandidate, field: string): { factor: number; u
   return factor === undefined ? null : { factor, unit };
 }
 
+/** 「資料名（3ページ）」「資料名（シート名）」から、資料名だけを取り出す */
+function fileOfWhere(where: string): string {
+  return where.replace(/（[^（）]*）$/, '');
+}
+
 function docSource(fileName: string, fetchedAt: string): SourceRef {
   return { source: 'DOCUMENT', fileName, periodEnd: null, fetchedAt };
 }
@@ -222,10 +227,9 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
       consolidation: 'NOT_APPLICABLE',
     };
   }
-  if (merged.companyName) sources.push(docSource(merged.companyName.where, args.fetchedAt));
-  if (merged.location) sources.push(docSource(merged.location.where, args.fetchedAt));
-  if (merged.employees) sources.push(docSource(merged.employees.where, args.fetchedAt));
-  if (merged.businessContent) sources.push(docSource(merged.businessContent.where, args.fetchedAt));
+  for (const finding of [merged.companyName, merged.location, merged.employees, merged.businessContent]) {
+    if (finding) sources.push(docSource(fileOfWhere(finding.where), args.fetchedAt));
+  }
 
   if (unitsUnsupported.size > 0) issues.push(`対応していない単位（${[...unitsUnsupported].filter(Boolean).join('、')}）の金額は取り込んでいません（円・千円・百万円のみ換算します）`);
   if (unitsConverted.size > 0) issues.push(`単位を換算して円で取り込みました：${[...unitsConverted].join('、')}`);
