@@ -12,18 +12,17 @@ describe('会話の表現ルール', () => {
     expect(prompt).not.toContain('③つまずきポイント');
   });
 
-  it('経営相談では結論先出しと迎合しない指摘を求め、固定の1行サマリを求めない', () => {
+  it('経営相談の共通原則は残し、回答の長さ・段落・質問の型は回答スタイル指示に一本化する', () => {
     const prompt = buildAgentSystemPrompt({} as any);
 
     expect(prompt).toContain('迎合せず');
-    expect(prompt).toContain('自分の見解を明確に述べる');
-    expect(prompt).toContain('見出しを使わず短い会話文で答える');
-    expect(prompt).toContain('原則2〜4段落の自然な会話にする');
-    expect(prompt).toContain('分析・施策・実行計画を一度に網羅しない');
-    expect(prompt).toContain('問いかけは、本質的な論点が残る場合に1つだけ返す。毎回は返さない');
-    expect(prompt).toContain('詳細分析、数値比較、計画策定を明示的に求められた場合は、従来どおり十分に詳しく回答する');
-    expect(prompt).toContain('登録情報（STAGE1〜6）のうち質問に関係するもの');
+    expect(prompt).toContain('自分の見解を明確に述べ、');
+    expect(prompt).toContain('会社全体が赤字でも、個別の案件が赤字と確認できなければ「赤字案件がある」と断定しない');
+    expect(prompt).toContain('網羅的に並べない');
     expect(prompt).not.toContain('最後に1行サマリ');
+    for (const duplicated of ['原則2〜4段落', '250〜450', '最大3件まで示す', 'ツールが使えるとき', '問いかけは', '見出しを使わず']) {
+      expect(prompt).not.toContain(duplicated);
+    }
   });
 
   it('ファシリテーター指示は番号付きの定型見出しを使わない', () => {

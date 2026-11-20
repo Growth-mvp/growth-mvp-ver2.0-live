@@ -66,6 +66,7 @@ import {
   requireMembership,
   resolveCompanyIdFromStrategyId,
 } from '@/lib/server/rbacGuard';
+import agentPrompt from '@/lib/agentPrompt';
 import { POST } from './route';
 
 const USER = 'user-1';
@@ -123,6 +124,7 @@ beforeEach(() => {
     data: { id: STRATEGY, departments: [], answers2: [], finalStory: [] },
     error: null,
   });
+  (agentPrompt as unknown as jest.Mock).mockReturnValue('AGENT_PROMPT');
   mockChatCreate.mockResolvedValue({ choices: [{ message: { content: 'OK' } }] });
   mockClassifyHeuristic.mockReturnValue({ stage: 'strategy', confidence: 0.9, reasons: [] });
   mockClassifyLLM.mockRejectedValue(new Error('LLM 分類は無効'));
@@ -147,7 +149,7 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     await POST(req(body(history)));
     const sent = sentRequest();
     expect(sent.system).toContain('【今回の回答スタイル：通常の経営相談（前の会話を踏まえる）】');
-    expect(sent.system).toContain('利用者の返答を受けて議論を深める');
+    expect(sent.system).toContain('相手の返答を受け止めて議論を深める');
     expect(sent.messages).toEqual(history);
   });
 
@@ -163,7 +165,9 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
     const sent = sentRequest();
     expect(sent.system.indexOf('AGENT_PROMPT')).toBeLessThan(sent.system.indexOf(STYLE_MARK));
-    expect(sent.system.endsWith('個別の案件が赤字だと断定しない。個別の数値が確認できた場合だけ述べる。')).toBe(true);
+    expect(sent.system.endsWith('- 判断材料が不足し重要な論点が残る場合に限り、自然な質問を1つ返す。質問は必須ではない。')).toBe(true);
+    expect(sent.system.split('原則2〜4段落').length - 1).toBe(1);
+    expect(sent.system.split('ツールが使えるとき').length - 1).toBe(0);
   });
 
   it('help モードには適用しない', async () => {

@@ -61,11 +61,19 @@ describe('回答スタイル指示の内容', () => {
     expect(block).not.toContain('2〜4段落');
   });
 
-  it('どの型でも、赤字の断定を禁じ、事実と仮説の区別を維持する', () => {
+  it('会話型は初回に全部を説明せず、次の一歩と見出しを絞る', () => {
+    const block = buildAnswerStyleBlock('conversation');
+    expect(block).toContain('見出しは使わない');
+    expect(block).toContain('初回に分析・施策・実行計画をすべて説明しない');
+    expect(block).toContain('次の一歩は、相手が求めた場合か判断に必要な場合だけ1つ示す');
+  });
+
+  it('共通原則は agentPrompt 側に一本化し、回答スタイル指示には重複させない', () => {
     for (const style of ['conversation', 'conversation_followup', 'detailed'] as const) {
       const block = buildAnswerStyleBlock(style);
-      expect(block).toContain('個別の案件が赤字だと断定しない');
-      expect(block).toContain('事実と仮説の区別');
+      expect(block).not.toContain('事実と仮説の区別');
+      expect(block).not.toContain('個別の案件が赤字');
+      expect(block).not.toContain('推測ですが');
     }
   });
 });

@@ -24,34 +24,26 @@ export function isManualAdvisorChat(input: {
 }
 
 const CONVERSATION_RULES = [
-  '- 最も重要な見解と、この企業に固有の根拠に絞り、原則2〜4段落の自然な会話で答える。',
-  '- 「結論として」「重点は3つ」「まず90日間で」のような報告書調の展開をしない。見出し、長い箇条書き、複数段階の実行計画は書かない。',
-  '- STAGE1〜6の登録情報は網羅せず、質問に関係するものだけを選んで使う。',
+  '- 最も重要な見解と、この企業に固有の根拠に絞り、原則2〜4段落の自然な会話で答える。見出しは使わない。',
+  '- 「結論として」「重点は3つ」「まず90日間で」のような報告書調の展開をしない。長い箇条書きや複数段階の実行計画は書かない。',
+  '- 初回に分析・施策・実行計画をすべて説明しない。次の一歩は、相手が求めた場合か判断に必要な場合だけ1つ示す。',
   '- 判断材料が不足し重要な論点が残る場合に限り、自然な質問を1つ返す。質問は必須ではない。',
 ];
 
 const FOLLOWUP_RULE =
-  '- 直前の会話を踏まえ、利用者の返答を受けて議論を深める。最初から分析を繰り返さない。';
+  '- 前の会話を踏まえ、相手の返答を受け止めて議論を深める。最初から分析を繰り返さない。必要なら前の見解を修正する。';
 
 const DETAILED_RULES = [
-  '- 利用者は詳細な分析・数値・施策・実行計画を求めています。根拠を示し、従来どおり十分に詳しく回答する。',
-  '- 事実・仮説・提案を区別し、数値は登録データと出典に基づいて正確に示す。推測は「推測ですが」と明記する。',
-];
-
-const COMMON_RULES = [
-  '- 事実と仮説の区別、数値の正確性、批判的な見解、顧客価値、全体最適、社員の主体性は維持する。',
-  '- 会社全体の赤字から、個別の案件が赤字だと断定しない。個別の数値が確認できた場合だけ述べる。',
+  '- 詳細な分析・数値比較・施策・実行計画を求められているため、根拠を示して従来どおり十分に詳しく回答する。',
+  '- 見出しや箇条書きで構造化してよい。',
 ];
 
 export function buildAnswerStyleBlock(style: AnswerStyle): string {
   if (style === 'detailed') {
-    return ['【今回の回答スタイル：詳細】', ...DETAILED_RULES, ...COMMON_RULES].join('\n');
+    return ['【今回の回答スタイル：詳細】', ...DETAILED_RULES].join('\n');
   }
-  const rules = style === 'conversation_followup'
-    ? [...CONVERSATION_RULES, FOLLOWUP_RULE]
-    : CONVERSATION_RULES;
-  const title = style === 'conversation_followup'
-    ? '【今回の回答スタイル：通常の経営相談（前の会話を踏まえる）】'
-    : '【今回の回答スタイル：通常の経営相談】';
-  return [title, ...rules, ...COMMON_RULES].join('\n');
+  if (style === 'conversation_followup') {
+    return ['【今回の回答スタイル：通常の経営相談（前の会話を踏まえる）】', ...CONVERSATION_RULES, FOLLOWUP_RULE].join('\n');
+  }
+  return ['【今回の回答スタイル：通常の経営相談】', ...CONVERSATION_RULES].join('\n');
 }

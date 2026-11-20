@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 
 // 外部検索の追加では lib/agentPrompt.ts を変更しない。意図して変更する場合のみ、この値を更新する
-const APPROVED_SHA256 = '2cf04d53c108638347d4e72f774236d4dec663c8c71f51c8e181da9ee0d0d5c1';
+const APPROVED_SHA256 = 'c05b388325493522b6633786d52e9148f8f505d20a7e371a3123f5a9abf01302';
 
 it('lib/agentPrompt.ts は外部検索の追加で変更されていない', () => {
   const file = path.resolve(__dirname, '..', '..', 'agentPrompt.ts');
