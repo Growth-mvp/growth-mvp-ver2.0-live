@@ -29,7 +29,7 @@ const USERS: Record<string, { id: string; email: string }> = {
 
 function freshDb(overrides: Partial<Db> = {}): Db {
   return {
-    profiles: [{ id: U_MEMBER }, { id: U_STRANGER }],
+    profiles: [{ user_id: U_MEMBER, company_id: CO_OWN, created_at: '2026-01-01T00:00:00Z' }],
     company_members: [{ company_id: CO_OWN, user_id: U_MEMBER, role: 'member', created_at: '2026-01-01T00:00:00Z' }],
     strategy_data: [],
     companies: [],
@@ -201,6 +201,40 @@ describe('POST /api/companies/provision（ENABLE_SIGNUP_ADMIN と既存所属の
     expect(db.companies).toHaveLength(0);
     expect(db.strategy_data).toHaveLength(before.sd);
     expect(db.company_members).toHaveLength(before.cm);
+  });
+
+  it('プロフィールが無い既存メンバーは、所属企業IDのプロフィール（user_id・company_id）が1件作られる', async () => {
+    const db = setup(freshDb({ profiles: [] }));
+    const res = await POST(req({ token: TOKEN.member }));
+
+    expect(res.status).toBe(200);
+    expect(db.profiles).toEqual([expect.objectContaining({ user_id: U_MEMBER, company_id: CO_OWN })]);
+  });
+
+  it('既存のプロフィールは、別の会社の cookie が来ても変更されない', async () => {
+    const db = setup(freshDb());
+    const before = JSON.stringify(db.profiles);
+    await POST(req({ token: TOKEN.member, cookie: CO_OTHER }));
+
+    expect(JSON.stringify(db.profiles)).toBe(before);
+  });
+
+  it('同じ利用者が初期化を繰り返しても、プロフィールは重複して作られない', async () => {
+    const db = setup(freshDb({ profiles: [] }));
+    await POST(req({ token: TOKEN.member }));
+    await POST(req({ token: TOKEN.member }));
+
+    expect(db.profiles).toHaveLength(1);
+  });
+
+  it('新規会社の作成では、作成者のプロフィールだけが新会社IDで作られ、既存メンバーの行は変わらない', async () => {
+    process.env.ENABLE_SIGNUP_ADMIN = 'true';
+    const db = setup(freshDb());
+    const memberBefore = JSON.stringify(db.profiles.filter((p) => p.user_id === U_MEMBER));
+    await POST(req({ token: TOKEN.stranger, create: true }));
+
+    expect(db.profiles.find((p) => p.user_id === U_STRANGER)).toEqual(expect.objectContaining({ company_id: CO_NEW }));
+    expect(JSON.stringify(db.profiles.filter((p) => p.user_id === U_MEMBER))).toBe(memberBefore);
   });
 
   it('未所属ユーザーが create 指定なしで来ると 403（needs_membership）。seed も行わない', async () => {

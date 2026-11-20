@@ -57,21 +57,24 @@ async function findStrategyByCompany(admin: AdminClient, companyId: string) {
   return admin.from('strategy_data').select('id').eq('company_id', companyId).limit(1).maybeSingle();
 }
 
-/** profiles.id = userId が無ければ最小行を作る（存在すれば何もしない） */
-async function ensureProfileExists(admin: AdminClient, userId: string) {
+/**
+ * profiles（主キー user_id・必須 company_id）を、所属企業IDが確定した後に作る。
+ * 既にある行は、どの企業のものでも変更しない。
+ */
+async function ensureProfileForCompany(admin: AdminClient, userId: string, companyId: string) {
   try {
-    const ex = await admin.from('profiles').select('id').eq('id', userId).limit(1).maybeSingle();
-    if (!ex.error && ex.data?.id) return { ok: true };
-    const now = new Date().toISOString();
+    const ex = await admin.from('profiles').select('user_id').eq('user_id', userId).limit(1).maybeSingle();
+    if (ex.error) return { ok: false as const, error: ex.error };
+    if (ex.data) return { ok: true as const, created: false };
     const ins = await admin
       .from('profiles')
-      .insert([{ id: userId, created_at: now, updated_at: now }])
-      .select('id')
+      .insert([{ user_id: userId, company_id: companyId, created_at: new Date().toISOString() }])
+      .select('user_id')
       .single();
-    if (ins.error) return { ok: true, note: 'profile_insert_error_ignored', detail: ins.error };
-    return { ok: true };
+    if (ins.error) return { ok: false as const, error: ins.error };
+    return { ok: true as const, created: true };
   } catch (e) {
-    return { ok: true, note: 'profile_check_failed_ignored', detail: String(e) };
+    return { ok: false as const, error: e };
   }
 }
 
@@ -195,7 +198,7 @@ async function ensureStrategySeed(
 
   // FK: profiles がない → 1回だけ作って再試行
   if ((ins as any).error && (ins as any).error.code === '23503') {
-    await ensureProfileExists(admin, userId);
+    await ensureProfileForCompany(admin, userId, companyId);
     ins = await tryInsert();
   }
 
@@ -311,12 +314,6 @@ export async function POST(req: NextRequest) {
     // HTTPS 判定（Set-Cookie Secure判定用）
     const isHttps = (req.nextUrl?.protocol || '').toLowerCase() === 'https:';
 
-    // ★重要：profile の存在確認・作成（FK エラー回避）
-    const profileRes = await ensureProfileExists(admin, userId!);
-    if (!(profileRes as any).ok) {
-      console.warn('[provision] profile check failed', { userId, detail: (profileRes as any).detail });
-      // ここで中断せず、以降のロジックで対応（FK エラーで検出される）
-    }
 
     // 3) 既所属チェック（多重作成防止）
     {
@@ -343,6 +340,9 @@ export async function POST(req: NextRequest) {
           console.info('[provision] already_in_company (skip seed due to deleting)', { userId, companyId: cid });
           return json(200, { ok: true, companyId: cid, strategyId: null, role, note: 'skip_seed_deleting' }, [cookie]);
         }
+
+        const profile = await ensureProfileForCompany(admin, userId!, cid);
+        if (!profile.ok) console.warn('[provision] profile ensure failed (already_in_company)', { userId, companyId: cid });
 
         const seeded = await ensureStrategySeed(admin, userId!, cid);
         if (!(seeded as any).ok) {
@@ -424,6 +424,9 @@ export async function POST(req: NextRequest) {
         console.info('[provision] rpc ok (skip seed due to deleting)', { userId, companyId: cid });
         return json(200, { ok: true, companyId: cid, strategyId: null, role: 'admin', via: 'rpc', note: 'skip_seed_deleting' }, [cookie]);
       }
+
+      const profile = await ensureProfileForCompany(admin, userId!, cid);
+      if (!profile.ok) console.warn('[provision] profile ensure failed (rpc)', { userId, companyId: cid });
 
       const seeded = await ensureStrategySeed(admin, userId!, cid);
       if (!(seeded as any).ok) {
@@ -535,6 +538,9 @@ export async function POST(req: NextRequest) {
         note: 'skip_seed_deleting',
       }, [cookie]);
     }
+
+    const profile = await ensureProfileForCompany(admin, userId!, companyId);
+    if (!profile.ok) console.warn('[provision] profile ensure failed (fallback)', { userId, companyId });
 
     const seedRes = await ensureStrategySeed(admin, userId!, companyId);
     if (!(seedRes as any).ok) {
