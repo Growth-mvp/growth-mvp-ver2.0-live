@@ -86,6 +86,7 @@ import {
 } from '@/lib/ceoChat/webSearch';
 import {
   buildReviewPromptBlock,
+  isReviewQuestion,
   buildStage4ReviewCandidates,
   classifyReviewRun,
   extractReviewMarkers,
@@ -783,7 +784,9 @@ export async function POST(req: Request) {
           });
         }
         const reviewIndex = buildStage4ReviewCandidates((strategy as any)?.departments, strategyId);
-        const reviewBlock = buildReviewPromptBlock(reviewIndex, lastUser);
+        const reviewBlock: ReturnType<typeof buildReviewPromptBlock> = isReviewQuestion(reviewIndex, lastUser)
+          ? buildReviewPromptBlock(reviewIndex, lastUser)
+          : { text: '', shown: [], relevantOutsideShown: 0 };
         if (reviewBlock.text) systemBase += '\n\n' + reviewBlock.text;
         reviewCandidates = new Map(reviewBlock.shown.map((c) => [c.id, c]));
         reviewRun = {

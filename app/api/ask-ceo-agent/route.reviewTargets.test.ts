@@ -245,7 +245,7 @@ describe('STAGE4の見直し案内（外部検索OFF）', () => {
   it('企業を切り替えると、前の企業の候補は次の回答に残らない', async () => {
     await ask(QUESTION, strategy('strategy-A', [SALES_DEPT]), MARKER_R1, 'strategy-A');
     const other = strategy('strategy-B', [
-      { id: 'dept-b', name: '販売部', projects: [{ id: 'proj-b', title: '別会社の案件' }] },
+      { id: 'dept-b', name: '販売部', projects: [{ id: 'proj-b', title: '量産後の粗利額の改善' }] },
     ], { companyName: '別会社株式会社', businessContent: '小売店舗' });
     const r = await ask(QUESTION, other, MARKER_R1, 'strategy-B');
     expect(r.system).not.toContain('新規開拓');

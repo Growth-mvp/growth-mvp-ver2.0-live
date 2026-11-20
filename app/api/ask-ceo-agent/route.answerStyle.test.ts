@@ -202,3 +202,31 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     expect(sent.system).not.toContain(STYLE_MARK);
   });
 });
+
+describe('STAGE4見直し候補の指示（質問で出し分ける）', () => {
+  const DEPTS = [
+    {
+      id: 'dept-sales',
+      name: '営業部',
+      projects: [{ id: 'proj-new', title: '新規開拓', okrsV2: [{ id: 'kr-1', label: '受注件数', target: 12, unit: '件' }] }],
+    },
+  ];
+  const CANDIDATE_BLOCK = '【見直し候補（STAGE4・登録済みの実在データ）】';
+
+  beforeEach(() => {
+    (getFullStrategyDataByStrategyId as jest.Mock).mockResolvedValue({
+      data: { id: STRATEGY, departments: DEPTS, answers2: [], finalStory: [] },
+      error: null,
+    });
+  });
+
+  it('一般的な経営相談には、見直し候補の一覧も出力指示も入れない', async () => {
+    await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
+    expect(sentRequest().system).not.toContain(CANDIDATE_BLOCK);
+  });
+
+  it('KPIの見直しを求められた場合は、候補の一覧と出力指示を入れる', async () => {
+    await POST(req(body([{ role: 'user', content: 'うちの会社のKPIを見直したい' }])));
+    expect(sentRequest().system).toContain(CANDIDATE_BLOCK);
+  });
+});

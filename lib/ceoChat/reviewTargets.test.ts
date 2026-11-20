@@ -3,6 +3,7 @@ import {
   buildStage4ReviewCandidates,
   classifyReviewRun,
   extractReviewMarkers,
+  isReviewQuestion,
   parseReviewTargets,
 } from './reviewTargets';
 import { buildExecutionSummaryBlock, krTargetLabel } from './stage4Projection';
@@ -181,6 +182,41 @@ describe('AIの回答から案内先を決める（照合）', () => {
     expect(r.content).toBe(raw);
     expect(r.reviewTargets).toEqual([]);
   });
+
+  it('文末に付いたマーカーは、本文に残さず、提示済みの候補なら案内にする', () => {
+    const r = extractReviewMarkers('粗利の確認を勧めます。[見直し候補: r1]', shown);
+    expect(r.content).toBe('粗利の確認を勧めます。');
+    expect(r.reviewTargets.map((t) => t.candidateId)).toEqual(['r1']);
+  });
+
+  it('文末に付いた存在しないIDのマーカーは、本文に残さず、案内にもしない', () => {
+    const r = extractReviewMarkers('粗利の確認を勧めます。[見直し候補: r99]', shown);
+    expect(r.content).toBe('粗利の確認を勧めます。');
+    expect(r.reviewTargets).toEqual([]);
+  });
+
+  it('全角の括弧や閉じ括弧の無い記号も、本文に残さない（案内にはしない）', () => {
+    expect(extractReviewMarkers('本文 【見直し候補: r1】', shown).content).toBe('本文');
+    expect(extractReviewMarkers('本文[見直し候補: r1', shown).content).toBe('本文');
+    expect(extractReviewMarkers('本文 【見直し候補: r1】', shown).reviewTargets).toEqual([]);
+  });
+});
+
+describe('見直し候補を渡す質問の判定', () => {
+  const index = buildStage4ReviewCandidates(DEPTS, STRATEGY);
+
+  it.each([
+    ['KPIの見直しを手伝って', true],
+    ['OKRの進捗が遅れている', true],
+    ['未達のプロジェクトはどれ？', true],
+    ['量産後の粗利額を確認したい', true],
+    ['うちの会社、どうやったら業績上がるの？', false],
+    ['2030年度の業績目標について、数値・施策・実行計画を詳しく分析して', false],
+    ['顧客別採算はまだ把握できていません', false],
+  ])('「%s」→ %s', (question, expected) => {
+    expect(isReviewQuestion(index, question)).toBe(expected);
+  });
+
 });
 
 describe('診断情報（件数と理由コードのみ）', () => {

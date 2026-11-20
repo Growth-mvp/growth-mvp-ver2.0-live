@@ -35,7 +35,11 @@ const MAX_SUMMARY_CHARS = 80;
 const MAX_TARGETS = 3;
 const PROMPT_MAX_ITEMS = 12;
 const PROMPT_CHAR_BUDGET = 1800;
-const MARKER = /^[ \t]*\[見直し候補[:：][ \t]*([^\]\n]+)\][ \t]*$/gm;
+const MARKER_VALID = /[ \t]*\[見直し候補[:：][ \t]*([^\]\n]+)\]/g;
+const MARKER_VALID_LINE = /\[見直し候補[:：][ \t]*[^\]\n]+\]/;
+const MARKER_ANY = /[ \t]*[[【［]見直し候補[:：]([^\]】］\n]*)[\]】］]?/g;
+const REVIEW_QUESTION = /KPI|ＫＰＩ|OKR|見直|進捗|未達|達成率|プロジェクト/i;
+const RELATED_MIN_HITS = 3;
 const HREF_PREFIX = '/okr?projectId=';
 
 type Rec = Record<string, unknown>;
@@ -158,6 +162,16 @@ const candidateLine = (c: ReviewCandidate): string => {
 };
 
 /**
+ * 既存プロジェクトのKPI・進捗・見直しに関わる質問かどうか。
+ * 語の指定、または登録済みの案件・部門・KPIの名称と十分に重なる場合だけ真にする。一般的な経営相談では候補を渡さない。
+ */
+export function isReviewQuestion(index: ReviewCandidateIndex, question: string): boolean {
+  if (REVIEW_QUESTION.test(question ?? '')) return true;
+  const grams = bigrams(question ?? '');
+  return index.candidates.some((c) => relevance(c, grams) >= RELATED_MIN_HITS);
+}
+
+/**
  * AIへ渡す候補一覧。関連度の高いものを先に並べ、件数上限・文字数上限で切る。
  * 切った場合は件数を明示し、一覧にないものを「存在しない」と断定させない。
  */
@@ -231,17 +245,15 @@ export function extractReviewMarkers(
   content: string,
   shown: ReadonlyMap<string, ReviewCandidate>
 ): { content: string; reviewTargets: ReviewTarget[]; diagnostics: ReviewMarkerDiagnostics } {
-  const markerLines = content.split('\n').filter((l) => l.includes('見直し候補')).length;
-  const validMarkerLines = [...content.matchAll(MARKER)].length;
+  const lines = content.split('\n');
+  const markerLines = lines.filter((l) => l.includes('見直し候補')).length;
+  const validMarkerLines = lines.filter((l) => MARKER_VALID_LINE.test(l)).length;
 
   const ids: string[] = [];
-  const stripped = content
-    .replace(MARKER, (_m, list: string) => {
-      for (const part of list.split(/[,、\s]+/)) if (part) ids.push(part.trim());
-      return '';
-    })
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  for (const m of content.matchAll(MARKER_VALID)) {
+    for (const part of m[1].split(/[,、\s]+/)) if (part) ids.push(part.trim());
+  }
+  const stripped = content.replace(MARKER_ANY, '').replace(/\n{3,}/g, '\n\n').trim();
 
   const matchedIds = ids.filter((id) => shown.has(id)).length;
   const reviewTargets: ReviewTarget[] = [];
