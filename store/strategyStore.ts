@@ -716,7 +716,7 @@ function isNonEmptyObject(v: any): boolean {
   return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
 }
 
-function isEffectivelyEmpty(payload: any): boolean {
+export function isEffectivelyEmpty(payload: any): boolean {
   if (!payload) return true;
   const emptyArr = (a: any) => !Array.isArray(a) || a.length === 0;
   const emptyStr = (v: any) => typeof v !== 'string' || v.trim() === '';
@@ -738,7 +738,19 @@ function isEffectivelyEmpty(payload: any): boolean {
       (Array.isArray(payload.simulationResult?.projection?.points) &&
         payload.simulationResult.projection.points.length === 0));
 
-  const metaAllEmpty = [payload.companyName, payload.mission, payload.vision, payload.value, payload.thought]
+  // 資料の承認は、会社名が無くても所在地などの基本情報だけを書くことがあるため、それらも内容として見る
+  const metaAllEmpty = [
+    payload.companyName,
+    payload.location,
+    payload.employees,
+    payload.businessContent,
+    payload.industry,
+    payload.ticker,
+    payload.mission,
+    payload.vision,
+    payload.value,
+    payload.thought,
+  ]
     .filter((v) => v !== undefined)
     .every(emptyStr);
 
