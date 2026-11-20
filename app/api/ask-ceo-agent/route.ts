@@ -932,6 +932,7 @@ export async function POST(req: Request) {
       const answerStyle = decideAnswerStyle({
         userText: lastUser,
         hasPriorAssistantTurn: askMessages.some((m) => m.role === 'assistant'),
+        priorUserTexts: askMessages.slice(0, -1).filter((m) => m.role === 'user').map((m) => m.content),
       });
       systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle);
     }

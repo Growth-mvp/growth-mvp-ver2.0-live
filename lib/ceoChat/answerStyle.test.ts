@@ -61,19 +61,72 @@ describe('回答スタイル指示の内容', () => {
     expect(block).not.toContain('2〜4段落');
   });
 
-  it('会話型は初回に全部を説明せず、次の一歩と見出しを絞る', () => {
+  it('会話型は一度に全部を説明せず、次の一歩と見出しを絞る', () => {
     const block = buildAnswerStyleBlock('conversation');
     expect(block).toContain('見出しは使わない');
-    expect(block).toContain('初回に分析・施策・実行計画をすべて説明しない');
+    expect(block).toContain('一度の回答で分析・施策・実行計画をすべて説明しない');
     expect(block).toContain('次の一歩は、相手が求めた場合か判断に必要な場合だけ1つ示す');
   });
 
   it('共通原則は agentPrompt 側に一本化し、回答スタイル指示には重複させない', () => {
-    for (const style of ['conversation', 'conversation_followup', 'detailed'] as const) {
+    for (const style of ['conversation', 'conversation_followup', 'repeat', 'objection', 'detailed'] as const) {
       const block = buildAnswerStyleBlock(style);
       expect(block).not.toContain('事実と仮説の区別');
       expect(block).not.toContain('個別の案件が赤字');
       expect(block).not.toContain('推測ですが');
     }
+  });
+
+  it('共通の会話規則は、どの会話型でも1回だけ書く（指示を重複させない）', () => {
+    for (const style of ['conversation', 'conversation_followup', 'repeat', 'objection'] as const) {
+      const block = buildAnswerStyleBlock(style);
+      expect(block.split('見出しは使わない').length - 1).toBe(1);
+    }
+  });
+});
+
+describe('同じ質問の繰り返し・制約や異議の判定', () => {
+  const Q = 'うちの会社、どうやったら業績上がるの？';
+
+  it('前の発言と同じ質問（句読点・空白の差は無視）は、繰り返しとして扱う', () => {
+    expect(
+      decideAnswerStyle({ userText: 'うちの会社どうやったら業績上がるの', hasPriorAssistantTurn: true, priorUserTexts: [Q] })
+    ).toBe('repeat');
+  });
+
+  it('前回の回答がなければ、同じ文でも繰り返しとはしない', () => {
+    expect(decideAnswerStyle({ userText: Q, hasPriorAssistantTurn: false, priorUserTexts: [Q] })).toBe('conversation');
+  });
+
+  it('「でも、それは現実的ではない」は異議として扱う', () => {
+    expect(
+      decideAnswerStyle({ userText: 'でも、それは現実的ではない', hasPriorAssistantTurn: true, priorUserTexts: [Q] })
+    ).toBe('objection');
+  });
+
+  it('制約（時間・人手・予算がない）も、新しい判断条件として異議と同じ扱いにする', () => {
+    expect(
+      decideAnswerStyle({
+        userText: '顧客別採算は分からないし、原価計算に時間もかけられないんだよ',
+        hasPriorAssistantTurn: true,
+      })
+    ).toBe('objection');
+  });
+
+  it('異議の判定より、詳細分析の明示的な依頼を優先する', () => {
+    expect(
+      decideAnswerStyle({ userText: 'でも、数値と実行計画を詳しく出して', hasPriorAssistantTurn: true, priorUserTexts: [Q] })
+    ).toBe('detailed');
+  });
+
+  it('繰り返し・異議の指示は、それぞれ固有の指示を持ち、互いに混ざらない', () => {
+    const repeat = buildAnswerStyleBlock('repeat');
+    const objection = buildAnswerStyleBlock('objection');
+    expect(repeat).toContain('前回と同じ説明は繰り返さない');
+    expect(repeat).toContain('繰り返しだけを不満と決めつけない');
+    expect(repeat).not.toContain('新しい判断条件');
+    expect(objection).toContain('新しい判断条件として扱う');
+    expect(objection).toContain('前の提案が成り立たないなら');
+    expect(objection).not.toContain('前回と同じ説明は繰り返さない');
   });
 });

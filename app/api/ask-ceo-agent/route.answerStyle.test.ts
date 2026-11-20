@@ -203,6 +203,41 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
   });
 });
 
+describe('会話履歴に基づく回答スタイル（繰り返し・異議・詳細）', () => {
+  const ASSISTANT_PREV = { role: 'assistant', content: '前回の回答です。' };
+
+  it('②同じ質問の繰り返しは、繰り返し用の指示になり、会話履歴をそのまま送る', async () => {
+    const history = [{ role: 'user', content: Q_PROFIT }, ASSISTANT_PREV, { role: 'user', content: Q_PROFIT }];
+    await POST(req(body(history)));
+    const sent = sentRequest();
+    expect(sent.system).toContain('【今回の回答スタイル：同じ質問の繰り返し】');
+    expect(sent.system).toContain('前回と同じ説明は繰り返さない');
+    expect(sent.messages).toEqual(history);
+  });
+
+  it('③「でも、それは現実的ではない」は、制約・異議の指示になり、会話履歴をそのまま送る', async () => {
+    const history = [
+      { role: 'user', content: Q_PROFIT },
+      ASSISTANT_PREV,
+      { role: 'user', content: 'でも、それは現実的ではない' },
+    ];
+    await POST(req(body(history)));
+    const sent = sentRequest();
+    expect(sent.system).toContain('【今回の回答スタイル：相手の制約・異議を受けて】');
+    expect(sent.system).toContain('新しい判断条件として扱う');
+    expect(sent.messages).toEqual(history);
+  });
+
+  it('④詳細分析の依頼は、会話履歴があっても詳細型を指示する', async () => {
+    const history = [{ role: 'user', content: Q_PROFIT }, ASSISTANT_PREV, { role: 'user', content: Q_DETAIL }];
+    await POST(req(body(history)));
+    const sent = sentRequest();
+    expect(sent.system).toContain('【今回の回答スタイル：詳細】');
+    expect(sent.system).not.toContain('同じ質問の繰り返し');
+    expect(sent.system).not.toContain('相手の制約・異議を受けて');
+  });
+});
+
 describe('STAGE4見直し候補の指示（質問で出し分ける）', () => {
   const DEPTS = [
     {

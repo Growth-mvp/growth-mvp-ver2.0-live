@@ -1,10 +1,22 @@
-export type AnswerStyle = 'detailed' | 'conversation' | 'conversation_followup';
+export type AnswerStyle = 'detailed' | 'conversation' | 'conversation_followup' | 'repeat' | 'objection';
 
 const DETAIL_REQUEST = /詳しく|詳細|詳述|数値|比較|実行計画|報告書|計画書|一覧|複数の施策|施策を複数/;
+const OBJECTION_CUE = /^(でも|ただ|いや|しかし)|現実的|無理|難しい|できない|かけられ|余裕|時間がない|人手が|予算が|不可能|それは違/;
 
-export function decideAnswerStyle(input: { userText: string; hasPriorAssistantTurn: boolean }): AnswerStyle {
-  if (DETAIL_REQUEST.test(input.userText)) return 'detailed';
-  return input.hasPriorAssistantTurn ? 'conversation_followup' : 'conversation';
+const normalize = (s: string) => s.replace(/[\s、。，．,.!！?？]/g, '');
+
+export function decideAnswerStyle(input: {
+  userText: string;
+  hasPriorAssistantTurn: boolean;
+  priorUserTexts?: readonly string[];
+}): AnswerStyle {
+  const { userText, hasPriorAssistantTurn } = input;
+  if (DETAIL_REQUEST.test(userText)) return 'detailed';
+  if (!hasPriorAssistantTurn) return 'conversation';
+  if (OBJECTION_CUE.test(userText.trim())) return 'objection';
+  const current = normalize(userText);
+  if ((input.priorUserTexts ?? []).some((t) => normalize(t) === current)) return 'repeat';
+  return 'conversation_followup';
 }
 
 export function isManualAdvisorChat(input: {
@@ -23,15 +35,36 @@ export function isManualAdvisorChat(input: {
   );
 }
 
-const CONVERSATION_RULES = [
+const TITLES: Record<AnswerStyle, string> = {
+  detailed: '【今回の回答スタイル：詳細】',
+  conversation: '【今回の回答スタイル：通常の経営相談】',
+  conversation_followup: '【今回の回答スタイル：通常の経営相談（前の会話を踏まえる）】',
+  repeat: '【今回の回答スタイル：同じ質問の繰り返し】',
+  objection: '【今回の回答スタイル：相手の制約・異議を受けて】',
+};
+
+const CONVERSATION_BASE = [
   '- 最も重要な見解と、この企業に固有の根拠に絞り、原則2〜4段落の自然な会話で答える。見出しは使わない。',
   '- 「結論として」「重点は3つ」「まず90日間で」のような報告書調の展開をしない。長い箇条書きや複数段階の実行計画は書かない。',
-  '- 初回に分析・施策・実行計画をすべて説明しない。次の一歩は、相手が求めた場合か判断に必要な場合だけ1つ示す。',
+  '- 一度の回答で分析・施策・実行計画をすべて説明しない。次の一歩は、相手が求めた場合か判断に必要な場合だけ1つ示す。',
   '- 判断材料が不足し重要な論点が残る場合に限り、自然な質問を1つ返す。質問は必須ではない。',
 ];
 
-const FOLLOWUP_RULE =
-  '- 前の会話を踏まえ、相手の返答を受け止めて議論を深める。最初から分析を繰り返さない。必要なら前の見解を修正する。';
+const CONVERSATION_EXTRA: Record<Exclude<AnswerStyle, 'detailed'>, string[]> = {
+  conversation: [],
+  conversation_followup: ['- 前の会話を踏まえ、相手の返答を受け止めて議論を深める。最初から分析を繰り返さない。'],
+  repeat: [
+    '- 前回と同じ説明は繰り返さない。前回の要点は一言触れる程度にとどめる。',
+    '- 別の重要な視点を一つ示すか、どこを深掘りしたいかを自然に尋ねる。',
+    '- 繰り返しだけを不満と決めつけない。',
+    '- 判断に必要な重要な数値や前提は省略しないが、前回と同じ形で並べ直さない。',
+  ],
+  objection: [
+    '- 相手の制約や異議は、新しい判断条件として扱う。前の提案が成り立たないなら、何が変わったから修正するのかを一言で示して修正する。',
+    '- 同じ論点の説明を続けず、相手の条件に合う代替案か、判断の分かれ目を示す。',
+    '- 異議を論破しようとしない。相手の状況を確かめる質問は1つまで。',
+  ],
+};
 
 const DETAILED_RULES = [
   '- 詳細な分析・数値比較・施策・実行計画を求められているため、根拠を示して従来どおり十分に詳しく回答する。',
@@ -39,11 +72,6 @@ const DETAILED_RULES = [
 ];
 
 export function buildAnswerStyleBlock(style: AnswerStyle): string {
-  if (style === 'detailed') {
-    return ['【今回の回答スタイル：詳細】', ...DETAILED_RULES].join('\n');
-  }
-  if (style === 'conversation_followup') {
-    return ['【今回の回答スタイル：通常の経営相談（前の会話を踏まえる）】', ...CONVERSATION_RULES, FOLLOWUP_RULE].join('\n');
-  }
-  return ['【今回の回答スタイル：通常の経営相談】', ...CONVERSATION_RULES].join('\n');
+  if (style === 'detailed') return [TITLES.detailed, ...DETAILED_RULES].join('\n');
+  return [TITLES[style], ...CONVERSATION_BASE, ...CONVERSATION_EXTRA[style]].join('\n');
 }
