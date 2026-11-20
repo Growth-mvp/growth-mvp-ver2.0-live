@@ -139,6 +139,19 @@ export function buildValueAnalysisBlock(valueAnalysis: any = {}, stage1Benchmark
       ? `  業界比較（ROIC・業界中央値の登録値）: ${industryRoic.toFixed(1)}%${industryPeriod ? `（${industryPeriod}）` : ''}。差は述べてよいが、水準の良否は断定しない`
       : '  業界比較（ROIC）: 登録なし。業界内で良いか悪いかは判断しない';
 
+  const roicWaccGap =
+    roic != null && wacc != null ? Number((Number(roic.toFixed(1)) - Number(wacc.toFixed(1))).toFixed(1)) : null;
+  const roicWaccGapLine =
+    roic != null && wacc != null && roicWaccGap != null
+      ? `  ROICとWACCの差: ${
+          roicWaccGap < 0
+            ? `ROICはWACCを${Math.abs(roicWaccGap).toFixed(1)}ポイント下回る`
+            : roicWaccGap > 0
+              ? `ROICはWACCを${roicWaccGap.toFixed(1)}ポイント上回る`
+              : 'ROICとWACCは同水準'
+        }（表示値 ROIC${roic.toFixed(1)}%・WACC${wacc.toFixed(1)}%から算出）`
+      : null;
+
   return [
     '【STAGE1 企業価値5指標（GROWTH SHIFT登録データから算出。STAGE1画面と同じ計算）】',
     `  対象年度: ${periodText}（ROIC・営業利益率は最新年 ${latestYear != null ? `${latestYear}年` : 'データなし'}）`,
@@ -151,6 +164,7 @@ export function buildValueAnalysisBlock(valueAnalysis: any = {}, stage1Benchmark
       : []),
     industryLine,
     `  ④ WACC（登録値）: ${wacc != null ? `${wacc.toFixed(1)}%【登録値。計算値ではない】` : NO_DATA}`,
+    ...(roicWaccGapLine ? [roicWaccGapLine] : []),
     `  ⑤ PBR（手入力値）: ${pbr != null ? `${pbr.toFixed(2)}倍【手入力値】` : NO_DATA}`,
     '  財務評価の注意:',
     '  - 回答では対象年度と算式を示し、上の数値だけを使う。数値を推測で補わない。',

@@ -136,7 +136,7 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
     const sent = sentRequest();
     expect(sent.system).toContain('【今回の回答スタイル：通常の経営相談】');
-    expect(sent.system).toContain('原則2〜4段落の自然な会話で答える');
+    expect(sent.system).toContain('段落数は決めない');
     expect(sent.system).not.toContain('前の会話を踏まえ');
     expect(sent.messages).toEqual([{ role: 'user', content: Q_PROFIT }]);
   });
@@ -166,8 +166,8 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
     const sent = sentRequest();
     expect(sent.system.indexOf('AGENT_PROMPT')).toBeLessThan(sent.system.indexOf(STYLE_MARK));
-    expect(sent.system.endsWith('- 判断材料が不足し重要な論点が残る場合に限り、自然な質問を1つ返す。質問は必須ではない。')).toBe(true);
-    expect(sent.system.split('原則2〜4段落').length - 1).toBe(1);
+    expect(sent.system.endsWith('- 経営者の考えを聞くと議論が深まる場合は、自然な問いを添える。毎回は問わない。')).toBe(true);
+    expect(sent.system.split('段落数は決めない').length - 1).toBe(1);
     expect(sent.system.split('ツールが使えるとき').length - 1).toBe(0);
   });
 

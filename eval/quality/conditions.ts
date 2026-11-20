@@ -1,7 +1,7 @@
 /* 実回答品質評価の比較条件。
  * 条件A・B は同じモデル・設定・経営相談用の基本指示（振る舞い規範・基礎ガイド・禁則）を使い、
  * 違いは「自社データの有無」に限定する。 */
-import agentPrompt from '@/lib/agentPrompt';
+import agentPrompt, { CONSULT_BEHAVIOR, CONSULT_ROLE } from '@/lib/agentPrompt';
 import { PRODUCTION_GROWTH_SHIFT_FOUNDATION, PRODUCTION_TABOO } from './productionText';
 
 export const EVAL_MODEL = 'gpt-5.6-luna';
@@ -17,7 +17,7 @@ const BEHAVIOR_START = '【振る舞い規範】';
  * 振る舞い規範・STAGE1のデータの扱い・外部情報の扱いは、条件Bと同じ文面を使う。
  */
 export function buildConditionASystem(): string {
-  const full = agentPrompt({} as any, [], []);
+  const full = agentPrompt({} as any, [], [], CONSULT_ROLE, CONSULT_BEHAVIOR);
   const start = full.indexOf(COMPANY_HEADER_START);
   const end = full.indexOf(BEHAVIOR_START);
   if (start < 0 || end < 0 || end <= start) {

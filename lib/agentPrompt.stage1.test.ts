@@ -21,6 +21,18 @@ describe('CEO チャットに渡す STAGE1 5指標ブロック', () => {
     expect(prompt).toContain('⑤ PBR（手入力値）: 1.50倍');
   });
 
+  it('ROICとWACCの差は、表示値から決定的に計算して示す（LLMに計算させない）', () => {
+    const va = { ...VA, roic: -2.886797752921873 };
+    const prompt = buildAgentSystemPrompt({ valueAnalysis: va, stage1Benchmarks: { waccManual: 5.2 } } as any);
+    expect(prompt).toContain('③ ROIC（NOPAT÷投下資本）: -2.9%');
+    expect(prompt).toContain('ROICとWACCの差: ROICはWACCを8.1ポイント下回る（表示値 ROIC-2.9%・WACC5.2%から算出）');
+  });
+
+  it('WACCが無い場合は、差の行を出さない', () => {
+    const prompt = buildAgentSystemPrompt({ valueAnalysis: VA } as any);
+    expect(prompt).not.toContain('ROICとWACCの差');
+  });
+
   it('値がない指標は「データなし」とし、数値を作らない', () => {
     const prompt = buildAgentSystemPrompt({} as any);
     const block = prompt.slice(prompt.indexOf('【STAGE1 企業価値5指標'));

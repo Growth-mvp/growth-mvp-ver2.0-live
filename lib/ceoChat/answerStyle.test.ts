@@ -40,12 +40,14 @@ describe('回答スタイル指示の適用条件', () => {
 });
 
 describe('回答スタイル指示の内容', () => {
-  it('会話型は報告書調を禁じ、2〜4段落と質問の任意性を示す', () => {
+  it('会話型は段落数を固定せず、報告書調を禁じ、問いは毎回返さない', () => {
     const block = buildAnswerStyleBlock('conversation');
     expect(block).toContain('【今回の回答スタイル：通常の経営相談】');
-    expect(block).toContain('原則2〜4段落の自然な会話で答える');
+    expect(block).toContain('段落数は決めない');
     expect(block).toContain('「結論として」「重点は3つ」「まず90日間で」');
-    expect(block).toContain('質問は必須ではない');
+    expect(block).toContain('毎回は問わない');
+    expect(block).not.toContain('2〜4段落');
+    expect(block).not.toContain('1つ返す');
     expect(block).not.toContain('前の会話を踏まえ');
   });
 
