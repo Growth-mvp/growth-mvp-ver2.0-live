@@ -15,6 +15,13 @@ const BAR_COLOR: Record<PerformanceBarId, string> = {
   PROJECT_ACTUAL: '#15803d',
 };
 
+const BAR_COLOR_COMPACT: Record<PerformanceBarId, string> = {
+  COMPANY_CURRENT: '#CBD5E1',
+  COMPANY_TARGET: '#567B9F',
+  PROJECT_TARGET: '#91AFC7',
+  PROJECT_ACTUAL: '#2F4A66',
+};
+
 const SHORT_LABEL: Record<PerformanceBarId, string> = {
   COMPANY_CURRENT: '現状',
   COMPANY_TARGET: '目標',
@@ -69,12 +76,14 @@ function BarPlot({ bars, compact }: { bars: PerformanceBar[]; compact: boolean }
               <div key={bar.id} className={`relative min-w-0 flex-1 ${startsProject ? 'ml-2 border-l border-slate-100 pl-3 sm:ml-3 sm:pl-6' : ''}`}>
                 {bar.yen !== null && bar.yen !== 0 && (
                   <div
-                    className="absolute left-1/2 w-[58%] -translate-x-1/2"
+                    className={`absolute left-1/2 -translate-x-1/2 ${compact ? 'w-[52%]' : 'w-[58%]'}`}
                     style={{
                       top: Math.min(zeroY, yOf(bar.yen)),
                       height: Math.max(2, Math.abs(yOf(bar.yen) - zeroY)),
-                      backgroundColor: BAR_COLOR[bar.id],
-                      borderRadius: bar.yen > 0 ? '6px 6px 0 0' : '0 0 6px 6px',
+                      backgroundColor: compact ? BAR_COLOR_COMPACT[bar.id] : BAR_COLOR[bar.id],
+                      borderRadius: compact
+                        ? bar.yen > 0 ? '10px 10px 0 0' : '0 0 10px 10px'
+                        : bar.yen > 0 ? '6px 6px 0 0' : '0 0 6px 6px',
                     }}
                   />
                 )}
