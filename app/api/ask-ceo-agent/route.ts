@@ -9,6 +9,7 @@ function makeRequestId() {
 }
 import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
+import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat } from '@/lib/ceoChat/answerStyle';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { resolveScreenContext } from '@/lib/screens/screenContext';
 import { consultBlockFor } from '@/lib/consult/consultFocus';
@@ -897,12 +898,29 @@ export async function POST(req: Request) {
       systemBase += '\n\n' + buildMilestoneGuard(companionMilestone);
     }
 
+    const askMessages = sanitizeAskMessages(messages);
+    if (
+      isManualAdvisorChat({
+        resolvedMode,
+        output,
+        insights: insightsMode,
+        hasCompanion: !!meta?.companion,
+        hasOperationGuidance: !!guidance.text,
+      })
+    ) {
+      const answerStyle = decideAnswerStyle({
+        userText: lastUser,
+        hasPriorAssistantTurn: askMessages.some((m) => m.role === 'assistant'),
+      });
+      systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle);
+    }
+
     // --- OpenAI 呼び出し ---
     const openaiReq: any = {
       model: 'gpt-5.6-luna',
       reasoning_effort: 'low',
       max_completion_tokens: 6000,
-      messages: [{ role: 'system', content: systemBase }, ...sanitizeAskMessages(messages)],
+      messages: [{ role: 'system', content: systemBase }, ...askMessages],
     };
 
     // ★ meta.output === 'json' のときだけ response_format を付与（JSON形式を要求）
