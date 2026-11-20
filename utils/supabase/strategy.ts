@@ -2095,8 +2095,10 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     let mergedState = prunedIncoming as StrategyData;
 
     // ★ Only preserve server-decided fields (id, created_at, strategyId)
-    if (existingState.id) {
-      (mergedState as any).id = existingState.id;
+    // buildStateFromDbRow は id を読まないため、既存行の id を直接使う（更新を1行に限定するため）
+    const existingId = existingState.id ?? existingRow?.id;
+    if (existingId) {
+      (mergedState as any).id = existingId;
     }
     if (existingState.createdAt) {
       mergedState.createdAt = existingState.createdAt;

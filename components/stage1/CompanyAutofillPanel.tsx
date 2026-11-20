@@ -6,7 +6,7 @@ import { openCeoChatRequest, updateCeoChatMessages, useCeoChatStore } from '@/st
 import { supabase } from '@/utils/supabase/client';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { useAutofillStore, type AutofillCandidate, type PendingAutofill } from '@/lib/autofill/autofillStore';
-import { combineFinance, splitFinanceWrite } from '@/lib/autofill/financeWrite';
+import { combineFinance, splitFinanceWrite, summaryFollowsPL } from '@/lib/autofill/financeWrite';
 import { runAutofillPipeline, type IdentifyCandidate, type PipelineProgress, type PipelineResult } from '@/lib/autofill/client';
 import { normalizeCompanyName } from '@/lib/autofill/edinetIdentify';
 import { buildApplyReport, formatApplyReportText, FINANCE_SHORT_LABEL, type ApplyReport } from '@/lib/autofill/applyReport';
@@ -351,7 +351,11 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
       }
       if (Object.keys(profileWrite).length > 0) now.setProfile(profileWrite as Parameters<typeof now.setProfile>[0]);
       const written = splitFinanceWrite(plan, pl as never, bs as never);
-      if (written.pl) now.setFinancePL(written.pl as never);
+      if (written.pl) {
+        now.setFinancePL(written.pl as never);
+        const summary = summaryFollowsPL(now.financeSummary, pl, written.pl);
+        if (summary) now.setFinanceSummary(summary as never);
+      }
       if (written.bs) now.setFinanceBS(written.bs as never);
 
       const res = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:autofill-approve' });

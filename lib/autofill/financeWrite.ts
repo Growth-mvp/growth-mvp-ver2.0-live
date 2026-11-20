@@ -54,3 +54,10 @@ export function splitFinanceWrite(plan: FilingApplyPlan, pl: PlRow[], bs: BsRow[
 
   return { pl: apply(pl, changedPl), bs: apply(bs, changedBs) };
 }
+
+/** 財務の要約が、反映前の損益行と同じ内容（要約は損益行の写し）なら、反映後の損益行へ揃える。利用者が別に作った要約は変えない */
+export function summaryFollowsPL<T>(summary: unknown, previousPL: unknown, nextPL: T[]): T[] | null {
+  const norm = (v: unknown) => JSON.stringify(v ?? null);
+  if (!Array.isArray(summary) || !Array.isArray(previousPL)) return null;
+  return norm(summary) === norm(previousPL) ? nextPL : null;
+}
