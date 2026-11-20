@@ -159,32 +159,34 @@ export function PerformanceBarChart({
         </div>
       </div>
 
-      <div className="rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-slate-200/70">
-        <div className="mb-1.5 text-[11px] text-slate-500">
-          当会計年度（{cur.periodLabel}）のプロジェクト　単位：百万円
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="min-w-0">
-            <div className="text-[10px] text-slate-500">目標</div>
-            <div className="mt-0.5">{yenText(cur.targetYen, cur.targetUnknownText)}</div>
+      {!compact && (
+        <div className="rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-slate-200/70">
+          <div className="mb-1.5 text-[11px] text-slate-500">
+            当会計年度（{cur.periodLabel}）のプロジェクト　単位：百万円
           </div>
-          <div className="min-w-0">
-            <div className="text-[10px] text-slate-500">実績{cur.actualNote ? '（参考）' : ''}</div>
-            <div className="mt-0.5">{yenText(cur.actualYen, cur.actualUnknownText)}</div>
-          </div>
-          <div className="min-w-0">
-            <div className="text-[10px] text-slate-500">達成率</div>
-            <div className="mt-0.5">
-              {cur.achievement.pct === null ? (
-                <span className="text-[12px] font-medium leading-snug text-slate-500">{cur.achievement.text}</span>
-              ) : (
-                <AchievementText a={cur.achievement} />
-              )}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-500">目標</div>
+              <div className="mt-0.5">{yenText(cur.targetYen, cur.targetUnknownText)}</div>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-500">実績{cur.actualNote ? '（参考）' : ''}</div>
+              <div className="mt-0.5">{yenText(cur.actualYen, cur.actualUnknownText)}</div>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-500">達成率</div>
+              <div className="mt-0.5">
+                {cur.achievement.pct === null ? (
+                  <span className="text-[12px] font-medium leading-snug text-slate-500">{cur.achievement.text}</span>
+                ) : (
+                  <AchievementText a={cur.achievement} />
+                )}
+              </div>
             </div>
           </div>
+          {cur.actualNote && <div className="mt-1.5 text-[11px] text-slate-500">実績：{cur.actualNote}。確定した達成率ではありません。</div>}
         </div>
-        {cur.actualNote && <div className="mt-1.5 text-[11px] text-slate-500">実績：{cur.actualNote}。確定した達成率ではありません。</div>}
-      </div>
+      )}
     </div>
   );
 }

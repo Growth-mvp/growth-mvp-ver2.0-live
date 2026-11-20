@@ -83,7 +83,7 @@ function errorResponse(status: number) {
 }
 
 // パネルの初期表示（挨拶）は会話履歴として送信内容に含まれる（既存仕様）
-const GREETING_HISTORY = { role: 'assistant', content: '操作の質問から、仕事や経営の相談まで、何でも聞いてください。' };
+const GREETING_HISTORY = { role: 'assistant', content: 'こんにちは！\n\n経営のこと、現場のこと、何でも相談してください。\n\n一緒に考えていきましょう。' };
 
 function chatBubbles(): string {
   return document.querySelector('[aria-live="polite"]')?.textContent ?? '';

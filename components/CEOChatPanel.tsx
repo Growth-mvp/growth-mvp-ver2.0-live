@@ -214,6 +214,12 @@ async function requestDocumentFromChat(args: {
   }
 }
 
+const STARTER_QUESTIONS = [
+  '今、何から取り組めばいい？',
+  '当社の経営戦略について相談したい',
+  'この画面の使い方を教えて',
+];
+
 export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
   // 会社切替の検知用。会話履歴と進行中の応答はこの会社に紐づける
@@ -918,7 +924,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       <header className="shrink-0 px-5 pt-5 pb-3 border-b">
         <div className="flex items-start justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <AbstractCoachAvatar size={60} status={
+            <AbstractCoachAvatar size={64} status={
               !userOK ? ('loading' as any) : sending ? ('thinking' as any) : ctxUpdated ? ('responding' as any) : ('idle' as any)
             } />
             <div className="leading-tight min-w-0 break-words">
@@ -973,6 +979,21 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             )}
           </div>
         ))}
+        {!messages.some((m) => m.role === 'user') && (
+          <div className="flex flex-col gap-2">
+            {STARTER_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => void send(q)}
+                disabled={sending || !userOK || shouldWaitForRestore}
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left text-[13px] text-zinc-800 transition hover:border-sky-300 hover:bg-sky-50 disabled:text-zinc-400 disabled:hover:border-zinc-200 disabled:hover:bg-white"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
         {sending && (
           <div className="mr-auto inline-flex items-center gap-2 rounded-lg bg-white border border-zinc-200 px-2 py-1 text-[12px] text-zinc-500">
             <span className="h-2 w-2 animate-pulse rounded-full" />

@@ -80,7 +80,7 @@ function errorResponse(status: number) {
 }
 
 // パネルの初期表示（挨拶）は会話履歴として送信内容に含まれる（既存仕様）
-const GREETING_HISTORY = { role: 'assistant', content: '操作の質問から、仕事や経営の相談まで、何でも聞いてください。' };
+const GREETING_HISTORY = { role: 'assistant', content: 'こんにちは！\n\n経営のこと、現場のこと、何でも相談してください。\n\n一緒に考えていきましょう。' };
 
 function chatBubbles(): string {
   return document.querySelector('[aria-live="polite"]')?.textContent ?? '';
@@ -169,6 +169,22 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+describe('会話開始前の質問例', () => {
+  const STARTER = '今、何から取り組めばいい？';
+
+  it('会話開始前は質問例を表示し、押すと既存の送信処理に渡して、以後は表示しない', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse('回答'));
+    await renderReadyPanel();
+
+    const starter = screen.getByRole('button', { name: STARTER });
+    fireEvent.click(starter);
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    expect(sentBody().messages.at(-1).content).toBe(STARTER);
+    await waitFor(() => expect(screen.queryByRole('button', { name: STARTER })).toBeNull());
+  });
 });
 
 describe('企業切替と送信ゲート', () => {
@@ -260,7 +276,7 @@ describe('企業切替と送信ゲート', () => {
 
     expect(chatBubbles()).not.toContain('A社の回答');
     expect(chatBubbles()).not.toContain('A社への質問');
-    expect(chatBubbles()).toContain('操作の質問から、仕事や経営の相談まで、何でも聞いてください。');
+    expect(chatBubbles()).toContain('一緒に考えていきましょう。');
   });
 
   it('A社からB社へ切り替えると A社の会話履歴を破棄し、B社の送信には A社の履歴を含めない', async () => {
@@ -523,7 +539,7 @@ describe('会話履歴の保持', () => {
     await flush();
 
     expect(screen.queryByText('回答です')).toBeNull();
-    expect(chatBubbles()).toContain('操作の質問から、仕事や経営の相談まで、何でも聞いてください。');
+    expect(chatBubbles()).toContain('一緒に考えていきましょう。');
   });
 
   it('企業を A→B→A と切り替えても、A の会話は復元されない', async () => {

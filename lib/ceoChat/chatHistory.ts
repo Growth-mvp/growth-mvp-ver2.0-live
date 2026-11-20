@@ -3,7 +3,7 @@ import type { ReviewTarget } from './reviewTargets';
 export type CeoChatMessage = { role: 'user' | 'assistant'; content: string; reviewTargets?: ReviewTarget[]; execKey?: string };
 
 export const CEO_CHAT_GREETING: CeoChatMessage[] = [
-  { role: 'assistant', content: '操作の質問から、仕事や経営の相談まで、何でも聞いてください。' },
+  { role: 'assistant', content: 'こんにちは！\n\n経営のこと、現場のこと、何でも相談してください。\n\n一緒に考えていきましょう。' },
 ];
 
 export const CEO_CHAT_MAX_MESSAGES = 100;
