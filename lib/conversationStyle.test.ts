@@ -16,7 +16,9 @@ describe('会話の表現ルール', () => {
     const prompt = buildAgentSystemPrompt({} as any);
 
     expect(prompt).toContain('迎合せず');
-    expect(prompt).toContain('まず結論や見解を述べ');
+    expect(prompt).toContain('自分の見解を明確に述べる');
+    expect(prompt).toContain('見出しを使わず短い会話文で答える');
+    expect(prompt).toContain('質問を1つだけ返して対話を続ける');
     expect(prompt).not.toContain('最後に1行サマリ');
   });
 
