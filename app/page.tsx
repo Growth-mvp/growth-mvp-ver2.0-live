@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import Link from 'next/link';
 import PyramidNavigator from '@/components/home/PyramidNavigator';
 import ExecutionPanel from '@/components/home/ExecutionPanel';
 import { ExportPdfButton } from '@/components/export/ExportPdfButton';
@@ -31,7 +30,7 @@ export default function Home() {
     <main className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 xl:dark:border-neutral-900 xl:dark:bg-neutral-950">
-        <div className="container mx-auto px-6 pt-10 pb-4 sm:pt-12 sm:pb-5 lg:pt-14 lg:pb-6">
+        <div className="container mx-auto px-6 pt-10 pb-8 sm:pt-12 sm:pb-10 lg:pt-14 lg:pb-12">
           <div className="mx-auto max-w-3xl text-center">
             <motion.h1
               initial={{ opacity: 0, y: 12 }}
@@ -60,26 +59,6 @@ export default function Home() {
               
 
             </motion.p>
-
-            <motion.div
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.74, delay: 0.18 }}
-              className="mt-6 flex items-center justify-center gap-3 sm:flex-row"
-            >
-              <Link
-                href="/stage1"
-                className="inline-flex items-center justify-center rounded-full bg-gray-900 px-6 py-2.5 text-[14px] font-semibold text-white shadow-[0_14px_36px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:opacity-95 xl:dark:bg-neutral-950"
-              >
-                さっそく始める
-              </Link>
-              <Link
-                href="/report"
-                className="inline-flex items-center justify-center rounded-full border-2 border-gray-900 px-6 py-2 text-[14px] font-semibold text-gray-900 transition hover:-translate-y-0.5 hover:bg-gray-100 xl:dark:border-white xl:dark:text-white xl:dark:hover:bg-neutral-950"
-              >
-                経営計画書を見る
-              </Link>
-            </motion.div>
           </div>
         </div>
       </section>
