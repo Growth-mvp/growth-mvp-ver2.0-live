@@ -132,6 +132,11 @@ beforeEach(() => {
   mockChatCreate.mockResolvedValue({ choices: [{ message: { content: 'OK' } }] });
 });
 
+const EXECUTION_QUESTIONS = new Set([
+  '営業部門の活動は全社戦略と整合しているか？',
+  'STAGE3の部門の役割は全社戦略と整合しているか？',
+]);
+
 const CONSULT_CASES: Array<{ q: string; rationale: boolean; alignment: boolean }> = [
   { q: 'なぜ当社の利益は伸びないのか？', rationale: true, alignment: false },
   { q: '今の経営戦略で3年後に成長できるか？', rationale: true, alignment: false },
@@ -157,7 +162,7 @@ describe.each(['strategy', 'generic'] as const)('意図判定が %s と返すと
     async ({ q, rationale, alignment }) => {
       const { mode, systemPrompt } = await ask(q, intentStage);
       expect(mode).toBe('advisor');
-      expect(systemPrompt).toContain(OKR_MARKER);
+      expect(systemPrompt.includes(OKR_MARKER)).toBe(EXECUTION_QUESTIONS.has(q));
       expect(systemPrompt).toContain(STORY_MARKER);
       expect(systemPrompt.includes(RATIONALE_MARKER)).toBe(rationale);
       expect(systemPrompt.includes(BRIDGE_MARKER)).toBe(alignment);

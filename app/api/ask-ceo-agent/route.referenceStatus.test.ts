@@ -209,7 +209,7 @@ describe('参照状況の注入（route・モック）', () => {
     const promptA = await askTurns([{ role: 'user', content: '当社の施策の進捗は？' }], rowA);
     expect(promptA).toContain('A社固有施策');
 
-    const promptB = await askTurns([{ role: 'user', content: CONSULT }], rowB, { strategyId: STRATEGY_B, companyId: COMPANY_B });
+    const promptB = await askTurns([{ role: 'user', content: '当社の施策の内容は？' }], rowB, { strategyId: STRATEGY_B, companyId: COMPANY_B });
     expect(promptB).toContain('製造部B');
     expect(promptB).not.toContain('A社固有施策');
     expect(promptB).not.toContain('営業部A');
@@ -296,14 +296,14 @@ describe('本文と参照状況の矛盾確認（route・モック）', () => {
   });
 
   it('部門の保存値が配列でない：本文は確認できないと書き、参照状況は状態不明', async () => {
-    const p = await ask(CONSULT, strategyRow({ departments: 'broken' }));
+    const p = await ask('当社の施策の進捗は？', strategyRow({ departments: 'broken' }));
     expect(p).not.toContain('（部門・プロジェクトなし）');
     expect(p).toContain('（部門・プロジェクトは今回参照した情報では確認できません）');
     expect(p).toContain('- STAGE4 部門・施策: 状態不明');
   });
 
   it('部門が空の配列と確認できる：本文はなし、参照状況は登録なし', async () => {
-    const p = await ask(CONSULT, strategyRow({ departments: [] }));
+    const p = await ask('当社の施策の進捗は？', strategyRow({ departments: [] }));
     expect(p).toContain('（部門・プロジェクトなし）');
     expect(p).toContain('- STAGE4 部門・施策: 登録なし（取得成功を確認済み）');
   });

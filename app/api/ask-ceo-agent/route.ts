@@ -10,6 +10,7 @@ function makeRequestId() {
 import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
 import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat } from '@/lib/ceoChat/answerStyle';
+import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { resolveScreenContext } from '@/lib/screens/screenContext';
 import { consultBlockFor } from '@/lib/consult/consultFocus';
@@ -308,13 +309,11 @@ async function fetchStrategyContext(args: {
   const stage4PlanRows = supabaseAdmin ? await loadStage4PlanRows(supabaseAdmin, companyId, strategyId) : null;
   const stage4PlanText = buildStage4PlanBlock({ rows: stage4PlanRows, departments, question });
   const progressSummaryText = buildProgressSummary(progressLogs);
-  const extraBlockFromFull =
-    `\n\n---\n${executionText}\n${stage4PlanText}\n` +
-    `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
+  const extraParts: ExtraParts = { execution: executionText, stage4Plan: stage4PlanText, progress: progressSummaryText };
 
   // フルが取れない場合（strategyId が無効または削除されている場合）
   if (!strategy || Object.keys(strategy).length === 0) {
-    return { strategy: null, answers2: [], finalStory: [], extraBlock: '', refFacts: null };
+    return { strategy: null, answers2: [], finalStory: [], extraParts: null, refFacts: null };
   }
 
   const answers2 = safeArray<any>((strategy as any)?.answers2);
@@ -331,7 +330,7 @@ async function fetchStrategyContext(args: {
       absenceConfirmed: departmentsAbsent,
     },
   };
-  return { strategy, answers2, finalStory, extraBlock: extraBlockFromFull, refFacts };
+  return { strategy, answers2, finalStory, extraParts, refFacts };
 }
 
 /* ========= route ========= */
@@ -444,7 +443,7 @@ export async function POST(req: Request) {
     const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
     // ★ アプローチ1: server-side admin client を fetchStrategyContext に渡す
-    const { strategy, answers2, finalStory, extraBlock, refFacts } = await fetchStrategyContext({
+    const { strategy, answers2, finalStory, extraParts, refFacts } = await fetchStrategyContext({
       companyId,
       strategyId,
       userId,
@@ -462,7 +461,7 @@ export async function POST(req: Request) {
       strategy_keys: strategy ? Object.keys(strategy).slice(0, 10) : null,
       has_answers2: !!answers2 && Array.isArray(answers2) && answers2.length > 0,
       has_finalStory: !!finalStory && Array.isArray(finalStory) && finalStory.length > 0,
-      extraBlock_len: extraBlock ? extraBlock.length : 0,
+      extra_parts_len: extraParts ? extraParts.execution.length + extraParts.stage4Plan.length + extraParts.progress.length : 0,
     });
 
     // ① 検査: financeSummary の存在確認
@@ -551,6 +550,34 @@ export async function POST(req: Request) {
     // 2) pickRelevantKnowledge（growthKnowledge から関連ナレッジ抽出）
     // 3) RAG 検索結果（buildRagContextBlock）
     // → 規約を最上位に配置し、RAG根拠を優先させる
+    const screen = resolveScreenContext(body?.screen);
+    if (body?.screen !== undefined && !screen) {
+      console.warn('[ask-ceo-agent]', requestId, 'screen_context_rejected');
+    }
+    const guidance = buildOperationGuidance({
+      screenId: screen?.screenId ?? null,
+      query: lastUserMessage,
+      role: membership.role,
+    });
+    const names = safeArray<any>((strategy as any)?.departments)
+      .flatMap((d) => [d?.name, ...safeArray<any>(d?.projects).map((p) => p?.title ?? p?.name)])
+      .filter((n): n is string => typeof n === 'string');
+    const isManual = isManualAdvisorChat({
+      resolvedMode,
+      output: meta?.output ?? 'text',
+      insights: meta?.insights ?? 'none',
+      hasCompanion: !!meta?.companion,
+      hasOperationGuidance: !!guidance.text,
+    });
+    const extraBlock = extraParts
+      ? composeExtraBlock(
+          extraParts,
+          isManual
+            ? { execution: isExecutionQuestion(lastUser, names), progress: selectStage56Sources(lastUser).progress }
+            : { execution: true, progress: true }
+        )
+      : '';
+
     let systemBase: string;
     let externalSourceAllowlist: string[] | null = null;
     let webSearchDiagnostics: WebSearchDiagnostics | null = null;
@@ -831,10 +858,6 @@ export async function POST(req: Request) {
       });
     }
 
-    const screen = resolveScreenContext(body?.screen);
-    if (body?.screen !== undefined && !screen) {
-      console.warn('[ask-ceo-agent]', requestId, 'screen_context_rejected');
-    }
     if (screen) {
       systemBase += `\n\n【現在の画面】${screen.label}（${screen.pathname}）\n操作案内はこの画面の範囲で行う。`;
     }
@@ -859,11 +882,6 @@ export async function POST(req: Request) {
       systemBase += `\n\n${executionPrompt}`;
     }
 
-    const guidance = buildOperationGuidance({
-      screenId: screen?.screenId ?? null,
-      query: lastUserMessage,
-      role: membership.role,
-    });
     if (guidance.text) systemBase += '\n\n' + guidance.text;
 
     // ★ meta.output === 'json' のときだけJSON出力指示を追加

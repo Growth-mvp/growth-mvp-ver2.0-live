@@ -230,3 +230,75 @@ describe('STAGE4見直し候補の指示（質問で出し分ける）', () => {
     expect(sentRequest().system).toContain(CANDIDATE_BLOCK);
   });
 });
+
+describe('実行サマリ・STAGE4計画・進捗ログの出し分け（最終 system prompt）', () => {
+  const EXEC_HEADER = '# 部門・OKR・実行計画（STAGE3・4、閲覧権限の範囲内の登録情報）';
+  const PLAN_HEADER = '# 実行計画（STAGE4・保存済みの計画書）';
+  const PROGRESS_HEADER = '# 直近進捗ログ';
+  const DEPTS = [
+    {
+      id: 'dept-sales',
+      name: '営業部',
+      projects: [{ id: 'proj-new', title: '新規開拓', okrsV2: [{ id: 'kr-1', label: '受注件数', target: 12, unit: '件' }] }],
+    },
+  ];
+
+  beforeEach(() => {
+    (getFullStrategyDataByStrategyId as jest.Mock).mockResolvedValue({
+      data: { id: STRATEGY, departments: DEPTS, answers2: [], finalStory: [] },
+      error: null,
+    });
+  });
+
+  it('一般的な経営相談（①）では、実行サマリ・STAGE4計画・進捗ログを渡さない', async () => {
+    await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
+    const s = sentRequest().system;
+    expect(s).not.toContain(EXEC_HEADER);
+    expect(s).not.toContain(PLAN_HEADER);
+    expect(s).not.toContain(PROGRESS_HEADER);
+  });
+
+  it('施策・実行計画を詳しく求める質問（③）では、実行情報と進捗ログを渡す', async () => {
+    await POST(req(body([{ role: 'user', content: Q_DETAIL }])));
+    const s = sentRequest().system;
+    expect(s).toContain(EXEC_HEADER);
+    expect(s).toContain(PLAN_HEADER);
+    expect(s).toContain(PROGRESS_HEADER);
+  });
+
+  it('KPIの質問では、実行サマリとSTAGE4計画を渡し、進捗ログは渡さない', async () => {
+    await POST(req(body([{ role: 'user', content: 'うちの会社のKPIを見直したい' }])));
+    const s = sentRequest().system;
+    expect(s).toContain(EXEC_HEADER);
+    expect(s).toContain(PLAN_HEADER);
+    expect(s).not.toContain(PROGRESS_HEADER);
+  });
+
+  it('進捗の質問では、進捗ログを渡し、実行サマリは渡さない', async () => {
+    await POST(req(body([{ role: 'user', content: '進捗が遅れている' }])));
+    const s = sentRequest().system;
+    expect(s).toContain(PROGRESS_HEADER);
+    expect(s).not.toContain(EXEC_HEADER);
+    expect(s).not.toContain(PLAN_HEADER);
+  });
+
+  it('操作案内の質問は、従来どおり実行情報と進捗ログを渡す', async () => {
+    await POST(req({ ...body([{ role: 'user', content: 'この画面では何をすればいい？' }]), screen: { screenId: 'stage1' } }));
+    const s = sentRequest().system;
+    expect(s).toContain('【操作案内（登録簿に基づく）】');
+    expect(s).toContain(EXEC_HEADER);
+    expect(s).toContain(PROGRESS_HEADER);
+  });
+
+  it.each([
+    ['facilitator', { mode: 'facilitator', output: 'text' }],
+    ['JSON出力', { output: 'json' }],
+    ['自律伴走の助言', { mode: 'facilitator', output: 'text', companion: { milestone: 'ANALYSIS' } }],
+  ])('%s の経路は、一般的な相談でも従来どおり実行情報と進捗ログを渡す', async (_label, meta) => {
+    await POST(req(body([{ role: 'user', content: Q_PROFIT }], { meta })));
+    const s = sentRequest().system;
+    expect(s).toContain(EXEC_HEADER);
+    expect(s).toContain(PLAN_HEADER);
+    expect(s).toContain(PROGRESS_HEADER);
+  });
+});
