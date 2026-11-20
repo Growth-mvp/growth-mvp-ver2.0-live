@@ -166,7 +166,7 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
     const sent = sentRequest();
     expect(sent.system.indexOf('AGENT_PROMPT')).toBeLessThan(sent.system.indexOf(STYLE_MARK));
-    expect(sent.system.endsWith('- 経営者の考えを聞くと議論が深まる場合は、自然な問いを添える。毎回は問わない。')).toBe(true);
+    expect(sent.system.endsWith('- 明確な賛否や判断を求められた場合は、最初から見解を述べてよい。')).toBe(true);
     expect(sent.system.split('段落数は決めない').length - 1).toBe(1);
     expect(sent.system.split('ツールが使えるとき').length - 1).toBe(0);
   });

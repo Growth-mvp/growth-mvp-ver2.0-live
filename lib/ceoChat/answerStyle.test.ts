@@ -45,6 +45,8 @@ describe('回答スタイル指示の内容', () => {
     expect(block).toContain('【今回の回答スタイル：通常の経営相談】');
     expect(block).toContain('段落数は決めない');
     expect(block).toContain('「結論として」「重点は3つ」「まず90日間で」');
+    expect(block).toContain('「率直に言うと」「結論として」「正直に言うと」などの決まり文句から話し始めない');
+    expect(block).toContain('「うちの会社を良くするには」のような幅広い相談');
     expect(block).toContain('毎回は問わない');
     expect(block).not.toContain('2〜4段落');
     expect(block).not.toContain('1つ返す');
