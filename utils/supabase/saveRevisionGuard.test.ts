@@ -35,7 +35,14 @@ function builderFor(op: Op): any {
     {
       get(_t, prop) {
         if (prop === 'maybeSingle' || prop === 'single') return async () => resolve();
-        if (prop === 'then') return (res: any, rej: any) => Promise.resolve(resolve()).then(res, rej);
+        if (prop === 'then') {
+          // select を await した結果は配列（PostgREST の形）。maybeSingle / single は行そのもの
+          return (res: any, rej: any) => {
+            const r = resolve();
+            const out = op.op === 'select' ? { ...r, data: mockDb.row ? [mockDb.row] : [] } : r;
+            return Promise.resolve(out).then(res, rej);
+          };
+        }
         if (prop === 'update') {
           return (payload: Row) => {
             op.op = 'update';

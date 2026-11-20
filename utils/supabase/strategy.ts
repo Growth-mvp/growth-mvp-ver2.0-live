@@ -1425,16 +1425,17 @@ export function buildStateFromDbRow(row: any): StrategyData & { revision?: numbe
  * 共通：既存行を取得
  *  - revision を確実に含めるため select('*') はそのまま（列があれば返る）
  * ========================================================== */
-async function fetchExistingRow(companyId: string) {
+/** 企業の戦略行を最大2件まで読む（2件以上は保存先が一意に決まらないことを呼び出し側で判定する） */
+async function fetchExistingRows(companyId: string): Promise<{ rows: any[] }> {
   const res = await supabase
     .from(T_STRATEGY)
     .select('*')
     .eq('company_id', companyId)
-    .maybeSingle();
+    .limit(2);
   if (res.error && res.error.code !== 'PGRST116') {
     throw res.error;
   }
-  return res as { data?: any; error?: any };
+  return { rows: Array.isArray(res.data) ? res.data : [] };
 }
 
 /* ============================================================
@@ -2017,11 +2018,27 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
 
     // ★ 既存行を先に読み、revision 不明の既存行への書き込みは answers2 も含めて拒否する
     let existingRow: any | null = null;
+    let existingRowCount = 0;
     try {
-      const existingRes = await fetchExistingRow(cleanCompanyId);
-      existingRow = existingRes.data ?? null;
+      const existingRes = await fetchExistingRows(cleanCompanyId);
+      existingRowCount = existingRes.rows.length;
+      existingRow = existingRes.rows[0] ?? null;
     } catch (e) {
       return { data: null, error: extractErrorVerbose(e) };
+    }
+    if (existingRowCount > 1) {
+      console.warn('[StrategyData] SAVE_BLOCKED - multiple strategy rows for company', { companyId: cleanCompanyId });
+      return {
+        data: null,
+        error: { status: 409, code: 'SAVE_MULTIPLE_ROWS', message: '企業の戦略データが複数あるため、保存先を特定できません。保存を止めました。' },
+      };
+    }
+    if (existingRow && !existingRow.id) {
+      console.warn('[StrategyData] SAVE_BLOCKED - row id unknown for existing row', { companyId: cleanCompanyId });
+      return {
+        data: null,
+        error: { status: 409, code: 'SAVE_ROW_ID_UNKNOWN', message: '既存の戦略データの識別子を確認できないため、保存を止めました。画面を再読み込みしてください。' },
+      };
     }
     if (
       existingRow &&
@@ -3623,11 +3640,8 @@ export async function getFullStrategySnapshot(
 
     let strategy: (StrategyData & { revision?: number }) | null = null;
     try {
-      const existing = await fetchExistingRow(companyId);
-      if (existing.error && existing.error.code !== 'PGRST116') {
-        return { snapshot: null, error: extractErrorVerbose(existing.error) };
-      }
-      strategy = existing.data ? buildStateFromDbRow(existing.data) : null;
+      const existing = await fetchExistingRows(companyId);
+      strategy = existing.rows.length === 1 ? buildStateFromDbRow(existing.rows[0]) : null;
     } catch (e) {
       return { snapshot: null, error: extractErrorVerbose(e) };
     }

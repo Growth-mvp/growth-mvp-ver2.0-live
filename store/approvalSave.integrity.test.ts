@@ -202,11 +202,11 @@ function diffRows(before: Record<string, any>, after: Record<string, any>): Map<
   return out;
 }
 
-async function approveOneItemAndSave() {
+async function approveOneItemAndSave(rowsFor: (row: Record<string, any>) => Record<string, any>[] = (row) => [row]) {
   const row = syntheticSavedRow();
   // 保存済みの行は、アプリが書いた正規化済みの形（質問文・必須フラグ付き）になっている
   row.answers12 = JSON.parse(JSON.stringify((buildStateFromDbRow(row) as any).answers12));
-  mockDb.rows = { strategy_data: [row], company_members: [{ company_id: CID, user_id: UID, role: 'manager' }] };
+  mockDb.rows = { strategy_data: rowsFor(row), company_members: [{ company_id: CID, user_id: UID, role: 'manager' }] };
   mockDb.updates = [];
 
   useStrategyStore.setState({
@@ -320,5 +320,19 @@ describe('承認→保存：承認していない項目・年度・セグメン�
     expect(sent.company_id === undefined || sent.company_id === CID).toBe(true);
     expect(JSON.stringify(sent)).not.toContain('別の企業');
     expect(sent.company_name).toBe(row.company_name);
+  });
+});
+
+describe('保存先の特定：既存行のIDが不明・戦略行が複数ある場合は保存を拒否する', () => {
+  it('既存行にIDが無いときは、企業IDだけで更新せず、保存を拒否する', async () => {
+    const { update, res } = await approveOneItemAndSave((row) => [{ ...row, id: undefined }]);
+    expect(update).toBeUndefined();
+    expect(res.error?.code).toBe('SAVE_ROW_ID_UNKNOWN');
+  });
+
+  it('同じ企業の戦略行が2件以上あるときは、どちらにも保存せず拒否する', async () => {
+    const { update, res } = await approveOneItemAndSave((row) => [row, { ...row, id: '00000000-0000-4000-8000-000000000002' }]);
+    expect(update).toBeUndefined();
+    expect(res.error?.code).toBe('SAVE_MULTIPLE_ROWS');
   });
 });
