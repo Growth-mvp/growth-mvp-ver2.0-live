@@ -18,7 +18,11 @@ describe('会話の表現ルール', () => {
     expect(prompt).toContain('迎合せず');
     expect(prompt).toContain('自分の見解を明確に述べる');
     expect(prompt).toContain('見出しを使わず短い会話文で答える');
-    expect(prompt).toContain('質問を1つだけ返して対話を続ける');
+    expect(prompt).toContain('原則250〜450文字程度の自然な会話にする');
+    expect(prompt).toContain('分析・施策・実行計画を一度に網羅しない');
+    expect(prompt).toContain('問いかけは、本質的な論点が残る場合に1つだけ返す。毎回は返さない');
+    expect(prompt).toContain('詳細分析、数値比較、計画策定を明示的に求められた場合は、従来どおり十分に詳しく回答する');
+    expect(prompt).toContain('登録情報（STAGE1〜6）のうち質問に関係するもの');
     expect(prompt).not.toContain('最後に1行サマリ');
   });
 
