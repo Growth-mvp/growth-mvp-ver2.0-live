@@ -17,6 +17,7 @@ BEGIN
      AND jsonb_array_length(OLD.story) > 0
   THEN
     INSERT INTO public.story_versions(strategy_id, company_id, story_old, story_new, changed_by)
+      -- ★ ここを OLD.strategy_id → OLD.id に変更
       VALUES (OLD.id, OLD.company_id, OLD.story, NEW.story, NEW.updated_by);
 
     -- 空配列での上書きを無効化（元の story に戻す）
