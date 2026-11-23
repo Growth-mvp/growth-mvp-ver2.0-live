@@ -92,6 +92,9 @@ function createDeleteAllDb(seed: Record<string, Row[]>) {
         q.payload = payload;
         return api;
       },
+      setHeader() {
+        return api;
+      },
       delete() {
         q.op = 'delete';
         return api;
@@ -136,7 +139,7 @@ function baseSeed() {
       { company_id: COMPANY_B, user_id: USER_ADMIN_B, role: 'admin', created_at: '2026-01-01' },
     ],
     strategy_data: [
-      { id: STRATEGY_A, company_id: COMPANY_A, final_story: [{ x: 1 }], story_draft: [], final_story_draft: [], final_story_final: [], stage3_strategy_bridge: null, answers2: [], answers12: [], departments: [{ name: '営業' }] },
+      { id: STRATEGY_A, company_id: COMPANY_A, company_name: 'Company A', final_story: [{ x: 1 }], story_draft: [], final_story_draft: [], final_story_final: [], stage3_strategy_bridge: null, answers2: [], answers12: [], departments: [{ name: '営業' }] },
       { id: STRATEGY_C, company_id: COMPANY_C, final_story: [{ x: 2 }], story_draft: [], final_story_draft: [], final_story_final: [], stage3_strategy_bridge: null, answers2: [], answers12: [], departments: [{ name: '開発' }] },
       { id: STRATEGY_B, company_id: COMPANY_B, final_story: [{ x: 3 }], story_draft: [], final_story_draft: [], final_story_final: [], stage3_strategy_bridge: null, answers2: [], answers12: [], departments: [{ name: '総務' }] },
     ],
@@ -587,6 +590,45 @@ describe('strategy_data の業務列と関連テーブルの全削除', () => {
     }
     expect(row.id).toBe(STRATEGY_A);
     expect(row.company_id).toBe(COMPANY_A);
+    expect(row.company_name).toBe('Company A');
+  });
+
+  it('deletes strategy-linked rows of the company by strategy_id, and not those of other companies', async () => {
+    seedRows('strategy_sessions', [
+      { id: 'ss-a', strategy_id: STRATEGY_A },
+      { id: 'ss-b', strategy_id: STRATEGY_B },
+    ]);
+    seedRows('story_versions', [{ id: 'sv-no-company', company_id: null, strategy_id: STRATEGY_A }]);
+
+    const res = await POST(request());
+    expect(res.status).toBe(200);
+
+    expect((fake.tables.strategy_sessions ?? []).map((r) => r.id)).toEqual(['ss-b']);
+    expect((fake.tables.story_versions ?? []).some((r) => r.id === 'sv-no-company')).toBe(false);
+    expect(rowsOf('story_versions', COMPANY_B)).toHaveLength(1);
+  });
+
+  it('a retry after a failed step completes the deletion and leaves no partial data', async () => {
+    fake.failures.push({
+      table: 'okrs',
+      op: 'delete',
+      error: { code: '42501', message: 'permission denied for table okrs' },
+      times: 1,
+    });
+
+    const first = await POST(request());
+    expect(first.status).toBe(500);
+    expect(rowsOf('story_answers2', COMPANY_A)).toEqual([]);
+    expect(rowsOf('okrs', COMPANY_A)).toHaveLength(1);
+
+    const retry = await POST(request());
+    const json = await retry.json();
+    expect(retry.status).toBe(200);
+    expect(json.ok).toBe(true);
+    for (const table of SEPARATED_TABLES) {
+      expect({ table, rows: rowsOf(table, COMPANY_A) }).toEqual({ table, rows: [] });
+    }
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.final_story).toEqual([]);
   });
 
   it('deletes the STAGE2〜6 related tables of the company only', async () => {

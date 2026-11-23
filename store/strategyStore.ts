@@ -4792,6 +4792,7 @@ export const useStrategyStore = create<StrategyState>()(
           throw new Error('company changed before deletion');
         }
         const companyId = expectedCompanyId ?? (storeCompanyId || useUserStore.getState().companyId);
+        const companyNameBeforeDelete = get().companyName;
         console.log('[strategyStore.deleteAllOnServer] userId:', userId, 'companyId:', companyId, { operationId });
         if (!userId || !companyId) throw new Error('missing ids');
 
@@ -4936,6 +4937,7 @@ export const useStrategyStore = create<StrategyState>()(
           set(() => ({
             ...emptyData,
             companyId: companyId,
+            companyName: companyNameBeforeDelete,
             hydrated: true,
             loaded: true,
             boot: { isHydrating: false, isHydrated: true },

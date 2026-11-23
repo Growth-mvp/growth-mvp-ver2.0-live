@@ -282,7 +282,7 @@ export default function AdminDataManagementPage() {
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-rose-900">全削除</h2>
               <p className="text-sm text-rose-800 mt-1">
-                この会社の STAGE1〜6 のデータ（基本情報・財務・戦略・経営計画書・実行計画・実績・シミュレーション）をサーバーから削除します。アカウント・会社所属・監査ログは削除されません。この操作は取り消せません。
+                この会社の STAGE1〜6 の経営データをサーバーから削除します。会社名・会社ID・ログイン・所属・監査ログは残ります。この操作は取り消せません。
               </p>
             </div>
           </div>
@@ -401,11 +401,14 @@ export default function AdminDataManagementPage() {
                   <p className="text-sm font-semibold text-rose-900">この操作は取り消せません：</p>
                   <ul className="text-sm text-rose-800 space-y-1 list-disc list-inside">
                     <li>基本情報・財務データ（STAGE1）</li>
-                    <li>戦略ストーリー・SWOT（STAGE2）</li>
+                    <li>戦略ストーリー・SWOT・回答（STAGE2）</li>
                     <li>戦略展開・部門・目標（STAGE3〜4）</li>
-                    <li>経営計画書・実行計画・実績（STAGE4〜5）</li>
+                    <li>経営計画書・実行計画・実績・OKR（STAGE4〜5）</li>
                     <li>シミュレーション結果（STAGE6）</li>
                   </ul>
+                  <p className="text-sm text-rose-800">
+                    残るもの：会社名・会社ID・ログイン・所属・監査ログ。組織整合・AIとの会話ログ・組織マスタは削除しません。
+                  </p>
                 </div>
                 <div className="flex gap-3 justify-end pt-4">
                   <button

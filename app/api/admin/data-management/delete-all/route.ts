@@ -45,6 +45,10 @@ function isMissingTableError(error: { code?: string } | null): boolean {
   return !!error?.code && MISSING_TABLE_CODES.has(error.code);
 }
 
+/** strategy_data.story の空化を許可するDB側の例外（サービスロールの全削除だけが付ける） */
+const STORY_RESET_SCOPE_HEADER = 'x-growth-reset-scope';
+const STORY_RESET_SCOPE_VALUE = 'company-business-data';
+
 const newOperationId = () => `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
 const summarizeValue = (v: unknown): number | string => {
@@ -63,6 +67,16 @@ function summarizeStrategyRow(row: Record<string, unknown> | null | undefined) {
 const isSameJson = (actual: unknown, expected: unknown) =>
   JSON.stringify(actual ?? null) === JSON.stringify(expected ?? null);
 
+type ScopeFilter = { column: 'company_id' | 'strategy_id'; value: string };
+
+/** 対象テーブルの絞り込み条件。戦略行がない場合は strategy 指定の条件を作らない（対象行もない） */
+function scopeFilters(target: CompanyScopedTable, companyId: string, strategyId: string | null): ScopeFilter[] {
+  return target.scopes.flatMap((scope): ScopeFilter[] => {
+    if (scope === 'company') return [{ column: 'company_id', value: companyId }];
+    return strategyId ? [{ column: 'strategy_id', value: strategyId }] : [];
+  });
+}
+
 type TableDeletion = {
   table: string;
   ok: boolean;
@@ -72,46 +86,44 @@ type TableDeletion = {
 };
 
 /**
- * 会社の行を削除し、削除後に残存がないことを確認する。
+ * 会社の行を条件ごとに削除し、削除後に残存がないことを確認する。
  * 存在しない optional テーブルのみスキップし、それ以外の失敗は必ず失敗として返す。
  */
 async function deleteCompanyRows(
   admin: SupabaseClient,
   target: CompanyScopedTable,
-  companyId: string
+  companyId: string,
+  strategyId: string | null
 ): Promise<TableDeletion> {
   const { table } = target;
-  const failed = (deletedCount: number, error: { message: string; code?: string }): TableDeletion => ({
-    table,
-    ok: false,
-    deletedCount,
-    skipped: null,
-    error,
-  });
+  let deletedCount = 0;
 
-  const deleted = await admin.from(table).delete({ count: 'exact' }).eq('company_id', companyId);
-  if (deleted.error) {
-    if (target.optional && isMissingTableError(deleted.error)) {
-      return { table, ok: true, deletedCount: 0, skipped: 'table_missing', error: null };
+  for (const filter of scopeFilters(target, companyId, strategyId)) {
+    const deleted = await admin.from(table).delete({ count: 'exact' }).eq(filter.column, filter.value);
+    if (deleted.error) {
+      if (target.optional && isMissingTableError(deleted.error)) {
+        return { table, ok: true, deletedCount: 0, skipped: 'table_missing', error: null };
+      }
+      return { table, ok: false, deletedCount, skipped: null, error: { message: deleted.error.message, code: deleted.error.code } };
     }
-    return failed(0, { message: deleted.error.message, code: deleted.error.code });
-  }
+    deletedCount += deleted.count ?? 0;
 
-  const remaining = await admin
-    .from(table)
-    .select('company_id', { count: 'exact', head: true })
-    .eq('company_id', companyId);
-  if (remaining.error) {
-    return failed(deleted.count ?? 0, { message: remaining.error.message, code: remaining.error.code });
+    const remaining = await admin
+      .from(table)
+      .select(filter.column, { count: 'exact', head: true })
+      .eq(filter.column, filter.value);
+    if (remaining.error) {
+      return { table, ok: false, deletedCount, skipped: null, error: { message: remaining.error.message, code: remaining.error.code } };
+    }
+    if ((remaining.count ?? 0) > 0) {
+      return { table, ok: false, deletedCount, skipped: null, error: { message: `${table} rows remain after deletion` } };
+    }
   }
-  if ((remaining.count ?? 0) > 0) {
-    return failed(deleted.count ?? 0, { message: `${table} rows remain after deletion` });
-  }
-  return { table, ok: true, deletedCount: deleted.count ?? 0, skipped: null, error: null };
+  return { table, ok: true, deletedCount, skipped: null, error: null };
 }
 
-/** 会社の業務データが空かを確認する（strategy_data の初期値、関連テーブルの件数） */
-async function verifyCompanyDataEmpty(admin: SupabaseClient, companyId: string) {
+/** 会社の経営データが空かを確認する（strategy_data の経営列、関連テーブルの件数） */
+async function verifyCompanyDataEmpty(admin: SupabaseClient, companyId: string, strategyId: string | null) {
   const strategy = await admin.from('strategy_data').select('*').eq('company_id', companyId).maybeSingle();
   if (strategy.error) {
     return { ok: false, remainingColumns: [] as string[], remainingRows: {} as Record<string, number>, error: strategy.error.message };
@@ -126,15 +138,17 @@ async function verifyCompanyDataEmpty(admin: SupabaseClient, companyId: string) 
 
   const remainingRows: Record<string, number> = {};
   for (const target of COMPANY_SCOPED_TABLES_BEFORE_STRATEGY) {
-    const counted = await admin
-      .from(target.table)
-      .select('company_id', { count: 'exact', head: true })
-      .eq('company_id', companyId);
-    if (counted.error) {
-      if (target.optional && isMissingTableError(counted.error)) continue;
-      return { ok: false, remainingColumns, remainingRows, error: `${target.table}: ${counted.error.message}` };
+    for (const filter of scopeFilters(target, companyId, strategyId)) {
+      const counted = await admin
+        .from(target.table)
+        .select(filter.column, { count: 'exact', head: true })
+        .eq(filter.column, filter.value);
+      if (counted.error) {
+        if (target.optional && isMissingTableError(counted.error)) continue;
+        return { ok: false, remainingColumns, remainingRows, error: `${target.table}: ${counted.error.message}` };
+      }
+      if ((counted.count ?? 0) > 0) remainingRows[`${target.table}.${filter.column}`] = counted.count ?? 0;
     }
-    if ((counted.count ?? 0) > 0) remainingRows[target.table] = counted.count ?? 0;
   }
 
   return {
@@ -205,6 +219,8 @@ export async function POST(req: Request) {
       );
     }
 
+    const strategyId = (beforeCheck.data as { id?: unknown } | null)?.id;
+    const strategyIdOrNull = typeof strategyId === 'string' ? strategyId : null;
     const beforeState = summarizeStrategyRow(beforeCheck.data as Record<string, unknown> | null);
     const auditMeta = extractAuditMetadata(req);
     auditCtx = { companyId, actorUserId: authUserId, beforeState, auditMeta };
@@ -241,7 +257,7 @@ export async function POST(req: Request) {
     mutationStarted = true;
     const separatedTableDeletions: Record<string, unknown> = {};
     for (const target of COMPANY_SCOPED_TABLES_BEFORE_STRATEGY) {
-      const result = await deleteCompanyRows(admin, target, companyId);
+      const result = await deleteCompanyRows(admin, target, companyId, strategyIdOrNull);
       separatedTableDeletions[target.table] = {
         deleted_count: result.deletedCount,
         skipped: result.skipped,
@@ -265,10 +281,11 @@ export async function POST(req: Request) {
       }
     }
 
-    // 6) strategy_data の業務列を初期化（最後に行う。ここが成功して初めて対象データが空になる）
+    // 6) strategy_data の経営データ列を初期化（最後に行う。会社名・会社ID・所有者情報は変更しない）
     const { data: updatedRows, error: updateError } = await admin
       .from('strategy_data')
       .update({ ...STRATEGY_DATA_RESET_VALUES, updated_at: new Date().toISOString() })
+      .setHeader(STORY_RESET_SCOPE_HEADER, STORY_RESET_SCOPE_VALUE)
       .eq('company_id', companyId)
       .select('company_id');
 
@@ -298,9 +315,9 @@ export async function POST(req: Request) {
     }
 
     // 7) 削除後の再確認（直後と1秒後。遅れて書き戻された古いデータも検出する）
-    const immediate = await verifyCompanyDataEmpty(admin, companyId);
+    const immediate = await verifyCompanyDataEmpty(admin, companyId, strategyIdOrNull);
     await new Promise((r) => setTimeout(r, 1000));
-    const delayed = await verifyCompanyDataEmpty(admin, companyId);
+    const delayed = await verifyCompanyDataEmpty(admin, companyId, strategyIdOrNull);
     const verifySuccess = immediate.ok && delayed.ok;
     const afterState = {
       remainingColumns: delayed.remainingColumns,
