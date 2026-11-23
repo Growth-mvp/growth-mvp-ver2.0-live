@@ -169,7 +169,7 @@ export default function AdminInvitesPage() {
           <button
             onClick={onInvite}
             disabled={busy || !validEmail}
-            className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-50"
+            className="rounded-md bg-accent-action px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {/* ✅ 修正E：ボタン文言を「招待メール送信」に統一 */}
             {busy ? '送信中…' : '招待メール送信'}
@@ -185,9 +185,9 @@ export default function AdminInvitesPage() {
             role="alert"
             className={`mt-3 whitespace-pre-wrap rounded-md border px-3 py-2 text-sm ${
               note.includes('✅') || note.includes('✉️')
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                ? 'border-success bg-success-soft text-success'
                 : inviteLink
-                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                ? 'border-caution bg-caution-soft text-caution'
                 : 'border-red-200 bg-red-50 text-red-700'
             }`}
           >
@@ -196,8 +196,8 @@ export default function AdminInvitesPage() {
         )}
 
         {!!inviteLink && (
-          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <p className="mb-2 text-xs font-semibold text-amber-900">招待リンク</p>
+          <div className="mt-4 rounded-lg border border-caution bg-caution-soft p-4">
+            <p className="mb-2 text-xs font-semibold text-caution">招待リンク</p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <a
                 className="break-all text-xs font-mono text-blue-600 underline"

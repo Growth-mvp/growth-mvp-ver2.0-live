@@ -216,9 +216,9 @@ export default function AdminDataManagementPage() {
 
         {/* 成功表示 */}
         {success && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-start gap-3">
-            <RefreshCw className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-            <p className="text-sm text-emerald-900">{success}</p>
+          <div className="bg-success-soft border border-success rounded-lg p-4 flex items-start gap-3">
+            <RefreshCw className="w-5 h-5 text-success shrink-0 mt-0.5" />
+            <p className="text-sm text-success">{success}</p>
           </div>
         )}
 
@@ -235,9 +235,9 @@ export default function AdminDataManagementPage() {
           </div>
 
           {isDirty && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
-              <p className="text-sm text-yellow-900">
+            <div className="bg-caution-soft border border-caution rounded-lg p-3 flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-caution shrink-0 mt-0.5" />
+              <p className="text-sm text-caution">
                 未保存の変更があります。読み込むと失われます。
               </p>
             </div>
@@ -317,9 +317,9 @@ export default function AdminDataManagementPage() {
             <h3 className="text-lg font-semibold text-gray-900">最新データを読み込みますか？</h3>
 
             {isDirty && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
-                <AlertCircle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
-                <p className="text-sm text-yellow-900">
+              <div className="bg-caution-soft border border-caution rounded-lg p-3 flex items-start gap-2">
+                <AlertCircle className="w-5 h-5 text-caution shrink-0 mt-0.5" />
+                <p className="text-sm text-caution">
                   未保存の変更はすべて失われます。
                 </p>
               </div>

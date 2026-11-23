@@ -87,6 +87,7 @@ export default function PlanPreviewPage() {
                 doc={plan.doc}
                 audience={audience}
                 companyName={strategyState.companyName}
+                accentClassName="bg-accent-action hover:bg-accent-hover"
               />
             </div>
           </div>
@@ -102,6 +103,7 @@ export default function PlanPreviewPage() {
             onGenerate={plan.generate}
             onCopy={plan.copyText}
             onDownload={plan.downloadMarkdown}
+            accentClassName="bg-accent-action hover:bg-accent-hover"
           />
 
           {/* プレビューコンポーネント */}

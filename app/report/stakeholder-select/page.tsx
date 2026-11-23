@@ -48,15 +48,15 @@ export default function StakeholderSelectPage() {
   ];
 
   const colorClasses: Record<string, string> = {
-    blue: 'border-blue-200 bg-blue-50 hover:bg-blue-100',
-    green: 'border-green-200 bg-green-50 hover:bg-green-100',
-    purple: 'border-purple-200 bg-purple-50 hover:bg-purple-100',
+    blue: 'border-zinc-200 bg-white shadow-subtle hover:bg-zinc-50',
+    green: 'border-zinc-200 bg-white shadow-subtle hover:bg-zinc-50',
+    purple: 'border-zinc-200 bg-white shadow-subtle hover:bg-zinc-50',
   };
 
   const buttonColorClasses: Record<string, string> = {
-    blue: 'bg-blue-600 hover:bg-blue-700 text-white',
-    green: 'bg-green-600 hover:bg-green-700 text-white',
-    purple: 'bg-purple-600 hover:bg-purple-700 text-white',
+    blue: 'bg-accent-action hover:bg-accent-hover text-white',
+    green: 'bg-accent-action hover:bg-accent-hover text-white',
+    purple: 'bg-accent-action hover:bg-accent-hover text-white',
   };
 
   return (

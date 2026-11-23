@@ -79,7 +79,7 @@ export default function ShareholderPlanPage() {
                 doc={plan.doc}
                 audience={audience}
                 companyName={strategyState.companyName}
-                accentClassName="bg-green-600 hover:bg-green-700"
+                accentClassName="bg-accent-action hover:bg-accent-hover"
               />
             </div>
           </div>
@@ -95,7 +95,7 @@ export default function ShareholderPlanPage() {
             onGenerate={plan.generate}
             onCopy={plan.copyText}
             onDownload={plan.downloadMarkdown}
-            accentClassName="bg-green-600 hover:bg-green-700"
+            accentClassName="bg-accent-action hover:bg-accent-hover"
           />
 
           <PlanPreview

@@ -207,8 +207,8 @@ export default function AdminMembersPage() {
           role="alert"
           className={`text-sm rounded-md border px-3 py-2 ${
             note.includes('✅') || note.includes('✉️')
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-amber-200 bg-amber-50 text-amber-800'
+              ? 'border-success bg-success-soft text-success'
+              : 'border-caution bg-caution-soft text-caution'
           }`}
         >
           {note}
@@ -314,7 +314,7 @@ function RoleBadge({ role }: { role: Role }) {
     role === 'admin'
       ? 'bg-rose-50 text-rose-700 border-rose-200'
       : role === 'manager'
-      ? 'bg-amber-50 text-amber-800 border-amber-200'
+      ? 'bg-accent-soft text-accent-ink border-accent-soft'
       : 'bg-gray-50 text-gray-700 border-gray-200';
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${cls}`}>

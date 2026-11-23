@@ -422,7 +422,7 @@ export default function OrgAlignmentAdminInsightsPage() {
               type="button"
               onClick={handleGenerate}
               disabled={generating || loading}
-              className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="rounded-xl bg-accent-action px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {generating ? 'AI集計中...' : '最新の投稿をもとに再集計'}
             </button>
@@ -603,15 +603,15 @@ export default function OrgAlignmentAdminInsightsPage() {
                                   ins.importance === '高'
                                     ? 'bg-red-50'
                                     : ins.importance === '中'
-                                    ? 'bg-yellow-50'
-                                    : 'bg-green-50'
+                                    ? 'bg-caution-soft'
+                                    : 'bg-zinc-100'
                                 }`}>
                                   <p className={`text-xs font-semibold ${
                                     ins.importance === '高'
                                       ? 'text-red-700'
                                       : ins.importance === '中'
-                                      ? 'text-yellow-700'
-                                      : 'text-green-700'
+                                      ? 'text-caution'
+                                      : 'text-zinc-700'
                                   }`}>
                                     重要度: {ins.importance}
                                   </p>
@@ -622,15 +622,15 @@ export default function OrgAlignmentAdminInsightsPage() {
                                   ins.urgency === '高'
                                     ? 'bg-red-50'
                                     : ins.urgency === '中'
-                                    ? 'bg-yellow-50'
-                                    : 'bg-green-50'
+                                    ? 'bg-caution-soft'
+                                    : 'bg-zinc-100'
                                 }`}>
                                   <p className={`text-xs font-semibold ${
                                     ins.urgency === '高'
                                       ? 'text-red-700'
                                       : ins.urgency === '中'
-                                      ? 'text-yellow-700'
-                                      : 'text-green-700'
+                                      ? 'text-caution'
+                                      : 'text-zinc-700'
                                   }`}>
                                     緊急度: {ins.urgency}
                                   </p>
@@ -843,7 +843,7 @@ export default function OrgAlignmentAdminInsightsPage() {
                                   type="button"
                                   onClick={handleSaveNextActions}
                                   disabled={savingNextActionsIndex === idx}
-                                  className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                  className="rounded-lg bg-accent-action px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-slate-400"
                                 >
                                   {savingNextActionsIndex === idx ? '保存中...' : '保存'}
                                 </button>
@@ -881,8 +881,8 @@ export default function OrgAlignmentAdminInsightsPage() {
                                       <span>責任: {action.owner}</span>
                                       <span>期限: {action.dueDate}</span>
                                       <span className={`font-semibold ${
-                                        action.status === '完了' ? 'text-green-600' :
-                                        action.status === '対応中' ? 'text-yellow-600' : 'text-slate-600'
+                                        action.status === '完了' ? 'text-success' :
+                                        action.status === '対応中' ? 'text-accent-ink' : 'text-slate-600'
                                       }`}>
                                         {action.status}
                                       </span>
@@ -910,7 +910,7 @@ export default function OrgAlignmentAdminInsightsPage() {
                                             ? 'bg-gray-100 text-gray-700'
                                             : source.visibilityMode === 'manager_only'
                                             ? 'bg-blue-100 text-blue-700'
-                                            : 'bg-green-100 text-green-700'
+                                            : 'bg-caution-soft text-caution'
                                         }`}>
                                           {source.visibilityMode === 'anonymous'
                                             ? '匿名'
@@ -998,7 +998,7 @@ export default function OrgAlignmentAdminInsightsPage() {
                               disabled={sharedDrafts[idx] || sharingInsightIndex === idx}
                               className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                                 sharedDrafts[idx]
-                                  ? 'bg-green-50 text-green-700 ring-1 ring-green-200 cursor-default'
+                                  ? 'bg-success-soft text-success ring-1 ring-success cursor-default'
                                   : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 hover:bg-blue-100'
                               } ${sharingInsightIndex === idx ? 'opacity-50' : ''}`}
                             >
@@ -1080,8 +1080,8 @@ export default function OrgAlignmentAdminInsightsPage() {
                                   trend.avgRiskLevel === 'high'
                                     ? 'bg-red-100 text-red-700'
                                     : trend.avgRiskLevel === 'medium'
-                                    ? 'bg-yellow-100 text-yellow-700'
-                                    : 'bg-green-100 text-green-700'
+                                    ? 'bg-caution-soft text-caution'
+                                    : 'bg-zinc-100 text-zinc-700'
                                 }`}
                               >
                                 {trend.avgRiskLevel}

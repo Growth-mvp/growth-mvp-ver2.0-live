@@ -79,7 +79,7 @@ export default function BankPlanPage() {
                 doc={plan.doc}
                 audience={audience}
                 companyName={strategyState.companyName}
-                accentClassName="bg-slate-800 hover:bg-slate-900"
+                accentClassName="bg-accent-action hover:bg-accent-hover"
               />
             </div>
           </div>
