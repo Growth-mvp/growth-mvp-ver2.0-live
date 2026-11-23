@@ -19,9 +19,9 @@ type Props = {
 
 const MODE_LABEL: Record<CashFlowPlan['basisMode'], { label: string; tone: string }> = {
   FLAT: { label: '横ばい仮定（増減は未設定）', tone: 'bg-slate-100 text-slate-700' },
-  BASE_SCENARIO: { label: '既存事業の年度別増減を反映中', tone: 'bg-emerald-100 text-emerald-800' },
-  TARGET_PATH: { label: '経営目標の参考経路を表示中（既存事業の増減を起点にした参考値）', tone: 'bg-amber-100 text-amber-800' },
-  FINANCE_OUTLOOK: { label: '統一財務試算の値を使用中', tone: 'bg-indigo-100 text-indigo-800' },
+  BASE_SCENARIO: { label: '既存事業の年度別増減を反映中', tone: 'bg-success-soft text-success' },
+  TARGET_PATH: { label: '経営目標の参考経路を表示中（既存事業の増減を起点にした参考値）', tone: 'bg-caution-soft text-caution' },
+  FINANCE_OUTLOOK: { label: '統一財務試算の値を使用中', tone: 'bg-accent-soft text-accent-ink' },
 };
 
 const mil = (yen: number | null) => (yen === null ? '未算定' : (yen / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 }));

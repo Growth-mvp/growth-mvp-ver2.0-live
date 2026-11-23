@@ -15,8 +15,8 @@ import {
 type Tone = 'ok' | 'warn' | 'hold' | 'neutral';
 
 const TONE_CLASS: Record<Tone, string> = {
-  ok: 'border-emerald-200 bg-emerald-50',
-  warn: 'border-amber-200 bg-amber-50',
+  ok: 'border-success/30 bg-success-soft',
+  warn: 'border-caution/30 bg-caution-soft',
   hold: 'border-slate-200 bg-slate-50',
   neutral: 'border-slate-200 bg-white',
 };
@@ -63,8 +63,8 @@ export function KpiCard({
 function verdictClass(v: string): string {
   if (v.startsWith('資金不足')) return 'bg-rose-50 text-rose-700';
   if (v.startsWith('返済原資')) return 'bg-rose-50 text-rose-700';
-  if (v.startsWith('評価保留')) return 'bg-amber-50 text-amber-800';
-  return 'bg-emerald-50 text-emerald-700';
+  if (v.startsWith('評価保留')) return 'bg-caution-soft text-caution';
+  return 'bg-success-soft text-success';
 }
 
 const VERDICT_TONE_CLASS: Record<'ok' | 'warn' | 'hold', string> = {

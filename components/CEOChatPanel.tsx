@@ -987,7 +987,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
                 type="button"
                 onClick={() => void send(q)}
                 disabled={sending || !userOK || shouldWaitForRestore}
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left text-[13px] text-zinc-800 transition hover:border-sky-300 hover:bg-sky-50 disabled:text-zinc-400 disabled:hover:border-zinc-200 disabled:hover:bg-white"
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left text-[13px] text-zinc-800 transition hover:border-accent/40 hover:bg-accent-soft disabled:text-zinc-400 disabled:hover:border-zinc-200 disabled:hover:bg-white"
               >
                 {q}
               </button>
@@ -1066,7 +1066,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
                 onClick={() => { if (input.trim()) void send(input); }}
                 disabled={!inputOK || sending || !userOK || shouldWaitForRestore}
                 className={`rounded-md px-4 py-2 text-[12px] font-semibold min-h-[2.5rem] sm:min-h-auto transition ${
-                  (!inputOK || sending || !userOK || shouldWaitForRestore) ? 'bg-gray-200 text-gray-500' : 'bg-black text-white hover:opacity-90'
+                  (!inputOK || sending || !userOK || shouldWaitForRestore) ? 'bg-zinc-200 text-zinc-500' : 'bg-accent-action text-white hover:bg-accent-hover'
                 }`}
                 type="button"
               >

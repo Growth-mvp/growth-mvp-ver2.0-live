@@ -47,10 +47,10 @@ export const BASIS_LABEL: Record<CfBasis, string> = {
 
 export const BASIS_CLASS: Record<CfBasis, string> = {
   ACTUAL: 'bg-slate-100 text-slate-700',
-  ESTIMATE: 'bg-sky-50 text-sky-700',
-  USER: 'bg-violet-50 text-violet-700',
-  REGISTERED: 'bg-emerald-50 text-emerald-700',
-  HELD: 'bg-amber-50 text-amber-800',
+  ESTIMATE: 'bg-accent-soft text-accent-ink',
+  USER: 'bg-zinc-100 text-zinc-800',
+  REGISTERED: 'bg-success-soft text-success',
+  HELD: 'bg-caution-soft text-caution',
 };
 
 export function fmtMil(value: number | null | undefined) {
