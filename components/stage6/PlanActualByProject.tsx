@@ -148,7 +148,7 @@ export function PlanActualByProject({ departments, fiscalYearEnd }: { department
               <div className="space-y-0.5 text-xs text-slate-700">
                 <div>計画：{item.planStateText}</div>
                 <div>対象期間：{item.periodText}</div>
-                {item.operatingNote && <div className="text-amber-800">{item.operatingNote}</div>}
+                {item.operatingNote && <div className="text-caution">{item.operatingNote}</div>}
               </div>
 
               {rows.length === 0 ? (

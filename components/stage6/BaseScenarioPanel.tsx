@@ -89,7 +89,7 @@ export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperati
                       aria-label={`${year}年度の売上の増減（百万円）`}
                       value={entry?.revenue ?? ''}
                       onChange={(e) => update(year, 'revenue', e.target.value)}
-                      className={`w-28 rounded border px-2 py-1 ${invalid(entry?.revenue) ? 'border-rose-400' : 'border-slate-300'}`}
+                      className={`w-28 rounded border px-2 py-1 ${invalid(entry?.revenue) ? 'border-danger' : 'border-slate-300'}`}
                       placeholder="空欄"
                     />
                   </td>
@@ -100,7 +100,7 @@ export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperati
                       aria-label={`${year}年度の営業利益の増減（百万円）`}
                       value={entry?.operatingIncome ?? ''}
                       onChange={(e) => update(year, 'operatingIncome', e.target.value)}
-                      className={`w-28 rounded border px-2 py-1 ${invalid(entry?.operatingIncome) ? 'border-rose-400' : 'border-slate-300'}`}
+                      className={`w-28 rounded border px-2 py-1 ${invalid(entry?.operatingIncome) ? 'border-danger' : 'border-slate-300'}`}
                       placeholder="空欄"
                     />
                   </td>
@@ -114,7 +114,7 @@ export function BaseScenarioPanel({ years, baseYear, baseRevenueYen, baseOperati
         </table>
       </div>
       {Object.values(form).some((e) => invalid(e.revenue) || invalid(e.operatingIncome)) && (
-        <p className="text-xs text-rose-700">数値として読めない入力があるため、その値は反映していません。</p>
+        <p className="text-xs text-danger">数値として読めない入力があるため、その値は反映していません。</p>
       )}
     </section>
   );

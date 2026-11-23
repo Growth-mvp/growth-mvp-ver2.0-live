@@ -78,11 +78,11 @@ const EMPTY_BS: FinanceBSRow[] = [];
 const NOW_YEAR = new Date().getFullYear();
 
 const SAVE_STATUS_CLASS: Record<SaveStatus, string> = {
-  SAVING: 'bg-sky-100 text-sky-800',
-  FAILED: 'bg-rose-100 text-rose-800',
-  UNSAVED: 'bg-amber-100 text-amber-800',
-  STALE: 'bg-amber-100 text-amber-800',
-  SAVED: 'bg-emerald-100 text-emerald-800',
+  SAVING: 'bg-accent-soft text-accent-ink',
+  FAILED: 'bg-danger-soft text-danger',
+  UNSAVED: 'bg-caution-soft text-caution',
+  STALE: 'bg-caution-soft text-caution',
+  SAVED: 'bg-success-soft text-success',
   NOT_SAVED: 'bg-slate-200 text-slate-700',
 };
 
@@ -491,13 +491,13 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
               </p>
             )}
             {saveMessage && (
-              <p className={`mt-1 ${saveFailed ? 'text-rose-700' : 'text-slate-800'}`}>{saveMessage}</p>
+              <p className={`mt-1 ${saveFailed ? 'text-danger' : 'text-slate-800'}`}>{saveMessage}</p>
             )}
             {stored.kind === 'DIFFERENT_COMPANY' && (
-              <p className="mt-1 text-amber-800">別の会社の保存データは表示しません。</p>
+              <p className="mt-1 text-caution">別の会社の保存データは表示しません。</p>
             )}
             {stored.kind === 'INVALID' && (
-              <p className="mt-1 text-amber-800">保存された前提を読み込めませんでした：{stored.error}</p>
+              <p className="mt-1 text-danger">保存された前提を読み込めませんでした：{stored.error}</p>
             )}
           </div>
         )}
@@ -541,14 +541,14 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
                           ) : (
                             <span className="whitespace-nowrap text-xs font-medium text-slate-500">{r.actualLabel ?? '未登録'}</span>
                           )}
-                          {r.actualNote && <div className="text-[11px] text-amber-700">{r.actualNote}</div>}
+                          {r.actualNote && <div className="text-[11px] text-bluegray-deep">{r.actualNote}</div>}
                         </td>
                         <td className="py-3 pl-2 text-right tabular-nums text-slate-900">
                           {r.achievement.pct !== null ? (
                             <span className="text-base font-semibold">
                               {r.achievement.pct.toLocaleString('ja-JP', { maximumFractionDigits: 1 })}
                               <span className="text-xs font-medium text-slate-500">%</span>
-                              {r.achievement.reference && <span className="ml-1 rounded-full bg-amber-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-800">参考</span>}
+                              {r.achievement.reference && <span className="ml-1 rounded-full bg-bluegray-mist px-1.5 py-0.5 align-middle text-[10px] font-medium text-bluegray-deep">参考</span>}
                             </span>
                           ) : (
                             <span className="text-[11px] leading-snug text-slate-500">{r.achievement.text}</span>
@@ -583,14 +583,14 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
                     ) : (
                       <span className="whitespace-nowrap text-xs font-medium text-slate-500">{perfTable.total.actualLabel ?? '未登録'}</span>
                     )}
-                    {perfTable.total.actualNote && <div className="text-[11px] text-amber-700">{perfTable.total.actualNote}</div>}
+                    {perfTable.total.actualNote && <div className="text-[11px] text-bluegray-deep">{perfTable.total.actualNote}</div>}
                   </td>
                   <td className="py-3 pl-2 text-right tabular-nums text-slate-900">
                     {perfTable.total.achievement.pct !== null ? (
                       <span className="text-base font-semibold">
                         {perfTable.total.achievement.pct.toLocaleString('ja-JP', { maximumFractionDigits: 1 })}
                         <span className="text-xs font-medium text-slate-500">%</span>
-                        {perfTable.total.achievement.reference && <span className="ml-1 rounded-full bg-amber-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-800">参考</span>}
+                        {perfTable.total.achievement.reference && <span className="ml-1 rounded-full bg-bluegray-mist px-1.5 py-0.5 align-middle text-[10px] font-medium text-bluegray-deep">参考</span>}
                       </span>
                     ) : (
                       <span className="text-[11px] leading-snug text-slate-500">{perfTable.total.achievement.text}</span>
@@ -666,7 +666,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
               <span className="min-w-0">
                 {t.label}
                 {count > 0 && (
-                  <span className="ml-1 inline-block rounded-full bg-amber-100 px-1.5 text-xs text-amber-800">{count}</span>
+                  <span className="ml-1 inline-block rounded-full bg-caution-soft px-1.5 text-xs text-caution">{count}</span>
                 )}
               </span>
             </button>
@@ -750,7 +750,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
               <li>前提：STAGE1の財務実績、既存事業の年度別増減、確認済みの施策効果（統一PL）。運転資金は比率から推計し、経営目標では補完しない。</li>
               <li>結果：売上増加があり運転資金・税率が未入力なら暫定（確定判定しない）。必要な前提が欠ける年度は評価保留とし、判定しない。</li>
             </ul>
-            <p className="rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 break-keep">
+            <p className="rounded-lg bg-bluegray-mist p-3 text-xs leading-relaxed text-bluegray-deep break-keep">
               この判定は、既存事業の計画と確認済みの施策効果に基づく参考判定です。未確認の施策効果は含まず、目標への補間は使いません。確定予測ではありません。
             </p>
             <FinanceVerdictPanel

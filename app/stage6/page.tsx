@@ -34,13 +34,13 @@ function Stage6PageContent() {
   if (!stage6.isReady) {
     return (
       <main className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 max-w-md">
+        <div className="rounded-lg border border-caution bg-caution-soft p-6 max-w-md">
           <div className="flex gap-3">
-            <AlertCircle className="h-5 w-5 flex-shrink-0 text-amber-700 mt-0.5" />
+            <AlertCircle className="h-5 w-5 flex-shrink-0 text-caution mt-0.5" />
             <div>
-              <h2 className="font-semibold text-amber-900">データ準備ができていません</h2>
-              <p className="mt-1 text-sm text-amber-800">{stage6.error}</p>
-              <p className="mt-2 text-xs text-amber-700">
+              <h2 className="font-semibold text-caution">データ準備ができていません</h2>
+              <p className="mt-1 text-sm text-caution">{stage6.error}</p>
+              <p className="mt-2 text-xs text-caution">
                 STAGE1で財務データを入力し、STAGE4でプロジェクト計画を設定してください。
               </p>
             </div>
@@ -61,9 +61,9 @@ function Stage6PageContent() {
         </header>
 
         {stage6.core.error && (
-          <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
-            <div className="text-sm text-amber-800">{stage6.core.error}</div>
+          <div className="flex gap-3 rounded-lg border border-danger bg-danger-soft p-4">
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-danger" />
+            <div className="text-sm text-danger">{stage6.core.error}</div>
           </div>
         )}
 

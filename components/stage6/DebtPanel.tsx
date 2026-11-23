@@ -110,7 +110,7 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+      <div className="rounded-xl border border-caution bg-caution-soft p-3 text-xs text-caution">
         保存されていない試算条件です。借入・返済の入力は画面を再読み込み（F5）すると初期化されます。
       </div>
 
@@ -133,7 +133,7 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
           </div>
           <div
             className={`rounded-lg border p-3 text-xs ${
-              rec.status === 'DIFFERENT' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'
+              rec.status === 'DIFFERENT' ? 'border-caution bg-caution-soft' : 'border-slate-200 bg-white'
             }`}
           >
             <div className="text-slate-500">差額（内訳 − STAGE1）</div>
@@ -187,7 +187,7 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
                       </td>
                     ))}
                     <td className="px-2 py-1">
-                      <button type="button" onClick={() => removeExisting(r.id)} className="text-rose-600 hover:underline">削除</button>
+                      <button type="button" onClick={() => removeExisting(r.id)} className="text-danger hover:underline">削除</button>
                     </td>
                   </tr>
                 ))}
@@ -259,7 +259,7 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
                         <option value="BULLET">期日一括返済</option>
                       </select>
                     </td>
-                    <td className="px-2 py-1"><button type="button" onClick={() => removeNew(r.id)} className="text-rose-600 hover:underline">削除</button></td>
+                    <td className="px-2 py-1"><button type="button" onClick={() => removeNew(r.id)} className="text-danger hover:underline">削除</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -299,7 +299,7 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
           </table>
         </div>
         {yearsOut.some((y) => y.holds.length > 0) && (
-          <div className="mt-2 space-y-1 text-xs text-amber-900">
+          <div className="mt-2 space-y-1 text-xs text-caution">
             {yearsOut.filter((y) => y.holds.length > 0).map((y) => (
               <div key={y.year}><span className="font-semibold">{y.year}年：</span>{y.holds.join('、')}</div>
             ))}
@@ -364,7 +364,7 @@ function DebtRow({
         const cell = pick(y);
         return (
           <td key={y.year} className="px-2 py-1 text-right align-top" title={cell.note ?? ''}>
-            <div className={cell.value === null ? 'text-amber-700' : 'text-slate-900'}>{fmtMil(cell.value)}</div>
+            <div className={cell.value === null ? 'text-bluegray-deep' : 'text-slate-900'}>{fmtMil(cell.value)}</div>
             <BasisBadge basis={cell.basis} />
           </td>
         );

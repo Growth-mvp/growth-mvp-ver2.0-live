@@ -372,7 +372,7 @@ export default function ExecutionPanel() {
             {loading ? (
               <div className="text-xs text-neutral-500">集計中…</div>
             ) : error ? (
-              <div className="text-xs text-rose-600">{error}</div>
+              <div className="text-xs text-danger">{error}</div>
             ) : recentProjectUpdates.length === 0 ? (
               <div className="rounded-lg bg-neutral-50 px-3 py-3 text-xs leading-5 text-neutral-500 xl:dark:bg-neutral-900/40">
                 直近の更新はありません。進捗・コメント・協力要請などの更新があると、ここに表示されます。

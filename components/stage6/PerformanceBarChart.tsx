@@ -113,7 +113,7 @@ function AchievementText({ a }: { a: Achievement }) {
     <span className="text-lg font-semibold tabular-nums text-slate-900">
       {a.pct.toLocaleString('ja-JP', { maximumFractionDigits: 1 })}
       <span className="ml-0.5 text-xs font-medium text-slate-500">%</span>
-      {a.reference && <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-800">参考</span>}
+      {a.reference && <span className="ml-1.5 rounded-full bg-bluegray-mist px-1.5 py-0.5 align-middle text-[10px] font-medium text-bluegray-deep">参考</span>}
     </span>
   );
 }

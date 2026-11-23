@@ -76,7 +76,7 @@ export function Cell({ cell, interpolated }: { cell: CfValue | undefined; interp
   const notApplicable = held && cell.basis === 'ACTUAL';
   return (
     <td className="px-2 py-1.5 text-right align-top" title={cell.note ?? ''}>
-      <div className={held ? 'text-amber-700' : 'font-medium text-slate-900'}>
+      <div className={held ? 'text-bluegray-deep' : 'font-medium text-slate-900'}>
         {notApplicable ? '対象外' : fmtMil(cell.value)}
       </div>
       <BasisBadge basis={cell.basis} label={interpolated && cell.basis === 'USER' ? '目標への補間' : undefined} />
@@ -124,7 +124,7 @@ export function RatioCell({ label, term, cell }: { label: string; term?: string;
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-2">
       <TermLabel primary={label} term={term} className="text-slate-600" />
-      <div className={cell.value === null ? 'text-amber-700' : 'font-semibold text-slate-900'}>
+      <div className={cell.value === null ? 'text-bluegray-deep' : 'font-semibold text-slate-900'}>
         {cell.value === null ? '保留' : fmtPct(cell.value)}
       </div>
       <BasisBadge basis={cell.basis} />
@@ -141,7 +141,7 @@ function WorkingCapitalBreakdownPanel({ plan }: { plan: CashFlowPlan }) {
     return (
       <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
         <h3 className="font-semibold text-slate-900">初年度に追加で必要な運転資金</h3>
-        <p className="mt-2 text-xs text-amber-800">運転資金の内訳を計算するための情報が不足しています。</p>
+        <p className="mt-2 text-xs text-caution">運転資金の内訳を計算するための情報が不足しています。</p>
       </section>
     );
   }
@@ -161,7 +161,7 @@ function WorkingCapitalBreakdownPanel({ plan }: { plan: CashFlowPlan }) {
         {signedMil(total)}
         <span className="ml-1 text-sm font-normal text-slate-600">百万円</span>
       </p>
-      {total < 0 && <p className="text-xs font-semibold text-emerald-700">運転資金の減少（資金が増える方向）</p>}
+      {total < 0 && <p className="text-xs font-semibold text-success">運転資金の減少（資金が増える方向）</p>}
 
       <dl className="mt-3 space-y-1.5 text-sm">
         <div className="flex flex-wrap justify-between gap-x-3">
@@ -240,7 +240,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
           <div className="mt-1 text-sm text-slate-900">
             PL：{plan.baseYear ?? '未確認'} ／ BS：{plan.bsBaseYear ?? '未確認'}
           </div>
-          {plan.yearMismatch && <div className="mt-1 text-amber-700">PLとBSの基準年度が異なります（推計を保留）</div>}
+          {plan.yearMismatch && <div className="mt-1 text-caution">PLとBSの基準年度が異なります（推計を保留）</div>}
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="font-semibold text-slate-600">税率</div>
@@ -256,7 +256,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
       </div>
 
       {plan.unitSuspects.length > 0 && (
-        <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900">
+        <p role="status" className="mt-3 rounded-lg border border-caution bg-caution-soft p-3 text-xs text-caution">
           金額の桁から単位不一致が疑われる項目があります（計算には使用しています）。ご確認ください：{plan.unitSuspects.join('、')}
         </p>
       )}
@@ -401,7 +401,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
 
       <WorkingCapitalBreakdownPanel plan={plan} />
 
-      <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+      <div className="mt-6 rounded-xl border border-caution bg-caution-soft p-4">
         <h3 className="text-sm font-semibold text-slate-900">評価保留・未確認事項（キャッシュフロー）</h3>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-700">
           {plan.globalHolds.map((h) => (
@@ -409,7 +409,7 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
           ))}
         </ul>
         {years.some((y) => y.holds.length > 0) && (
-          <div className="mt-3 space-y-1 text-xs text-amber-900">
+          <div className="mt-3 space-y-1 text-xs text-caution">
             {years
               .filter((y) => y.holds.length > 0)
               .map((y) => (
@@ -484,7 +484,7 @@ function Field({
       </div>
       {example && <p className="mt-1 text-xs text-slate-500">{example}</p>}
       {warning && (
-        <p role="status" className="mt-1 text-xs font-medium text-amber-800">
+        <p role="status" className="mt-1 text-xs font-medium text-caution">
           {warning}
         </p>
       )}

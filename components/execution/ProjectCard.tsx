@@ -65,7 +65,7 @@ export default function ProjectCard({
         <h3 className="text-xl font-bold text-gray-800">
           {project.title}
           {isProjectStopped(project) && (
-            <span className="ml-2 inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 align-middle text-[11px] font-semibold text-rose-700 whitespace-nowrap">中止</span>
+            <span className="ml-2 inline-flex items-center rounded-full bg-danger-soft px-2 py-0.5 align-middle text-[11px] font-semibold text-danger whitespace-nowrap">中止</span>
           )}
         </h3>
 

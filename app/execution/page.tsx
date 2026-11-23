@@ -96,7 +96,7 @@ const toEpochMs = (value?: string) => {
 };
 
 
-const toneToDot = (t: Tone) => (t === 'blue' ? 'bg-blue-500' : t === 'emerald' ? 'bg-emerald-500' : 'bg-violet-500');
+const toneToDot = (t: Tone) => (t === 'blue' ? 'bg-accent-action' : t === 'emerald' ? 'bg-bluegray' : 'bg-bluegray-deep');
 
 /* =========================
  * ユーティリティ
@@ -2821,12 +2821,12 @@ function ExecutionPageContent() {
                     <path
                       key={`s-d-${di}`}
                       d={makeElbowPath(from, to)}
-                      className="stroke-accent-action"
+                      className="stroke-bluegray"
                       strokeWidth={2}
                       fill="none"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      opacity={0.85}
+                      opacity={0.9}
                     />
                   );
                 })
@@ -2845,12 +2845,12 @@ function ExecutionPageContent() {
                 <path
                   key={`d-p-${key}`}
                   d={makeElbowPath(from, to)}
-                  className="stroke-accent"
+                  className="stroke-bluegray"
                   strokeWidth={1.5}
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  opacity={0.7}
+                  opacity={0.8}
                 />
               );
             })}
@@ -2864,7 +2864,7 @@ function ExecutionPageContent() {
                 ref={storyRef}
                 type="button"
                 onClick={() => setStoryOpen(true)}
-                className="group w-[248px] rounded-2xl border border-accent/20 bg-accent-soft hover:border-accent/40 px-5 py-4 text-left shadow-sm hover:shadow-md transition"
+                className="group w-[272px] rounded-2xl border border-accent/30 bg-accent-soft hover:border-accent/50 px-5 py-4 text-left shadow-sm hover:shadow-md transition"
               >
                 <div className="space-y-2">
                   <div className="text-xs font-semibold text-accent-ink group-hover:text-accent-hover tracking-wide transition">経営戦略ストーリー</div>
@@ -2874,7 +2874,7 @@ function ExecutionPageContent() {
               </button>
 
               {/* Dept + Projects */}
-              <div className="flex-1 space-y-4 pb-1">
+              <div className="flex-1 space-y-3 pb-1">
                 {pyramid.length ? (
                   pyramid.map((dept) => {
                     const tone = dept.tone;
@@ -2889,11 +2889,11 @@ function ExecutionPageContent() {
                           }}
                           type="button"
                           onClick={() => setDeptOpen({ open: true, di: dept.di })}
-                          className={`group w-[260px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-5 py-4 text-left shadow-sm transition`}
+                          className={`group w-[288px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-5 py-4 text-left shadow-sm transition`}
                         >
                           <div className="flex items-center gap-2">
                             <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
-                            <div className="text-[15px] font-semibold text-zinc-900 group-hover:text-accent-ink transition">
+                            <div className="text-[15px] font-semibold text-bluegray-deep group-hover:text-accent-ink transition">
                               {dept.deptName?.trim() ? dept.deptName : '（部門名未設定）'}
                             </div>
                           </div>
@@ -2942,7 +2942,7 @@ function ExecutionPageContent() {
                                       const sel: SelectedExecutionItem = { ...p.selection, di: p.di, pi: p.pi };
                                       void openExecutionSelection(sel);
                                     }}
-                                    className="group w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-4 py-2.5 text-left shadow-sm hover:shadow-md transition"
+                                    className="group w-full max-w-[560px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-4 py-2.5 text-left shadow-sm hover:shadow-md transition"
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="min-w-0 flex-1">
@@ -2981,7 +2981,7 @@ function ExecutionPageContent() {
                                 );
                               })
                             ) : (
-                              <div className="text-sm text-gray-500">プロジェクトがありません。</div>
+                              <div className="text-sm text-zinc-500">プロジェクトがありません。</div>
                             )}
                           </div>
                         </div>

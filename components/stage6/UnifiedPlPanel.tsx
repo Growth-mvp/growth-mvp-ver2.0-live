@@ -67,7 +67,7 @@ export function UnifiedPlPanel({ plan, trial }: { plan: UnifiedPl; trial: Financ
       </dl>
 
       {trial.ready && (
-        <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-xs text-slate-800">
+        <div className="rounded border border-bluegray-light bg-success-soft p-3 text-xs text-slate-800">
           <p className="font-semibold">確認済みの営業利益改善（確定分）</p>
           {plan.years.some((y) => y.confirmedOperatingImprovementYen !== 0) ? (
             <ul className="mt-1 space-y-0.5">
@@ -106,7 +106,7 @@ export function UnifiedPlPanel({ plan, trial }: { plan: UnifiedPl; trial: Financ
         </div>
       )}
       {!trial.ready && (
-        <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">決算月が未設定のため、施策効果の年度配分は行っていません。</p>
+        <p className="rounded bg-caution-soft p-2 text-xs text-caution">決算月が未設定のため、施策効果の年度配分は行っていません。</p>
       )}
 
       {trial.ready && (

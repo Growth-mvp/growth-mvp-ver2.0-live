@@ -46,7 +46,7 @@ function AmountCell({ years, pick }: { years: FinanceEffectProjectRow['years']; 
         return (
           <li key={y.fiscalYear} className="text-xs text-slate-800">
             <span className="text-slate-500">{fiscalLabel(y.fiscalYear)}</span>{' '}
-            {value === null ? <span className="font-semibold text-amber-800">未算定</span> : <span className="font-semibold">{signedMil(value)}</span>}
+            {value === null ? <span className="font-semibold text-bluegray-deep">未算定</span> : <span className="font-semibold">{signedMil(value)}</span>}
           </li>
         );
       })}
@@ -69,7 +69,7 @@ function ProjectRow({ row }: { row: FinanceEffectProjectRow }) {
       <div className="min-w-0">
         <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${status.tone}`}>{status.label}</span>
         {row.status === 'REFLECTED' && row.operatingUnknown && (
-          <div className="mt-1 text-[11px] text-amber-800">営業利益は算定できない年度を含みます（0として扱っていません）</div>
+          <div className="mt-1 text-[11px] text-caution">営業利益は算定できない年度を含みます（0として扱っていません）</div>
         )}
         {row.reason && <div className="mt-1 text-[11px] leading-snug text-slate-600 break-keep">{row.reason}</div>}
       </div>

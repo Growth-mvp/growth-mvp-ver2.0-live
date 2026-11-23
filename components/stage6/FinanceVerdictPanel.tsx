@@ -61,15 +61,15 @@ export function KpiCard({
 }
 
 function verdictClass(v: string): string {
-  if (v.startsWith('資金不足')) return 'bg-rose-50 text-rose-700';
-  if (v.startsWith('返済原資')) return 'bg-rose-50 text-rose-700';
+  if (v.startsWith('資金不足')) return 'bg-danger-soft text-danger';
+  if (v.startsWith('返済原資')) return 'bg-danger-soft text-danger';
   if (v.startsWith('評価保留')) return 'bg-caution-soft text-caution';
   return 'bg-success-soft text-success';
 }
 
 const VERDICT_TONE_CLASS: Record<'ok' | 'warn' | 'hold', string> = {
-  ok: 'border-emerald-300 bg-emerald-50',
-  warn: 'border-rose-300 bg-rose-50',
+  ok: 'border-bluegray-light bg-success-soft',
+  warn: 'border-danger bg-danger-soft',
   hold: 'border-slate-300 bg-slate-50',
 };
 
@@ -148,7 +148,7 @@ export function FinanceVerdictPanel({
       <section>
         <h3 className="text-base font-bold text-slate-900">③ 次の行動</h3>
         {!hasActions ? (
-          <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          <div className="mt-2 rounded-lg border border-bluegray-light bg-success-soft p-3 text-sm text-success">
             判定を妨げる未確認事項はありません。
           </div>
         ) : (
@@ -279,7 +279,7 @@ export function FinanceVerdictPanel({
             </div>
             <div>
               <div className="text-sm font-semibold text-slate-700">評価保留の理由（借入・返済）</div>
-              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed text-amber-900">
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed text-caution">
                 {schedule.globalHolds.map((h) => (
                   <li key={h}>{h}</li>
                 ))}

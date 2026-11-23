@@ -11,10 +11,10 @@ const MILLION = 1_000_000;
 function Callout({ tone, title, body }: { tone: 'alert' | 'caution' | 'ok'; title: string; body: string }) {
   const style =
     tone === 'alert'
-      ? 'bg-rose-50 text-rose-900 ring-rose-200'
+      ? 'bg-danger-soft text-danger ring-danger/30'
       : tone === 'caution'
-        ? 'bg-amber-50 text-amber-900 ring-amber-200'
-        : 'bg-blue-50 text-blue-900 ring-blue-200';
+        ? 'bg-caution-soft text-caution ring-caution/30'
+        : 'bg-accent-soft text-accent-ink ring-accent/30';
   return (
     <div role={tone === 'alert' ? 'alert' : undefined} className={`rounded-xl px-4 py-3 ring-1 ${style}`}>
       <div className="text-sm font-semibold">{title}</div>

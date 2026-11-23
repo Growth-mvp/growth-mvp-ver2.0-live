@@ -102,6 +102,6 @@ export default function Stage4ScenarioPanel({
   );
   if (load.status === 'OFF') return null;
   if (load.status === 'LOADING') return <p className="text-[13px] text-zinc-600">STAGE4の参考シナリオを読み込んでいます…</p>;
-  if (load.status === 'FAILED') return <p className="text-[13px] text-amber-800">STAGE4の参考シナリオを読み込めませんでした。</p>;
+  if (load.status === 'FAILED') return <p className="text-[13px] text-danger">STAGE4の参考シナリオを読み込めませんでした。</p>;
   return <Stage4ScenarioTable rows={rows} />;
 }

@@ -40,12 +40,12 @@ const DUPLICATE_LABEL: Record<DuplicateStatus, string> = {
 };
 
 const DUPLICATE_CLASS: Record<DuplicateStatus, string> = {
-  NONE: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  CANDIDATE: 'bg-amber-50 text-amber-800 ring-amber-200',
+  NONE: 'bg-success-soft text-success ring-bluegray-light',
+  CANDIDATE: 'bg-caution-soft text-caution ring-caution/30',
   DERIVED: 'bg-slate-100 text-slate-600 ring-slate-200',
-  SAME_KEEP: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  SAME_KEEP: 'bg-success-soft text-success ring-bluegray-light',
   SAME_DUPLICATE: 'bg-slate-100 text-slate-600 ring-slate-200',
-  DIFFERENT: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  DIFFERENT: 'bg-success-soft text-success ring-bluegray-light',
 };
 
 const BASIS_LABEL: Record<string, string> = {
@@ -125,7 +125,7 @@ export function FundingDemandSection() {
       </p>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-5">
+        <div className="rounded-xl border border-bluegray-light bg-success-soft p-5">
           <div className="text-sm font-semibold text-slate-700">資金計画に反映する確認済み投資・費用額</div>
           <div className="mt-2 text-2xl font-bold text-slate-900">{fmtYen(summary.readyYen)}</div>
           <div className="mt-1 text-xs text-slate-600">
@@ -135,7 +135,7 @@ export function FundingDemandSection() {
 
         <div
           className={`rounded-xl border p-5 ${
-            attention.count > 0 ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'
+            attention.count > 0 ? 'border-caution bg-caution-soft' : 'border-slate-200 bg-slate-50'
           }`}
         >
           <div className="text-sm font-semibold text-slate-700">未確定・確認が必要な金額</div>
@@ -299,7 +299,7 @@ function ItemRow({ item, open, onToggle, siblings, onDuplicate }: ItemRowProps) 
           <div className="text-xs text-slate-500">{SOURCE_LABEL[item.source]}</div>
         </td>
         <td className="px-3 py-2 text-right">
-          <span className={item.totalYen !== null ? 'font-medium text-slate-900' : 'text-xs text-amber-700'}>
+          <span className={item.totalYen !== null ? 'font-medium text-slate-900' : 'text-xs text-caution'}>
             {itemAmountText(item)}
           </span>
         </td>
@@ -311,7 +311,7 @@ function ItemRow({ item, open, onToggle, siblings, onDuplicate }: ItemRowProps) 
         </td>
         <td className="px-3 py-2 text-slate-700">
           <div>{itemScheduleText(item)}</div>
-          {item.scheduleNote && <div className="text-xs text-amber-700">{item.scheduleNote}</div>}
+          {item.scheduleNote && <div className="text-xs text-caution">{item.scheduleNote}</div>}
         </td>
         <td className="px-3 py-2">
           <span
@@ -337,7 +337,7 @@ function ItemRow({ item, open, onToggle, siblings, onDuplicate }: ItemRowProps) 
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="text-xs font-semibold text-slate-700">重複確認</div>
               {locked ? (
-                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800">
+                <p className="mt-2 rounded-lg border border-bluegray-light bg-bluegray-mist p-2 text-[12px] text-bluegray-deep">
                   承認済みのプロジェクトのため、重複判断は読み取り専用です。承認状態はSTAGE4で確認してください。
                 </p>
               ) : (

@@ -50,7 +50,7 @@ export function ConditionalCfPanel({ cf }: { cf: ConditionalCf }) {
       </ul>
 
       {!cf.debtEnabled && (
-        <p className="rounded bg-amber-50 p-2 text-xs leading-relaxed text-amber-800 break-keep">
+        <p className="rounded bg-caution-soft p-2 text-xs leading-relaxed text-caution break-keep">
           借入計画が未入力のため、期末現預金は借入未反映の暫定値です。最終的な資金繰りの見通しとしては扱わないでください。
         </p>
       )}
