@@ -32,6 +32,26 @@ module.exports = {
           800: '#1c1c1e',
           900: '#0c0c0d',
         },
+        // ブランドアクセント（globals.css の --accent と値を揃える）
+        accent: {
+          DEFAULT: '#0a84ff',
+          action: '#0071e3',
+          hover: '#0066cc',
+          ink: '#005bb5',
+          soft: '#eaf3ff',
+        },
+        success: {
+          DEFAULT: '#248a3d',
+          soft: '#eaf7ee',
+        },
+        caution: {
+          DEFAULT: '#b25e00',
+          soft: '#fff4e0',
+        },
+        danger: {
+          DEFAULT: '#d70015',
+          soft: '#ffecee',
+        },
       },
       boxShadow: {
         subtle: '0 1px 3px rgba(0,0,0,0.08)', // Apple風の控えめな影

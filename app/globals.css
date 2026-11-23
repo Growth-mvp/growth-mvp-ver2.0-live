@@ -7,7 +7,7 @@
   /* ✅ 既定は 0px（= 余白なし） */
   --agent-dock-w: 0px;
 
-  /* Appleブルー寄りのアクセント（任意） */
+  /* ブランドアクセント。値は tailwind.config.js の colors.accent.DEFAULT と一致させる */
   --accent: #0a84ff;
   --accent-ink: #ffffff;
 }
@@ -88,13 +88,6 @@
 
   .divider {
     @apply my-8 border-t border-zinc-200;
-  }
-}
-
-/* ================== ユーティリティ追加 ================== */
-@layer utilities {
-  .shadow-subtle {
-    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
 }
 
