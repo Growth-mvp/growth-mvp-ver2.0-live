@@ -126,7 +126,7 @@ const getStatusColor = (status: TopicStatus | ActionStatus | Stage3Status | Stag
       return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
     case "すり合わせ中":
     case "対応中":
-      return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+      return "bg-bluegray-mist text-bluegray-deep ring-1 ring-bluegray-light";
     case "対応方針決定":
     case "STAGE3確認済み":
     case "STAGE4確認済み":
@@ -146,9 +146,9 @@ const getStatusColor = (status: TopicStatus | ActionStatus | Stage3Status | Stag
 const getLevelColor = (level: Level) => {
   switch (level) {
     case "高":
-      return "bg-rose-50 text-rose-700 ring-1 ring-rose-100";
+      return "bg-caution-soft text-caution ring-1 ring-caution/20";
     case "中":
-      return "bg-orange-50 text-orange-700 ring-1 ring-orange-100";
+      return "bg-bluegray-mist text-bluegray-deep ring-1 ring-bluegray-light";
     case "低":
       return "bg-slate-50 text-slate-600 ring-1 ring-slate-200";
     default:
@@ -377,7 +377,7 @@ function EditableTextSection({
           <button
             type="button"
             onClick={onClear}
-            className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+            className="rounded-lg border border-danger/30 bg-white px-3 py-1.5 text-xs font-semibold text-danger transition hover:bg-danger-soft"
           >
             削除
           </button>
@@ -460,7 +460,7 @@ function EditableListSection({
           <button
             type="button"
             onClick={onClear}
-            className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+            className="rounded-lg border border-danger/30 bg-white px-3 py-1.5 text-xs font-semibold text-danger transition hover:bg-danger-soft"
           >
             削除
           </button>
@@ -574,7 +574,7 @@ function NextActionsSection({
           <button
             type="button"
             onClick={onClear}
-            className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+            className="rounded-lg border border-danger/30 bg-white px-3 py-1.5 text-xs font-semibold text-danger transition hover:bg-danger-soft"
           >
             全削除
           </button>
@@ -607,7 +607,7 @@ function NextActionsSection({
                 <button
                   type="button"
                   onClick={() => deleteAction(index)}
-                  className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                  className="rounded-lg border border-danger/30 bg-white px-3 py-1.5 text-xs font-semibold text-danger transition hover:bg-danger-soft"
                 >
                   削除
                 </button>
@@ -898,7 +898,7 @@ function TopicCard({
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{topic.category}</span>
             {topic.importance && (
-              <span className={`rounded-full px-3 py-1 text-xs font-medium ${topic.importance === '高' ? 'bg-red-100 text-red-700' : topic.importance === '中' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${topic.importance === '高' ? 'bg-caution-soft text-caution' : topic.importance === '中' ? 'bg-bluegray-mist text-bluegray-deep' : 'bg-slate-100 text-slate-700'}`}>
                 重要度：{topic.importance}
               </span>
             )}
@@ -987,9 +987,9 @@ function TopicCard({
                   <p className="font-semibold text-accent-ink">現場の認識</p>
                   <p className="mt-3 text-sm leading-7 text-zinc-800">{topic.recognitionGap.fieldView}</p>
                 </div>
-                <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-                  <p className="font-semibold text-orange-900">会社側の認識</p>
-                  <p className="mt-3 text-sm leading-7 text-orange-800">{topic.recognitionGap.companyView}</p>
+                <div className="rounded-lg border border-bluegray-light bg-bluegray-mist p-4">
+                  <p className="font-semibold text-bluegray-deep">会社側の認識</p>
+                  <p className="mt-3 text-sm leading-7 text-zinc-800">{topic.recognitionGap.companyView}</p>
                 </div>
                 <div className="rounded-xl border border-zinc-200 bg-white p-4">
                   <p className="font-semibold text-zinc-900">ズレの本質</p>
@@ -1542,7 +1542,7 @@ export default function OrganizationSharedRoomPage() {
               {error ? (
                 <>
                   <p className="mt-2 font-bold text-slate-950">データ取得エラー</p>
-                  <p className="mt-2 text-xs leading-5 text-orange-600">{error}</p>
+                  <p className="mt-2 text-xs leading-5 text-danger">{error}</p>
                 </>
               ) : topics.length === 0 ? (
                 <>

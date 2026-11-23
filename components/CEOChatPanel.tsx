@@ -933,7 +933,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             </div>
           </div>
           {ctxUpdated && (
-            <span className="rounded-full bg-emerald-100 px-2 py-[2px] text-[10px] font-semibold text-emerald-700 mt-1">
+            <span className="rounded-full bg-success-soft px-2 py-[2px] text-[10px] font-semibold text-success mt-1">
               コンテキスト更新
             </span>
           )}
@@ -1010,7 +1010,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             </p>
           )}
           {notice && (
-            <p role="status" className="text-[12px] text-amber-700">
+            <p role="status" className="text-[12px] text-bluegray-deep">
               {notice}
             </p>
           )}

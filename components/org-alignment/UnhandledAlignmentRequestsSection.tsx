@@ -36,10 +36,10 @@ interface UnhandledAlignmentRequestsSectionProps {
 }
 
 const statusLabels: Record<string, { label: string; color: string }> = {
-  pending: { label: '未対応', color: 'text-red-600' },
-  reviewing: { label: '確認中', color: 'text-yellow-600' },
-  scheduled: { label: 'すり合わせ設定済み', color: 'text-blue-600' },
-  resolved: { label: '対応完了', color: 'text-green-600' },
+  pending: { label: '未対応', color: 'text-caution' },
+  reviewing: { label: '確認中', color: 'text-bluegray-deep' },
+  scheduled: { label: 'すり合わせ設定済み', color: 'text-accent-ink' },
+  resolved: { label: '対応完了', color: 'text-success' },
   on_hold: { label: '保留', color: 'text-gray-600' },
 };
 
@@ -192,9 +192,9 @@ export default function UnhandledAlignmentRequestsSection({
             メンバーから依頼されたすり合わせの状態を管理します。
           </p>
         </div>
-        <div className="rounded-full bg-red-50 px-4 py-2 text-center">
-          <p className="text-xs font-semibold text-red-600">未対応</p>
-          <p className="text-2xl font-bold text-red-600">{requests.length}</p>
+        <div className="rounded-full bg-caution-soft px-4 py-2 text-center">
+          <p className="text-xs font-semibold text-caution">未対応</p>
+          <p className="text-2xl font-bold text-caution">{requests.length}</p>
         </div>
       </div>
 

@@ -49,7 +49,7 @@ export default function CEOChatCompanionCard({ action, onDismiss, onAsk, askDisa
       aria-label={isAdvice ? 'AI経営コンサルタントの助言' : 'AI経営コンサルタントからの案内'}
       className={[
         'rounded-lg border px-4 py-3 text-[13px] leading-6 text-zinc-900',
-        isAdvice ? 'border-sky-200 bg-sky-50/70' : 'border-emerald-200 bg-emerald-50/70',
+        isAdvice ? 'border-accent/30 bg-accent-soft/60' : 'border-bluegray-light bg-bluegray-mist',
       ].join(' ')}
       data-companion-key={action.key}
       data-companion-kind={action.kind}

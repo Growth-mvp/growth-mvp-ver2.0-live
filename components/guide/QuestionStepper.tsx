@@ -363,7 +363,7 @@ export default function QuestionStepper({
           aria-label={`Step ${n} ${done ? '（回答済）' : ''}`}
           title={done ? '回答済' : '未回答'}
         >
-          Step {n}{done && <span className="ml-1 text-green-600">✓</span>}
+          Step {n}{done && <span className="ml-1 text-success">✓</span>}
         </button>
       );
     });
@@ -417,7 +417,7 @@ export default function QuestionStepper({
                   type="button"
                   onClick={fetchExamples}
                   disabled={loading || !editable}
-                  className="rounded-xl border border-emerald-300 text-emerald-700 px-3 py-1 text-sm hover:bg-emerald-50 disabled:opacity-60"
+                  className="rounded-xl border border-accent/30 text-accent-ink px-3 py-1 text-sm hover:bg-accent-soft disabled:opacity-60"
                   title="抽象化した事例を表示（固有名詞なし）"
                 >
                   📚 事例を表示
@@ -434,7 +434,7 @@ export default function QuestionStepper({
 
               {/* 事例表示 */}
               {examples.length > 0 && (
-                <ul className="mt-2 list-disc pl-5 text-sm text-emerald-700 bg-emerald-50 rounded-xl p-3">
+                <ul className="mt-2 list-disc pl-5 text-sm text-accent-ink bg-accent-soft rounded-xl p-3">
                   {examples.map((e, i) => <li key={i}>{e}</li>)}
                 </ul>
               )}

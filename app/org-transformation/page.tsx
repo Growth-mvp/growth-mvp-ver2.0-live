@@ -766,8 +766,8 @@ export default function OrgTransformationPage() {
                                 </div>
 
                                 {/* セクション2：相手の認識（AI仮説） */}
-                                <div className="rounded-xl border border-orange-100 bg-orange-50 p-5">
-                                  <p className="text-xs font-semibold tracking-wide text-orange-600">
+                                <div className="rounded-xl border border-accent/20 bg-accent-soft p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-accent-ink">
                                     相手の認識（AI仮説）
                                   </p>
                                   <p className="mt-3 text-sm leading-relaxed text-slate-800">
@@ -822,8 +822,8 @@ export default function OrgTransformationPage() {
                                 </div>
 
                                 {/* リスク情報 */}
-                                <div className="rounded-xl border border-amber-100 bg-amber-50 p-5">
-                                  <p className="text-xs font-semibold tracking-wide text-amber-600">
+                                <div className="rounded-xl border border-caution/20 bg-caution-soft p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-caution">
                                     リスク評価
                                   </p>
                                   <p className="mt-2 text-sm font-semibold text-slate-950">
