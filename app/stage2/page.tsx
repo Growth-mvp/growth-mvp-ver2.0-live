@@ -44,6 +44,7 @@ import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Sta
 import { commitFinalStoryDraft, FINAL_STORY_INVALID_MESSAGE, FINAL_STORY_SAVE_FAILED_MESSAGE } from '@/lib/stage2/finalStoryDraft';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
+import { buildDeepDiveApplyPatch, isDeepDiveApplicable, isDeepDiveUnreflected } from '@/components/stage2/deepDiveApply';
 import { SwotOpportunityPanel } from '@/components/stage2/SwotOpportunityPanel';
 import { extendPlanOf, isSameScope, opportunityCandidatesOf, selectedEntryOf } from '@/lib/swot/candidateView';
 import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
@@ -1788,30 +1789,10 @@ function Questions12Section({
 
   // ★ Version 1.1: 元回答へ反映するハンドラー
   const handleApplyDeepDiveToAnswer = () => {
-    if (!currentDeepDive?.answer?.trim()) return;
-
-    const blockHeader = '\n\n【AI深掘りで追加した考え】\n';
-    const blockContent = currentDeepDive.answer.trim();
-    const newBlock = blockHeader + blockContent;
-
-    // 既存のappliedBlockを削除（二重追加防止）
-    let baseAnswer = currentAnswer;
-    if (currentDeepDive.appliedBlock && baseAnswer.includes(currentDeepDive.appliedBlock)) {
-      baseAnswer = baseAnswer.replace(currentDeepDive.appliedBlock, '');
-    }
-
-    const mergedAnswer = baseAnswer + newBlock;
-
-    updateAnswer12(selectedId, {
-      answer: mergedAnswer,
-      deepDive: {
-        ...currentDeepDive,
-        appliedAnswer: currentDeepDive.answer.trim(),
-        appliedAt: new Date().toISOString(),
-        appliedBlock: newBlock,
-        sourceAnswerSnapshot: mergedAnswer,
-      },
-    });
+    const selectedAnswer = safeAnswers12.find((a) => a.id === selectedId);
+    if (!selectedAnswer) return;
+    const patch = buildDeepDiveApplyPatch(selectedAnswer);
+    if (patch) updateAnswer12(selectedId, patch);
   };
 
   // ★ Version 1.1: 別の問いを出す
@@ -3392,6 +3373,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // Final generation（※こちらも timeout が絡むなら同じ問題が出るので対策を入れる）
   const finalGenRunRef = useRef(0);
 
+  const hasPendingDeepDive = answers12.some(isDeepDiveApplicable);
+
   const handleGenerateFinal = useCallback(async () => {
     if (generatingFinal) return;
 
@@ -3404,19 +3387,25 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
     const scopeAtStart = captureSaveScope();
 
-    // ★ Version 1.1: 未反映deepDive確認
-    const unreflected = current.answers12?.filter(
-      (a) => a.deepDive?.answer?.trim() && a.deepDive.appliedAnswer?.trim() !== a.deepDive.answer.trim()
-    ) ?? [];
+    // ★ 未反映の深掘り回答を元回答へ反映してから生成する（元の回答が変更されたものは上書きせず確認する）
+    const allAnswers12 = current.answers12 ?? [];
+    const skippedDeepDives = allAnswers12.filter((a) => isDeepDiveUnreflected(a) && !isDeepDiveApplicable(a));
 
-    if (unreflected.length > 0) {
+    if (skippedDeepDives.length > 0) {
       const confirmed = window.confirm(
-        `AI深掘りの回答が${unreflected.length}件、元の回答にまだ反映されていません。\n未反映のまま『経営の意図』を生成しますか？`
+        `AI深掘りの回答が${skippedDeepDives.length}件、元の回答の変更後のため反映されていません。\n反映しないまま『経営の意図』を生成しますか？`
       );
       if (!confirmed) {
         return;
       }
     }
+
+    for (const answer of allAnswers12) {
+      if (!isDeepDiveApplicable(answer)) continue;
+      const patch = buildDeepDiveApplyPatch(answer);
+      if (patch) current.updateAnswer12(answer.id, patch);
+    }
+    const latestAnswers12 = useStrategyStore.getState().answers12;
 
     console.log('[Stage2] generate final story: start');
 
@@ -3457,7 +3446,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         storyDraft,
         winPatternsCandidate,
         selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
-        answers12,
+        answers12: latestAnswers12,
         companyTargets,
         industry,
         segments: segmentNames,
@@ -3595,7 +3584,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             swot: { strength, weakness, opportunity, threat },
             storyDraft,
             winPatternsCandidate,
-            answers12,
+            answers12: store.answers12,
             finalStory: chapters, // ★ 後方互換性のため保持
           };
           // ★ Stage2State型の後方互換性を保ちつつ、復元用の本命フィールドもlocalStorageに保持
@@ -3672,7 +3661,6 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     storyDraft,
     winPatternsCandidate,
     selectedWinPatternId,
-    answers12,
     companyTargets,
     industry,
     businessSegments,
@@ -4213,7 +4201,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       disabled={disabled || !hasDraft || generatingFinal}
                       className="px-8 py-4 rounded-xl bg-accent-action text-base font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors shadow-lg"
                     >
-                      {generatingFinal ? '生成中...' : '経営戦略を生成'}
+                      {generatingFinal ? '生成中...' : hasPendingDeepDive ? '深掘り回答を反映して経営戦略を生成' : '経営戦略を生成'}
                     </button>
                   </div>
 
@@ -4500,7 +4488,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           onClick={handleGenerateFinal}
                           className="rounded-xl border border-accent-action/40 bg-white px-8 py-3 text-sm font-semibold text-accent-ink disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-soft transition-colors"
                         >
-                          {generatingFinal ? '生成中...' : '経営戦略を再生成'}
+                          {generatingFinal ? '生成中...' : hasPendingDeepDive ? '深掘り回答を反映して経営戦略を再生成' : '経営戦略を再生成'}
                         </button>
                       </div>
 
