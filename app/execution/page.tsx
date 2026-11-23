@@ -42,6 +42,7 @@ import { financeActualItemsOf, type FinanceActualItem } from '@/lib/stage5/finan
 import { writeFinanceActual } from '@/lib/stage5/financeActualStore';
 import { krSaveOutcome } from '@/lib/strategy/krSaveOutcome';
 import type { KRStructured, KrActual } from '@/types/strategy';
+import { stage5NextActionLine } from '@/lib/nextAction';
 
 const NO_KRS: KRStructured[] = [];
 
@@ -2780,7 +2781,18 @@ function ExecutionPageContent() {
   return (
     <main className="min-h-screen bg-gray-50 avoid-agent-dock">
       {/* Header */}
-      <ExecutionHeader isHydrating={isHydrating} selected={selected} />
+      <ExecutionHeader
+        isHydrating={isHydrating}
+        selected={selected}
+        nextAction={
+          isHydrating
+            ? undefined
+            : stage5NextActionLine({
+                hasProjects: cascade.some((d) => (d.projects ?? []).length > 0),
+                hasStartedPlan: cascade.some((d) => (d.projects ?? []).some((p: any) => (p.okrsV2?.length ?? 0) > 0)),
+              })
+        }
+      />
 
 
       {/* モバイル */}

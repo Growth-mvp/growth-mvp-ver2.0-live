@@ -20,6 +20,7 @@ import Stage1ToStage2Panel from '@/components/stage1/Stage1ToStage2Panel';
 import ListingInfoPanel from '@/components/stage1/ListingInfoPanel';
 import CompanyAutofillPanel from '@/components/stage1/CompanyAutofillPanel';
 import WaccPanel from '@/components/stage1/WaccPanel';
+import { resolveStage1SaveFeedback } from '@/lib/stage1/saveFeedback';
 
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
 type TabType = 'input' | 'analysis';
@@ -419,13 +420,16 @@ export default function Stage1Page() {
           });
         }, 1000);
 
-        console.log('[stage1/save] success', res);
-        setSaveState('success');
-        setSaveMessage('保存しました');
-        window.setTimeout(() => {
-          setSaveState('idle');
-          setSaveMessage('');
-        }, 1500);
+        const feedback = resolveStage1SaveFeedback(res, isManual);
+        console.log('[stage1/save] result', { reason, feedback: feedback.state, res });
+        setSaveState(feedback.state);
+        setSaveMessage(feedback.message);
+        if (feedback.state === 'success') {
+          window.setTimeout(() => {
+            setSaveState('idle');
+            setSaveMessage('');
+          }, 1500);
+        }
       } catch (e) {
         console.error('[stage1/save] failed', e);
         setSaveState('error');

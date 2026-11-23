@@ -45,6 +45,7 @@ import { commitFinalStoryDraft, FINAL_STORY_INVALID_MESSAGE, FINAL_STORY_SAVE_FA
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { buildDeepDiveApplyPatch, isDeepDiveApplicable, isDeepDiveUnreflected } from '@/components/stage2/deepDiveApply';
+import { stage2NextActionLine } from '@/lib/nextAction';
 import { SwotOpportunityPanel } from '@/components/stage2/SwotOpportunityPanel';
 import { extendPlanOf, isSameScope, opportunityCandidatesOf, selectedEntryOf } from '@/lib/swot/candidateView';
 import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
@@ -2647,9 +2648,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       /* ★ TASK A-4: answers12 を store 直更新に統一（配列生成して setAnswers12） */
       const a12 = st.answers12 ?? [];
       if (Array.isArray(a12) && a12.length > 0) {
-        const next = mergeSavedAnswers12<Stage2DeepDive>(a12, Array.isArray(answers12) ? answers12 : []);
+        const current = Array.isArray(answers12) ? answers12 : [];
+        const next = mergeSavedAnswers12<Stage2DeepDive>(a12, current);
 
-        setAnswers12(next);
+        // 内容が同じときは書き込まない（setAnswers12 は dirty を立て、「未保存」と不要な自動保存を起こす）
+        if (JSON.stringify(next) !== JSON.stringify(current)) setAnswers12(next);
         lastSyncedAnswersHashRef.current = hashAnswers12(next);
       }
 
@@ -3981,6 +3984,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const canOpenDraft = issueBlocks.length > 0; // STAGE1論点は常に見せる
   const hasDraft = storyDraft.length > 0;
   const hasFinal = displayingStory.length > 0;
+  const nextActionLine = stage2NextActionLine({
+    hasDraft,
+    hasFinal,
+    committed: (finalStoryFinalRaw?.length ?? 0) > 0,
+    hasPendingDeepDive,
+  });
 
   // ★ TASK 10-3: UI表示直前に field_check ログ（DEV限定）
   if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -4049,6 +4058,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                 hasDraft={hasDraft}
                 hasFinal={hasFinal}
               />
+              <p className="mt-3 rounded-lg bg-accent-soft px-3 py-2 text-sm font-medium text-accent-ink">{nextActionLine}</p>
             </div>
           </div>
 

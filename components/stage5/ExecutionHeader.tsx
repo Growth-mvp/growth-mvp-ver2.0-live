@@ -5,9 +5,10 @@ import { CheckCircle2 } from 'lucide-react';
 interface ExecutionHeaderProps {
   isHydrating: boolean;
   selected: unknown;
+  nextAction?: string;
 }
 
-export function ExecutionHeader({ isHydrating, selected }: ExecutionHeaderProps) {
+export function ExecutionHeader({ isHydrating, selected, nextAction }: ExecutionHeaderProps) {
   return (
     <div className="bg-white/90 border-b border-black/10 sticky top-0 z-20 backdrop-blur-xl">
       <div className="px-4 md:px-6 lg:px-6 py-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -26,6 +27,8 @@ export function ExecutionHeader({ isHydrating, selected }: ExecutionHeaderProps)
           <p className="mt-2 text-sm text-gray-600">
             進捗と課題を捉え、計画を止めずに前へ進めます。
           </p>
+
+          {nextAction && <p className="mt-3 rounded-lg bg-accent-soft px-3 py-2 text-sm font-medium text-accent-ink">{nextAction}</p>}
 
           {isHydrating && <div className="mt-2 text-sm text-gray-500">サーバーのデータを読み込み中です…</div>}
         </div>
