@@ -43,7 +43,7 @@ export function KpiCard({
       <TermLabel primary={label} term={term} className="text-sm font-semibold text-slate-700" />
       <div className="mt-1 text-xl font-bold text-slate-900">{value}</div>
       {note && <div className="mt-1 text-xs leading-relaxed text-slate-600">{note}</div>}
-      {actionLabel && <div className="mt-2 text-xs font-semibold text-indigo-700">{actionLabel} →</div>}
+      {actionLabel && <div className="mt-2 text-xs font-semibold text-accent-ink">{actionLabel} →</div>}
     </>
   );
   if (onClick) {
@@ -181,7 +181,7 @@ export function FinanceVerdictPanel({
                   <button
                     type="button"
                     onClick={() => onNavigate(item.tab)}
-                    className="self-start text-xs font-semibold text-indigo-700 hover:underline md:self-auto"
+                    className="self-start text-xs font-semibold text-accent-ink hover:underline md:self-auto"
                   >
                     {moveLabelOf(item.tab)}
                   </button>

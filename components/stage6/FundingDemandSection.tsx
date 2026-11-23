@@ -305,7 +305,7 @@ function ItemRow({ item, open, onToggle, siblings, onDuplicate }: ItemRowProps) 
         </td>
         <td className="px-3 py-2 text-xs text-slate-700">
           <div>{itemSpendConditionText(item)}</div>
-          <Link href={stage4Href(item)} className="mt-1 inline-block font-semibold text-indigo-700 hover:underline">
+          <Link href={stage4Href(item)} className="mt-1 inline-block font-semibold text-accent-ink hover:underline">
             STAGE4で編集
           </Link>
         </td>
