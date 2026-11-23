@@ -244,7 +244,7 @@ function ProcessStep({ number, title, description }: { number: number; title: st
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-action text-sm font-bold text-white">
           {number}
         </div>
         <h3 className="text-sm font-bold text-slate-950">{title}</h3>
@@ -400,7 +400,7 @@ function EditableTextSection({
                 onSave(draft.trim());
                 setIsEditing(false);
               }}
-              className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+              className="rounded-lg bg-accent-action px-4 py-2 text-xs font-semibold text-white transition hover:bg-accent-hover"
             >
               保存
             </button>
@@ -484,7 +484,7 @@ function EditableListSection({
                 onSave(normalizeTextList(draft));
                 setIsEditing(false);
               }}
-              className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+              className="rounded-lg bg-accent-action px-4 py-2 text-xs font-semibold text-white transition hover:bg-accent-hover"
             >
               保存
             </button>
@@ -567,7 +567,7 @@ function NextActionsSection({
           <button
             type="button"
             onClick={startNew}
-            className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+            className="rounded-lg bg-accent-action px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-accent-hover"
           >
             追加
           </button>
@@ -666,7 +666,7 @@ function NextActionsSection({
               type="button"
               onClick={saveDraft}
               disabled={!draft.title.trim()}
-              className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="rounded-lg bg-accent-action px-4 py-2 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-slate-200"
             >
               保存
             </button>
@@ -791,7 +791,7 @@ function StrategyReflectionSection({
             <button
               type="button"
               onClick={onCreateStage3Candidate}
-              className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="rounded-xl bg-accent-action px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent-hover"
             >
               STAGE3 事業・部門別戦略への反映候補を作成
             </button>
@@ -984,7 +984,7 @@ function TopicCard({
               <p className="mt-1 text-xs text-slate-500">現場と会社の見方の違い</p>
               <div className="mt-3 grid gap-3 md:grid-cols-3">
                 <div className="rounded-xl border border-accent/20 bg-accent-soft p-4">
-                  <p className="font-semibold text-blue-900">現場の認識</p>
+                  <p className="font-semibold text-accent-ink">現場の認識</p>
                   <p className="mt-3 text-sm leading-7 text-zinc-800">{topic.recognitionGap.fieldView}</p>
                 </div>
                 <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
@@ -1030,7 +1030,7 @@ function TopicCard({
                     <button
                       type="button"
                       onClick={() => updateTopic({ status: "対応方針決定" })}
-                      className="mt-3 rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 w-full"
+                      className="mt-3 rounded-lg bg-accent-action px-4 py-2 text-xs font-semibold text-white transition hover:bg-accent-hover w-full"
                     >
                       対応方針を確定する
                     </button>
