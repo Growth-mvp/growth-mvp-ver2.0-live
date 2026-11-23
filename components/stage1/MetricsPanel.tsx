@@ -957,10 +957,10 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
       </p>
 
       {/* 分析ボタン */}
-      <div className="border rounded p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-4">
         <div>
-          <div className="font-semibold">分析</div>
-          <div className="text-xs text-gray-500 mt-1">指標（CAGR / ROIC / D/E など）が表示されない場合は、分析を更新してください。</div>
+          <div className="font-medium text-zinc-900">分析</div>
+          <div className="mt-1 text-[13px] text-zinc-600">指標（CAGR / ROIC / D/E など）が表示されない場合は、分析を更新してください。</div>
 
           {analysisMessage && (
             <div className={`text-xs mt-2 ${analysisStatus === 'error' ? 'text-red-700' : 'text-green-700'}`}>
@@ -969,15 +969,15 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
           )}
         </div>
 
-        <button onClick={handleRecompute} className="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+        <button onClick={handleRecompute} className="h-10 rounded-xl bg-accent-action px-4 text-[15px] font-medium text-white transition-colors hover:bg-accent-hover">
           分析を更新
         </button>
       </div>
 
       {/* 企業価値の現在地（最重要指標） */}
-      <div className="border-2 border-blue-500 rounded-lg p-6 mb-6 bg-gradient-to-br from-blue-50 to-white">
+      <div className="mb-6 rounded-2xl border border-zinc-200 bg-white p-6">
         <div className="flex items-center gap-2 mb-4">
-          <div className="text-lg font-bold text-blue-900">企業価値の現在地</div>
+          <div className="text-[18px] font-medium text-zinc-900">企業価値の現在地</div>
           <div className="text-xs text-gray-500">（最重要指標）</div>
         </div>
         <div className="text-sm text-gray-600 mb-4">

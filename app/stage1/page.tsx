@@ -651,9 +651,9 @@ export default function Stage1Page() {
         {/* ========== タブ内容：分析・論点 ========== */}
         {activeTab === 'analysis' && (
           <div className="space-y-6">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-900">
-              <div className="font-semibold mb-1">分析・論点でやること</div>
-              <div className="text-xs leading-relaxed">
+            <div className="rounded-2xl border border-accent/20 bg-accent-soft p-4 text-[15px] text-zinc-800">
+              <div className="mb-1 font-medium text-accent-ink">分析・論点でやること</div>
+              <div className="text-[13px] leading-relaxed">
                 1. 「財務指標」で計算結果を確認
                 <br />
                 2. 「論点整理」で経営課題・機会を議論し、「STAGE2へ」進む

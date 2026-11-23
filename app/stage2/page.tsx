@@ -217,7 +217,7 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: 
                 </span>
               )}
               <span>{tab.label}</span>
-              {tab.warning && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
+              {tab.warning && <span className="absolute -top-1 -right-1 w-3 h-3 bg-caution rounded-full animate-pulse" />}
             </button>
             {index < tabs.length - 1 && <div className="w-8 h-0.5 bg-gray-200 xl:dark:bg-gray-700" />}
           </React.Fragment>
@@ -325,12 +325,12 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
   if (!finalStory || finalStory.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6 xl:xl:dark:border-emerald-800 xl:xl:dark:bg-emerald-900/20">
-      <h3 className="text-lg font-semibold text-emerald-800 mb-4 xl:xl:dark:text-emerald-200">社員に伝えたい「経営の意図」</h3>
+    <div className="rounded-2xl border border-zinc-200 bg-white p-6">
+      <h3 className="mb-4 text-[18px] font-medium text-zinc-900">社員に伝えたい「経営の意図」</h3>
       <div className="space-y-4">
         {finalStory.map((chapter, i) => (
-          <div key={i} className="border-l-2 border-emerald-400 pl-4">
-            <h4 className="text-sm font-semibold text-emerald-700 mb-1 xl:xl:dark:text-emerald-300">{chapter.title}</h4>
+          <div key={i} className="border-l-2 border-zinc-300 pl-4">
+            <h4 className="mb-1 text-[15px] font-medium text-zinc-800">{chapter.title}</h4>
             <div className="text-sm text-gray-700 whitespace-pre-wrap break-words leading-relaxed xl:xl:dark:text-gray-300">
               {stripIssueSummaryFromDisplay(chapter.body)}
             </div>
@@ -824,21 +824,18 @@ function CurrentToTargetPanel({ revenue, operatingProfit }: CurrentToTargetPanel
  * =================================================== */
 function GlassCard({
   title,
-  accentClass,
   children,
   hint,
 }: {
   title: string;
-  accentClass?: string;
   children: React.ReactNode;
   hint?: string;
 }) {
   return (
-    <div className="relative rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md ring-1 ring-black/5">
-      {accentClass && <div className={`absolute inset-x-0 top-0 h-1 rounded-t-2xl ${accentClass}`} />}
+    <div className="relative rounded-2xl border border-zinc-200 bg-white xl:dark:bg-white/5">
       <div className="p-4 md:p-5">
-        <div className="mb-3 text-sm font-semibold text-gray-700 xl:dark:text-gray-200">{title}</div>
-        {hint && <p className="mb-3 text-[13px] leading-relaxed text-gray-500 xl:dark:text-gray-400">{hint}</p>}
+        <div className="mb-3 text-[17px] font-medium text-zinc-900 xl:dark:text-gray-200">{title}</div>
+        {hint && <p className="mb-3 text-[13px] leading-relaxed text-zinc-600 xl:dark:text-gray-400">{hint}</p>}
         {children}
       </div>
     </div>
@@ -1162,7 +1159,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
   };
 
   return (
-    <div className="rounded-2xl border border-purple-200 xl:dark:border-purple-800 bg-purple-50/50 xl:dark:bg-purple-900/20 p-6">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-6">
       <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">🏁 業績目標</h3>
 
       {/* 既存目標表示 */}
@@ -1176,13 +1173,13 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
           return (
             <div
               key={ctId}
-              className="p-3 bg-white/60 xl:dark:bg-white/5 rounded-lg border border-purple-200 xl:dark:border-purple-700"
+              className="rounded-xl border border-zinc-200 bg-white p-4"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="font-medium text-gray-800 xl:dark:text-gray-100">
                     {ct.label}
-                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-purple-100/70 xl:dark:bg-purple-800/40 text-purple-700 xl:dark:text-purple-200">
+                    <span className="ml-2 inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[12px] font-medium text-zinc-700">
                       {priorityLabel(ct.prioritySimple)}
                     </span>
                   </div>
@@ -1195,7 +1192,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                   <div className="text-xs text-gray-600 xl:dark:text-gray-400 mt-1">目標値: {ct.base}</div>
 
                   {ct.rationale && (
-                    <div className="text-xs text-purple-700 xl:dark:text-purple-300 mt-2 p-2 bg-purple-100/30 xl:dark:bg-purple-800/30 rounded">
+                    <div className="mt-2 rounded-lg bg-zinc-50 p-2 text-[13px] text-zinc-700">
                       {ct.rationale}
                     </div>
                   )}
@@ -1216,7 +1213,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                   <button
                     type="button"
                     onClick={() => handleDelete(ct.id)}
-                    className="px-2 py-1 text-xs rounded bg-red-100 xl:dark:bg-red-900/30 text-red-700 xl:dark:text-red-400 hover:bg-red-200 xl:dark:hover:bg-red-900/50"
+                    className="rounded-lg px-2 py-1 text-[13px] text-danger hover:bg-danger-soft"
                   >
                     削除
                   </button>
@@ -1229,7 +1226,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
 
       {/* 追加/編集フォーム */}
       {(isAddingNew || editingId) && (
-        <div className="border-t border-purple-200 xl:dark:border-purple-700 pt-6 mb-6">
+        <div className="border-t border-zinc-200 pt-6 mb-6">
           <h4 className="text-sm font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">{editingId ? '編集' : '新規追加'}</h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-4 mb-4">
@@ -1373,7 +1370,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
             <button
               type="button"
               onClick={editingId ? handleUpdate : handleAdd}
-              className="px-4 py-2 text-sm rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+              className="h-10 rounded-xl bg-accent-action px-4 text-[15px] font-medium text-white transition-colors hover:bg-accent-hover"
             >
               {editingId ? '更新' : '追加'}
             </button>
@@ -1385,7 +1382,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
         <button
           type="button"
           onClick={() => setIsAddingNew(true)}
-          className="w-full px-4 py-2 text-sm rounded-lg border border-dashed border-purple-300 xl:dark:border-purple-700 text-purple-700 xl:dark:text-purple-400 hover:bg-purple-50/50 xl:dark:hover:bg-purple-900/10 transition-colors"
+          className="h-10 w-full rounded-xl border border-dashed border-zinc-300 px-4 text-[15px] font-medium text-accent-ink transition-colors hover:bg-accent-soft"
         >
           + 新規メトリクスを追加
         </button>
@@ -1410,9 +1407,9 @@ function SWOTSection() {
       <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">SWOT分析</h3>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <GlassCard title="Strength（強み）" accentClass="bg-emerald-400/80" hint="自社の競争優位性">
+        <GlassCard title="Strength（強み）" hint="自社の競争優位性">
           <AutoResizeTextarea
-            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
             value={strength}
             onChange={(e) => setSWOT({ strength: e.target.value })}
             placeholder="例：高度な技術力／顧客との信頼関係"
@@ -1421,9 +1418,9 @@ function SWOTSection() {
           />
         </GlassCard>
 
-        <GlassCard title="Weakness（弱み）" accentClass="bg-rose-400/80" hint="改善が必要な領域">
+        <GlassCard title="Weakness（弱み）" hint="改善が必要な領域">
           <AutoResizeTextarea
-            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
             value={weakness}
             onChange={(e) => setSWOT({ weakness: e.target.value })}
             placeholder="例：人材不足／情報発信の弱さ"
@@ -1432,9 +1429,9 @@ function SWOTSection() {
           />
         </GlassCard>
 
-        <GlassCard title="Opportunity（機会）" accentClass="bg-sky-400/80" hint="外部環境の追い風">
+        <GlassCard title="Opportunity（機会）" hint="外部環境の追い風">
           <AutoResizeTextarea
-            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
             value={opportunity}
             onChange={(e) => setSWOT({ opportunity: e.target.value })}
             placeholder="例：市場拡大／規制緩和"
@@ -1443,9 +1440,9 @@ function SWOTSection() {
           />
         </GlassCard>
 
-        <GlassCard title="Threat（脅威）" accentClass="bg-amber-400/80" hint="外部環境のリスク">
+        <GlassCard title="Threat（脅威）" hint="外部環境のリスク">
           <AutoResizeTextarea
-            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
             value={threat}
             onChange={(e) => setSWOT({ threat: e.target.value })}
             placeholder="例：価格競争の激化／景気悪化"
