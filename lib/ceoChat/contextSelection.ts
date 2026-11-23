@@ -65,12 +65,43 @@ export function selectSupplementSources(query: string): SupplementSources {
   return { cash: CASH_CUE.test(q), talent: TALENT_CUE.test(q) };
 }
 
+const WORK_CUE = /担当|配達|配送|現場|業務|仕事|社員|部門|上司|作業|立場/;
+
+export function selectOrganizationSource(query: string): boolean {
+  return WORK_CUE.test(query ?? '');
+}
+
+const TITLE_MAX_CHARS = 30;
+const DEPARTMENTS_MAX = 6;
+const PROJECTS_PER_DEPARTMENT_MAX = 4;
+
+function buildOrganizationBlock(departments: unknown): string {
+  const depts: any[] = Array.isArray(departments) ? departments : [];
+  const lines: string[] = [];
+  for (const d of depts.slice(0, DEPARTMENTS_MAX)) {
+    const name = typeof d?.name === 'string' ? d.name.trim() : '';
+    if (!name) continue;
+    const titles = (Array.isArray(d?.projects) ? d.projects : [])
+      .map((p: any) => (typeof p?.title === 'string' ? p.title.trim() : ''))
+      .filter((t: string) => t !== '')
+      .slice(0, PROJECTS_PER_DEPARTMENT_MAX)
+      .map((t: string) => (t.length > TITLE_MAX_CHARS ? t.slice(0, TITLE_MAX_CHARS) + '…' : t));
+    lines.push(`- ${name}：${titles.length > 0 ? titles.map((t: string) => `「${t}」`).join('、') : 'プロジェクト未登録'}`);
+  }
+  if (lines.length === 0) return '';
+  return [
+    '【自社の部門・プロジェクト（名称）】相談に関係する部門・プロジェクトだけを使う。相談者の部門や担当が分からない場合は、どの部門かを推測しない。',
+    ...lines,
+  ].join('\n');
+}
+
 export function buildSelectedContextBlock(args: {
   selection: ContextSelection;
   strategy: Record<string, any> | null | undefined;
   companyDataIncluded: boolean;
+  organization?: boolean;
 }): string {
-  const { selection, strategy, companyDataIncluded } = args;
+  const { selection, strategy, companyDataIncluded, organization } = args;
   const parts: string[] = [];
 
   if (selection.unclear) {
@@ -93,6 +124,11 @@ export function buildSelectedContextBlock(args: {
 
   if (selection.alignment && !selection.operation) {
     parts.push(buildStage3BridgeBlock(strategy).text);
+  }
+
+  if (organization && companyDataIncluded) {
+    const organizationBlock = buildOrganizationBlock(strategy.departments);
+    if (organizationBlock) parts.push(organizationBlock);
   }
 
   return parts.join('\n\n');

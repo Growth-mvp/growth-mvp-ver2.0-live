@@ -45,6 +45,7 @@ import {
   buildSelectedContextBlock,
   hasCompanyReference,
   isGeneralKnowledgeQuestion,
+  selectOrganizationSource,
 } from '@/lib/ceoChat/contextSelection';
 import { buildExecutionSummaryBlock, isDepartmentsAbsent } from '@/lib/ceoChat/stage4Projection';
 import { buildStage4PlanBlock, loadStage4PlanRows } from '@/lib/ceoChat/stage4PlanBlock';
@@ -172,6 +173,9 @@ STAGE5は、立てた計画の実行状況を確認し、課題や次の行動�
 /* ========= 禁則 ========= */
 const TABOO =
   '【回答禁止】個人情報・人事評価や人事異動の断定、株主・取締役の機微情報、具体的な法的助言、確証のない断定的表現には答えません。必要な場合は専門家相談を案内します。';
+
+const FEATURE_CLAIM_RULE =
+  '【機能の案内】GROWTH SHIFTの画面や機能として案内してよいのは、この説明と操作ガイドに書かれたものだけです。書かれていない記録・台帳・管理・通知の機能は、GROWTH SHIFTにあるとは言わないでください。業務上の記録が必要な場合は、「Excelや紙などで記録する」といった一般的な方法として提案してください。';
 
 /* ========= ユーティリティ ========= */
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? (v as T[]) : []);
@@ -623,7 +627,9 @@ export async function POST(req: Request) {
         '\n\n' + GROWTH_SHIFT_FOUNDATION +
         ragContextBlock +
         '\n' +
-        TABOO;
+        TABOO +
+        '\n' +
+        FEATURE_CLAIM_RULE;
     } else {
       // advisor/facilitator モード: 既存ロジック（agent-based systemPrompt）
       // ③ 検査: どの経路が選ばれるか + 企業データ参照の判定
@@ -695,7 +701,9 @@ export async function POST(req: Request) {
             '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
           : 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION) +
         '\n' +
-        TABOO;
+        TABOO +
+        '\n' +
+        FEATURE_CLAIM_RULE;
 
       // facilitator モード時のみファシリテーション指示を追加
       if (resolvedMode === 'facilitator') {
@@ -707,6 +715,7 @@ export async function POST(req: Request) {
         selection: contextSelection,
         strategy: strategy as any,
         companyDataIncluded: !!shouldUseAgentPrompt,
+        organization: selectOrganizationSource(lastUser),
       });
       if (selectedContextBlock) systemBase += '\n\n' + selectedContextBlock;
 

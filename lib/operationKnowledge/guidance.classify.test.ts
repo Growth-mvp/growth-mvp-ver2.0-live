@@ -3,6 +3,7 @@ import { buildOperationGuidance, classifyQuestion, detectOperationIntent } from 
 describe('質問の分類（操作・経営・複合）', () => {
   it.each([
     ['初めて使うんだけど、何から始めたらいい？', 'operation'],
+    ['私は宅配の配達を担当している社員です。毎日、初めて行く住所が分かりにくくて困っています。', 'none'],
     ['この画面では何をすればいい？', 'operation'],
     ['SWOT分析って何？ どうすればいいの？', 'operation'],
     ['経営計画書を作りたい。', 'operation'],
