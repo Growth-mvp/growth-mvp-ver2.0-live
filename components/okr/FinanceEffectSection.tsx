@@ -87,9 +87,9 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
 
   const toneClass = {
     muted: 'bg-zinc-100 text-zinc-600',
-    warning: 'bg-amber-100 text-amber-800',
-    info: 'bg-blue-100 text-blue-800',
-    success: 'bg-emerald-100 text-emerald-800',
+    warning: 'bg-caution-soft text-caution',
+    info: 'bg-accent-soft text-accent-ink',
+    success: 'bg-success-soft text-success',
   }[vm.tone];
 
   const originText = origin ? ORIGIN_LABEL[origin] : aiProposed ? ORIGIN_LABEL.AI_PROPOSED : UNVERIFIED_ORIGIN_LABEL;
@@ -118,7 +118,7 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
       )}
 
       <div className="mt-3 space-y-3 text-[12px] text-zinc-700">
-        {vm.missingText && <p className="text-[11px] text-amber-800">{vm.missingText}</p>}
+        {vm.missingText && <p className="text-[11px] text-caution">{vm.missingText}</p>}
 
         <label className="block space-y-1">
           <span className="text-[11px] font-semibold">効果の種類</span>
@@ -407,7 +407,7 @@ export function FinanceEffectSection({ effect, disabled, overlapCandidates, onCh
             )}
 
             {overlapCandidates.length > 0 && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+              <div className="rounded-md border border-caution/40 bg-caution-soft p-2 text-[11px] text-caution">
                 <div className="font-semibold">重複の可能性がある施策（自動では除外しません）</div>
                 <ul className="mt-1 list-disc pl-4">
                   {overlapCandidates.map((l) => (

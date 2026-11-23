@@ -43,7 +43,7 @@ export function BasisBadge({ basis }: { basis: Basis }) {
 }
 
 export function EditedBadge() {
-  return <span className="rounded-full bg-fuchsia-50 px-2 py-[1px] text-[11px] font-semibold text-fuchsia-700">編集済み</span>;
+  return <span className="rounded-full bg-accent-soft px-2 py-[1px] text-[11px] font-semibold text-accent-ink">編集済み</span>;
 }
 
 function Editor({

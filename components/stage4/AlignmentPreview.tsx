@@ -113,13 +113,13 @@ export function AlignmentPreview({ current, valueDriverKPIs, targetRanges }: Ali
       {/* サマリー */}
       <div className="flex items-center gap-4 text-sm">
         {okCount > 0 && (
-          <span className="flex items-center gap-1.5 text-green-700">
+          <span className="flex items-center gap-1.5 text-success">
             <CheckCircle2 className="w-4 h-4" />
             整合OK
           </span>
         )}
         {warningCount > 0 && (
-          <span className="flex items-center gap-1.5 text-yellow-700">
+          <span className="flex items-center gap-1.5 text-caution">
             <AlertTriangle className="w-4 h-4" />
             警告: {warningCount}件
           </span>
@@ -137,9 +137,9 @@ export function AlignmentPreview({ current, valueDriverKPIs, targetRanges }: Ali
         {issues.map((issue, idx) => {
           const config =
             issue.type === 'ok'
-              ? { icon: <CheckCircle2 className="w-4 h-4" />, bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-800' }
+              ? { icon: <CheckCircle2 className="w-4 h-4" />, bg: 'bg-success-soft', border: 'border-success/30', text: 'text-success' }
               : issue.type === 'warning'
-                ? { icon: <AlertTriangle className="w-4 h-4" />, bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-800' }
+                ? { icon: <AlertTriangle className="w-4 h-4" />, bg: 'bg-caution-soft', border: 'border-caution/40', text: 'text-caution' }
                 : { icon: <Info className="w-4 h-4" />, bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-800' };
 
           return (

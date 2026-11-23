@@ -50,7 +50,7 @@ export default function DevPlanDocument() {
 
   return (
     <div className="space-y-4">
-      <div role="note" className="rounded-lg border border-dashed border-amber-400 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
+      <div role="note" className="rounded-lg border border-dashed border-bluegray-light bg-bluegray-mist px-3 py-2 text-[12px] text-bluegray-deep">
         開発用の表示です。架空企業の保存済みデータを使っており、実在の計画ではありません。画面内の操作は保存されません。
       </div>
 

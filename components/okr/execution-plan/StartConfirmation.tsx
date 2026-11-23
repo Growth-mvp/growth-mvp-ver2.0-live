@@ -104,19 +104,19 @@ export default function StartConfirmation({ plan, view, bodyDirty, responsible, 
       </div>
 
       {!ready && (
-        <ul className="list-disc pl-5 text-[12px] text-amber-800">
+        <ul className="list-disc pl-5 text-[12px] text-caution">
           {blockers.map((b) => (
             <li key={b}>{b}</li>
           ))}
         </ul>
       )}
       {stage3Changes > 0 && (
-        <p className="rounded-lg bg-amber-50 p-3 text-[12px] text-amber-900">
+        <p className="rounded-lg bg-caution-soft p-3 text-[12px] text-caution">
           STAGE3の目標・期限・担当を{stage3Changes}件変更しています。全社・他部門への影響がある場合は、関係者に共有してから開始してください（STAGE3の正式な戦略は変わりません）。
         </p>
       )}
-      {actionNotice && <p className="rounded-lg bg-amber-50 p-3 text-[12px] text-amber-900">{actionNotice}</p>}
-      {plan.holdNotice && <p className="rounded-lg bg-amber-50 p-3 text-[12px] text-amber-900">条件が欠けたため、開始を保留しました。</p>}
+      {actionNotice && <p className="rounded-lg bg-bluegray-mist p-3 text-[12px] text-bluegray-deep">{actionNotice}</p>}
+      {plan.holdNotice && <p className="rounded-lg bg-caution-soft p-3 text-[12px] text-caution">条件が欠けたため、開始を保留しました。</p>}
     </div>
   );
 }

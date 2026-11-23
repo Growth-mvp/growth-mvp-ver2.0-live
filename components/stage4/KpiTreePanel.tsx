@@ -40,12 +40,12 @@ export function KpiTreePanel({
   // STAGE2/STAGE3がない場合のプレースホルダー
   if (!viewModel.hasMidtermStrategy && (!departments || departments.length === 0)) {
     return (
-      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-900/20 p-6">
-        <h3 className="text-lg font-semibold text-indigo-800 dark:text-indigo-200">KPI体系：全社戦略から事業・部門KPIへ</h3>
-        <p className="mt-1 text-sm text-indigo-700/80 dark:text-indigo-300/80">
+      <div className="rounded-2xl border border-bluegray-light bg-bluegray-mist p-6">
+        <h3 className="text-lg font-semibold text-bluegray-deep">KPI体系：全社戦略から事業・部門KPIへ</h3>
+        <p className="mt-1 text-sm text-bluegray-deep/80">
           STAGE2の全社戦略とSTAGE3の事業・部門別戦略をもとに、KPIのつながりを確認します。
         </p>
-        <div className="mt-4 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 bg-white/50 dark:bg-white/5 p-4">
+        <div className="mt-4 rounded-lg border border-dashed border-bluegray-light bg-white/50 dark:bg-white/5 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
             STAGE2の全社戦略・中計設計、またはSTAGE3の事業・部門別戦略がまだ生成されていません。
           </p>
@@ -57,12 +57,12 @@ export function KpiTreePanel({
   // 全社テーマ・判断基準がない場合のプレースホルダー
   if (!viewModel.hasMidtermStrategy) {
     return (
-      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-900/20 p-6">
-        <h3 className="text-lg font-semibold text-indigo-800 dark:text-indigo-200">KPI体系：全社戦略から事業・部門KPIへ</h3>
-        <p className="mt-1 text-sm text-indigo-700/80 dark:text-indigo-300/80">
+      <div className="rounded-2xl border border-bluegray-light bg-bluegray-mist p-6">
+        <h3 className="text-lg font-semibold text-bluegray-deep">KPI体系：全社戦略から事業・部門KPIへ</h3>
+        <p className="mt-1 text-sm text-bluegray-deep/80">
           STAGE2の全社戦略とSTAGE3の事業・部門別戦略をもとに、KPIのつながりを確認します。
         </p>
-        <div className="mt-4 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 bg-white/50 dark:bg-white/5 p-4">
+        <div className="mt-4 rounded-lg border border-dashed border-bluegray-light bg-white/50 dark:bg-white/5 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
             STAGE2の全社戦略・中計設計がまだ生成されていません。STAGE2で最終ストーリーを生成すると、ここにKPI体系が表示されます。
           </p>
@@ -72,17 +72,17 @@ export function KpiTreePanel({
   }
 
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-900/20 p-6 space-y-6">
+    <div className="rounded-2xl border border-bluegray-light bg-bluegray-mist p-6 space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-indigo-800 dark:text-indigo-200">KPI体系：全社戦略から事業・部門KPIへ</h3>
-        <p className="mt-1 text-sm text-indigo-700/80 dark:text-indigo-300/80">
+        <h3 className="text-lg font-semibold text-bluegray-deep">KPI体系：全社戦略から事業・部門KPIへ</h3>
+        <p className="mt-1 text-sm text-bluegray-deep/80">
           STAGE2の全社戦略とSTAGE3の事業・部門別戦略をもとに、KPIのつながりを確認します。
         </p>
       </div>
 
       {/* 全社レベル */}
       {viewModel.companyThemes.length > 0 && (
-        <div className="rounded-lg border border-indigo-300/50 dark:border-indigo-700/50 bg-white/60 dark:bg-white/5 p-4">
+        <div className="rounded-lg border border-bluegray-light bg-white/60 dark:bg-white/5 p-4">
           <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200">全社の重点戦略テーマ</h4>
           <ul className="mt-2 list-disc pl-5 space-y-1">
             {viewModel.companyThemes.map((theme, i) => (
@@ -95,7 +95,7 @@ export function KpiTreePanel({
       )}
 
       {viewModel.companyDecisionCriteria.length > 0 && (
-        <div className="rounded-lg border border-indigo-300/50 dark:border-indigo-700/50 bg-white/60 dark:bg-white/5 p-4">
+        <div className="rounded-lg border border-bluegray-light bg-white/60 dark:bg-white/5 p-4">
           <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200">全社共通の判断基準</h4>
           <ul className="mt-2 list-disc pl-5 space-y-1">
             {viewModel.companyDecisionCriteria.map((criterion, i) => (
@@ -168,7 +168,7 @@ export function KpiTreePanel({
       )}
 
       {viewModel.units.length === 0 && viewModel.hasMidtermStrategy && (
-        <div className="rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 bg-white/50 dark:bg-white/5 p-4">
+        <div className="rounded-lg border border-dashed border-bluegray-light bg-white/50 dark:bg-white/5 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
             STAGE3の事業・部門別戦略がまだ生成されていません。
           </p>

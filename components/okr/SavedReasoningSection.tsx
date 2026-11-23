@@ -29,8 +29,8 @@ type Props = {
   onResume: () => void;
 };
 
-const btn = 'rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-indigo-900 hover:bg-indigo-50 disabled:opacity-50';
-const primary = 'rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50';
+const btn = 'rounded-lg border border-bluegray-light bg-white px-3 py-1.5 text-[12px] font-semibold text-bluegray-deep hover:bg-bluegray-mist disabled:opacity-50';
+const primary = 'rounded-lg bg-accent-action px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-hover disabled:opacity-50';
 
 function QuestionForm({ q, disabled, hint, onAnswer, onSkip }: { q: FollowUpQuestion; disabled: boolean; hint?: string; onAnswer: (v: string | number) => void; onSkip: () => void }) {
   const [draft, setDraft] = useState('');
@@ -38,7 +38,7 @@ function QuestionForm({ q, disabled, hint, onAnswer, onSkip }: { q: FollowUpQues
   return (
     <div className="space-y-2">
       <div className="text-[13px] font-semibold text-zinc-900">{q.text}</div>
-      <div className="text-[11px] text-indigo-900">理由：{q.reason}</div>
+      <div className="text-[11px] text-bluegray-deep">理由：{q.reason}</div>
       {hint && <div className="text-[11px] text-zinc-700">{hint}</div>}
       <div className="flex flex-wrap items-end gap-2">
         {q.answerType === 'number' ? (
@@ -50,7 +50,7 @@ function QuestionForm({ q, disabled, hint, onAnswer, onSkip }: { q: FollowUpQues
               value={draft}
               disabled={disabled}
               onChange={(e) => setDraft(e.target.value)}
-              className="h-9 w-40 rounded-lg border border-indigo-100 bg-white px-3 text-[13px]"
+              className="h-9 w-40 rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
             />
           </label>
         ) : (
@@ -61,7 +61,7 @@ function QuestionForm({ q, disabled, hint, onAnswer, onSkip }: { q: FollowUpQues
               value={draft}
               disabled={disabled}
               onChange={(e) => setDraft(e.target.value)}
-              className="h-9 w-full rounded-lg border border-indigo-100 bg-white px-3 text-[13px]"
+              className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
             />
           </label>
         )}
@@ -95,20 +95,20 @@ export function SavedReasoningSection({ reasoning, assumptions, disabled, onConf
   if (causalKeys.length === 0 && keys.length === 0 && !hasQuestions) return null;
 
   return (
-    <section aria-label="AIの提案の根拠（保存済み）" className="mt-4 space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 text-[12px] text-zinc-800">
-      <div className="text-[13px] font-semibold text-indigo-900">AIの提案の根拠（保存済み）</div>
-      <p className="text-[11px] text-indigo-900">AIの仮説は、利用者が確認しても実績にはなりません。確認した事実は「確認済み」として残ります。</p>
+    <section aria-label="AIの提案の根拠（保存済み）" className="mt-4 space-y-3 rounded-xl border border-bluegray-light bg-bluegray-mist p-4 text-[12px] text-zinc-800">
+      <div className="text-[13px] font-semibold text-bluegray-deep">AIの提案の根拠（保存済み）</div>
+      <p className="text-[11px] text-bluegray-deep">AIの仮説は、利用者が確認しても実績にはなりません。確認した事実は「確認済み」として残ります。</p>
 
       {view.current && paused && (
-        <div aria-label="AIからの確認事項（後回し）" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-white p-3 text-[12px] text-indigo-900">
+        <div aria-label="AIからの確認事項（後回し）" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-bluegray-light bg-white p-3 text-[12px] text-bluegray-deep">
           <span>AIからの確認事項は後回しにしています（残り {view.pending} 件）</span>
           <button type="button" disabled={disabled} onClick={onResume} className={btn}>確認事項に戻る</button>
         </div>
       )}
 
       {view.current && !paused && (
-        <div aria-label="AIからの確認事項" className="space-y-2 rounded-lg border border-indigo-300 bg-white p-3">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-indigo-900">
+        <div aria-label="AIからの確認事項" className="space-y-2 rounded-lg border border-bluegray-light bg-white p-3">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-bluegray-deep">
             <span>AIからの確認事項（1問ずつ）</span>
             <span>残り {view.pending} 件 ／ 保留 {view.skipped.length} 件</span>
           </div>
@@ -120,19 +120,19 @@ export function SavedReasoningSection({ reasoning, assumptions, disabled, onConf
             onAnswer={(v) => onAnswer(view.current!, v)}
             onSkip={() => onSkip(view.current!)}
           />
-          <div className="border-t border-indigo-100 pt-2">
+          <div className="border-t border-zinc-200 pt-2">
             <button type="button" disabled={disabled} onClick={onPause} className={btn}>後で確認して、財務の質問へ進む</button>
           </div>
         </div>
       )}
 
       {!view.current && (view.answered.length > 0 || view.skipped.length > 0) && (
-        <p className="text-[11px] text-indigo-900">AIからの確認事項はすべて回答または保留済みです。</p>
+        <p className="text-[11px] text-bluegray-deep">AIからの確認事項はすべて回答または保留済みです。</p>
       )}
 
       {view.answered.length > 0 && (
-        <details className="rounded-lg border border-indigo-100 bg-white p-2">
-          <summary className="cursor-pointer text-[11px] font-semibold text-indigo-900">回答済み（{view.answered.length}件）</summary>
+        <details className="rounded-lg border border-zinc-200 bg-white p-2">
+          <summary className="cursor-pointer text-[11px] font-semibold text-bluegray-deep">回答済み（{view.answered.length}件）</summary>
           <ul className="mt-1 space-y-0.5 text-[11px]">
             {view.answered.map((q) => {
               const rec = reasoning.followUps?.[q.id];
@@ -148,11 +148,11 @@ export function SavedReasoningSection({ reasoning, assumptions, disabled, onConf
 
       {view.skipped.length > 0 && (
         <div className="space-y-1 text-[11px]">
-          <div className="font-semibold text-indigo-900">保留中（{view.skipped.length}件）</div>
+          <div className="font-semibold text-bluegray-deep">保留中（{view.skipped.length}件）</div>
           {view.skipped.map((q) => (
             <div key={q.id} className="flex flex-wrap items-center gap-2">
               <span>・{q.text}</span>
-              <button type="button" disabled={disabled} onClick={() => onReopen(q)} className="rounded-lg border border-indigo-200 bg-white px-2 py-0.5 font-semibold text-indigo-900 hover:bg-indigo-50 disabled:opacity-50">
+              <button type="button" disabled={disabled} onClick={() => onReopen(q)} className="rounded-lg border border-bluegray-light bg-white px-2 py-0.5 font-semibold text-bluegray-deep hover:bg-bluegray-mist disabled:opacity-50">
                 保留を解除
               </button>
             </div>
@@ -181,9 +181,9 @@ export function SavedReasoningSection({ reasoning, assumptions, disabled, onConf
               return (
                 <li key={k} className="flex flex-wrap items-center gap-2">
                   <span>{ASSUMPTION_LABEL[k] ?? k}：{value === undefined ? '未入力' : String(value)}</span>
-                  <span className="text-indigo-900">[{provenanceLabel(p)}]</span>
+                  <span className="text-bluegray-deep">[{provenanceLabel(p)}]</span>
                   {p && !p.userConfirmed && (
-                    <button type="button" disabled={disabled} onClick={() => onConfirm(k)} className="rounded-lg border border-indigo-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-50 disabled:opacity-50">
+                    <button type="button" disabled={disabled} onClick={() => onConfirm(k)} className="rounded-lg border border-bluegray-light bg-white px-2 py-0.5 text-[11px] font-semibold text-bluegray-deep hover:bg-bluegray-mist disabled:opacity-50">
                       この前提を確認した
                     </button>
                   )}

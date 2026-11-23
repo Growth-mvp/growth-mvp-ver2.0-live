@@ -93,7 +93,7 @@ function SpendConditionRow({ item, disabled, onPatch }: { item: InvestmentItem }
         </div>
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-            isComplete(item) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'
+            isComplete(item) ? 'bg-success-soft text-success' : 'bg-caution-soft text-caution'
           }`}
         >
           {isComplete(item) ? '支出条件 設定済み' : '支出条件 未設定あり'}
@@ -200,7 +200,7 @@ function SpendConditionRow({ item, disabled, onPatch }: { item: InvestmentItem }
         </div>
       </div>
 
-      {item.scheduleNote && <div className="mt-2 text-[11px] text-amber-700">{item.scheduleNote}</div>}
+      {item.scheduleNote && <div className="mt-2 text-[11px] text-caution">{item.scheduleNote}</div>}
       {hint && <div className="mt-2 text-[11px] text-zinc-500">{hint}</div>}
     </div>
   );

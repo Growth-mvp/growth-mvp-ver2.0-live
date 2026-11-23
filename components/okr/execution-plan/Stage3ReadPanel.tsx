@@ -894,7 +894,7 @@ function Stage3ProjectBrowser({
                         >
                           <div className="font-semibold">{p.projectTitle}</div>
                           {p.role && <div className={isSelected ? 'text-zinc-300' : 'text-zinc-500'}>{ROLE_LABEL[p.role] ?? p.role}</div>}
-                          {p.stoppedAt && <div className="text-rose-700">中止（{p.stoppedAt.slice(0, 10)}）</div>}
+                          {p.stoppedAt && <div className="text-bluegray-deep">中止（{p.stoppedAt.slice(0, 10)}）</div>}
                         </button>
                         {projectId && canChangeLifecycle && (
                           <ProjectLifecycleMenu
@@ -962,7 +962,7 @@ function Stage3ProjectBrowser({
           </p>
         )}
         {!view && <p className="rounded-lg bg-zinc-50 p-4 text-[13px] text-zinc-700">上の一覧からプロジェクトを選ぶと、STAGE3の情報を表示します。</p>}
-        {view && view.status === 'NO_DATA' && <p className="rounded-lg bg-amber-50 p-4 text-[13px] text-amber-900">{REASON_LABEL[view.reason] ?? '情報を表示できません。'}</p>}
+        {view && view.status === 'NO_DATA' && <p className="rounded-lg bg-bluegray-mist p-4 text-[13px] text-bluegray-deep">{REASON_LABEL[view.reason] ?? '情報を表示できません。'}</p>}
         {view && view.status === 'READY' && sel && (
           <ReadOnlyProject
             key={view.key}
@@ -1140,7 +1140,7 @@ function ReadOnlyProject({
           )}
           {!entry && !loadPending && load?.status === 'DENIED' && <p className="plan-p">この計画を見る権限がありません。</p>}
           {!entry && !loadPending && load?.status === 'UNAVAILABLE' && (
-            <p role="alert" className="plan-p rounded-lg bg-amber-50 p-3 text-amber-900">
+            <p role="alert" className="plan-p rounded-lg bg-caution-soft p-3 text-caution">
               {load.message}
             </p>
           )}

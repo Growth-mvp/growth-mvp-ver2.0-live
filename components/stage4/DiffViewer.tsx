@@ -123,7 +123,7 @@ export function DiffViewer({ baseline, current }: DiffViewerProps) {
       {/* サマリー */}
       <div className="flex items-center gap-4 text-sm">
         {diff.added.length > 0 && (
-          <span className="flex items-center gap-1.5 text-green-700">
+          <span className="flex items-center gap-1.5 text-accent-ink">
             <PlusCircle className="w-4 h-4" />
             追加: {diff.added.length}件
           </span>
@@ -145,11 +145,11 @@ export function DiffViewer({ baseline, current }: DiffViewerProps) {
       {/* 詳細リスト */}
       <div className="space-y-2">
         {diff.added.map((item, idx) => (
-          <div key={`add-${idx}`} className="flex items-start gap-2 text-sm bg-green-50 p-2 rounded border border-green-200">
-            <PlusCircle className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
+          <div key={`add-${idx}`} className="flex items-start gap-2 text-sm bg-accent-soft p-2 rounded border border-bluegray-light">
+            <PlusCircle className="w-4 h-4 text-accent-ink mt-0.5 shrink-0" />
             <div>
-              <span className="font-medium text-green-900">[{item.type}]</span>{' '}
-              <span className="text-green-800">{item.title}</span>
+              <span className="font-medium text-accent-ink">[{item.type}]</span>{' '}
+              <span className="text-accent-ink">{item.title}</span>
             </div>
           </div>
         ))}

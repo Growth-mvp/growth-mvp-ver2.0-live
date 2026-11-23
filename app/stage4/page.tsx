@@ -469,7 +469,7 @@ export default function Stage4Page() {
       <div className="p-8">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">STAGE4: 実行計画策定</h1>
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+          <div className="bg-caution-soft border border-caution/40 rounded-lg p-4 text-sm text-caution">
             STAGE3の部門・プロジェクトが見つかりません。先にSTAGE3を完了してください。
           </div>
           <div className="mt-4 flex gap-3">

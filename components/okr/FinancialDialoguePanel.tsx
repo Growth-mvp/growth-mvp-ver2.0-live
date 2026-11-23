@@ -57,7 +57,7 @@ const QUESTION_TITLE: Record<FinanceQuestionId, string> = {
 };
 
 const btn = 'rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50';
-const primaryBtn = 'rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50';
+const primaryBtn = 'rounded-lg bg-accent-action px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-hover disabled:opacity-50';
 
 export function FinancialDialoguePanel(props: Props) {
   const { role, assumptions, calc, effect, origin, disabled, notice, onEffectChange, onCreateCandidate, assumptionEditor, detailsSlot, deferQuestions } = props;
@@ -346,7 +346,7 @@ export function FinancialDialoguePanel(props: Props) {
                 <li key={id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <div className="min-w-0">
                     <span className="font-semibold text-zinc-800">{QUESTION_TITLE[id]}：</span>
-                    <span className={answered && answers[id] !== 'UNKNOWN' ? 'text-zinc-800' : 'text-amber-800'}>{answerSummary(id)}</span>
+                    <span className={answered && answers[id] !== 'UNKNOWN' ? 'text-zinc-800' : 'text-caution'}>{answerSummary(id)}</span>
                     {answers[id] === 'UNKNOWN' && <div className="text-[11px] text-zinc-600">調べること：{RESEARCH_HINT[id]}</div>}
                   </div>
                   {answered && (

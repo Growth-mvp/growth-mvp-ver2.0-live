@@ -23,7 +23,7 @@ export function FinanceRevisionControls({
   const button = 'rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50';
   if (revising) {
     return (
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-900">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-bluegray-light bg-bluegray-mist p-2 text-[12px] text-bluegray-deep">
         <span>修正中です。保存するまで、確認済みの内容のままです。</span>
         <button type="button" className={button} disabled={disabled} onClick={onSave}>
           修正内容を保存

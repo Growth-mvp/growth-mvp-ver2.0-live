@@ -46,7 +46,7 @@ export function ProjectLifecycleMenu({
       {open && (
         <div role="menu" className="absolute right-0 z-10 mt-1 w-64 rounded-lg border border-zinc-200 bg-white p-2 text-left text-[12px] shadow-md">
           {facts === 'loading' && <p className="text-zinc-600">計画の状態を確認しています…</p>}
-          {facts === 'error' && <p className="text-rose-700">計画の状態を確認できませんでした。時間をおいて開き直してください。</p>}
+          {facts === 'error' && <p className="text-danger">計画の状態を確認できませんでした。時間をおいて開き直してください。</p>}
           {facts && typeof facts === 'object' && facts.started && (
             <>
               <button
@@ -56,7 +56,7 @@ export function ProjectLifecycleMenu({
                   setOpen(false);
                   onChoose('STOP', facts);
                 }}
-                className="block w-full rounded px-2 py-1.5 text-left font-semibold text-rose-800 hover:bg-rose-50"
+                className="block w-full rounded px-2 py-1.5 text-left font-semibold text-danger hover:bg-danger-soft"
               >
                 プロジェクトを中止する
               </button>

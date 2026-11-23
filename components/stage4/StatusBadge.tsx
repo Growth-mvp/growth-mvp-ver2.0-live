@@ -20,14 +20,14 @@ export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
     Review: {
       label: 'レビュー中',
       icon: <AlertCircle className="w-3.5 h-3.5" />,
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-800',
+      bg: 'bg-accent-soft',
+      text: 'text-accent-ink',
     },
     Approved: {
       label: '承認済み',
       icon: <CheckCircle2 className="w-3.5 h-3.5" />,
-      bg: 'bg-green-100',
-      text: 'text-green-800',
+      bg: 'bg-success-soft',
+      text: 'text-success',
     },
   };
 

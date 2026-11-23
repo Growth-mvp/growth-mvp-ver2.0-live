@@ -3747,13 +3747,13 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               />
             </div>
             {(selectedProj as any)?.draftReasoning?.objectiveProvisional && /\d/.test(String(displayObjective ?? '')) && (
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-amber-900">
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-caution">
                 <span>目的文の数字はAIの仮目標です（未確認）。</span>
                 <button
                   type="button"
                   onClick={confirmObjectiveProvisional}
                   disabled={isHydrating || isApproved()}
-                  className="rounded-lg border border-amber-300 bg-white px-2 py-0.5 font-semibold hover:bg-amber-50 disabled:opacity-50"
+                  className="rounded-lg border border-bluegray-light bg-white px-2 py-0.5 font-semibold text-accent-ink hover:bg-accent-soft disabled:opacity-50"
                 >
                   目的文を確認した
                 </button>
@@ -4203,7 +4203,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   </div>
 
                   {/* Phase C: Milestones セクション */}
-                  <div className={`border-t border-amber-200 pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
+                  <div className={`border-t border-bluegray-light pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-[11px] font-semibold text-zinc-700">
                         途中の目安（任意）
@@ -4530,7 +4530,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   type="button"
                   onClick={() => adoptKrTarget(rowId)}
                   disabled={isHydrating || isApproved()}
-                  className="h-8 rounded-lg border border-amber-300 bg-amber-50 px-3 text-[12px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                  className="h-8 rounded-lg border border-bluegray-light bg-white px-3 text-[12px] font-semibold text-accent-ink hover:bg-accent-soft disabled:opacity-50"
                 >
                   この目標を採用
                 </button>
@@ -4558,7 +4558,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             <div>
               <span className="text-zinc-500">目標:</span> {target} {unit}
               {(kr as any).targetBasis === 'AI_PROVISIONAL' && (
-                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">AIの仮目標（未確認）</span>
+                <span className="ml-2 rounded bg-caution-soft px-1.5 py-0.5 text-[10px] font-semibold text-caution">AIの仮目標（未確認）</span>
               )}
             </div>
             <div>
@@ -4579,8 +4579,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             return (
               <div className="mt-3">
                 {badgeInfo.showAlert ? (
-                  <div className={`mb-3 rounded-xl border border-amber-200 bg-amber-50 p-2.5`}>
-                    <div className="text-[11px] font-medium text-amber-700">
+                  <div className={`mb-3 rounded-xl border border-bluegray-light bg-bluegray-mist p-2.5`}>
+                    <div className="text-[11px] font-medium text-bluegray-deep">
                       💡 {badgeInfo.alertText}
                     </div>
                   </div>
@@ -4964,7 +4964,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 queueStage4SnapshotPersist();
               }}
               disabled={isHydrating || isApproved()}
-              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] text-danger hover:bg-danger-soft disabled:opacity-50"
             >
               削除
             </button>
@@ -5154,7 +5154,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     編集
                   </button>
                   <button
-                    className="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
+                    className="text-[11px] font-semibold text-danger hover:text-danger/80"
                     onClick={() => {
                       if (!selected) return;
                       patchDepartments((prev: any) => {
@@ -5432,7 +5432,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 <button
                   type="button"
                   onClick={() => setDevPlanOpen((v) => !v)}
-                  className="rounded-lg border border-dashed border-amber-400 bg-amber-50 px-3 py-1.5 text-[12px] font-semibold text-amber-900 hover:bg-amber-100"
+                  className="rounded-lg border border-dashed border-bluegray-light bg-bluegray-mist px-3 py-1.5 text-[12px] font-semibold text-bluegray-deep hover:bg-accent-soft"
                 >
                   {devPlanOpen ? '開発用の試作を閉じて、従来の画面に戻る' : '開発用：新しい実行計画書を表示（架空サンプル）'}
                 </button>
