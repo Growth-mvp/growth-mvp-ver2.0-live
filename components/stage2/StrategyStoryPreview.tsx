@@ -359,7 +359,7 @@ export function StrategyStoryPreview({
         <div className="mt-4 flex flex-wrap gap-6 text-sm text-slate-700">
           <span
             className={
-              finalized ? 'font-bold text-emerald-700' : 'font-bold text-amber-700'
+              finalized ? 'font-bold text-success' : 'font-bold text-amber-700'
             }
           >
             状態：{finalized ? '確定版' : 'ドラフト（未確定）'}

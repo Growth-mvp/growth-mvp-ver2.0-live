@@ -34,10 +34,10 @@ export type SwotOpportunityPanelProps = {
 };
 
 const EVIDENCE_STYLE: Record<string, string> = {
-  confirmed: 'bg-emerald-100 text-emerald-800 xl:dark:bg-emerald-900/40 xl:dark:text-emerald-300',
-  reference: 'bg-sky-100 text-sky-800 xl:dark:bg-sky-900/40 xl:dark:text-sky-300',
-  hypothesis: 'bg-amber-50 text-amber-800 xl:dark:bg-amber-900/30 xl:dark:text-amber-300',
-  mismatch: 'bg-rose-100 text-rose-800 xl:dark:bg-rose-900/40 xl:dark:text-rose-300',
+  confirmed: 'bg-success-soft text-success xl:dark:bg-success/30 xl:dark:text-accent-soft',
+  reference: 'bg-accent-soft text-accent-ink xl:dark:bg-accent-action/20 xl:dark:text-accent-soft',
+  hypothesis: 'bg-bluegray-mist text-bluegray-deep xl:dark:bg-bluegray-deep/30 xl:dark:text-bluegray-light',
+  mismatch: 'bg-caution-soft text-caution xl:dark:bg-caution/30 xl:dark:text-caution-soft',
 };
 
 export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
@@ -66,12 +66,12 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
       return next;
     });
 
-  const renderRow = (c: PoolCandidate, tone: 'blue' | 'amber') => {
+  const renderRow = (c: PoolCandidate) => {
     const selected = selectedEntryOf(suggestions, c.id);
     const evidence = evidenceViewOf(c);
     const isOpen = expanded.has(c.id);
     const isEditing = editingId === c.id;
-    const btn = tone === 'blue' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700';
+    const btn = 'bg-accent-soft text-accent-ink hover:bg-accent-soft/70';
     return (
       <li key={c.id} className="rounded-lg bg-white/60 xl:dark:bg-white/5 p-3">
         <div className="flex items-start gap-3">
@@ -90,8 +90,8 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
             <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
               <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{discoveryPathLabel(c)}</span>
               <span className={`rounded px-1.5 py-0.5 ${EVIDENCE_STYLE[evidence.kind]}`}>{evidence.label}</span>
-              {selected && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-800">SWOTに追加済み</span>}
-              {c.origin === 'extension' && <span className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800">追加探索</span>}
+              {selected && <span className="rounded bg-accent-soft px-1.5 py-0.5 text-accent-ink">SWOTに追加済み</span>}
+              {c.origin === 'extension' && <span className="rounded bg-bluegray-mist px-1.5 py-0.5 text-bluegray-deep">追加探索</span>}
             </div>
           </div>
           <div className="flex shrink-0 flex-col gap-1">
@@ -104,7 +104,7 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
                       onEdit(c.id, draft);
                       setEditingId(null);
                     }}
-                    className="px-3 py-1 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50"
+                    className="px-3 py-1 rounded-lg bg-accent-action text-white text-xs font-medium hover:bg-accent-hover disabled:opacity-50"
                   >
                     保存
                   </button>
@@ -127,7 +127,7 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
                   <button
                     disabled={locked}
                     onClick={() => onRemove(c.id)}
-                    className="px-3 py-1 rounded-lg border border-rose-300 text-rose-700 text-xs disabled:opacity-50"
+                    className="px-3 py-1 rounded-lg border border-danger/40 text-danger text-xs disabled:opacity-50"
                   >
                     外す
                   </button>
@@ -137,7 +137,7 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
               <button
                 disabled={locked}
                 onClick={() => onAdd(c.id)}
-                className={`px-3 py-1 rounded-lg text-white text-xs font-medium whitespace-nowrap disabled:opacity-50 ${btn}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap disabled:opacity-50 ${btn}`}
               >
                 追加
               </button>
@@ -161,8 +161,8 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
     );
   };
 
-  const renderViewpointSections = (byViewpoint: GroupedByViewpoint, tone: 'blue' | 'amber') => {
-    const headingClass = tone === 'blue' ? 'text-blue-700 xl:dark:text-blue-300' : 'text-amber-700 xl:dark:text-amber-300';
+  const renderViewpointSections = (byViewpoint: GroupedByViewpoint) => {
+    const headingClass = 'text-bluegray-deep xl:dark:text-bluegray-light';
     return (
       <div className="space-y-4">
         {DISCOVERY_VIEWPOINTS.map((v) => (
@@ -173,7 +173,7 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
             {byViewpoint[v].length === 0 ? (
               <p className="text-xs text-gray-500">この分類の候補はまだありません。</p>
             ) : (
-              <ul className="space-y-2">{byViewpoint[v].map((c) => renderRow(c, tone))}</ul>
+              <ul className="space-y-2">{byViewpoint[v].map((c) => renderRow(c))}</ul>
             )}
           </section>
         ))}
@@ -183,7 +183,7 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
               分類未設定の候補（{byViewpoint.unclassified.length}件）
             </h5>
             <p className="mb-2 text-xs text-gray-500">分類の記録がないため、分類は推定せず暫定的に表示しています。</p>
-            <ul className="space-y-2">{byViewpoint.unclassified.map((c) => renderRow(c, tone))}</ul>
+            <ul className="space-y-2">{byViewpoint.unclassified.map((c) => renderRow(c))}</ul>
           </section>
         )}
       </div>
@@ -191,34 +191,34 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
   };
 
   return (
-    <div className="rounded-2xl border border-blue-200 xl:dark:border-blue-800 bg-blue-50/50 xl:dark:bg-blue-900/20 p-6">
+    <div className="rounded-2xl border border-zinc-200 xl:dark:border-bluegray-deep/60 bg-white xl:dark:bg-white/5 p-6">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-        <h4 className="text-base font-semibold text-blue-700 xl:dark:text-blue-300">提案された機会と脅威</h4>
+        <h4 className="text-base font-semibold text-bluegray-deep xl:dark:text-bluegray-light">提案された機会と脅威</h4>
         <span className="text-xs text-gray-600">
           機会 {opportunities.length} / {OPPORTUNITY_CAP}件
         </span>
       </div>
 
-      {opportunities.length > 0 && <div className="mb-6">{renderViewpointSections(grouped, 'blue')}</div>}
+      {opportunities.length > 0 && <div className="mb-6">{renderViewpointSections(grouped)}</div>}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={!plan.enabled}
           onClick={onExtend}
-          className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50"
+          className="px-4 py-2 rounded-lg border border-accent-action/40 bg-white text-sm font-medium text-accent-ink hover:bg-accent-soft disabled:opacity-50"
         >
           {extending ? '追加探索中…' : plan.batch > 0 ? `さらに探索（最大${plan.batch}件）` : 'さらに探索'}
         </button>
         {!plan.enabled && plan.reason && <span className="text-xs text-gray-600">{plan.reason}</span>}
-        {extendMessage && <span className="text-xs text-emerald-700">{extendMessage}</span>}
-        {extendError && <span className="text-xs text-rose-700">{extendError}</span>}
+        {extendMessage && <span className="text-xs text-success">{extendMessage}</span>}
+        {extendError && <span className="text-xs text-danger">{extendError}</span>}
       </div>
 
       {threats.length > 0 && (
         <div>
-          <h5 className="mb-3 text-sm font-medium text-amber-600 xl:dark:text-amber-400">提案された脅威</h5>
-          {renderViewpointSections(groupedThreats, 'amber')}
+          <h5 className="mb-3 text-sm font-medium text-bluegray-deep xl:dark:text-bluegray-light">提案された脅威</h5>
+          {renderViewpointSections(groupedThreats)}
         </div>
       )}
     </div>

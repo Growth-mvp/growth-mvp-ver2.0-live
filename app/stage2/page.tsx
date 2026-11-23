@@ -209,7 +209,7 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: 
               }`}
             >
               {tab.completed && (
-                <span className="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-xs">✓</span>
+                <span className="w-5 h-5 rounded-full bg-success text-white flex items-center justify-center text-xs">✓</span>
               )}
               {!tab.completed && isDisabled && (
                 <span className="w-5 h-5 rounded-full bg-gray-300 xl:dark:bg-gray-700 text-gray-500 xl:dark:text-gray-600 flex items-center justify-center text-xs">
@@ -257,7 +257,7 @@ function WinPatternList({ candidates }: { candidates: WinPatternCandidate[] }) {
             {wp.valueDrivers?.length > 0 && (
               <div className="flex gap-1 mt-2 flex-wrap">
                 {wp.valueDrivers.map((vd, i) => (
-                  <span key={i} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded xl:xl:dark:bg-green-900/40 xl:xl:dark:text-green-300">
+                  <span key={i} className="text-xs bg-bluegray-mist text-bluegray-deep px-2 py-0.5 rounded xl:xl:dark:bg-bluegray-deep/40 xl:xl:dark:text-bluegray-light">
                     {vd}
                   </span>
                 ))}
@@ -393,7 +393,7 @@ function ExecutiveStoryDocument({
             className={[
               'rounded-full border px-3 py-1 text-[11px] font-semibold',
               finalized
-                ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
+                ? 'border-success/40 bg-success-soft text-success'
                 : 'border-amber-400/40 bg-amber-500/15 text-amber-300',
             ].join(' ')}
           >
@@ -629,13 +629,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-emerald-600 rounded-t transition-all shadow-md xl:xl:dark:bg-emerald-400"
+                className="bg-bluegray-light rounded-t transition-all shadow-md xl:xl:dark:bg-bluegray"
                 style={{
                   width: '22px',
                   height: `${Math.max(currentHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-emerald-700 mt-1 text-center whitespace-nowrap xl:xl:dark:text-emerald-300">
+              <div className="text-xs font-semibold text-bluegray-deep mt-1 text-center whitespace-nowrap xl:xl:dark:text-bluegray-light">
                 {formatMillion(current)}
               </div>
             </div>
@@ -674,13 +674,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-emerald-500 rounded-t transition-all shadow-md xl:xl:dark:bg-emerald-400"
+                className="bg-bluegray rounded-t transition-all shadow-md xl:xl:dark:bg-bluegray-light"
                 style={{
                   width: '22px',
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-emerald-700 mt-1 text-center whitespace-nowrap xl:xl:dark:text-emerald-300">
+              <div className="text-xs font-semibold text-bluegray-deep mt-1 text-center whitespace-nowrap xl:xl:dark:text-bluegray-light">
                 {formatMillion(target)}
               </div>
             </div>
@@ -791,7 +791,7 @@ function FinancialTargetMetricCard({
 
       <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 text-sm xl:dark:border-slate-800">
         <span className="font-medium text-slate-500 xl:dark:text-slate-400">必要な上積み</span>
-        <span className={`font-bold ${deltaIsPositive ? 'text-emerald-700 xl:dark:text-emerald-300' : 'text-red-600 xl:dark:text-red-300'}`}>
+        <span className={`font-bold ${deltaIsPositive ? 'text-bluegray-deep xl:dark:text-bluegray-light' : 'text-success xl:dark:text-accent-soft'}`}>
           {delta != null ? `${delta >= 0 ? '+' : ''}${formatOkuFromMillion(delta)}` : '—'}
         </span>
       </div>
@@ -1486,8 +1486,8 @@ function DraftFieldView({ field }: { field: DraftField }) {
 
   if (field.label === '経営判断') {
     return (
-      <div className="rounded-lg border border-amber-200 xl:dark:border-amber-900/60 bg-amber-50/80 xl:dark:bg-amber-950/20 px-4 py-3 text-sm text-gray-800 xl:dark:text-gray-200">
-        <div className="mb-1 text-xs font-semibold text-amber-700 xl:dark:text-amber-300">{field.label}</div>
+      <div className="rounded-lg border border-zinc-200 xl:dark:border-bluegray-deep/60 bg-bluegray-mist xl:dark:bg-bluegray-deep/15 px-4 py-3 text-sm text-gray-800 xl:dark:text-gray-200">
+        <div className="mb-1 text-xs font-semibold text-bluegray-deep xl:dark:text-bluegray-light">{field.label}</div>
         {body}
       </div>
     );
@@ -1927,7 +1927,7 @@ function Questions12Section({
                       <div className="flex items-center gap-2">
                         <span
                           className={`w-5 h-5 flex items-center justify-center rounded-full text-xs ${
-                            isAnswered ? 'bg-green-500 text-white' : 'bg-gray-200 xl:dark:bg-gray-700 text-gray-500'
+                            isAnswered ? 'bg-success text-white' : 'bg-gray-200 xl:dark:bg-gray-700 text-gray-500'
                           }`}
                         >
                           {isAnswered ? '✓' : idx + 1}
@@ -1947,7 +1947,7 @@ function Questions12Section({
                           </span>
                         )}
                         {ddState === 'reflected' && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-green-100 xl:dark:bg-green-900/40 text-green-700 xl:dark:text-green-300 whitespace-nowrap">
+                          <span className="text-xs px-2 py-0.5 rounded bg-success-soft xl:dark:bg-success/30 text-success xl:dark:text-accent-soft whitespace-nowrap">
                             AI反映済
                           </span>
                         )}
@@ -1986,7 +1986,7 @@ function Questions12Section({
 
           <div className="flex items-center justify-between text-xs text-gray-500">
             <span>{currentAnswer.length} 文字</span>
-            {currentAnswer.trim() && <span className="text-green-600 xl:dark:text-green-400">✓ 入力済み</span>}
+            {currentAnswer.trim() && <span className="text-success xl:dark:text-accent-soft">✓ 入力済み</span>}
           </div>
 
           {/* ★ 新規：深掘りボタン（対象4問のみ、一度きり生成） */}
@@ -2063,7 +2063,7 @@ function Questions12Section({
                   </span>
                 )}
                 {deepDiveState === 'reflected' && (
-                  <span className="text-green-700 xl:dark:text-green-400 font-medium">
+                  <span className="text-success xl:dark:text-accent-soft font-medium">
                     ✓ 元の回答に反映済み
                   </span>
                 )}
@@ -2084,7 +2084,7 @@ function Questions12Section({
                 {deepDiveState === 'reflected' && (
                   <button
                     disabled={true}
-                    className="flex-1 px-4 py-2 bg-green-100 xl:dark:bg-green-900/30 text-green-700 xl:dark:text-green-300 font-medium rounded-lg cursor-not-allowed"
+                    className="flex-1 px-4 py-2 bg-success-soft xl:dark:bg-success/30 text-success xl:dark:text-accent-soft font-medium rounded-lg cursor-not-allowed"
                   >
                     ✓ 元の回答に反映済み
                   </button>
@@ -3973,7 +3973,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     return (
       <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 px-4 py-6 xl:dark:from-zinc-950 xl:dark:to-zinc-900">
         <div className="mx-auto max-w-2xl">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 xl:dark:bg-amber-900/20 xl:dark:border-amber-800 p-8 text-center">
+          <div className="rounded-2xl border border-zinc-200 bg-bluegray-mist xl:dark:bg-bluegray-deep/20 xl:dark:border-bluegray-deep p-8 text-center">
             <h2 className="text-xl font-bold text-gray-800 xl:dark:text-gray-200 mb-2">STAGE1で論点を生成してください</h2>
             <p className="text-gray-600 xl:dark:text-gray-400 mb-6">
               STAGE2を開始するには、まずSTAGE1で財務分析と論点の整理を行う必要があります。
@@ -4253,8 +4253,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           <p className="text-sm font-medium text-amber-700 xl:dark:text-amber-300">⚠️ 変更内容は未確定です（確定版は変更されていません。「確定」を押すと確定版に反映されます）</p>
                         </div>
                       ) : finalStoryFinalRaw && finalStoryFinalRaw.length > 0 ? (
-                        <div className="inline-block bg-emerald-100 xl:dark:bg-emerald-900/30 border border-emerald-300 xl:dark:border-emerald-700 rounded-lg px-4 py-2">
-                          <p className="text-sm font-medium text-emerald-700 xl:dark:text-emerald-300">✓ 確定済み</p>
+                        <div className="inline-block bg-success-soft xl:dark:bg-success/30 border border-success/40 xl:dark:border-success/60 rounded-lg px-4 py-2">
+                          <p className="text-sm font-medium text-success xl:dark:text-accent-soft">✓ 確定済み</p>
                         </div>
                       ) : (finalStoryDraftRaw && finalStoryDraftRaw.length > 0 && !finalStoryFinalRaw?.length) ? (
                         <div className="inline-block bg-amber-100 xl:dark:bg-amber-900/30 border border-amber-300 xl:dark:border-amber-700 rounded-lg px-4 py-2">
@@ -4448,7 +4448,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             </div>
                           )}
                           {commitSuccessful && (
-                            <div className="text-sm text-emerald-700 xl:dark:text-emerald-300 bg-emerald-50 xl:dark:bg-emerald-900/30 px-3 py-2 rounded">
+                            <div className="text-sm text-success xl:dark:text-accent-soft bg-success-soft xl:dark:bg-success/30 px-3 py-2 rounded">
                               ✓ 全社戦略を確定し、STAGE3へ引き渡しました。
                               <div className="mt-3 flex gap-2">
                                 <button
