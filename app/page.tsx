@@ -27,16 +27,16 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-screen bg-neutral-50 text-neutral-900">
+    <main className="min-h-screen bg-zinc-50 text-zinc-900">
       {/* ===== Hero ===== */}
-      <section className="border-b border-neutral-200/60 bg-neutral-50 xl:dark:border-neutral-900 xl:dark:bg-neutral-950">
+      <section className="border-b border-zinc-200 bg-zinc-50 xl:dark:border-neutral-900 xl:dark:bg-neutral-950">
         <div className="container mx-auto px-6 pt-10 pb-8 sm:pt-12 sm:pb-10 lg:pt-14 lg:pb-12">
           <div className="mx-auto max-w-3xl text-center">
             <motion.h1
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
-              className="text-[28px] font-bold tracking-[-0.04em] text-neutral-950 sm:text-[36px] lg:text-[44px] xl:dark:text-white"
+              className="text-[28px] font-bold tracking-[-0.04em] text-zinc-900 sm:text-[36px] lg:text-[44px] xl:dark:text-white"
             >
               戦略を行動へ。企業を成長へ。
             </motion.h1>
@@ -45,7 +45,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08 }}
-              className="mt-2 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[20px] xl:dark:text-neutral-100"
+              className="mt-2 text-[15px] font-semibold tracking-[0.06em] text-zinc-800 sm:text-[17px] lg:text-[20px] xl:dark:text-neutral-100"
             >
             GROWTH SHIFT｜AI経営コンサルティング
             </motion.div>
@@ -54,7 +54,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.16 }}
-              className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] xl:dark:text-neutral-300"
+              className="mt-2 text-[14px] font-medium leading-relaxed text-zinc-700 sm:text-[15px] lg:text-[16px] xl:dark:text-neutral-300"
             >自社を理解したAIが、戦略づくりから実行・成果確認まで伴走します。
               
 
@@ -78,14 +78,14 @@ export default function Home() {
             {/* LEFT: STRATEGY */}
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
-                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 xl:dark:text-white">
+                <h3 className="text-[22px] font-medium tracking-[-0.02em] text-zinc-900 xl:dark:text-white">
                   戦略をつくる
                 </h3>
               </div>
 
-              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] xl:dark:bg-neutral-950">
+              <div className="h-full overflow-hidden rounded-2xl border border-zinc-200 bg-white xl:dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
-                  <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
+                  <p className="text-[13px] leading-5 text-zinc-600 dark:text-neutral-400">
                     会社の現状を捉え、目指す方向を定め、各部門の役割と実行テーマまで一気通貫で設計します。
                   </p>
                 </div>
@@ -98,14 +98,14 @@ export default function Home() {
             {/* RIGHT: EXECUTION */}
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
-                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 xl:dark:text-white">
+                <h3 className="text-[22px] font-medium tracking-[-0.02em] text-zinc-900 xl:dark:text-white">
                   戦略を動かす
                 </h3>
               </div>
 
-              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] xl:dark:bg-neutral-950">
+              <div className="h-full overflow-hidden rounded-2xl border border-zinc-200 bg-white xl:dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
-                  <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
+                  <p className="text-[13px] leading-5 text-zinc-600 dark:text-neutral-400">
                     進捗と変化を捉えながら、戦略を現場の行動につなぎ、成果につなげていきます。
                   </p>
                 </div>

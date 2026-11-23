@@ -85,9 +85,9 @@ function formatDateTime(iso: string | null | undefined) {
 }
 
 const stageBtnClass =
-  'inline-flex items-center rounded-xl border border-neutral-300 ' +
-  'bg-white px-6 py-3 shadow-sm hover:bg-neutral-100 transition-colors ' +
-  'focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
+  'inline-flex items-center rounded-xl border border-zinc-300 ' +
+  'bg-white px-6 py-3 hover:bg-zinc-100 transition-colors ' +
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2';
 
 type OrgAlignmentSummary = {
   sourceCaseCount: number;
@@ -341,11 +341,11 @@ export default function ExecutionPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-900/40 xl:dark:ring-neutral-800">
+      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 xl:dark:bg-neutral-900/40 xl:dark:border-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/execution" className={stageBtnClass}>
             <div className="min-w-0">
-              <div className="text-[15px] font-semibold text-neutral-900">STAGE5｜どうやって前に進めるか</div>
+              <div className="text-[15px] font-medium text-zinc-900">STAGE5｜どうやって前に進めるか</div>
               <div className="text-[12px] font-normal text-neutral-500">実行支援</div>
             </div>
           </Link>
@@ -401,7 +401,7 @@ export default function ExecutionPanel() {
                   <Link
                     href={item.okrId ? `/execution?okrId=${encodeURIComponent(item.okrId)}&projectId=${encodeURIComponent(item.projectId)}&departmentId=${encodeURIComponent(item.departmentId)}` : '/execution'}
                     onClick={() => dismissUpdate(item)}
-                    className="shrink-0 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 xl:dark:bg-white xl:dark:text-neutral-900"
+                    className="shrink-0 rounded-xl bg-accent-action px-3 py-2 text-[13px] font-medium text-white hover:bg-accent-hover xl:dark:bg-white xl:dark:text-neutral-900"
                   >
                     開く
                   </Link>
@@ -412,11 +412,11 @@ export default function ExecutionPanel() {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-900/40 xl:dark:ring-neutral-800">
+      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 xl:dark:bg-neutral-900/40 xl:dark:border-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/stage6" className={stageBtnClass}>
             <div className="min-w-0">
-              <div className="text-[15px] font-semibold text-neutral-900">STAGE6｜成果を確かめる</div>
+              <div className="text-[15px] font-medium text-zinc-900">STAGE6｜成果を確かめる</div>
               <div className="text-[12px] font-normal text-neutral-500">業績シミュレーション</div>
             </div>
           </Link>
@@ -427,7 +427,7 @@ export default function ExecutionPanel() {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-900/40 xl:dark:ring-neutral-800">
+      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 xl:dark:bg-neutral-900/40 xl:dark:border-neutral-800">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/org-transformation/shared" className={stageBtnClass}>

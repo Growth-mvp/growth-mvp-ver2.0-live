@@ -51,11 +51,11 @@ function Stage6PageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen bg-zinc-50 text-zinc-900">
       <div className="mx-auto max-w-7xl space-y-4 px-4 pb-12 pt-5 md:px-6 md:pt-6">
         <header>
-          <h1 className="text-xl font-bold tracking-tight text-gray-900">STAGE6｜成果を確かめる</h1>
-          <p className="mt-1 text-sm text-gray-600 break-keep">
+          <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">STAGE6｜成果を確かめる</h1>
+          <p className="mt-1 text-[15px] text-zinc-600 break-keep">
             経営目標に対して、施策効果を反映した試算と資金の状況を確認します。
           </p>
         </header>
