@@ -356,7 +356,7 @@ export function ActualRegistrationSection({
               {busy ? '保存中…' : '実績を保存'}
             </button>
             {result && (
-              <span role={result.tone === 'error' ? 'alert' : 'status'} className={`text-xs ${result.tone === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>
+              <span role={result.tone === 'error' ? 'alert' : 'status'} className={`text-xs ${result.tone === 'error' ? 'text-danger' : 'text-success'}`}>
                 {result.text}
               </span>
             )}

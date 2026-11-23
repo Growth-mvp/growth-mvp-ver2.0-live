@@ -146,7 +146,7 @@ export function ProjectPlanSection(props: ProjectPlanSectionProps) {
   if (status.kind === 'failed') {
     return (
       <>
-      <section aria-label="実行計画" className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+      <section aria-label="実行計画" className="rounded-3xl border border-danger/30 bg-danger-soft p-4 text-sm text-danger">
         計画を読み込めませんでした。画面を開き直してください。
       </section>
       {children}
