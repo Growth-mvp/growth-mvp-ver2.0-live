@@ -81,9 +81,7 @@ export default function GlobalSidebarSaveStatus() {
           'flex items-center justify-center gap-2',
           buttonDisabled || isSavingManually
             ? 'bg-zinc-100 text-zinc-500 cursor-not-allowed'
-            : status === 'saved'
-              ? 'bg-white border border-zinc-200 text-zinc-800 hover:bg-zinc-50'
-              : 'bg-accent-action text-white hover:bg-accent-hover',
+            : 'border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100',
         ].join(' ')}
         title={
           buttonDisabled

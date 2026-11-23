@@ -157,7 +157,7 @@ export default function LogoutButton() {
       type="button"
       onClick={handleLogout}
       disabled={busy}
-      className="w-full flex h-10 items-center justify-center rounded-xl text-[14px] font-medium bg-white text-zinc-700 border border-zinc-200 hover:text-danger hover:border-danger/30 hover:bg-danger-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-60 disabled:cursor-not-allowed"
+      className="w-full flex h-10 items-center justify-center rounded-xl text-[14px] font-medium bg-white text-zinc-900 border border-zinc-300 hover:bg-zinc-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-60 disabled:cursor-not-allowed"
       title={busy ? 'ログアウト中…' : 'ログアウト'}
       aria-busy={busy || undefined}
       aria-disabled={busy || undefined}

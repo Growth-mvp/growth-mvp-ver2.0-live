@@ -213,10 +213,10 @@ export default function Sidebar({ onMobileClose }: { onMobileClose?: () => void 
             <div className="space-y-1.5">
               <Link
                 href="/account/password"
-                className={`no-underline flex h-10 items-center justify-center rounded-xl text-[14px] font-medium transition-colors ${
+                className={`no-underline flex h-10 items-center justify-center rounded-xl text-[14px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                   isPasswordPage
-                    ? 'bg-zinc-100 text-zinc-900'
-                    : 'bg-white text-zinc-800 border border-zinc-200 hover:bg-zinc-50'
+                    ? 'bg-accent-soft font-semibold text-zinc-900'
+                    : 'border border-zinc-300 bg-white font-medium text-zinc-900 hover:bg-zinc-100'
                 }`}
               >
                 アカウント設定
@@ -268,7 +268,7 @@ function NavLink({
       className={[
         'no-underline group relative flex items-center gap-2 rounded-xl px-3 transition-colors',
         linkHeight,
-        active ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-700 hover:bg-zinc-100',
+        active ? 'bg-accent-soft text-zinc-900' : 'text-zinc-800 hover:bg-zinc-100',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
         disabled ? 'opacity-50 pointer-events-auto cursor-not-allowed' : '',
       ].join(' ')}
