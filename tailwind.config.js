@@ -34,15 +34,23 @@ module.exports = {
         },
         // ブランドアクセント（globals.css の --accent と値を揃える）
         accent: {
-          DEFAULT: '#0a84ff',
+          DEFAULT: '#0071e3',
           action: '#0071e3',
           hover: '#0066cc',
           ink: '#005bb5',
           soft: '#eaf3ff',
         },
+        // ブルーグレー系（グラフ・見通し・補助背景）。値は lib/ui/tokens.ts と一致させる
+        bluegray: {
+          DEFAULT: '#5b82a3',
+          deep: '#3e6185',
+          light: '#b8c9d9',
+          mist: '#f2f5f8',
+        },
+        // 完了・反映済みの表示は青系に統一する（緑は使わない）
         success: {
-          DEFAULT: '#248a3d',
-          soft: '#eaf7ee',
+          DEFAULT: '#005bb5',
+          soft: '#eaf3ff',
         },
         caution: {
           DEFAULT: '#b25e00',

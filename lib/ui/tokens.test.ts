@@ -11,9 +11,9 @@ describe('CHART_COLORS', () => {
     expect(CHART_COLORS.grid).toBe(colors.zinc[200]);
     expect(CHART_COLORS.axis).toBe(colors.zinc[600]);
     expect(CHART_COLORS.actual).toBe(colors.zinc[700]);
-    expect(CHART_COLORS.companyTarget).toBe(colors.accent.action);
-    expect(CHART_COLORS.projectTarget).toBe(colors.accent.DEFAULT);
-    expect(CHART_COLORS.targetPoint).toBe(colors.accent.ink);
+    expect(CHART_COLORS.companyTarget).toBe(colors.bluegray.DEFAULT);
+    expect(CHART_COLORS.projectTarget).toBe(colors.bluegray.light);
+    expect(CHART_COLORS.targetPoint).toBe(colors.bluegray.deep);
     expect(CHART_COLORS.negative).toBe(colors.danger.DEFAULT);
   });
 });

@@ -8,7 +8,7 @@
   --agent-dock-w: 0px;
 
   /* ブランドアクセント。値は tailwind.config.js の colors.accent.DEFAULT と一致させる */
-  --accent: #0a84ff;
+  --accent: #0071e3;
   --accent-ink: #ffffff;
 }
 

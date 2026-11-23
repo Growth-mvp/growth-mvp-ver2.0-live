@@ -3,14 +3,14 @@ export const CHART_COLORS = {
   /* 現状・既存事業の見通し・横ばい（グレー） */
   current: '#d1d1d6',
   baseline: '#a1a1aa',
-  /* 全社経営目標・施策反映後の見通し・計画（青） */
-  companyTarget: '#0071e3',
-  /* プロジェクト目標（明るい青） */
-  projectTarget: '#0a84ff',
+  /* 全社経営目標・将来見通し・計画（ブルーグレー） */
+  companyTarget: '#5b82a3',
+  /* プロジェクト目標（ライトブルーグレー） */
+  projectTarget: '#b8c9d9',
   /* 実績（濃いグレー） */
   actual: '#3a3a3c',
-  /* 目標点（濃い青） */
-  targetPoint: '#005bb5',
+  /* 経営目標の点（濃いブルーグレー） */
+  targetPoint: '#3e6185',
   /* マイナス値（赤は負の数値だけに使う） */
   negative: '#d70015',
   grid: '#e5e5ea',
