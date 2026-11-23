@@ -20,11 +20,13 @@ describe('stage2NextActionLine', () => {
 
 describe('stage5NextActionLine', () => {
   it('プロジェクトがなければ STAGE3 での登録を案内する', () => {
-    expect(stage5NextActionLine({ hasProjects: false, hasStartedPlan: false })).toContain('STAGE3');
+    expect(stage5NextActionLine({ hasProjects: false })).toContain('STAGE3');
   });
 
-  it('実行計画が未開始なら STAGE4 を案内し、開始済みなら進捗の記録を案内する', () => {
-    expect(stage5NextActionLine({ hasProjects: true, hasStartedPlan: false })).toContain('STAGE4');
-    expect(stage5NextActionLine({ hasProjects: true, hasStartedPlan: true })).toContain('進捗と実績を記録');
+  it('実行開始の有無を断定しない（実行開始前・開始済み・状態未取得のどれでも誤案内にならない）', () => {
+    const line = stage5NextActionLine({ hasProjects: true });
+    expect(line).toContain('一覧からプロジェクトを選ぶ');
+    expect(line).not.toContain('STAGE4');
+    expect(line).not.toContain('記録してください');
   });
 });

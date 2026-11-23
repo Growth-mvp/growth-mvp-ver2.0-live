@@ -2787,10 +2787,7 @@ function ExecutionPageContent() {
         nextAction={
           isHydrating
             ? undefined
-            : stage5NextActionLine({
-                hasProjects: cascade.some((d) => (d.projects ?? []).length > 0),
-                hasStartedPlan: cascade.some((d) => (d.projects ?? []).some((p: any) => (p.okrsV2?.length ?? 0) > 0)),
-              })
+            : stage5NextActionLine({ hasProjects: cascade.some((d) => (d.projects ?? []).length > 0) })
         }
       />
 

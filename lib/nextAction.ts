@@ -14,8 +14,8 @@ export function stage2NextActionLine(s: {
   return '次の操作：「最終確定」で内容を確認し、「全社戦略を確定し、STAGE3へ引き渡す」を押してください。';
 }
 
-export function stage5NextActionLine(s: { hasProjects: boolean; hasStartedPlan: boolean }): string {
+/* 実行開始の有無は計画書をプロジェクトごとに読んで初めて分かるため、ここでは断定しない。 */
+export function stage5NextActionLine(s: { hasProjects: boolean }): string {
   if (!s.hasProjects) return '次の操作：STAGE3でプロジェクトを登録してください。';
-  if (!s.hasStartedPlan) return '次の操作：STAGE4で実行計画を開始すると、ここで進捗と実績を記録できます。';
-  return '次の操作：一覧からプロジェクトを選び、進捗と実績を記録してください。';
+  return '次の操作：一覧からプロジェクトを選ぶと、実行計画の内容と進捗・実績を確認できます。';
 }
