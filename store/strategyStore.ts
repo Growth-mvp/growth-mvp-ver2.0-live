@@ -18,6 +18,7 @@ import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
 import { createRefetchCoordinator } from '@/lib/strategy/refetchCoordinator';
+import { clearLocalStrategyCache } from '@/utils/localStrategyCache';
 import {
   assessRevisionAdvance,
   mergeDepartmentsForConflict,
@@ -455,6 +456,7 @@ export type StrategyState = {
   /* Actions */
   reset: () => void;
   resetAll: () => void;
+  resetLocalDataAndReload: () => Promise<void>;
 
   setHydrated: (revOrBool?: boolean | number, hash?: string | undefined) => void;
   setHydrating: (b: boolean) => void;
@@ -662,7 +664,7 @@ export type StrategyState = {
   buildPayload: () => any;
 
   saveStrategyData: (opts?: { reason?: string; force?: boolean }) => Promise<SaveResult>;
-  refetchFromServer: () => Promise<void>;
+  refetchFromServer: (options?: { discardLocal?: boolean }) => Promise<void>;
   /** 会社データの読込を手動で再試行する（失敗・タイムアウト後の復旧用） */
   retryScopeLoad: () => void;
   refetchOnceFromServer: () => Promise<void>;
@@ -1477,6 +1479,11 @@ const refetchCoordinator = createRefetchCoordinator(() =>
   useStrategyStore.getState().refetchOnceFromServer(),
 );
 
+function markStaleRefetch(discardLocal: boolean): void {
+  if (discardLocal) __discardLocalOnNextRefetch = true;
+  refetchCoordinator.markDirty();
+}
+
 // 読み込み対象の会社：setCompanyScope による切替指定 → ストアの会社 → ユーザーストアの会社
 function resolveRefetchTarget(s: { pendingCompanyId?: string | null; companyId?: string | null }): string | null {
   return s.pendingCompanyId || s.companyId || useUserStore.getState().companyId || null;
@@ -1492,6 +1499,9 @@ let __scopeEpoch = 0;
 
 /* ===== 機会・脅威の候補を書いた回数（取得中に書かれた候補を、古い取得結果で消さないため） ===== */
 let __swotWriteCount = 0;
+
+/* ===== 管理画面の手動読み込み：次の読み込みで未保存のローカル変更を破棄する ===== */
+let __discardLocalOnNextRefetch = false;
 
 /* ===== 永続化された会社データの表示ゲート ===== */
 // 永続化ストアに会社データが残っていた場合、サーバーで所属が確認されるまで表示しない。
@@ -2149,6 +2159,13 @@ export const useStrategyStore = create<StrategyState>()(
         __scopeEpoch += 1;
         __persistedSnapshot = null;
         set({ ...emptyData });
+      },
+
+      /** 未保存の変更と端末内のキャッシュを破棄し、保存済みのデータをサーバーから読み直す（サーバーは変更しない） */
+      resetLocalDataAndReload: async () => {
+        get().resetAll();
+        clearLocalStrategyCache();
+        await get().refetchFromServer({ discardLocal: true });
       },
 
       setHydrated: (revOrBool?: boolean | number, hash?: string) =>
@@ -4258,7 +4275,8 @@ export const useStrategyStore = create<StrategyState>()(
         });
       },
 
-      refetchFromServer() {
+      refetchFromServer(options) {
+        if (options?.discardLocal) __discardLocalOnNextRefetch = true;
         return refetchCoordinator.request();
       },
 
@@ -4277,6 +4295,8 @@ export const useStrategyStore = create<StrategyState>()(
         const companyId = resolveRefetchTarget(s0);
         const scopeAtStart = __scopeEpoch;
         const swotWriteAtStart = __swotWriteCount;
+        const discardLocal = __discardLocalOnNextRefetch;
+        __discardLocalOnNextRefetch = false;
 
         const authed = await isSessionUsable();
         if (!companyId || !authed) {
@@ -4309,6 +4329,7 @@ export const useStrategyStore = create<StrategyState>()(
         }
 
         if (__persistedSnapshot && !isSelectionVerified(companyId)) {
+          if (discardLocal) throw new Error('所属を確認できなかったため、データを読み込めませんでした');
           if (DEBUG) console.log('[refetchFromServer:deferred] 所属の確認待ち', { companyId, timestamp });
           return;
         }
@@ -4333,7 +4354,7 @@ export const useStrategyStore = create<StrategyState>()(
           let dbRow = data;
 
           if (isStaleRefetch(companyId, scopeAtStart)) {
-            refetchCoordinator.markDirty();
+            markStaleRefetch(discardLocal);
             if (DEBUG) console.log('[refetchFromServer:stale-discard]', { requested: companyId, phase: 'after-fetch', timestamp });
             return;
           }
@@ -4437,7 +4458,8 @@ export const useStrategyStore = create<StrategyState>()(
               if (!userId || (base.companyId && base.companyId !== companyId)) {
                 throw new Error('会社データの初期化を中止しました（会社の切替中）');
               }
-              await saveStrategyDataApi(base as any, userId, companyId);
+              const seed = discardLocal ? { ...base, ...displayResetFields(), companyId } : base;
+              await saveStrategyDataApi(seed as any, userId, companyId);
 
               const retry = await getFullStrategyDataByCompany(companyId);
               dbRow = retry?.data ?? null;
@@ -4490,7 +4512,7 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           if (isStaleRefetch(companyId, scopeAtStart)) {
-            refetchCoordinator.markDirty();
+            markStaleRefetch(discardLocal);
             if (DEBUG) console.log('[refetchFromServer:stale-discard]', { requested: companyId, phase: 'before-merge', timestamp });
             return;
           }
@@ -4499,13 +4521,13 @@ export const useStrategyStore = create<StrategyState>()(
           __scopeLoadRetries = 0;
           const cur = get();
           const isSwitchingCompany = cur.pendingCompanyId !== undefined && cur.pendingCompanyId !== cur.companyId;
-          const wasDirty = cur.dirty && !isSwitchingCompany;
+          const wasDirty = !discardLocal && cur.dirty && !isSwitchingCompany;
 
           const curRev = typeof cur.revision === 'number' ? cur.revision : undefined;
           const patchRev = typeof patch.revision === 'number' ? patch.revision : undefined;
           const isStale = typeof patchRev === 'number' && typeof curRev === 'number' && patchRev < curRev;
           const otherStrategy = !!patch.strategyId && !!cur.strategyId && patch.strategyId !== cur.strategyId;
-          const keepLocalSwot = !otherStrategy && (wasDirty || (!isSwitchingCompany && __swotWriteCount !== swotWriteAtStart));
+          const keepLocalSwot = !discardLocal && !otherStrategy && (wasDirty || (!isSwitchingCompany && __swotWriteCount !== swotWriteAtStart));
 
           // ★ TRACE POINT 9: refetch - server response (patch) の departments/projects
           const patchDepts = Array.isArray((patch as any).departments) ? (patch as any).departments : [];
@@ -4667,7 +4689,7 @@ export const useStrategyStore = create<StrategyState>()(
             // isStale による localDeps 優先は廃止（削除復活の原因）
             set((s) => {
               const merged: any = {
-                ...(s as any),   // ← base（補助用）
+                ...(discardLocal ? { ...s, ...displayResetFields() } : (s as any)),   // ← base（補助用）。手動読み込みは未保存の値を使わない
                 ...(patch as any),  // ← DB fresh data で上書き（FULL REPLACEMENT）
                 ...(keepLocalSwot ? { swotSuggestions: s.swotSuggestions ?? patch.swotSuggestions } : {}),
                 companyId,
@@ -4775,7 +4797,7 @@ export const useStrategyStore = create<StrategyState>()(
 
         if (!(await isSessionUsable())) {
           console.warn('[strategyStore.deleteAllOnServer] session not usable', { operationId });
-          return;
+          throw new Error('ログイン状態を確認できないため、削除を開始しませんでした。もう一度お試しください');
         }
 
         // ★ 修正：削除開始時に localStorage に削除フラグを設定（expiresAt 付き）
@@ -4861,13 +4883,6 @@ export const useStrategyStore = create<StrategyState>()(
             throw new Error('API verification failed: Data not properly deleted');
           }
 
-          // 削除成功確認
-          const updatedCount = (deleteResult as any)?.updatedCount ?? 0;
-          if (updatedCount === 0) {
-            console.error('[strategyStore.deleteAllOnServer] No rows updated', { operationId });
-            throw new Error('No rows were deleted');
-          }
-
           // API 成功後に Supabase を再SELECT して最終確認（execution_plan_baseline, stage4_plans, final_story_edited 除外）
           try {
             const { getBrowserSupabase } = await import('@/utils/supabase/client');
@@ -4915,6 +4930,9 @@ export const useStrategyStore = create<StrategyState>()(
             console.warn('[strategyStore.deleteAllOnServer] Failed to clear Stage2 snapshot:', e);
           }
 
+          // 削除前の会社データを永続化・復元の対象に残さない
+          __scopeEpoch += 1;
+          __persistedSnapshot = null;
           set(() => ({
             ...emptyData,
             companyId: companyId,

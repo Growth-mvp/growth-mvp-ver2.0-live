@@ -1160,3 +1160,67 @@ describe('旧財務データ（版数なし）の年度別保存（保存値を�
     });
   });
 });
+
+describe('管理画面の手動読み込みと初期化（未保存の変更は破棄する）', () => {
+  beforeEach(() => {
+    memoryStorage.clear();
+    mockSave.mockClear();
+  });
+
+  it('最新データの読み込みは未保存のローカル変更を破棄し、サーバーの保存値と一致させる', async () => {
+    mockUser.companyId = COMPANY_A;
+    await store().refetchFromServer();
+
+    useStrategyStore.setState({
+      companyName: 'local-unsaved',
+      ceoIntent: 'local-intent',
+      departments: [{ name: 'local-dept' }],
+      dirty: true,
+    } as any);
+
+    mockGetFull.mockImplementationOnce(async () => row(COMPANY_A, 'A-server'));
+    await store().refetchFromServer({ discardLocal: true });
+
+    expect((store() as any).companyName).toBe('A-server');
+    expect((store() as any).ceoIntent).toBe('');
+    expect((store() as any).departments).toEqual([]);
+    expect(store().dirty).toBe(false);
+    expect(store().restoreReady).toBe(true);
+  });
+
+  it('最新データの読み込みが失敗した場合は成功扱いにせず、エラーを返す', async () => {
+    mockUser.companyId = COMPANY_A;
+    await store().refetchFromServer();
+    useStrategyStore.setState({ companyName: 'local-unsaved', dirty: true } as any);
+
+    mockGetFull.mockImplementationOnce(async () => ({ data: null, error: { code: '42501', message: 'forbidden' } }));
+    await expect(store().refetchFromServer({ discardLocal: true })).rejects.toThrow('forbidden');
+    expect(store().restoreReady).toBe(false);
+  });
+
+  it('通常の読み込み（自動読み込み）は、従来どおり未保存のローカル変更を優先する', async () => {
+    mockUser.companyId = COMPANY_A;
+    await store().refetchFromServer();
+    useStrategyStore.setState({ ceoIntent: 'local-intent', dirty: true } as any);
+
+    await store().refetchFromServer();
+
+    expect((store() as any).ceoIntent).toBe('local-intent');
+  });
+
+  it('初期化は端末内の戦略キャッシュを消し、保存済みのデータを読み直す。サーバーには書き込まない', async () => {
+    mockUser.companyId = COMPANY_A;
+    await store().refetchFromServer();
+    memoryStorage.set('strategy-store-v5', JSON.stringify({ state: { companyName: 'stale-cache' }, version: 40 }));
+    useStrategyStore.setState({ companyName: 'local-unsaved', ceoIntent: 'local-intent', dirty: true } as any);
+    mockSave.mockClear();
+
+    await store().resetLocalDataAndReload();
+
+    expect((store() as any).companyName).toBe('A');
+    expect((store() as any).ceoIntent).toBe('');
+    expect(store().restoreReady).toBe(true);
+    expect(memoryStorage.get('strategy-store-v5') ?? '').not.toContain('stale-cache');
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+});

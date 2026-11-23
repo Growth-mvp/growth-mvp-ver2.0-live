@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
+import { clearLocalStrategyCache } from '@/utils/localStrategyCache';
 import { AlertCircle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 
 /**
@@ -65,7 +66,7 @@ export default function AdminDataManagementPage() {
     setSuccess(null);
 
     try {
-      await useStrategyStore.getState().refetchFromServer();
+      await useStrategyStore.getState().refetchFromServer({ discardLocal: true });
       setSuccess('最新データを読み込みました');
       setShowRefetchConfirm(false);
       // 3秒後にメッセージを消す
@@ -89,8 +90,8 @@ export default function AdminDataManagementPage() {
     setSuccess(null);
 
     try {
-      useStrategyStore.getState().resetAll();
-      setSuccess('データを初期化しました');
+      await useStrategyStore.getState().resetLocalDataAndReload();
+      setSuccess('ローカルデータを初期化し、保存済みのデータを読み直しました');
       // 3秒後にメッセージを消す
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
@@ -152,38 +153,9 @@ export default function AdminDataManagementPage() {
       await useStrategyStore.getState().deleteAllOnServer(deleteTarget.companyId);
       console.log('[AdminDataManagement] deleteAllOnServer completed');
 
-      // ローカルストレージをクリア（__deleting_company__ は保持）
+      // 端末内の戦略キャッシュを削除（削除確認フラグ・ログイン情報は保持）
       try {
-        console.log('[AdminDataManagement] Clearing localStorage...');
-        const DELETION_FLAG_KEY = '__deleting_company__';
-
-        // 具体的なキーを削除
-        localStorage.removeItem('strategy-store-v5');
-        localStorage.removeItem('stage1-snapshot');
-        localStorage.removeItem('stage2-snapshot');
-        localStorage.removeItem('strategy-persist');
-
-        // その他キャッシュキー（削除フラグは除外）
-        Object.keys(localStorage).forEach((key) => {
-          // ★ 削除フラグは保持（60秒間autosave抑止のため）
-          if (key === DELETION_FLAG_KEY) {
-            console.log('[AdminDataManagement] Skipping deletion flag key', { key });
-            return;
-          }
-
-          if (
-            key.includes('strategy') ||
-            key.includes('stage') ||
-            key.includes('company') ||
-            key.includes('store')
-          ) {
-            localStorage.removeItem(key);
-          }
-        });
-        console.log('[AdminDataManagement] localStorage cleared (deletion flag preserved)');
-        console.log('[AdminDataManagement] Deletion flag current value:', {
-          flag: localStorage.getItem(DELETION_FLAG_KEY) ? 'set' : 'null',
-        });
+        clearLocalStrategyCache();
       } catch (e) {
         console.warn('[AdminDataManagement] localStorage cleanup warn:', e);
       }
@@ -288,7 +260,7 @@ export default function AdminDataManagementPage() {
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-gray-900">データ初期化</h2>
               <p className="text-sm text-gray-600 mt-1">
-                ローカルデータをリセットします。サーバーのデータは変更されません。
+                ローカルの未保存変更と端末内のキャッシュを破棄し、保存済みのデータを読み直します。サーバーのデータは変更されません。
               </p>
             </div>
           </div>
@@ -310,7 +282,7 @@ export default function AdminDataManagementPage() {
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-rose-900">全削除</h2>
               <p className="text-sm text-rose-800 mt-1">
-                サーバーのすべてのデータを削除します。この操作は取り消せません。
+                この会社の STAGE1〜6 のデータ（基本情報・財務・戦略・経営計画書・実行計画・実績・シミュレーション）をサーバーから削除します。アカウント・会社所属・監査ログは削除されません。この操作は取り消せません。
               </p>
             </div>
           </div>
@@ -428,9 +400,11 @@ export default function AdminDataManagementPage() {
                 <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 space-y-2">
                   <p className="text-sm font-semibold text-rose-900">この操作は取り消せません：</p>
                   <ul className="text-sm text-rose-800 space-y-1 list-disc list-inside">
-                    <li>すべてのストラテジーデータ</li>
-                    <li>財務データ</li>
-                    <li>シミュレーション結果</li>
+                    <li>基本情報・財務データ（STAGE1）</li>
+                    <li>戦略ストーリー・SWOT（STAGE2）</li>
+                    <li>戦略展開・部門・目標（STAGE3〜4）</li>
+                    <li>経営計画書・実行計画・実績（STAGE4〜5）</li>
+                    <li>シミュレーション結果（STAGE6）</li>
                   </ul>
                 </div>
                 <div className="flex gap-3 justify-end pt-4">

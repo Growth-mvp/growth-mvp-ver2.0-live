@@ -9,6 +9,7 @@ jest.mock('@/lib/server/rbacGuard', () => ({ getAuthUserIdFromBearer: jest.fn() 
 import { POST } from './route';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { STRATEGY_DATA_RESET_VALUES } from '@/lib/server/companyDataReset';
 
 /**
  * 削除APIの検証用モック（実DBには接続しない）。
@@ -240,12 +241,11 @@ describe('POST /api/admin/data-management/delete-all（経営計画書）', () =
   });
 
   it('skips when PostgREST reports PGRST205 for generated_plans', async () => {
-    fake.failures.push({
-      table: 'generated_plans',
-      op: 'delete',
-      error: { code: 'PGRST205', message: 'Could not find the table public.generated_plans in the schema cache' },
-      times: 1,
-    });
+    const missing = { code: 'PGRST205', message: 'Could not find the table public.generated_plans in the schema cache' };
+    fake.failures.push(
+      { table: 'generated_plans', op: 'delete', error: missing, times: 1 },
+      { table: 'generated_plans', op: 'select', error: missing, times: 2 }
+    );
 
     const res = await POST(request());
     const json = await res.json();
@@ -318,7 +318,7 @@ describe('POST /api/admin/data-management/delete-all（経営計画書）', () =
     expect(planIds(COMPANY_A)).toHaveLength(2);
   });
 
-  it('does not touch plans when the strategy reset fails first (no partial plan deletion)', async () => {
+  it('keeps strategy_data intact when the final reset fails, and a retry completes the deletion', async () => {
     fake.failures.push({
       table: 'strategy_data',
       op: 'update',
@@ -327,10 +327,19 @@ describe('POST /api/admin/data-management/delete-all（経営計画書）', () =
     });
 
     const res = await POST(request());
+    const json = await res.json();
 
     expect(res.status).toBe(500);
-    expect(fake.calls.some((c) => c.table === 'generated_plans')).toBe(false);
-    expect(planIds(COMPANY_A)).toHaveLength(2);
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe('Failed to update strategy_data');
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.final_story).toEqual([{ x: 1 }]);
+
+    const retry = await POST(request());
+    const retryJson = await retry.json();
+    expect(retry.status).toBe(200);
+    expect(retryJson.ok).toBe(true);
+    expect(planIds(COMPANY_A)).toEqual([]);
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.final_story).toEqual([]);
   });
 
   it('rejects an unauthenticated request without any deletion', async () => {
@@ -535,5 +544,132 @@ describe('監査ログ（削除の前後の記録と、記録失敗時の扱い�
     expect(failure).toBeDefined();
     expect(String(failure?.metadata.reason)).toContain('story_answers2');
     expect(failure?.metadata.beforeState).toBeDefined();
+  });
+});
+
+describe('strategy_data の業務列と関連テーブルの全削除', () => {
+  const seedRows = (table: string, rows: Row[]) => {
+    fake.tables[table] = [...(fake.tables[table] ?? []), ...rows];
+  };
+  const rowsOf = (table: string, companyId: string) =>
+    (fake.tables[table] ?? []).filter((r) => r.company_id === companyId);
+
+  const SEPARATED_TABLES = [
+    'story_answers2',
+    'final_stories',
+    'story_versions',
+    'progress_logs',
+    'okrs',
+    'stage4_plan_document_events',
+    'stage4_plan_documents',
+    'stage3_strategy_books',
+    'generated_plans',
+  ];
+
+  beforeEach(() => {
+    seedRows('story_answers2', [{ id: 'sa-a', company_id: COMPANY_A }, { id: 'sa-b', company_id: COMPANY_B }]);
+    seedRows('final_stories', [{ id: 'fs-a', company_id: COMPANY_A }, { id: 'fs-b', company_id: COMPANY_B }]);
+    seedRows('story_versions', [{ id: 'sv-a', company_id: COMPANY_A }, { id: 'sv-b', company_id: COMPANY_B }]);
+    seedRows('progress_logs', [{ id: 'pl-a2', company_id: COMPANY_A }, { id: 'pl-b2', company_id: COMPANY_B }]);
+    seedRows('okrs', [{ id: 'okr-a', company_id: COMPANY_A }, { id: 'okr-b', company_id: COMPANY_B }]);
+    seedRows('stage4_plan_documents', [{ id: 'd-a', company_id: COMPANY_A }, { id: 'd-b', company_id: COMPANY_B }]);
+    seedRows('stage4_plan_document_events', [{ id: 'e-a', company_id: COMPANY_A }, { id: 'e-b', company_id: COMPANY_B }]);
+    seedRows('stage3_strategy_books', [{ strategy_id: STRATEGY_A, company_id: COMPANY_A }, { strategy_id: STRATEGY_B, company_id: COMPANY_B }]);
+  });
+
+  it('resets every business column of the company row and keeps identity columns', async () => {
+    const res = await POST(request());
+    expect(res.status).toBe(200);
+
+    const row = fake.tables.strategy_data.find((r) => r.id === STRATEGY_A) as Row;
+    for (const [column, expected] of Object.entries(STRATEGY_DATA_RESET_VALUES)) {
+      expect({ column, value: row[column] }).toEqual({ column, value: expected });
+    }
+    expect(row.id).toBe(STRATEGY_A);
+    expect(row.company_id).toBe(COMPANY_A);
+  });
+
+  it('deletes the STAGE2〜6 related tables of the company only', async () => {
+    const res = await POST(request());
+    expect(res.status).toBe(200);
+
+    for (const table of SEPARATED_TABLES) {
+      expect({ table, rows: rowsOf(table, COMPANY_A) }).toEqual({ table, rows: [] });
+    }
+    expect(rowsOf('story_answers2', COMPANY_B)).toHaveLength(1);
+    expect(rowsOf('okrs', COMPANY_B)).toHaveLength(1);
+    expect(rowsOf('stage3_strategy_books', COMPANY_B)).toHaveLength(1);
+    expect(rowsOf('stage4_plan_documents', COMPANY_B)).toHaveLength(1);
+  });
+
+  it('runs the strategy_data reset after every separated table deletion', async () => {
+    await POST(request());
+
+    const mutations = fake.calls.filter((c) => c.op === 'update' || c.op === 'delete');
+    expect(mutations[mutations.length - 1]).toMatchObject({ table: 'strategy_data', op: 'update' });
+  });
+
+  it('treats a company with no strategy row as already empty and succeeds', async () => {
+    fake.tables.strategy_data = fake.tables.strategy_data.filter((r) => r.company_id !== COMPANY_A);
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.updatedCount).toBe(0);
+    expect(rowsOf('story_answers2', COMPANY_A)).toEqual([]);
+  });
+
+  it('skips an optional table that does not exist yet and still completes', async () => {
+    fake.missingTables.add('stage4_plan_documents');
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.separatedTableDeletions.stage4_plan_documents.skipped).toBe('table_missing');
+  });
+
+  it('does not skip a required table that is missing', async () => {
+    fake.missingTables.add('story_versions');
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe('Failed to delete story_versions');
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.final_story).toEqual([{ x: 1 }]);
+  });
+
+  it('keeps strategy_data intact when a separated table deletion fails', async () => {
+    fake.failures.push({
+      table: 'okrs',
+      op: 'delete',
+      error: { code: '42501', message: 'permission denied for table okrs' },
+      times: 1,
+    });
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.error).toBe('Failed to delete okrs');
+    expect(fake.calls.filter((c) => c.table === 'strategy_data' && c.op === 'update')).toHaveLength(0);
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.final_story).toEqual([{ x: 1 }]);
+  });
+
+  it('reports failure when rows remain in a separated table after deletion', async () => {
+    fake.ignoredDeletes.add('story_versions');
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe('Failed to delete story_versions');
+    expect(json.separatedTableDeletions.story_versions.error.message).toContain('rows remain');
   });
 });
