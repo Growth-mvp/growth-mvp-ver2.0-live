@@ -3,10 +3,11 @@
 import { Bar, BarChart, Cell, LabelList, Legend, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import { moveLabelOf, type FinanceTab } from './financePlanStatus';
 import { cashChartOf, type CashSummary, type FundingStatus } from './financeSummaryModel';
+import { CHART_COLORS } from '@/lib/ui/tokens';
 
-const PLAN_COLOR = '#4f46e5';
-const BASELINE_COLOR = '#cbd5e1';
-const NEGATIVE_COLOR = '#e11d48';
+const PLAN_COLOR = CHART_COLORS.companyTarget;
+const BASELINE_COLOR = CHART_COLORS.baseline;
+const NEGATIVE_COLOR = CHART_COLORS.negative;
 const LABEL_COLOR = '#0f172a';
 
 type Props = {
@@ -54,7 +55,7 @@ function CashCard({ cash }: { cash: CashSummary }) {
               >
                 <XAxis dataKey="name" interval={0} tick={{ fontSize: 12, fill: '#334155' }} tickLine={false} />
                 <YAxis hide domain={['auto', 'auto']} />
-                <ReferenceLine y={0} stroke="#64748b" />
+                <ReferenceLine y={0} stroke={CHART_COLORS.zeroLine} />
                 <Bar dataKey="mil" isAnimationActive={false}>
                   {chart.rows.map((r) => (
                     <Cell key={r.name} fill={r.mil < 0 ? NEGATIVE_COLOR : PLAN_COLOR} />
@@ -83,7 +84,7 @@ function CashCard({ cash }: { cash: CashSummary }) {
                 <XAxis dataKey="name" interval={0} tick={{ fontSize: 12, fill: '#334155' }} tickLine={false} />
                 <YAxis hide domain={['auto', 'auto']} />
                 <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
-                <ReferenceLine y={0} stroke="#64748b" />
+                <ReferenceLine y={0} stroke={CHART_COLORS.zeroLine} />
                 <Bar dataKey="baseline" name="横ばい" fill={BASELINE_COLOR} isAnimationActive={false}>
                   {valueLabels('baseline')}
                 </Bar>

@@ -2,6 +2,7 @@
 
 import type { Achievement, PerformanceBar, PerformanceBarId, PerformanceMetric, PerformanceView } from '@/utils/stage6/performanceView';
 import { METRIC_LABEL } from '@/utils/stage6/performanceView';
+import { CHART_COLORS } from '@/lib/ui/tokens';
 
 /* 縦棒：上部はラベル用の余白、下部は名前と対象年度の余白。ゼロ基準線と棒は同じ座標系で描く（底辺を一致させる） */
 const LABEL_SPACE = 22;
@@ -9,17 +10,10 @@ const LABEL_BOTTOM = 46;
 const PLOT_HEIGHT = 124;
 
 const BAR_COLOR: Record<PerformanceBarId, string> = {
-  COMPANY_CURRENT: '#c7cdd6',
-  COMPANY_TARGET: '#1e40af',
-  PROJECT_TARGET: '#9be7b5',
-  PROJECT_ACTUAL: '#15803d',
-};
-
-const BAR_COLOR_COMPACT: Record<PerformanceBarId, string> = {
-  COMPANY_CURRENT: '#CBD5E1',
-  COMPANY_TARGET: '#567B9F',
-  PROJECT_TARGET: '#91AFC7',
-  PROJECT_ACTUAL: '#2F4A66',
+  COMPANY_CURRENT: CHART_COLORS.current,
+  COMPANY_TARGET: CHART_COLORS.companyTarget,
+  PROJECT_TARGET: CHART_COLORS.projectTarget,
+  PROJECT_ACTUAL: CHART_COLORS.actual,
 };
 
 const SHORT_LABEL: Record<PerformanceBarId, string> = {
@@ -80,7 +74,7 @@ function BarPlot({ bars, compact }: { bars: PerformanceBar[]; compact: boolean }
                     style={{
                       top: Math.min(zeroY, yOf(bar.yen)),
                       height: Math.max(2, Math.abs(yOf(bar.yen) - zeroY)),
-                      backgroundColor: compact ? BAR_COLOR_COMPACT[bar.id] : BAR_COLOR[bar.id],
+                      backgroundColor: BAR_COLOR[bar.id],
                       borderRadius: compact
                         ? bar.yen > 0 ? '10px 10px 0 0' : '0 0 10px 10px'
                         : bar.yen > 0 ? '6px 6px 0 0' : '0 0 6px 6px',

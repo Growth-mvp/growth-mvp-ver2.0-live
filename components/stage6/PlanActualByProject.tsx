@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { Department } from '@/types/strategy';
 import { parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
+import { CHART_COLORS } from '@/lib/ui/tokens';
 import {
   planActualItemsForMode,
   planActualProjectsOf,
@@ -164,13 +165,13 @@ export function PlanActualByProject({ departments, fiscalYearEnd }: { department
                         }))}
                         margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} />
                         <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                         <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${v}`} label={{ value: '百万円', angle: -90, position: 'insideLeft', fontSize: 11 }} />
                         <Tooltip formatter={(v) => (typeof v === 'number' ? `${v.toFixed(2)}百万円` : '未登録')} />
                         <Legend />
-                        <Bar dataKey="計画" fill="#94a3b8" />
-                        <Bar dataKey="登録済み実績" fill="#0f172a" />
+                        <Bar dataKey="計画" fill={CHART_COLORS.projectTarget} />
+                        <Bar dataKey="登録済み実績" fill={CHART_COLORS.actual} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

@@ -12,10 +12,7 @@ import {
 } from 'recharts';
 import { formatMil } from './financeSummaryModel';
 import type { OutlookChartMetric, OutlookCharts } from './financeOutlookChartModel';
-
-const PLAN_COLOR = '#16a34a';
-const BASELINE_COLOR = '#94a3b8';
-const TARGET_COLOR = '#e11d48';
+import { CHART_COLORS } from '@/lib/ui/tokens';
 
 const millionText = (v: number | null) => (v === null ? '未算定' : formatMil(v * 1_000_000));
 const signedMillionText = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${formatMil(Math.abs(v) * 1_000_000)}`;
@@ -46,16 +43,16 @@ function ChartCard({ metric }: { metric: OutlookChartMetric }) {
       <div className="mt-3 h-52" role="img" aria-label={`${metric.label}の経年グラフ`}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 12, right: 16, left: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#334155' }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#475569' }} width={56} domain={['auto', 'auto']} />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fill: CHART_COLORS.axis }} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: CHART_COLORS.axis }} width={56} domain={['auto', 'auto']} />
             <Tooltip formatter={(v) => (typeof v === 'number' ? formatMil(v * 1_000_000) : '未算定')} />
             <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
             <Line
               type="linear"
               dataKey="baseline"
               name="既存事業の見通し"
-              stroke={BASELINE_COLOR}
+              stroke={CHART_COLORS.baseline}
               strokeWidth={2}
               strokeDasharray="5 4"
               dot={false}
@@ -66,7 +63,7 @@ function ChartCard({ metric }: { metric: OutlookChartMetric }) {
               type="linear"
               dataKey="plan"
               name="施策効果を反映した見通し"
-              stroke={PLAN_COLOR}
+              stroke={CHART_COLORS.companyTarget}
               strokeWidth={2}
               connectNulls={false}
               isAnimationActive={false}
@@ -75,9 +72,9 @@ function ChartCard({ metric }: { metric: OutlookChartMetric }) {
               type="linear"
               dataKey="target"
               name="経営目標"
-              stroke={TARGET_COLOR}
+              stroke={CHART_COLORS.targetPoint}
               strokeWidth={0}
-              dot={{ r: 6, fill: TARGET_COLOR, stroke: '#fff', strokeWidth: 1 }}
+              dot={{ r: 6, fill: CHART_COLORS.targetPoint, stroke: '#fff', strokeWidth: 1 }}
               activeDot={{ r: 7 }}
               connectNulls={false}
               isAnimationActive={false}

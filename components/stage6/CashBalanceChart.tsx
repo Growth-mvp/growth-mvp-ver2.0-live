@@ -2,9 +2,10 @@
 
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ConditionalCf } from '@/utils/stage6/conditionalCf';
+import { CHART_COLORS } from '@/lib/ui/tokens';
 
-const CASH_COLOR = '#15803d';
-const MIN_CASH_COLOR = '#94a3b8';
+const CASH_COLOR = CHART_COLORS.companyTarget;
+const MIN_CASH_COLOR = CHART_COLORS.baseline;
 const MILLION = 1_000_000;
 
 function Callout({ tone, title, body }: { tone: 'alert' | 'caution' | 'ok'; title: string; body: string }) {
@@ -72,10 +73,10 @@ export function CashBalanceChart({
           <div className="h-48" role="img" aria-label="年度別の現預金の見通しと最低必要現預金の折れ線グラフ">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data} margin={{ top: 12, right: 16, left: 4, bottom: 4 }}>
-                <CartesianGrid vertical={false} strokeDasharray="2 4" stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={40} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                <ReferenceLine y={0} stroke="#cbd5e1" />
+                <CartesianGrid vertical={false} strokeDasharray="2 4" stroke={CHART_COLORS.grid} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: CHART_COLORS.axis }} width={40} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                <ReferenceLine y={0} stroke={CHART_COLORS.zeroLine} />
                 <Tooltip
                   formatter={(v) => (typeof v === 'number' ? `${v.toLocaleString('ja-JP', { maximumFractionDigits: 1 })}百万円` : '未算定')}
                   contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 16px rgba(15,23,42,0.12)', fontSize: 12 }}
