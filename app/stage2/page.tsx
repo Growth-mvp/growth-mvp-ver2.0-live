@@ -202,7 +202,7 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: 
               disabled={isDisabled}
               className={`relative px-5 py-3 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
                 isActive
-                  ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-300 xl:dark:ring-blue-800'
+                  ? 'bg-accent-action text-white shadow-lg ring-2 ring-accent/30'
                   : isDisabled
                   ? 'bg-gray-100 xl:dark:bg-gray-800/50 text-gray-400 xl:dark:text-gray-600 cursor-not-allowed'
                   : 'bg-white xl:dark:bg-gray-800 text-gray-700 xl:dark:text-gray-300 hover:bg-gray-50 xl:dark:hover:bg-gray-700 border border-gray-200 xl:dark:border-gray-700'
@@ -1206,7 +1206,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                   <button
                     type="button"
                     onClick={() => handleEdit(ct)}
-                    className="px-2 py-1 text-xs rounded bg-blue-100 xl:dark:bg-blue-900/30 text-blue-700 xl:dark:text-blue-400 hover:bg-blue-200 xl:dark:hover:bg-blue-900/50"
+                    className="rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-soft/70"
                   >
                     編集
                   </button>
@@ -1997,7 +1997,7 @@ function Questions12Section({
             <button
               onClick={handleGenerateDeepDive}
               disabled={deepDiveLoading}
-              className="w-full px-4 py-2 bg-blue-50 xl:dark:bg-blue-900/30 border border-blue-200 xl:dark:border-blue-700 rounded-lg text-sm font-medium text-blue-700 xl:dark:text-blue-300 hover:bg-blue-100 xl:dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="w-full rounded-xl bg-accent-action px-4 py-2 font-semibold text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {deepDiveLoading ? '生成中...' : 'AIともう一段掘り下げる'}
             </button>
@@ -2076,7 +2076,7 @@ function Questions12Section({
                   <button
                     onClick={handleApplyDeepDiveToAnswer}
                     disabled={disabled}
-                    className="flex-1 px-4 py-2 bg-blue-600 xl:dark:bg-blue-700 text-white font-medium rounded-lg hover:bg-blue-700 xl:dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex-1 rounded-xl bg-accent-action px-4 py-2 font-semibold text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     元の回答に反映する
                   </button>
@@ -2095,7 +2095,7 @@ function Questions12Section({
                   <button
                     onClick={handleReGenerateDeepDive}
                     disabled={deepDiveLoading || disabled}
-                    className="px-4 py-2 bg-gray-200 xl:dark:bg-gray-700 text-gray-700 xl:dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-300 xl:dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="rounded-xl border border-accent-action/40 bg-white px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-soft disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     別の問いを出す
                   </button>
@@ -3980,7 +3980,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             </p>
             <button
               onClick={() => router.push('/stage1')}
-              className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-6 py-3 text-white font-medium hover:bg-blue-700 transition-colors"
+              className="inline-flex items-center gap-2 rounded-xl bg-accent-action px-6 py-3 font-semibold text-white hover:bg-accent-hover transition-colors"
             >
               ← STAGE1へ移動
             </button>
@@ -4023,7 +4023,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           <div className="flex items-center gap-4">
             <button
               onClick={handleOpenStrategy}
-              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md"
+              className="rounded-xl border border-accent-action/40 bg-white px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-soft transition-colors"
               title="全社戦略書をプレビュー画面で確認・PDF出力できます"
             >
               戦略書プレビュー
@@ -4102,7 +4102,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     type="button"
                     onClick={handleGenerateOT}
                     disabled={disabled || generatingOT || extendingOT}
-                    className="px-6 py-3 rounded-xl bg-amber-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-amber-700 transition-colors shadow-lg"
+                    className="px-6 py-3 rounded-xl border border-accent-action/40 bg-white text-base font-semibold text-accent-ink disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-soft transition-colors"
                   >
                     {generatingOT ? 'AIで提案中...' : 'AIで機会・脅威を提案'}
                   </button>
@@ -4121,7 +4121,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       void handleGenerate(e);
                     }}
                     disabled={disabled || generating}
-                    className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
+                    className="px-8 py-4 rounded-xl bg-accent-action text-base font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors shadow-lg"
                     title="Shift+クリックで API 疎通テスト（PING モード）"
                   >
                     {generating ? '生成中...' : 'たたき台を生成'}
@@ -4167,7 +4167,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       void handleGenerate(e);
                     }}
                     disabled={disabled || generating}
-                    className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
+                    className="px-8 py-4 rounded-xl bg-accent-action text-base font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors shadow-lg"
                     title="Shift+クリックで API 疎通テスト（PING モード）"
                   >
                     {generating ? '生成中...' : hasDraft ? 'たたき台を再生成' : 'たたき台を生成'}
@@ -4211,7 +4211,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     <button
                       onClick={handleGenerateFinal}
                       disabled={disabled || !hasDraft || generatingFinal}
-                      className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
+                      className="px-8 py-4 rounded-xl bg-accent-action text-base font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors shadow-lg"
                     >
                       {generatingFinal ? '生成中...' : '経営戦略を生成'}
                     </button>
@@ -4273,7 +4273,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             }
                             setStoryEditMode((v) => !v);
                           }}
-                          className="px-4 py-2 rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white xl:dark:bg-gray-800 text-sm font-medium text-gray-700 xl:dark:text-gray-200 hover:bg-gray-50 xl:dark:hover:bg-gray-700 transition-colors shadow-sm"
+                          className="rounded-xl border border-accent-action/40 bg-white px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-soft transition-colors"
                         >
                           {storyEditMode ? 'ドキュメント表示に戻る' : '本文を編集する'}
                         </button>
@@ -4413,7 +4413,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             setStoryViewMode('edited');
                             setStoryEditMode(false);
                           }}
-                          className="px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-md disabled:opacity-50"
+                          className="rounded-xl border border-accent-action/40 bg-white px-6 py-3 text-sm font-semibold text-accent-ink hover:bg-accent-soft transition-colors disabled:opacity-50"
                         >
                           保存
                         </button>
@@ -4421,7 +4421,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
                         {/* 確定＆STAGE3引き渡し */}
                         <div className="flex flex-col gap-2">
-                          <p className="text-xs text-emerald-700 xl:dark:text-emerald-300 bg-emerald-50 xl:dark:bg-emerald-900/30 px-3 py-2 rounded">
+                          <p className="text-xs text-accent-ink bg-accent-soft px-3 py-2 rounded">
                             この内容を全社戦略として確定し、事業・部門別戦略の設計に引き渡します。
                           </p>
                           {/* 処理ステータスメッセージ */}
@@ -4439,7 +4439,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                                   <button
                                     type="button"
                                     onClick={handleRetryStage3Bridge}
-                                    className="mt-2 px-3 py-1 rounded text-xs bg-red-700 text-white hover:bg-red-800 transition-colors"
+                                    className="mt-2 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-soft/70 transition-colors"
                                   >
                                     STAGE3への引き渡しを再実行
                                   </button>
@@ -4454,7 +4454,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                                 <button
                                   type="button"
                                   onClick={() => router.push('/cascade')}
-                                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors"
+                                  className="rounded-xl border border-accent-action/40 bg-white px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-soft transition-colors"
                                 >
                                   STAGE3で部門別設計へ進む
                                 </button>
@@ -4464,7 +4464,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           <button
                             disabled={disabled || committingFinalStory || commitSuccessful}
                             onClick={handleCommitAndBridge}
-                            className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-6 py-3 rounded-xl bg-accent-action text-sm font-semibold text-white hover:bg-accent-hover transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {committingFinalStory ? committingStatus || '処理中...' : commitSuccessful ? '完了' : '全社戦略を確定し、STAGE3へ引き渡す'}
                           </button>
@@ -4498,7 +4498,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                         <button
                           disabled={disabled || !hasDraft || generatingFinal}
                           onClick={handleGenerateFinal}
-                          className="px-8 py-3 rounded-lg bg-slate-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors shadow-md"
+                          className="rounded-xl border border-accent-action/40 bg-white px-8 py-3 text-sm font-semibold text-accent-ink disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-soft transition-colors"
                         >
                           {generatingFinal ? '生成中...' : '経営戦略を再生成'}
                         </button>
