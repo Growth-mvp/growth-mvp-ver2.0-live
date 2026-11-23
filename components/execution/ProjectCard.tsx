@@ -60,7 +60,7 @@ export default function ProjectCard({
       aria-label={`${deptName} ${project.title}`}
     >
       {/* 横いっぱいに広げるため w-full / max-w-none を明示 */}
-      <Card className="w-full max-w-none p-4 shadow-xl border border-blue-200 bg-white hover:shadow-2xl transition-all rounded-2xl">
+      <Card className="w-full max-w-none p-4 border border-zinc-200 bg-white hover:border-zinc-300 transition-colors rounded-2xl">
         <h2 className="text-md text-blue-800 font-semibold mb-2">{deptName}</h2>
         <h3 className="text-xl font-bold text-gray-800">
           {project.title}

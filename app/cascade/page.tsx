@@ -1255,7 +1255,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                       ))}
                     </ul>
                   </div>
-                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">見直すべき事業・活動</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
                       {reviewItems.map((item: string, i: number) => (
@@ -1263,7 +1263,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                       ))}
                     </ul>
                   </div>
-                  <div className="rounded-lg border border-purple-100 bg-purple-50 px-4 py-3">
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">各部門に求める役割</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
                       {roleItems.map((item: string, i: number) => (
@@ -1274,7 +1274,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                 </div>
 
                 {nonNegotiableItems.length > 0 && (
-                  <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3">
+                  <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">STAGE3で保持する戦略の芯</h4>
                     <ul className="mt-2 grid gap-1 text-xs text-zinc-700 xl:grid-cols-2">
                       {nonNegotiableItems.map((item: string, i: number) => (
@@ -4343,8 +4343,8 @@ useEffect(() => {
     const alignmentRiskPoints: string[] = Array.isArray((dept as any).alignmentRiskPoints) ? (dept as any).alignmentRiskPoints.filter(Boolean) : [];
     const hasAny = !!currentPosition || !!strategicRole || keyIssues.length > 0 || alignmentRiskPoints.length > 0;
     return (
-      <div className="mt-3 mb-2 rounded-2xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
-        <div className="text-sm font-bold tracking-tight text-indigo-900">事業・部門別戦略の要点</div>
+      <div className="mt-3 mb-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+        <div className="text-sm font-bold tracking-tight text-zinc-900">事業・部門別戦略の要点</div>
         {hasAny ? (
           <div className="mt-2 space-y-2">
             {currentPosition && (

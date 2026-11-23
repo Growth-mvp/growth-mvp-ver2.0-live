@@ -442,8 +442,8 @@ type Tab = 'compare' | `dept:${number}`;
 function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'neutral'; children: ReactNode }) {
   const cls = {
     ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    warn: 'border-amber-300 bg-amber-50 text-amber-900',
-    neutral: 'border-gray-200 bg-white text-gray-700',
+    warn: 'border-caution/30 bg-caution-soft text-caution',
+    neutral: 'border-zinc-200 bg-white text-zinc-700',
   }[tone];
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{children}</span>;
 }
@@ -1677,7 +1677,7 @@ export function StrategyBookDesk({
     <p
       role={confirmResult.tone === 'ok' ? 'status' : 'alert'}
       className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-        confirmResult.tone === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'
+        confirmResult.tone === 'ok' ? 'bg-success-soft text-success' : 'bg-caution-soft text-caution'
       }`}
     >
       {confirmResult.message}
@@ -1929,7 +1929,7 @@ export function StrategyBookDesk({
                   onClick={() => showPhase(s.phase)}
                   className={`rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
                     active
-                      ? 'border-zinc-900 bg-zinc-900 text-white'
+                      ? 'border-accent-action bg-accent-action text-white'
                       : enabled
                         ? 'border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50'
                         : 'cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400'
@@ -1941,7 +1941,7 @@ export function StrategyBookDesk({
               );
             })}
           </nav>
-          <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">
+          <p className="rounded-lg bg-accent-soft px-3 py-2 text-sm font-medium text-accent-ink">
             次の操作：
             {!progress.hasInitial
               ? '「AIで戦略書のたたき台を作成」を押してください。'
@@ -2412,7 +2412,7 @@ export function StrategyBookDesk({
             href="/report/stage2-strategy"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-semibold text-white hover:bg-zinc-700"
+            className="rounded-xl bg-accent-action px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
           >
             全社戦略書を読む
           </Link>
@@ -2428,7 +2428,7 @@ export function StrategyBookDesk({
               type="button"
               onClick={() => setTab(t.id)}
               className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
-                tab === t.id ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-800 hover:bg-zinc-200'
+                tab === t.id ? 'bg-accent-action text-white' : 'bg-zinc-100 text-zinc-800 hover:bg-zinc-200'
               }`}
             >
               {t.label}
@@ -2530,7 +2530,7 @@ export function StrategyBookDesk({
       )}
 
       {busy && BUSY_TEXT[busy] && (
-        <p role="status" className="rounded-lg bg-sky-50 px-4 py-2 text-sm text-sky-900">
+        <p role="status" className="rounded-lg bg-accent-soft px-4 py-2 text-sm text-accent-ink">
           {BUSY_TEXT[busy]}
         </p>
       )}

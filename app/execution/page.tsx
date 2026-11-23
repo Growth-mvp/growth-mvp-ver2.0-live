@@ -1414,7 +1414,7 @@ function ExecPanel(props: {
             type="button"
             onClick={() => requestConsult(progressText.trim())}
             disabled={!progressText.trim()}
-            className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
+            className="rounded-xl bg-accent-action px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
           >
             AI経営コンサルタントに相談する
           </button>
@@ -1483,7 +1483,7 @@ function ExecPanel(props: {
               <button
                 onClick={onSaveFeedback}
                 disabled={saving || !userId}
-                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:bg-gray-300"
+                className="rounded-xl bg-accent-action px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
                 type="button"
               >
                 {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
@@ -1505,8 +1505,8 @@ function ExecPanel(props: {
 
       {/* 社内に協力を求める：本人が共有操作をしたときだけ保存する。自分の投稿はこの欄で編集する */}
       {shareOpen && (
-        <section ref={shareSectionRef} className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
-          <div className="text-sm font-semibold text-gray-800">{shareEditing ? '社内に共有した投稿を編集' : '社内に共有する投稿'}</div>
+        <section ref={shareSectionRef} className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="text-sm font-medium text-zinc-900">{shareEditing ? '社内に共有した投稿を編集' : '社内に共有する投稿'}</div>
           <AutoResizeTextarea
             minRows={3}
             maxRows={8}
@@ -1515,13 +1515,13 @@ function ExecPanel(props: {
             value={shareDraft}
             onChange={(e) => setShareDraft(e.target.value)}
           />
-          <p className="mt-2 text-xs text-sky-950">この投稿は社内に共有されます。トップ画面の「最近動きのあったプロジェクト」に表示されます。</p>
+          <p className="mt-2 text-[13px] text-zinc-600">この投稿は社内に共有されます。トップ画面の「最近動きのあったプロジェクト」に表示されます。</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => onShareDraft(shareDraft.trim())}
               disabled={saving || !userId || !shareDraft.trim()}
-              className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:bg-gray-300"
+              className="rounded-xl bg-accent-action px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
             >
               {saving ? (shareEditing ? '更新中…' : '共有中…') : shareEditing ? '更新する' : '社内に共有する'}
             </button>
@@ -2885,15 +2885,15 @@ function ExecutionPageContent() {
                           }}
                           type="button"
                           onClick={() => setDeptOpen({ open: true, di: dept.di })}
-                          className={`group w-[260px] rounded-3xl border border-black/10 hover:border-emerald-300 ${toneToTint(tone)} hover:bg-emerald-50 px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
+                          className={`group w-[260px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-5 py-5 text-left transition`}
                         >
                           <div className="flex items-center gap-2">
                             <span className={`h-2.5 w-2.5 rounded-full ${dot}`} />
-                            <div className="text-sm font-semibold text-gray-900 group-hover:text-emerald-700 transition">
+                            <div className="text-sm font-medium text-zinc-900 group-hover:text-accent-ink transition">
                               {dept.deptName?.trim() ? dept.deptName : '（部門名未設定）'}
                             </div>
                           </div>
-                          <div className="mt-2 text-xs text-gray-600 group-hover:text-emerald-600 transition">
+                          <div className="mt-2 text-[13px] text-zinc-600 group-hover:text-zinc-800 transition">
                             ▶ クリックでミッション/一覧
                           </div>
                         </button>
