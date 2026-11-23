@@ -240,7 +240,7 @@ export default function OrgAlignmentFixedIntakeForm({ onSubmit }: OrgAlignmentFi
         className={`w-full rounded-xl px-6 py-3 font-semibold transition-colors ${
           !canSubmit || isSubmitting
             ? 'cursor-not-allowed bg-slate-200 text-slate-400'
-            : 'bg-slate-950 text-white hover:bg-slate-900'
+            : 'bg-accent-action text-white hover:bg-accent-hover'
         }`}
       >
         {isSubmitting ? '認識のズレを整理中...' : 'この内容で認識のズレを整理する'}

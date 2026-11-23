@@ -130,9 +130,9 @@ const getStatusColor = (status: TopicStatus | ActionStatus | Stage3Status | Stag
     case "対応方針決定":
     case "STAGE3確認済み":
     case "STAGE4確認済み":
-      return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+      return "bg-accent-soft text-accent-ink ring-1 ring-accent/20";
     case "実行中":
-      return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
+      return "bg-success-soft text-success ring-1 ring-success/20";
     case "完了":
       return "bg-slate-200 text-slate-700 ring-1 ring-slate-300";
     case "未反映":
@@ -157,7 +157,7 @@ const getLevelColor = (level: Level) => {
 };
 
 const getPriorityColor = (score: number) => {
-  if (score >= 85) return "bg-slate-900 text-white";
+  if (score >= 85) return "bg-zinc-900 text-white";
   if (score >= 75) return "bg-slate-200 text-slate-900";
   return "bg-slate-100 text-slate-700";
 };
@@ -798,7 +798,7 @@ function StrategyReflectionSection({
           ) : (
             <a
               href="/cascade"
-              className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 inline-block text-center"
+              className="rounded-xl bg-accent-action px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-hover inline-block text-center"
             >
               STAGE3で候補を確認する{reflection.stage3Confirmed ?? false ? " ✓" : ""}
             </a>
@@ -815,7 +815,7 @@ function StrategyReflectionSection({
           ) : (
             <a
               href="/okr"
-              className="rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-700 inline-block text-center"
+              className="rounded-xl bg-accent-action px-5 py-3 text-sm font-medium text-white transition hover:bg-accent-hover inline-block text-center"
             >
               STAGE4で候補を確認する{reflection.stage4Confirmed ?? false ? " ✓" : ""}
             </a>
@@ -856,7 +856,7 @@ function StrategyReflectionSection({
               <button
                 type="button"
                 onClick={handleConfirmReset}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                className="rounded-xl bg-accent-action px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-hover"
               >
                 リセットする
               </button>
@@ -937,9 +937,9 @@ function TopicCard({
           <p className="text-sm leading-7 text-slate-700">{topic.summary}</p>
 
           {/* ズレの本質：1行程度 */}
-          <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 p-2">
-            <p className="text-xs font-semibold text-blue-900">ズレの本質</p>
-            <p className="mt-1 text-sm leading-6 text-blue-800 line-clamp-2">{topic.recognitionGap.gapEssence}</p>
+          <div className="mt-2 rounded-xl bg-accent-soft border border-accent/20 p-2">
+            <p className="text-xs font-semibold text-zinc-900">ズレの本質</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-800 line-clamp-2">{topic.recognitionGap.gapEssence}</p>
           </div>
         </div>
 
@@ -983,26 +983,26 @@ function TopicCard({
               <h5 className="font-bold text-slate-950 text-base">② 認識のズレ</h5>
               <p className="mt-1 text-xs text-slate-500">現場と会社の見方の違い</p>
               <div className="mt-3 grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <div className="rounded-xl border border-accent/20 bg-accent-soft p-4">
                   <p className="font-semibold text-blue-900">現場の認識</p>
-                  <p className="mt-3 text-sm leading-7 text-blue-800">{topic.recognitionGap.fieldView}</p>
+                  <p className="mt-3 text-sm leading-7 text-zinc-800">{topic.recognitionGap.fieldView}</p>
                 </div>
                 <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
                   <p className="font-semibold text-orange-900">会社側の認識</p>
                   <p className="mt-3 text-sm leading-7 text-orange-800">{topic.recognitionGap.companyView}</p>
                 </div>
-                <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-                  <p className="font-semibold text-green-900">ズレの本質</p>
-                  <p className="mt-3 text-sm leading-7 text-green-800">{topic.recognitionGap.gapEssence}</p>
+                <div className="rounded-xl border border-zinc-200 bg-white p-4">
+                  <p className="font-semibold text-zinc-900">ズレの本質</p>
+                  <p className="mt-3 text-sm leading-7 text-zinc-800">{topic.recognitionGap.gapEssence}</p>
                 </div>
               </div>
             </section>
 
             {/* ③ 会社としての判断軸：会社の判断基準 */}
-            <section className="rounded-xl border border-green-300 bg-green-50 p-5">
-              <h5 className="font-bold text-green-950 text-base">③ 会社としての判断軸</h5>
-              <p className="mt-1 text-xs text-green-700">会社が優先することと、その理由</p>
-              <p className="mt-3 text-sm leading-8 text-green-800">{topic.companyAxis}</p>
+            <section className="rounded-xl border border-zinc-200 bg-white p-5">
+              <h5 className="font-medium text-zinc-900 text-[17px]">③ 会社としての判断軸</h5>
+              <p className="mt-1 text-[13px] text-zinc-600">会社が優先することと、その理由</p>
+              <p className="mt-3 text-sm leading-8 text-zinc-800">{topic.companyAxis}</p>
             </section>
 
             {/* ④ 背景：背景情報 */}
@@ -1092,10 +1092,10 @@ function TopicCard({
             {topic.announcement_text && (
               <section>
                 <h5 className="font-bold text-slate-950 text-base">⑨ 運営からのお知らせ</h5>
-                <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                  <p className="text-sm leading-6 text-blue-800">{topic.announcement_text}</p>
+                <div className="mt-3 rounded-xl border border-accent/20 bg-accent-soft p-4">
+                  <p className="text-sm leading-6 text-zinc-800">{topic.announcement_text}</p>
                   {topic.announcement_updated_at && (
-                    <p className="mt-2 text-xs text-blue-600">更新：{new Date(topic.announcement_updated_at).toLocaleString('ja-JP')}</p>
+                    <p className="mt-2 text-[13px] text-zinc-600">更新：{new Date(topic.announcement_updated_at).toLocaleString('ja-JP')}</p>
                   )}
                 </div>
               </section>
@@ -1603,7 +1603,7 @@ export default function OrganizationSharedRoomPage() {
                 onClick={() => setSelectedFilter(filter)}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
                   selectedFilter === filter
-                    ? "bg-slate-900 text-white shadow"
+                    ? "bg-accent-action text-white shadow"
                     : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
                 }`}
               >
@@ -1711,25 +1711,25 @@ export default function OrganizationSharedRoomPage() {
                     全社すり合わせルームでは、個人や部門を責めるのではなく、会社が目指す方向に向けて認識のズレを整えることを目的とします。
                   </p>
                   <div className="mt-4 space-y-3">
-                    <div className="rounded-lg bg-blue-50 p-3">
-                      <div className="text-sm font-semibold text-blue-900">1. 人や組織を悪者にしない</div>
-                      <p className="mt-1 text-xs text-blue-700">個人や部門を責めず、判断基準・役割・優先順位のズレとして扱う。</p>
+                    <div className="rounded-xl bg-accent-soft p-3">
+                      <div className="text-sm font-semibold text-accent-ink">1. 人や組織を悪者にしない</div>
+                      <p className="mt-1 text-[13px] text-zinc-700">個人や部門を責めず、判断基準・役割・優先順位のズレとして扱う。</p>
                     </div>
-                    <div className="rounded-lg bg-blue-50 p-3">
-                      <div className="text-sm font-semibold text-blue-900">2. 認識のズレをすり合わせる</div>
-                      <p className="mt-1 text-xs text-blue-700">それぞれの立場で見えている事実、前提、期待値を確認する。</p>
+                    <div className="rounded-xl bg-accent-soft p-3">
+                      <div className="text-sm font-semibold text-accent-ink">2. 認識のズレをすり合わせる</div>
+                      <p className="mt-1 text-[13px] text-zinc-700">それぞれの立場で見えている事実、前提、期待値を確認する。</p>
                     </div>
-                    <div className="rounded-lg bg-blue-50 p-3">
-                      <div className="text-sm font-semibold text-blue-900">3. 会社の目指す方向性に沿う結論にする</div>
-                      <p className="mt-1 text-xs text-blue-700">最終判断は、会社の戦略・顧客価値・業績改善・組織のあるべき姿に照らして行う。</p>
+                    <div className="rounded-xl bg-accent-soft p-3">
+                      <div className="text-sm font-semibold text-accent-ink">3. 会社の目指す方向性に沿う結論にする</div>
+                      <p className="mt-1 text-[13px] text-zinc-700">最終判断は、会社の戦略・顧客価値・業績改善・組織のあるべき姿に照らして行う。</p>
                     </div>
-                    <div className="rounded-lg bg-blue-50 p-3">
-                      <div className="text-sm font-semibold text-blue-900">4. 変えること・変えないことを明確にする</div>
-                      <p className="mt-1 text-xs text-blue-700">改善すること、説明すること、今は変えないことを分ける。</p>
+                    <div className="rounded-xl bg-accent-soft p-3">
+                      <div className="text-sm font-semibold text-accent-ink">4. 変えること・変えないことを明確にする</div>
+                      <p className="mt-1 text-[13px] text-zinc-700">改善すること、説明すること、今は変えないことを分ける。</p>
                     </div>
-                    <div className="rounded-lg bg-blue-50 p-3">
-                      <div className="text-sm font-semibold text-blue-900">5. 結果を共有し、次の行動につなげる</div>
-                      <p className="mt-1 text-xs text-blue-700">会社としての判断、次アクション、担当、期限を残す。</p>
+                    <div className="rounded-xl bg-accent-soft p-3">
+                      <div className="text-sm font-semibold text-accent-ink">5. 結果を共有し、次の行動につなげる</div>
+                      <p className="mt-1 text-[13px] text-zinc-700">会社としての判断、次アクション、担当、期限を残す。</p>
                     </div>
                   </div>
                 </div>

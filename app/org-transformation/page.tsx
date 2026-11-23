@@ -756,8 +756,8 @@ export default function OrgTransformationPage() {
                                 </div>
 
                                     {/* セクション1：自分の認識 */}
-                                <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
-                                  <p className="text-xs font-semibold tracking-wide text-blue-600">
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-zinc-600">
                                     自分の認識
                                   </p>
                                   <p className="mt-3 text-sm leading-relaxed text-slate-800">
@@ -776,11 +776,11 @@ export default function OrgTransformationPage() {
                                 </div>
 
                                 {/* セクション3：会社としてあるべき認識 */}
-                                <div className="rounded-xl border border-green-100 bg-green-50 p-5">
-                                  <p className="text-xs font-semibold tracking-wide text-green-600">
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-zinc-600">
                                     会社としてあるべき認識
                                   </p>
-                                  <p className="mt-1 text-xs text-green-600">
+                                  <p className="mt-1 text-[13px] text-zinc-600">
                                     {result.companyRecognitionTitle}
                                   </p>
                                   <p className="mt-3 text-sm leading-relaxed text-slate-800">
@@ -809,8 +809,8 @@ export default function OrgTransformationPage() {
                                 </div>
 
                                 {/* セクション5：推奨される次のアクション */}
-                                <div className="rounded-xl border border-purple-100 bg-purple-50 p-5">
-                                  <p className="text-xs font-semibold tracking-wide text-purple-600">
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-zinc-600">
                                     次の行動案
                                   </p>
                                   <p className="mt-2 font-semibold text-slate-950">

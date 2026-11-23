@@ -148,7 +148,7 @@ export default function OrgAlignmentIntakeChat({ onComplete, isLoading: external
             <div
               className={`max-w-[80%] rounded-xl px-4 py-3 text-sm leading-7 ${
                 msg.role === 'user'
-                  ? 'bg-slate-900 text-white'
+                  ? 'bg-accent-action text-white'
                   : 'border border-slate-200 bg-slate-50 text-slate-700'
               }`}
             >
@@ -184,7 +184,7 @@ export default function OrgAlignmentIntakeChat({ onComplete, isLoading: external
             className={`w-full rounded-xl px-4 py-3 font-semibold transition-colors ${
               !userInput.trim() || isLoading || externalLoading
                 ? 'cursor-not-allowed bg-slate-200 text-slate-400'
-                : 'bg-slate-950 text-white hover:bg-slate-900'
+                : 'bg-accent-action text-white hover:bg-accent-hover'
             }`}
           >
             {isLoading || externalLoading ? '処理中...' : '送信 (Cmd/Ctrl+Enter で送信)'}
