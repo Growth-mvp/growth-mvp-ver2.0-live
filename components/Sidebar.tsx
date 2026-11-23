@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import LogoutButton from './LogoutButton';
@@ -18,7 +17,6 @@ import {
   UserPlus,
   LineChart,
   UsersRound,
-  Menu,
   X,
   Coffee,
 } from 'lucide-react';
@@ -37,27 +35,17 @@ const STAGE_LABEL_CLASS = 'font-medium tracking-[0.01em] text-[14px] leading-6 t
 const STAGE_NUM_CLASS = 'font-medium text-[13px] text-zinc-600';
 const GROUP_TITLE_CLASS = 'px-3 pb-1 text-[12px] font-medium text-zinc-600';
 
-export default function Sidebar() {
+/**
+ * 開閉（モバイルのドロワー）は呼び出し側（app/layoutClient.tsx）が1か所で管理する。
+ * onMobileClose は、ドロワー内で表示される閉じるボタンに渡す（PC側では渡さない）。
+ */
+export default function Sidebar({ onMobileClose }: { onMobileClose?: () => void }) {
   const pathname = usePathname();
 
   const userStore = useUserStore();
   const user = userStore.user;
 
   const { canEditCompany } = useAccess();
-
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   const isActive = (href: string) => {
     // /org-transformation は /org-transformation/shared の親パスでもあるため、
@@ -77,46 +65,21 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile: Menu Button */}
-      <button
-        type="button"
-        aria-label="メニューを開く"
-        onClick={() => setOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-[60] inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-[14px] font-medium text-zinc-800 shadow-subtle transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-      >
-        <Menu size={18} strokeWidth={1.5} />
-        メニュー
-      </button>
-
-      {/* Mobile: Backdrop */}
-      <div
-        className={[
-          'lg:hidden fixed inset-0 z-[55] bg-black/30 transition-opacity',
-          open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
-        ].join(' ')}
-        onClick={() => setOpen(false)}
-      />
-
-      {/* Sidebar */}
-      <aside
-        className={[
-          'z-[56] h-full w-full bg-zinc-50 border-r border-zinc-200 text-zinc-800 flex flex-col',
-          'lg:translate-x-0 lg:shadow-none shadow-card',
-          'fixed top-0 left-0 h-screen w-[16rem] max-w-[80vw] transition-transform duration-200 ease-out lg:static lg:h-full lg:max-w-none',
-          open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
-        ].join(' ')}
-      >
+      {/* Sidebar（モバイルでは呼び出し側のドロワー内に表示される） */}
+      <aside className="z-[56] h-full w-full bg-zinc-50 border-r border-zinc-200 text-zinc-800 flex flex-col">
+        {onMobileClose && (
         <div className="lg:hidden shrink-0 flex items-center justify-between border-b border-zinc-200 px-4 py-3">
           <div className="text-[14px] font-medium text-zinc-800">メニュー</div>
           <button
             type="button"
             aria-label="閉じる"
-            onClick={() => setOpen(false)}
+            onClick={onMobileClose}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           >
             <X size={18} strokeWidth={1.5} />
           </button>
         </div>
+        )}
 
         <div className="shrink-0 overflow-visible border-b border-zinc-200 px-1 py-3">
           <Link href="/" aria-label="トップページへ" className="flex justify-center no-underline">

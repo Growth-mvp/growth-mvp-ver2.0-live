@@ -207,6 +207,15 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     setOpenLeft(false);
   }, [pathname]);
 
+  useEffect(() => {
+    if (!openLeft) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenLeft(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openLeft]);
+
   // ★ mounted フラグを立てる（client-side only）
   useEffect(() => {
     setMounted(true);
@@ -915,7 +924,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
                 openLeft ? 'translate-x-0' : '-translate-x-full',
               ].join(' ')}
             >
-              <Sidebar />
+              <Sidebar onMobileClose={() => setOpenLeft(false)} />
             </div>
           </div>
         </>
