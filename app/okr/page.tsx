@@ -221,9 +221,9 @@ function Tooltip({
  * ========================================================== */
 function OkrSourceBadge({ source }: { source: 'db' | 'snapshot' | 'legacy' | 'error' }) {
   const config = {
-    db: { label: 'DB正本', color: 'bg-green-100 text-green-700' },
-    snapshot: { label: 'Snapshot', color: 'bg-yellow-100 text-yellow-700' },
-    legacy: { label: 'Legacy (ID未設定)', color: 'bg-amber-100 text-amber-700' },
+    db: { label: 'DB正本', color: 'bg-success-soft text-success' },
+    snapshot: { label: 'Snapshot', color: 'bg-caution-soft text-caution' },
+    legacy: { label: 'Legacy (ID未設定)', color: 'bg-caution-soft text-caution' },
     error: { label: 'DB接続失敗', color: 'bg-red-100 text-red-700' },
   }[source];
 
@@ -351,13 +351,13 @@ type Draft = {
 };
 
 function krBadge(track?: StrategyTrackUI) {
-  if (track === 'EXPLORE') return 'bg-indigo-100 text-indigo-700';
-  return 'bg-emerald-100 text-emerald-700';
+  if (track === 'EXPLORE') return 'bg-accent-soft text-accent-ink';
+  return 'bg-zinc-100 text-zinc-700';
 }
 function metricBadge(role?: MetricRoleUI) {
-  if (role === 'LEAD') return 'bg-sky-100 text-sky-700';
-  if (role === 'LAG') return 'bg-amber-100 text-amber-800';
-  if (role === 'NORTHSTAR') return 'bg-violet-100 text-violet-700';
+  if (role === 'LEAD') return 'bg-accent-soft text-accent-ink';
+  if (role === 'LAG') return 'bg-caution-soft text-caution';
+  if (role === 'NORTHSTAR') return 'bg-zinc-200 text-zinc-900';
   return 'bg-zinc-100 text-zinc-700';
 }
 
@@ -3298,8 +3298,8 @@ const getMilestoneStatusBadge = (milestonesCount: number) => {
 
   const isComplete = milestonesCount >= totalRecommended;
   const color = isComplete ? 'green' : 'amber';
-  const bgClass = color === 'green' ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200';
-  const textClass = color === 'green' ? 'text-green-700' : 'text-amber-700';
+  const bgClass = color === 'green' ? 'bg-success-soft border-success/30' : 'bg-caution-soft border-caution/30';
+  const textClass = color === 'green' ? 'text-success' : 'text-caution';
 
   return {
     type: color,
@@ -3496,7 +3496,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           type="button"
           onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'small'), 'PRESET')}
           disabled={isHydrating || isApproved()}
-          className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+          className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-50"
         >
           小さめ
         </button>
@@ -3504,7 +3504,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           type="button"
           onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'standard'), 'PRESET')}
           disabled={isHydrating || isApproved()}
-          className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+          className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-50"
         >
           標準
         </button>
@@ -3512,7 +3512,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           type="button"
           onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'large'), 'PRESET')}
           disabled={isHydrating || isApproved()}
-          className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+          className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-50"
         >
           大きめ
         </button>
@@ -3638,7 +3638,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       <div className="mx-auto max-w-2xl">
         <div className="mb-2 px-1 text-[13px] font-bold text-zinc-900">① このプロジェクトで何を実現するか</div>
         {/* ========== なぜこのプロジェクトに取り組むのか（STAGE3由来情報） ========== */}
-        <div className="mb-6 rounded-2xl border border-zinc-300 bg-gradient-to-br from-blue-50 to-indigo-50 p-5">
+        <div className="mb-6 rounded-2xl border border-zinc-200 bg-white p-5">
           <h2 className="mb-2 text-[14px] font-semibold text-zinc-900">なぜこのプロジェクトに取り組むのか</h2>
           <p className="mb-4 text-[11px] text-zinc-600">STAGE3で整理した内容をもとに、この実行計画の背景を確認します。</p>
 
@@ -3813,7 +3813,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 </div>
               )}
               {generationSuccess && (
-                <div className="mb-3 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-[12px] text-green-700">
+                <div className="mb-3 rounded-lg bg-success-soft border border-success/30 px-3 py-2 text-[12px] text-success">
                   AIがたたき台を作成しました。内容を確認して、必要に応じて反映してください。
                 </div>
               )}
@@ -3825,43 +3825,43 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   }
                 }}
                 disabled={isHydrating || isApproved() || isGenerating}
-                className="w-full rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-[12px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-[12px] font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-50"
               >
                 {isGenerating ? '生成中...' : '✨ AIで実行計画のたたき台を作る'}
               </button>
 
               {/* AI生成結果プレビューパネル */}
               {generatedDraft && (
-                <div className="mt-4 rounded-lg bg-indigo-50 border border-indigo-200 p-4">
-                  <h3 className="text-[13px] font-semibold text-indigo-900 mb-3">📋 AIが作成したたたき台</h3>
+                <div className="mt-4 rounded-lg bg-accent-soft border border-accent/20 p-4">
+                  <h3 className="text-[13px] font-semibold text-zinc-900 mb-3">📋 AIが作成したたたき台</h3>
 
                   {/* 目指す状態 */}
                   <div className="mb-3 text-[12px]">
-                    <span className="font-medium text-indigo-800">目指す状態：</span>
-                    <p className="text-indigo-700 mt-1">{generatedDraft.objective || '—'}</p>
+                    <span className="font-medium text-zinc-900">目指す状態：</span>
+                    <p className="text-zinc-800 mt-1">{generatedDraft.objective || '—'}</p>
                     {!mainOKR?.objective && (
-                      <p className="text-[11px] text-indigo-600 mt-1 italic">💡 既存の目的がないため、このAI案を反映できます。</p>
+                      <p className="text-[11px] text-zinc-600 mt-1 italic">💡 既存の目的がないため、このAI案を反映できます。</p>
                     )}
                   </div>
 
                   {/* 役割 */}
                   {generatedDraft.role && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">役割：</span>
-                      <p className="text-indigo-700 mt-1">{generatedDraft.role}</p>
+                      <span className="font-medium text-zinc-900">役割：</span>
+                      <p className="text-zinc-800 mt-1">{generatedDraft.role}</p>
                     </div>
                   )}
 
                   {generatedDraft.impact?.rationale && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">根拠：</span>
-                      <p className="mt-1 ml-2 text-[11px] italic text-indigo-700">{generatedDraft.impact.rationale}</p>
+                      <span className="font-medium text-zinc-900">根拠：</span>
+                      <p className="mt-1 ml-2 text-[11px] italic text-zinc-800">{generatedDraft.impact.rationale}</p>
                     </div>
                   )}
                   {generatedDraft.causalChain && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">因果関係（AIの仮説）：</span>
-                      <ul className="mt-1 ml-2 space-y-0.5 text-[11px] text-indigo-700">
+                      <span className="font-medium text-zinc-900">因果関係（AIの仮説）：</span>
+                      <ul className="mt-1 ml-2 space-y-0.5 text-[11px] text-zinc-800">
                         {Object.entries(generatedDraft.causalChain).map(([k, v]) => (
                           <li key={k}>・{CAUSAL_LABEL[k as keyof typeof CAUSAL_LABEL] ?? k}：{String(v)}</li>
                         ))}
@@ -3870,8 +3870,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   )}
                   {Array.isArray(generatedDraft.verificationItems) && generatedDraft.verificationItems.length > 0 && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">確認すべき数値・根拠：</span>
-                      <ul className="mt-1 ml-2 list-disc pl-4 text-[11px] text-indigo-700">
+                      <span className="font-medium text-zinc-900">確認すべき数値・根拠：</span>
+                      <ul className="mt-1 ml-2 list-disc pl-4 text-[11px] text-zinc-800">
                         {generatedDraft.verificationItems.map((item: string, i: number) => (
                           <li key={i}>{item}</li>
                         ))}
@@ -3879,8 +3879,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     </div>
                   )}
                   {generatedDraft.assumptionBasis && (
-                    <div className="mb-3 text-[11px] text-indigo-700">
-                      <span className="font-medium text-indigo-800">前提の根拠区分：</span>
+                    <div className="mb-3 text-[11px] text-zinc-800">
+                      <span className="font-medium text-zinc-900">前提の根拠区分：</span>
                       {Object.entries(generatedDraft.assumptionBasis).map(([k, v]) => (
                         <span key={k} className="ml-2">{k}：{ASSUMPTION_BASIS_LABEL[v as AssumptionBasis] ?? String(v)}</span>
                       ))}
@@ -3890,21 +3890,21 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   {/* KPI案 */}
                   {Array.isArray(generatedDraft.kpis) && generatedDraft.kpis.length > 0 && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">KPI案（AIの仮目標。採用するまで確定しません）：</span>
-                      <div className="text-indigo-700 mt-1 ml-2 text-[11px] space-y-2">
+                      <span className="font-medium text-zinc-900">KPI案（AIの仮目標。採用するまで確定しません）：</span>
+                      <div className="text-zinc-800 mt-1 ml-2 text-[11px] space-y-2">
                         {generatedDraft.kpis.map((kpi: any, idx: number) => (
-                          <div key={idx} className="border-l-2 border-indigo-300 pl-2">
+                          <div key={idx} className="border-l-2 border-zinc-300 pl-2">
                             <p className="font-medium">{stripProjectPrefix(kpi.label)}</p>
                             <p>目標: {kpi.target}{kpi.unit} (期限: {formatDeadlineLabel(kpi.due)})</p>
                             {kpi.owner && <p>担当: {kpi.owner}</p>}
                             {Array.isArray(kpi.milestones) && kpi.milestones.length > 0 && (
-                              <p className="text-indigo-600">途中の目安: {kpi.milestones.map((m: any) => `${m.title}(${formatDeadlineLabel(m.dueYm)})`).join(' → ')}</p>
+                              <p className="text-zinc-600">途中の目安: {kpi.milestones.map((m: any) => `${m.title}(${formatDeadlineLabel(m.dueYm)})`).join(' → ')}</p>
                             )}
                           </div>
                         ))}
                       </div>
                       {(selectedProj as any)?.okrsV2 && Array.isArray((selectedProj as any).okrsV2) && (selectedProj as any).okrsV2.length > 0 && (
-                        <p className="text-[11px] text-indigo-600 mt-2 italic">💡 既存KPIがあるため、AIのKPI案は候補として表示しています。</p>
+                        <p className="text-[11px] text-zinc-600 mt-2 italic">💡 既存KPIがあるため、AIのKPI案は候補として表示しています。</p>
                       )}
                     </div>
                   )}
@@ -3912,8 +3912,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   {/* 実行ステップ */}
                   {Array.isArray(generatedDraft.steps) && generatedDraft.steps.length > 0 && (
                     <div className="mb-3 text-[12px]">
-                      <span className="font-medium text-indigo-800">実行ステップ：</span>
-                      <div className="text-indigo-700 mt-1 ml-2 text-[11px]">
+                      <span className="font-medium text-zinc-900">実行ステップ：</span>
+                      <div className="text-zinc-800 mt-1 ml-2 text-[11px]">
                         {generatedDraft.steps.map((step: any, idx: number) => (
                           <p key={idx}>Step {idx + 1}: {stripProjectPrefix(step.title)} ({formatDeadlineLabel(step.dueYm)})</p>
                         ))}
@@ -3933,7 +3933,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         void applyGeneratedDraft(selected.deptIdx, selected.projIdx, generatedDraft, generatedDraft?.sourceKpis);
                       }
                     }}
-                    className="mt-3 w-full rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-700"
+                    className="mt-3 w-full rounded-lg bg-accent-action px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-accent-hover"
                   >
                     このAI案を反映する
                   </button>
@@ -3968,7 +3968,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     disabled={isHydrating || isApproved()}
                     className={`flex-1 rounded-lg border-2 px-3 py-2 text-[12px] font-semibold transition-colors ${
                       (selectedProj as any)?.role === opt.value
-                        ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm xl:dark:border-zinc-900 xl:dark:bg-zinc-900'
+                        ? 'border-accent-action bg-accent-action text-white shadow-sm xl:dark:border-zinc-900 xl:dark:bg-zinc-900'
                         : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
@@ -4297,7 +4297,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       type="button"
                       onClick={() => void addStructuredKRFromDraft(selected.deptIdx, selected.projIdx)}
                       disabled={isHydrating}
-                      className="h-9 flex-1 rounded-xl bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
+                      className="h-9 flex-1 rounded-xl bg-zinc-100 px-3 text-[12px] font-semibold text-zinc-900 hover:bg-zinc-200 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
                     >
                       追加
                     </button>
@@ -4427,8 +4427,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       </div>
                       <div className="mt-1 flex gap-1">
                         <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                          m.status === 'done' ? 'bg-green-100 text-green-700'
-                          : m.status === 'doing' ? 'bg-yellow-100 text-yellow-700'
+                          m.status === 'done' ? 'bg-success-soft text-success'
+                          : m.status === 'doing' ? 'bg-caution-soft text-caution'
                           : 'bg-zinc-100 text-zinc-600'
                         }`}>
                           {m.status === 'done' ? '完了' : m.status === 'doing' ? '進行中' : 'TODO'}
@@ -4498,7 +4498,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               type="button"
               onClick={() => void saveEditKr(selected!.deptIdx, selected!.projIdx, rowId)}
               disabled={isHydrating}
-              className="flex-1 h-9 rounded-lg bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
+              className="flex-1 h-9 rounded-lg bg-zinc-100 px-3 text-[12px] font-semibold text-zinc-900 hover:bg-zinc-200 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
             >
               保存
             </button>
@@ -4627,9 +4627,9 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           {m?.dueYm && <span className="text-zinc-500">({formatDeadlineLabel(m.dueYm)})</span>}
                           <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap ${
                             m?.status === 'done'
-                              ? 'bg-green-100 text-green-700'
+                              ? 'bg-success-soft text-success'
                               : m?.status === 'doing'
-                              ? 'bg-yellow-100 text-yellow-700'
+                              ? 'bg-caution-soft text-caution'
                               : 'bg-zinc-100 text-zinc-600'
                           }`}>
                             {m?.status === 'done' ? '完了' : m?.status === 'doing' ? '進行中' : 'TODO'}
@@ -4643,7 +4643,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                             startEditKr(kr as any, rowId);
                             setTimeout(() => editingMilestoneTitleInputRef.current?.focus(), 0);
                           }}
-                          className="text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+                          className="text-[11px] text-accent-ink hover:underline font-medium"
                         >
                           あと {moreCount} 件を表示...
                         </button>
@@ -4733,9 +4733,9 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           <div className="text-zinc-500 text-[11px]">ステータス</div>
                           <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
                             ms.status === 'done'
-                              ? 'bg-green-100 text-green-700'
+                              ? 'bg-success-soft text-success'
                               : ms.status === 'doing'
-                              ? 'bg-yellow-100 text-yellow-700'
+                              ? 'bg-caution-soft text-caution'
                               : 'bg-zinc-100 text-zinc-600'
                           }`}>
                             {ms.status === 'done' ? '完了' : ms.status === 'doing' ? '進行中' : 'TODO'}
@@ -4889,7 +4889,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         queueStage4SnapshotPersist();
                       }}
                       disabled={isHydrating}
-                      className="h-9 flex-1 rounded-xl bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
+                      className="h-9 flex-1 rounded-xl bg-zinc-100 px-3 text-[12px] font-semibold text-zinc-900 hover:bg-zinc-200 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
                     >
                       追加
                     </button>
@@ -5415,7 +5415,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       />
 
       {notice && (
-        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+        <div className="mb-4 rounded-lg border border-accent/20 bg-accent-soft p-3 text-sm text-accent-ink">
           {notice}
         </div>
       )}
@@ -5507,7 +5507,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                             className={[
                               'w-full rounded-xl border px-3 py-2 text-left text-[12px] transition',
                               isSel
-                                ? 'border-indigo-600 bg-indigo-600 text-white xl:dark:border-zinc-900 xl:dark:bg-zinc-900 xl:dark:text-white'
+                                ? 'border-accent-action bg-accent-action text-white xl:dark:border-zinc-900 xl:dark:bg-zinc-900 xl:dark:text-white'
                                 : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50',
                             ].join(' ')}
                           >

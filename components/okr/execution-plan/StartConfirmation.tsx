@@ -56,7 +56,7 @@ export default function StartConfirmation({ plan, view, bodyDirty, responsible, 
     return (
       <div className="space-y-4">
         <h2 className="plan-h2">実行開始</h2>
-        <p className="text-[14px] font-semibold text-emerald-700">実行を開始しました</p>
+        <p className="text-[14px] font-semibold text-success">実行を開始しました</p>
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/execution" className={BUTTON_PRIMARY}>
             STAGE5で進捗を確認する

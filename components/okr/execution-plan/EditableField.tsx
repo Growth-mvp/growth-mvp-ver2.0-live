@@ -21,16 +21,16 @@ type Props = {
   onRevert: () => void;
 };
 
-const INPUT_CLASS = 'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px]';
+const INPUT_CLASS = 'w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-[14px] focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20';
 
 const TONE_CLASS: Record<string, string> = {
-  src: 'bg-emerald-50 text-emerald-700',
-  hyp: 'bg-violet-50 text-violet-700',
-  ai: 'bg-indigo-50 text-indigo-700',
-  miss: 'bg-amber-50 text-amber-800',
+  src: 'bg-zinc-100 text-zinc-700',
+  hyp: 'bg-zinc-100 text-zinc-700',
+  ai: 'bg-accent-soft text-accent-ink',
+  miss: 'bg-caution-soft text-caution',
   gray: 'bg-zinc-100 text-zinc-600',
-  ok: 'bg-emerald-50 text-emerald-700',
-  edit: 'bg-fuchsia-50 text-fuchsia-700',
+  ok: 'bg-success-soft text-success',
+  edit: 'bg-accent-soft text-accent-ink',
   lock: 'bg-zinc-200 text-zinc-800',
 };
 
@@ -109,7 +109,7 @@ function Editor({
         </>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={commit} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700">
+        <button type="button" onClick={commit} className="rounded-xl bg-accent-action px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover">
           保存して閲覧に戻る
         </button>
         <button type="button" onClick={onCancel} className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[12px] text-zinc-700 hover:bg-zinc-50">
@@ -135,7 +135,7 @@ export default function EditableField(props: Props) {
         {basis && <BasisBadge basis={basis} />}
         {edited && <EditedBadge />}
         {!editing && (
-          <button type="button" onClick={onStartEdit} className="text-[12px] font-semibold text-indigo-600 hover:underline">
+          <button type="button" onClick={onStartEdit} className="text-[12px] font-semibold text-accent-ink hover:underline">
             編集
           </button>
         )}

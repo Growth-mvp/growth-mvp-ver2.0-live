@@ -957,7 +957,7 @@ function Stage3ProjectBrowser({
 
       <section className="min-w-0">
         {!startSelected && handoffProjectKey && selected?.projectKey === handoffProjectKey && (
-          <p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-[13px] text-emerald-900">
+          <p role="status" className="mb-3 rounded-lg bg-success-soft p-3 text-[13px] text-success">
             STAGE3で確定したプロジェクトです。事業・部門：{handoff?.departmentName ?? '（未指定）'}／プロジェクト：{titleOf(handoffProjectKey) ?? '（名称なし）'}
           </p>
         )}
