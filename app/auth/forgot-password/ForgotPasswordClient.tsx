@@ -49,11 +49,11 @@ export default function ForgotPasswordClient() {
       <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 px-4 py-10">
         <div className="mx-auto w-full max-w-md">
           <div className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-md p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
-              <p className="text-sm font-medium text-emerald-800">
+            <div className="mb-4 rounded-xl border border-bluegray-light bg-success-soft px-4 py-3 text-center">
+              <p className="text-sm font-medium text-success">
                 パスワード再設定用のメールを送信しました。
               </p>
-              <p className="mt-1 text-[13px] text-emerald-700">
+              <p className="mt-1 text-[13px] text-accent-ink">
                 メールをご確認ください。
               </p>
             </div>
@@ -93,7 +93,7 @@ export default function ForgotPasswordClient() {
 
         <div className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-md p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           {error && (
-            <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-700" role="alert">
+            <div className="mb-3 rounded-xl border border-danger/20 bg-danger-soft px-3 py-2 text-[13px] text-danger" role="alert">
               {error}
             </div>
           )}

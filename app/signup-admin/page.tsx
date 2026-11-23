@@ -247,7 +247,7 @@ export default function SignUpAdminPage() {
         </div>
 
         {error && <p className="whitespace-pre-wrap text-sm text-red-600">{error}</p>}
-        {msg && <p className="whitespace-pre-wrap text-sm text-green-700">{msg}</p>}
+        {msg && <p className="whitespace-pre-wrap text-sm text-success">{msg}</p>}
 
         <button
           type="submit"

@@ -146,7 +146,7 @@ export default function EnrollClient() {
       <h1 className="text-2xl font-bold">2段階認証の登録</h1>
 
       {requiredForAdmin && status?.kind !== 'enrolled' && (
-        <p className="rounded border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+        <p className="rounded border border-caution/30 bg-caution-soft p-2 text-sm text-caution">
           管理者は2段階認証の登録が必要です。登録が完了するまで、管理操作は利用できません。
         </p>
       )}
@@ -154,7 +154,7 @@ export default function EnrollClient() {
       {loading && <p className="text-sm text-gray-600">読み込んでいます…</p>}
 
       {error && <p className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800">{error}</p>}
-      {message && <p className="rounded border border-green-200 bg-green-50 p-2 text-sm text-green-800">{message}</p>}
+      {message && <p className="rounded border border-bluegray-light bg-success-soft p-2 text-sm text-success">{message}</p>}
 
       {!loading && status?.kind === 'enrolled' && !pending && (
         <div className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-700">
@@ -171,7 +171,7 @@ export default function EnrollClient() {
       {!loading && status?.kind !== 'enrolled' && !pending && (
         <div className="space-y-3">
           {status?.kind === 'pending' && (
-            <p className="text-sm text-amber-800">未完了の登録があります。続けるか、破棄して登録し直してください。</p>
+            <p className="text-sm text-bluegray-deep">未完了の登録があります。続けるか、破棄して登録し直してください。</p>
           )}
           <button
             onClick={start}

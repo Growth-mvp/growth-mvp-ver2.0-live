@@ -38,8 +38,8 @@ export default function ContactPage() {
               </p>
             </section>
 
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mt-6">
-              <p className="text-[12px] text-emerald-800">
+            <div className="bg-bluegray-mist border border-bluegray-light rounded-xl p-4 mt-6">
+              <p className="text-[12px] text-bluegray-deep">
                 <span className="font-semibold">注：</span> このページはプレースホルダーです。
                 正式なお問い合わせフォームについては、管理者までお問い合わせください。
               </p>

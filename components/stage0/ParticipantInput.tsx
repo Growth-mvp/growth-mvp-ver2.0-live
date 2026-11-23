@@ -40,11 +40,11 @@ export default function ParticipantInput({ participants, onAdd, onRemove, onStar
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="下の名前をひらがなで入力してください（例：たろう）"
-            className="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none"
+            className="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-accent-action focus:border-transparent outline-none"
           />
           <button
             onClick={handleAdd}
-            className="px-6 py-3 bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 active:scale-95 transition"
+            className="px-6 py-3 bg-accent-action text-white font-medium rounded-lg hover:bg-accent-hover active:scale-95 transition"
           >
             追加
           </button>
@@ -76,7 +76,7 @@ export default function ParticipantInput({ participants, onAdd, onRemove, onStar
 
       {/* 推奨案内 */}
       {participants.length === 1 && (
-        <p className="text-sm text-orange-600 bg-orange-50 rounded-lg px-4 py-3">
+        <p className="text-sm text-accent-ink bg-accent-soft rounded-lg px-4 py-3">
           2人以上の参加をおすすめします
         </p>
       )}
@@ -88,7 +88,7 @@ export default function ParticipantInput({ participants, onAdd, onRemove, onStar
         className={[
           'w-full py-4 font-bold text-lg rounded-lg transition-all duration-200',
           canStart
-            ? 'bg-orange-500 text-white hover:bg-orange-600 active:scale-95 shadow-md'
+            ? 'bg-accent-action text-white hover:bg-accent-hover active:scale-95 shadow-md'
             : 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-60',
         ].join(' ')}
       >

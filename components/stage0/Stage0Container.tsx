@@ -9,14 +9,14 @@ export default function Stage0Container() {
   const state = useStage0State();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-orange-50 py-8 sm:py-12 px-4">
+    <div className="min-h-screen bg-bluegray-mist py-8 sm:py-12 px-4">
       <div className="max-w-3xl mx-auto">
         {/* ヘッダー */}
         <div className="text-center mb-12">
-          <h1 className="text-3xl sm:text-4xl font-bold text-orange-900 mb-2">
+          <h1 className="text-3xl sm:text-4xl font-bold text-bluegray-deep mb-2">
             ☕ STAGE 0: アイスブレイク
           </h1>
-          <p className="text-lg text-orange-700 mb-4">
+          <p className="text-lg text-bluegray-deep mb-4">
             ここでは記録を残さず、気軽に話す時間にしましょう。
           </p>
           

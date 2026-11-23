@@ -158,7 +158,7 @@ export default function SignUpClient() {
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        {msg && <p className="text-sm text-green-700">{msg}</p>}
+        {msg && <p className="text-sm text-success">{msg}</p>}
 
         <button
           type="submit"

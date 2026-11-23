@@ -248,7 +248,7 @@ export default function InviteAcceptClient() {
           </p>
 
           {loadTimeoutWarning && (
-            <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <div className="mt-6 rounded-lg border border-caution/30 bg-caution-soft p-3 text-sm text-caution">
               <p className="font-semibold">時間がかかっています</p>
               <p className="mt-1 text-xs">再読み込みせず、しばらくお待ちください。</p>
             </div>
@@ -286,7 +286,7 @@ export default function InviteAcceptClient() {
       )}
 
       {msg && (
-        <div className="mb-4 space-y-3 rounded-lg border border-green-200 bg-green-50 p-3 text-green-800 text-sm">
+        <div className="mb-4 space-y-3 rounded-lg border border-bluegray-light bg-success-soft p-3 text-success text-sm">
           <p>✅ {msg}</p>
           {!currentUserEmail && (
             <button

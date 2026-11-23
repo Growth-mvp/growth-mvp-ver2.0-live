@@ -121,7 +121,7 @@ export default function ChallengeClient() {
       )}
 
       {phase === 'no_factor' && (
-        <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="space-y-3 rounded-lg border border-caution/30 bg-caution-soft p-3 text-sm text-caution">
           <p>2段階認証の登録が確認できません。</p>
           <Link href="/auth/mfa/enroll" className="block text-center underline">
             2段階認証の登録へ

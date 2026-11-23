@@ -111,7 +111,7 @@ export default function StrategyGuard({
   return (
     <>
       {showReadOnlyBanner && !canEdit && (
-        <div className="sticky top-0 z-50 border-b bg-amber-50 px-4 py-2 text-xs text-amber-800">
+        <div className="sticky top-0 z-50 border-b bg-bluegray-mist px-4 py-2 text-xs text-bluegray-deep">
           閲覧モード（編集は管理者/マネージャーのみ）
         </div>
       )}
