@@ -383,7 +383,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
   const mismatchBlocked = mismatch && !otherCompanyOk;
 
   return (
-    <div className="space-y-2 rounded-md border border-sky-200 bg-sky-50/40 p-2 text-sm">
+    <div className="space-y-2 rounded-md border border-zinc-200 bg-bluegray-mist p-2 text-sm">
       <div className="font-medium text-slate-800">公開資料（有価証券報告書）から基本情報を取得</div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs">
@@ -399,13 +399,13 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         <div role="status" className="space-y-1 text-xs text-slate-700">
           <div>{progress.label}（{progress.step}/{progress.total}）</div>
           <div className="h-1.5 w-full overflow-hidden rounded bg-slate-200">
-            <div className="h-full bg-sky-600 transition-all" style={{ width: `${progress.total > 0 ? Math.round((progress.step / progress.total) * 100) : 0}%` }} />
+            <div className="h-full bg-accent-action transition-all" style={{ width: `${progress.total > 0 ? Math.round((progress.step / progress.total) * 100) : 0}%` }} />
           </div>
         </div>
       ) : null}
 
       {saving ? <div role="status" className="text-xs text-slate-700">反映して保存しています…</div> : null}
-      {error ? <div role="alert" className="text-xs text-rose-700">{error}</div> : null}
+      {error ? <div role="alert" className="text-xs text-danger">{error}</div> : null}
       {notice ? <div className="text-xs text-slate-700">{notice}</div> : null}
 
       {ambiguous ? (
@@ -423,7 +423,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         <div className="space-y-2 rounded border bg-white p-2 text-xs">
           <div className="font-medium text-slate-800">候補を確認・承認・保存</div>
           {candidate && isPublic(candidate) && candidate.origin === 'WEB' ? (
-            <div className="rounded border border-rose-300 bg-rose-50 p-2 text-rose-800">
+            <div className="rounded border border-caution/40 bg-caution-soft p-2 text-caution">
               出典未照合：以下はAIが公開情報の検索結果を要約したもので、出典の原文はまだ確認していません。システムは出典の原文を照合していません。出典のURLを開いて内容を確認するまで、反映できません。
               <label className="mt-1 flex items-start gap-2">
                 <input type="checkbox" className="mt-0.5" checked={webChecked} onChange={(e) => setWebChecked(e.target.checked)} disabled={disabled || saving} />
@@ -435,7 +435,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
             取得対象：<span className="font-medium">{targetLabel(candidate)}</span>
           </div>
           {mismatch ? (
-            <label className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-800">
+            <label className="flex items-start gap-2 rounded border border-caution/40 bg-caution-soft p-2 text-caution">
               <input type="checkbox" className="mt-0.5" checked={otherCompanyOk} onChange={(e) => setOtherCompanyOk(e.target.checked)} disabled={disabled || saving} />
               {fromDocument
                 ? `取り込んだ資料が、登録中の企業（${storedName || '未入力'}）の決算資料で、金額が円単位で記載されていることを確認しました。`
@@ -466,7 +466,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
                       displayRaw(r.key, r.cand) || <span className="text-slate-400">取得できず</span>
                     )}
                     {r.key === 'employees' && edits.employees !== undefined && !editsAreValid(edits) ? (
-                      <div className="text-rose-700">従業員数は1以上の数字で入力してください</div>
+                      <div className="text-danger">従業員数は1以上の数字で入力してください</div>
                     ) : null}
                   </td>
                   <td className="whitespace-nowrap py-1 text-right">
@@ -475,8 +475,8 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
                     {r.status === 'same' ? <span className="text-slate-500">登録済みと同じ</span> : null}
                     {r.status === 'differs' ? (
                       <div className="space-y-0.5">
-                        <div className="text-amber-700">登録中：{displayRaw(r.key, r.cur)}</div>
-                        <label className="flex items-center justify-end gap-1 text-amber-700">
+                        <div className="text-bluegray-deep">登録中：{displayRaw(r.key, r.cur)}</div>
+                        <label className="flex items-center justify-end gap-1 text-bluegray-deep">
                           <input
                             type="checkbox"
                             aria-label={`上書き（${PROFILE_LABEL[r.key]}）`}
@@ -521,7 +521,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
                               {cell ? (
                                 <>
                                   {millionText(cell.value)}
-                                  {cell.status === 'differs' ? <div className="text-amber-700">登録中 {millionText(cell.registered)}</div> : null}
+                                  {cell.status === 'differs' ? <div className="text-bluegray-deep">登録中 {millionText(cell.registered)}</div> : null}
                                 </>
                               ) : (
                                 <span className="text-slate-400">未取得</span>
@@ -531,7 +531,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
                         })}
                         <td className="w-px py-1 pl-2">
                           {y.hasDiffers ? (
-                            <label className="flex items-center gap-1 text-amber-700">
+                            <label className="flex items-center gap-1 text-bluegray-deep">
                               <input
                                 type="checkbox"
                                 aria-label={`上書き（${y.year}年度）`}
@@ -603,7 +603,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="rounded bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              className="rounded bg-accent-action px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
               onClick={approve}
               disabled={approveDisabled}
             >
@@ -618,7 +618,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
       ) : null}
 
       {done ? (
-        <div className="space-y-0.5 rounded border border-emerald-300 bg-white p-2 text-xs text-emerald-900">
+        <div className="space-y-0.5 rounded border border-success/30 bg-success-soft p-2 text-xs text-success">
           <div className="font-medium">反映し、保存しました</div>
           {done.applied.length > 0 ? <div>反映：{done.applied.join('／')}</div> : null}
           {done.kept.map((t) => (

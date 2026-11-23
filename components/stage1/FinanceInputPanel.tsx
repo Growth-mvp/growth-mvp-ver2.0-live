@@ -174,7 +174,7 @@ function CompanyPLTable({
             <tr key={field.key} className="border-t border-gray-100">
               <td className="px-3 py-2 text-gray-700 sticky left-0 bg-white">
                 {field.label}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
+                {field.required && <span className="text-bluegray-deep ml-1">*</span>}
               </td>
               {years.map((y) => {
                 const row = dataMap.get(y);
@@ -278,7 +278,7 @@ function CompanyBSTable({
             <tr key={field.key} className="border-t border-gray-100">
               <td className="px-3 py-2 text-gray-700 sticky left-0 bg-white">
                 {field.label}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
+                {field.required && <span className="text-bluegray-deep ml-1">*</span>}
               </td>
               {years.map((y) => {
                 const row = dataMap.get(y);
@@ -590,34 +590,34 @@ function HQAdjustmentDisplay({
   if (!hasData) return null;
 
   return (
-    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-      <h4 className="text-sm font-medium text-amber-800 mb-2">本社・共通費/調整（自動計算）</h4>
-      <p className="text-xs text-amber-600 mb-3">全社PL - 事業部PL合計 の差分です。本社費用や連結調整が含まれます。</p>
+    <div className="mt-4 p-3 bg-bluegray-mist border border-bluegray-light rounded-lg">
+      <h4 className="text-sm font-medium text-bluegray-deep mb-2">本社・共通費/調整（自動計算）</h4>
+      <p className="text-xs text-bluegray-deep mb-3">全社PL - 事業部PL合計 の差分です。本社費用や連結調整が含まれます。</p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs border-collapse">
           <thead>
-            <tr className="bg-amber-100">
-              <th className="px-3 py-2 text-left font-semibold text-amber-800">項目</th>
+            <tr className="bg-bluegray-light/40">
+              <th className="px-3 py-2 text-left font-semibold text-bluegray-deep">項目</th>
               {years.map((y) => (
-                <th key={y} className="px-3 py-2 text-center font-semibold text-amber-800">
+                <th key={y} className="px-3 py-2 text-center font-semibold text-bluegray-deep">
                   {y}年度
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            <tr className="border-t border-amber-200">
-              <td className="px-3 py-2 text-amber-800">売上高差分</td>
+            <tr className="border-t border-bluegray-light">
+              <td className="px-3 py-2 text-bluegray-deep">売上高差分</td>
               {adjustment.map((a) => (
-                <td key={a.year} className="px-3 py-2 text-right text-amber-800">
+                <td key={a.year} className="px-3 py-2 text-right text-bluegray-deep">
                   {a.revenue !== undefined ? formatNum(a.revenue) : '—'}
                 </td>
               ))}
             </tr>
-            <tr className="border-t border-amber-200">
-              <td className="px-3 py-2 text-amber-800">営業利益差分</td>
+            <tr className="border-t border-bluegray-light">
+              <td className="px-3 py-2 text-bluegray-deep">営業利益差分</td>
               {adjustment.map((a) => (
-                <td key={a.year} className="px-3 py-2 text-right text-amber-800">
+                <td key={a.year} className="px-3 py-2 text-right text-bluegray-deep">
                   {a.operatingIncome !== undefined ? formatNum(a.operatingIncome) : '—'}
                 </td>
               ))}

@@ -817,7 +817,7 @@ export default function IssueBlockPanel({ disabled }: { disabled?: boolean } = {
           <div className="text-xs text-gray-500 mt-1">
             「課題（守り）」だけでなく「機会（攻め）」も候補として提示します。まずは候補から選択して追加すると速いです。
           </div>
-          {infoMessage && <div className="text-xs text-green-700 mt-2">{infoMessage}</div>}
+          {infoMessage && <div className="text-xs text-success mt-2">{infoMessage}</div>}
         </div>
 
         <div className="flex items-center gap-2">
@@ -866,7 +866,7 @@ export default function IssueBlockPanel({ disabled }: { disabled?: boolean } = {
               <button
                 onClick={handleAddSelectedDrafts}
                 disabled={selectedDraftIds.size === 0 || remainingSlots <= 0}
-                className="px-3 py-1.5 text-xs font-semibold rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-300 disabled:text-gray-500"
+                className="px-3 py-1.5 text-xs font-semibold rounded bg-accent-action text-white hover:bg-accent-hover disabled:bg-gray-300 disabled:text-gray-500"
               >
                 選択した論点を追加
               </button>
@@ -919,7 +919,7 @@ export default function IssueBlockPanel({ disabled }: { disabled?: boolean } = {
                   <label
                     key={d.draftId}
                     className={`border rounded-lg p-3 cursor-pointer transition bg-white hover:bg-gray-50 ${
-                      checked ? 'border-emerald-400 ring-1 ring-emerald-200' : 'border-gray-200'
+                      checked ? 'border-accent-action ring-1 ring-accent-soft' : 'border-gray-200'
                     }`}
                   >
                     <div className="flex items-start gap-2">

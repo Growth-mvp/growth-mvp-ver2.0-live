@@ -74,9 +74,9 @@ function formatNumber(n: number | string | undefined): string {
 }
 
 function getConfidenceColor(confidence: number): string {
-  if (confidence >= 0.7) return 'text-green-600';
-  if (confidence >= 0.5) return 'text-yellow-600';
-  return 'text-red-600';
+  if (confidence >= 0.7) return 'text-success';
+  if (confidence >= 0.5) return 'text-caution';
+  return 'text-danger';
 }
 
 function safeJsonStringify(obj: any): string {
@@ -1176,7 +1176,7 @@ export default function DocumentImportPanel() {
 
           {/* エラー/警告 */}
           {error && (
-            <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded border border-amber-200 whitespace-pre-wrap">
+            <div className="text-sm text-danger bg-danger-soft p-3 rounded border border-danger/30 whitespace-pre-wrap">
               {error}
             </div>
           )}
@@ -1188,12 +1188,12 @@ export default function DocumentImportPanel() {
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-gray-500">平均信頼度:</span>
                 <span className={getConfidenceColor(avgConfidence)}>{Math.round(avgConfidence * 100)}%</span>
-                {avgConfidence < 0.5 && <span className="text-amber-600">（信頼度が低いため、適用後に確認してください）</span>}
+                {avgConfidence < 0.5 && <span className="text-caution">（信頼度が低いため、適用後に確認してください）</span>}
               </div>
 
               {/* 財務金額の単位（円で入力・保存する。円以外の単位表記がある資料は取込を止める） */}
               {sourceKeys.length > 0 && (
-                <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-gray-700 space-y-2">
+                <div className="mb-3 rounded-md border border-caution/40 bg-caution-soft p-3 text-xs text-gray-700 space-y-2">
                   <div className="font-medium">{FINANCE_CURRENCY_NOTICE}</div>
                   {Object.entries(nonYenBySource).map(([key, labels]) => (
                     <div key={key} className="text-red-600">
@@ -1276,7 +1276,7 @@ export default function DocumentImportPanel() {
                   </div>
                 </div>
                 {applyMessage && (
-                  <div className="mt-3 text-sm text-green-700 bg-green-100 px-3 py-2 rounded">✓ {applyMessage}</div>
+                  <div className="mt-3 text-sm text-success bg-success-soft px-3 py-2 rounded">✓ {applyMessage}</div>
                 )}
               </div>
             </div>

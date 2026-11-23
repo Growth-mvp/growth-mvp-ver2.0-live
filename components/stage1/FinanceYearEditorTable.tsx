@@ -325,11 +325,11 @@ function CompanyPLEditor({
                 <tr key={field.key} className="border-b border-zinc-200">
                   <td
                     className={`px-3 py-2 sticky left-0 border-r border-zinc-200 transition-all ${
-                      isActiveField ? 'bg-sky-100/60 text-gray-900 font-medium' : 'bg-white text-zinc-700'
+                      isActiveField ? 'bg-accent-soft/60 text-gray-900 font-medium' : 'bg-white text-zinc-700'
                     }`}
                   >
                     {field.label}
-                    {field.required && <span className="text-red-500 ml-1">*</span>}
+                    {field.required && <span className="text-bluegray-deep ml-1">*</span>}
                   </td>
 
                   {years.map((y, yearIndex) => {
@@ -369,8 +369,8 @@ function CompanyPLEditor({
                         }}
                         onMouseUp={onMouseUpCell}
                         className={`px-2 py-1 border-r border-zinc-200 border-b transition-colors h-8 text-xs align-middle overflow-hidden ${
-                          isSelectedCell ? 'bg-white ring-2 ring-sky-500 ring-inset' : 'bg-white'
-                        } ${isSelected ? 'bg-sky-100/60' : ''} ${!isSelected && (isCrossRow || isCrossCol) ? 'bg-sky-50/60' : ''} hover:bg-sky-50/40`}
+                          isSelectedCell ? 'bg-white ring-2 ring-accent-action ring-inset' : 'bg-white'
+                        } ${isSelected ? 'bg-accent-soft/60' : ''} ${!isSelected && (isCrossRow || isCrossCol) ? 'bg-bluegray-mist/60' : ''} hover:bg-bluegray-mist/40`}
                       >
                         {isEditing ? (
                           <input
@@ -459,7 +459,7 @@ function CompanyPLEditor({
 
       {/* 年度追加ボタン */}
       <div className="flex gap-2">
-        <button onClick={onAddYear} className="inline-flex items-center gap-2 text-xs font-semibold bg-sky-600 text-white px-3 py-2 rounded-lg hover:bg-sky-700 shadow-sm" type="button">
+        <button onClick={onAddYear} className="inline-flex items-center gap-2 text-xs font-semibold bg-accent-action text-white px-3 py-2 rounded-lg hover:bg-accent-hover shadow-sm" type="button">
           + 年度追加
         </button>
       </div>
@@ -702,11 +702,11 @@ function CompanyBSEditor({
                 <tr key={field.key} className="border-b border-zinc-200">
                   <td
                     className={`px-3 py-2 sticky left-0 border-r border-zinc-200 transition-all ${
-                      isActiveField ? 'bg-sky-100/60 text-gray-900 font-medium' : 'bg-white text-zinc-700'
+                      isActiveField ? 'bg-accent-soft/60 text-gray-900 font-medium' : 'bg-white text-zinc-700'
                     }`}
                   >
                     {field.label}
-                    {field.required && <span className="text-red-500 ml-1">*</span>}
+                    {field.required && <span className="text-bluegray-deep ml-1">*</span>}
                   </td>
 
                   {years.map((y, yearIndex) => {
@@ -747,8 +747,8 @@ function CompanyBSEditor({
                         }}
                         onMouseUp={onMouseUpCell}
                         className={`px-2 py-1 border-r border-zinc-200 border-b transition-colors h-8 text-xs align-middle overflow-hidden ${
-                          isSelectedCell ? 'bg-white ring-2 ring-sky-500 ring-inset' : 'bg-white'
-                        } ${isSelected ? 'bg-sky-100/60' : ''} ${!isSelected && (isCrossRow || isCrossCol) ? 'bg-sky-50/60' : ''} hover:bg-sky-50/40`}
+                          isSelectedCell ? 'bg-white ring-2 ring-accent-action ring-inset' : 'bg-white'
+                        } ${isSelected ? 'bg-accent-soft/60' : ''} ${!isSelected && (isCrossRow || isCrossCol) ? 'bg-bluegray-mist/60' : ''} hover:bg-bluegray-mist/40`}
                       >
                         {isEditing ? (
                           <input
@@ -829,8 +829,8 @@ function CompanyBSEditor({
               );
             })}
 
-            <tr className="border-b border-zinc-200 bg-sky-50">
-              <td className="px-3 py-2 text-zinc-700 font-medium sticky left-0 bg-sky-50 border-r border-zinc-200">
+            <tr className="border-b border-zinc-200 bg-bluegray-mist">
+              <td className="px-3 py-2 text-zinc-700 font-medium sticky left-0 bg-bluegray-mist border-r border-zinc-200">
                 投下資本（自動計算）
               </td>
               {years.map((y) => (
@@ -847,7 +847,7 @@ function CompanyBSEditor({
 
       {/* 年度追加ボタン */}
       <div className="flex gap-2">
-        <button onClick={onAddYear} className="inline-flex items-center gap-2 text-xs font-semibold bg-sky-600 text-white px-3 py-2 rounded-lg hover:bg-sky-700 shadow-sm" type="button">
+        <button onClick={onAddYear} className="inline-flex items-center gap-2 text-xs font-semibold bg-accent-action text-white px-3 py-2 rounded-lg hover:bg-accent-hover shadow-sm" type="button">
           + 年度追加
         </button>
       </div>
@@ -1401,7 +1401,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
       {/* 初期化メッセージ */}
       {plData.length === 0 && bsData.length === 0 && (
-        <div className="bg-sky-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
+        <div className="bg-accent-soft border border-accent-soft rounded-lg p-3 text-xs text-accent-ink">
           📋 初期表示として直近3年が表示されます。データ入力を開始するには、「年度追加」ボタンをクリックして年度を設定してください。
         </div>
       )}

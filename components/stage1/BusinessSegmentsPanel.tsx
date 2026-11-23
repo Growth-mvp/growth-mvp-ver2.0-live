@@ -201,7 +201,7 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
               <div
                 key={seg.id}
                 className={`bg-white border rounded-lg ${
-                  hasWarning ? 'border-amber-400' : 'border-gray-200'
+                  hasWarning ? 'border-caution/60' : 'border-gray-200'
                 } p-4`}
               >
                 {/* 上行：番号＋セグメント名＋削除ボタン */}
@@ -238,7 +238,7 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
                   )}
 
                   {hasWarning && !isEditing && (
-                    <span className="text-amber-500 text-xs">名前が未入力</span>
+                    <span className="text-caution text-xs">名前が未入力</span>
                   )}
 
                   <button
@@ -367,7 +367,7 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
                     </div>
                   )}
                   {seg.overseasRegionsNote && (
-                    <p className="mt-2 text-xs text-amber-700">
+                    <p className="mt-2 text-xs text-bluegray-deep">
                       既存の自由入力「{seg.overseasRegionsNote}」はWeb検索には使われません。
                       <button
                         type="button"
@@ -536,7 +536,7 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
       )}
 
       {businessSegments.length > 0 && emptyNameWarnings.length > 0 && (
-        <p className="mt-3 text-xs text-amber-600">
+        <p className="mt-3 text-xs text-caution">
           名前が未入力のセグメントがあります。事業部別分析を行う場合は、すべてのセグメントに名前を入力してください。
         </p>
       )}

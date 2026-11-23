@@ -619,16 +619,16 @@ function PortfolioMatrix({
 
       <div className="mt-4 rounded border border-gray-200 bg-gray-50/50 p-3">
         <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="bg-white rounded">
-          <rect x={M.l} y={M.t} width={plotW} height={plotH} fill="white" stroke="#e5e7eb" />
+          <rect x={M.l} y={M.t} width={plotW} height={plotH} fill="white" className="stroke-zinc-200" />
 
           {xTicks.map((tick) => {
             const x = xToPx(tick);
             const isZero = tick === 0;
             return (
               <g key={`x-${tick}`}>
-                <line x1={x} y1={M.t} x2={x} y2={M.t + plotH} stroke={isZero ? '#94a3b8' : '#e5e7eb'} strokeDasharray={isZero ? '6 4' : '3 5'} />
-                <line x1={x} y1={M.t + plotH} x2={x} y2={M.t + plotH + 6} stroke="#cbd5e1" />
-                <text x={x} y={M.t + plotH + 19} textAnchor="middle" fontSize="10" fill={isZero ? '#334155' : '#94a3b8'}>
+                <line x1={x} y1={M.t} x2={x} y2={M.t + plotH} className={isZero ? 'stroke-bluegray' : 'stroke-zinc-200'} strokeDasharray={isZero ? '6 4' : '3 5'} />
+                <line x1={x} y1={M.t + plotH} x2={x} y2={M.t + plotH + 6} className="stroke-bluegray-light" />
+                <text x={x} y={M.t + plotH + 19} textAnchor="middle" fontSize="10" className={isZero ? 'fill-bluegray-deep' : 'fill-bluegray'}>
                   {tick}%
                 </text>
               </g>
@@ -640,16 +640,16 @@ function PortfolioMatrix({
             const isZero = tick === 0;
             return (
               <g key={`y-${tick}`}>
-                <line x1={M.l} y1={y} x2={M.l + plotW} y2={y} stroke={isZero ? '#94a3b8' : '#e5e7eb'} strokeDasharray={isZero ? '6 4' : '3 5'} />
-                <line x1={M.l - 6} y1={y} x2={M.l} y2={y} stroke="#cbd5e1" />
-                <text x={M.l - 10} y={y + 3} textAnchor="end" fontSize="10" fill={isZero ? '#334155' : '#94a3b8'}>
+                <line x1={M.l} y1={y} x2={M.l + plotW} y2={y} className={isZero ? 'stroke-bluegray' : 'stroke-zinc-200'} strokeDasharray={isZero ? '6 4' : '3 5'} />
+                <line x1={M.l - 6} y1={y} x2={M.l} y2={y} className="stroke-bluegray-light" />
+                <text x={M.l - 10} y={y + 3} textAnchor="end" fontSize="10" className={isZero ? 'fill-bluegray-deep' : 'fill-bluegray'}>
                   {tick}%
                 </text>
               </g>
             );
           })}
 
-          <text x={M.l + plotW / 2} y={H - 14} textAnchor="middle" fontSize="12" fill="#6b7280">
+          <text x={M.l + plotW / 2} y={H - 14} textAnchor="middle" fontSize="12" className="fill-zinc-500">
             成長性（売上CAGR %）
           </text>
           <text
@@ -657,20 +657,20 @@ function PortfolioMatrix({
             y={M.t + plotH / 2}
             textAnchor="middle"
             fontSize="12"
-            fill="#6b7280"
+            className="fill-zinc-500"
             transform={`rotate(-90 18 ${M.t + plotH / 2})`}
           >
             収益性（営業利益率 %）
           </text>
 
-          <text x={zeroX + 6} y={zeroY - 8} fontSize="11" fill="#334155" fontWeight="600">
+          <text x={zeroX + 6} y={zeroY - 8} fontSize="11" className="fill-bluegray-deep" fontWeight="600">
             0% / 0%
           </text>
 
-          <text x={M.l + 12} y={M.t + 18} fontSize="11" fill="#64748b">維持</text>
-          <text x={M.l + plotW - 12} y={M.t + 18} textAnchor="end" fontSize="11" fill="#64748b">注力</text>
-          <text x={M.l + 12} y={M.t + plotH - 10} fontSize="11" fill="#64748b">撤退候補</text>
-          <text x={M.l + plotW - 12} y={M.t + plotH - 10} textAnchor="end" fontSize="11" fill="#64748b">改善</text>
+          <text x={M.l + 12} y={M.t + 18} fontSize="11" className="fill-bluegray-deep">維持</text>
+          <text x={M.l + plotW - 12} y={M.t + 18} textAnchor="end" fontSize="11" className="fill-bluegray-deep">注力</text>
+          <text x={M.l + 12} y={M.t + plotH - 10} fontSize="11" className="fill-bluegray-deep">撤退候補</text>
+          <text x={M.l + plotW - 12} y={M.t + plotH - 10} textAnchor="end" fontSize="11" className="fill-bluegray-deep">改善</text>
 
           {legendPoints.map((p) => {
             const cx = xToPx(p.growthPct);
@@ -684,8 +684,8 @@ function PortfolioMatrix({
                   {'\n'}営業利益率: {p.marginPct.toFixed(1)}%
                   {p.latestRevenue != null ? `\n規模(売上): ${fmtJPYMillions(p.latestRevenue)}` : ''}
                 </title>
-                <circle cx={cx} cy={cy} r={r} fill="#111827" opacity={0.9} />
-                <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fill="#ffffff" fontWeight="700">
+                <circle cx={cx} cy={cy} r={r} className="fill-zinc-900" opacity={0.9} />
+                <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" className="fill-white" fontWeight="700">
                   {pointIndexByName[p.name]}
                 </text>
               </g>
@@ -963,7 +963,7 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
           <div className="mt-1 text-[13px] text-zinc-600">指標（CAGR / ROIC / D/E など）が表示されない場合は、分析を更新してください。</div>
 
           {analysisMessage && (
-            <div className={`text-xs mt-2 ${analysisStatus === 'error' ? 'text-red-700' : 'text-green-700'}`}>
+            <div className={`text-xs mt-2 ${analysisStatus === 'error' ? 'text-red-700' : 'text-success'}`}>
               {analysisStatus === 'error' ? analysisMessage : `✓ ${analysisMessage}`}
             </div>
           )}
@@ -1006,7 +1006,7 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
           />
         </div>
         {waccPct == null && (
-          <div className="mt-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+          <div className="mt-4 text-xs text-bluegray-deep bg-bluegray-mist border border-bluegray-light rounded p-3">
             WACC（資本コスト）が未入力です。「企業価値分析の入力」タブで WACC を設定すると、ROIC−WACC（価値創造/毀損）の判定ができます。
           </div>
         )}
@@ -1067,7 +1067,7 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
           </div>
 
           {revenueCagrDisplay == null && (
-            <div className="mt-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+            <div className="mt-4 text-xs text-bluegray-deep bg-bluegray-mist border border-bluegray-light rounded p-3">
               売上CAGRが計算できません（売上が正の年次が2年分以上必要です）。
             </div>
           )}

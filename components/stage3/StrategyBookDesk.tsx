@@ -350,7 +350,7 @@ function ChoiceButton({
   children: ReactNode;
 }) {
   const selectedClass =
-    tone === 'adopt' ? 'border-[#1e3a8a] bg-[#1e3a8a] text-white' : 'border-slate-500 bg-slate-500 text-white';
+    tone === 'adopt' ? 'border-accent-action bg-accent-action text-white' : 'border-bluegray-deep bg-bluegray-deep text-white';
   return (
     <button
       type="button"
@@ -441,7 +441,7 @@ type Tab = 'compare' | `dept:${number}`;
 
 function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'neutral'; children: ReactNode }) {
   const cls = {
-    ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    ok: 'border-success/30 bg-success-soft text-success',
     warn: 'border-caution/30 bg-caution-soft text-caution',
     neutral: 'border-zinc-200 bg-white text-zinc-700',
   }[tone];
@@ -1603,7 +1603,7 @@ export function StrategyBookDesk({
               : null;
 
   const reasonLine = (reason: string | null) =>
-    reason && !blockingError ? <p className="text-xs text-amber-800">※ {reason}</p> : null;
+    reason && !blockingError ? <p className="text-xs text-caution">※ {reason}</p> : null;
 
   const tabs: Array<{ id: Tab; label: string }> = [
     ...departments.map((d, i) => ({ id: `dept:${i}` as Tab, label: d.name })),
@@ -1908,7 +1908,7 @@ export function StrategyBookDesk({
             </div>
           </div>
           {editingHere && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <p className="rounded-lg bg-caution-soft px-3 py-2 text-xs text-caution">
               編集中のためPDFは出力できません。「編集を保存」か「編集をやめる」を押してから、出力してください。
             </p>
           )}
@@ -2064,7 +2064,7 @@ export function StrategyBookDesk({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   {editingHere ? (
                     <>
-                      <p className="text-xs text-amber-800">
+                      <p className="text-xs text-bluegray-deep">
                         修正中です。文章やプロジェクトの内容をクリックすると直せます。KPIは変わりません。「編集を保存」を押すまで、作業版には反映されません。
                       </p>
                       <div className="flex gap-2">
@@ -2144,7 +2144,7 @@ export function StrategyBookDesk({
                 採用 {projs.filter((p) => p.decision === 'applied').length}件 ／ 候補 {projs.length}件
               </p>
               {projs.length > 0 && !projs.some((p) => p.decision === 'applied') && (
-                <p className="text-xs text-amber-800">
+                <p className="text-xs text-caution">
                   採用するプロジェクトが0件です。このまま確定すると、STAGE4の実行計画が作成されない可能性があります。
                 </p>
               )}
@@ -2390,7 +2390,7 @@ export function StrategyBookDesk({
   return (
     <article className="space-y-5 rounded-2xl border border-gray-200 bg-white p-6 text-slate-900 md:p-8">
       {blockingError && (
-        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger">
           <span>{blockingError}</span>
           {readCompanyId && readStrategyId && workspaceErrorCode !== 'workspace_table_missing' && (
             <Button variant="outline" onClick={() => void load()} disabled={!loaded} className="h-8 rounded-full px-3 text-xs">
@@ -2486,7 +2486,7 @@ export function StrategyBookDesk({
                         削除
                       </Button>
                       {blockers.length > 0 && (
-                        <details className="text-xs text-amber-800">
+                        <details className="text-xs text-danger">
                           <summary className="cursor-pointer">関連データがあるため削除できません</summary>
                           <ul className="mt-1 list-disc pl-5 text-gray-700">
                             {blockers.map((b) => (
@@ -2536,7 +2536,7 @@ export function StrategyBookDesk({
       )}
       {notice && <p className="rounded-lg bg-gray-50 px-4 py-2 text-sm text-gray-800">{notice}</p>}
       {decisionError && (
-        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg bg-danger-soft px-4 py-2 text-sm text-danger">
           <span>{decisionError}</span>
           <Button variant="outline" onClick={retryDecisions} className="h-8 rounded-full px-3 text-xs">
             もう一度保存する
@@ -2564,7 +2564,7 @@ export function StrategyBookDesk({
             </p>
             {departments.length < 2 && <p className="text-xs text-zinc-600">部門が2つ以上あると分析できます（部門間の調整対象はありません）。</p>}
             {!latest && departments.length >= 2 && <p className="text-xs text-zinc-600">先に、部門のたたき台を作成してください。</p>}
-            {staleAnalysis && <p className="text-xs text-amber-800">分析の後に計画が変わっています。補助操作から分析し直してください。</p>}
+            {staleAnalysis && <p className="text-xs text-caution">分析の後に計画が変わっています。補助操作から分析し直してください。</p>}
             {reasonLine(operateBlocker)}
           </div>
 

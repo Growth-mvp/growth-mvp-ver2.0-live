@@ -127,18 +127,18 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
           <div className="text-sm text-gray-600 mb-4">
             {canProceedToStage2 ? (
               <>
-                <span className="text-green-700 font-medium">✓ 論点が {stage1Issues.length} 件選択されています。</span>
+                <span className="text-success font-medium">✓ 論点が {stage1Issues.length} 件選択されています。</span>
                 <br />
                 下記ボタンで STAGE2（経営戦略策定）へ進みます。
                 {computedBusinessPortfolio && Array.isArray(computedBusinessPortfolio.units) && computedBusinessPortfolio.units.length > 0 && (
-                  <div className="text-xs text-green-600 mt-2">
+                  <div className="text-xs text-success mt-2">
                     事業ポートフォリオも確定しました（{computedBusinessPortfolio.units.length}件）。
                   </div>
                 )}
               </>
             ) : (
               <>
-                <span className="text-amber-700 font-medium">⚠ 論点が未選択です。</span>
+                <span className="text-caution font-medium">⚠ 論点が未選択です。</span>
                 <br />
                 上記で論点を選択してから、下記ボタンを有効にしてください。
               </>

@@ -103,7 +103,7 @@ export default function FinanceDataPanel({ readOnly, disabled }: { readOnly?: bo
               value={initialSegment || ''}
               onChange={(e) => setSelectedSegmentName(e.target.value)}
               disabled={disabled}
-              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-accent-action disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               {businessSegments.map((seg) => (
                 <option key={seg.id} value={seg.name}>

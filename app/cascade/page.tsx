@@ -1111,13 +1111,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-orange-500 rounded-b transition-all shadow-md xl:dark:bg-orange-400"
+                className="bg-caution rounded-b transition-all shadow-md xl:dark:bg-caution"
                 style={{
                   width: '22px',
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-orange-700 mt-1 text-center whitespace-nowrap xl:dark:text-orange-300">
+              <div className="text-xs font-semibold text-caution mt-1 text-center whitespace-nowrap xl:dark:text-caution">
                 {formatMillion(target)}
               </div>
             </div>
@@ -1247,7 +1247,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                       ))}
                     </ul>
                   </div>
-                  <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
+                  <div className="rounded-lg border border-zinc-200 bg-bluegray-mist px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">重点的に伸ばす領域</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
                       {growthDomainItems.map((item: string, i: number) => (
@@ -1311,14 +1311,14 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                 )}
               </>
             ) : (
-              <div className="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
-                <p className="text-sm text-amber-800 mb-4">
+              <div className="rounded-lg border border-bluegray-light bg-bluegray-mist p-6 text-center">
+                <p className="text-sm text-bluegray-deep mb-4">
                   STAGE2で全社戦略を確定すると、ここに部門展開の要点が表示されます。
                 </p>
                 <button
                   type="button"
                   onClick={() => router.push('/stage2')}
-                  className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                  className="inline-flex items-center justify-center rounded-lg bg-accent-action px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover"
                 >
                   STAGE2で全社戦略を確認する
                 </button>
@@ -4432,7 +4432,7 @@ useEffect(() => {
                   if (set.projects.length === 0 && set.proposals.length === 0) return null;
                   const deptValues = dept as unknown as Record<string, unknown>;
                   return (
-                    <div className="mb-5 rounded-3xl border border-amber-300 bg-amber-50 px-5 py-4">
+                    <div className="mb-5 rounded-3xl border border-bluegray-light bg-bluegray-mist px-5 py-4">
                       <div className="text-sm font-bold text-zinc-900">未採用の案（AI生成）</div>
                       <p className="mt-1 text-xs leading-5 text-zinc-600">
                         選んだ案・項目だけが計画に入ります。既存のプロジェクト・OKR・承認・人的投資・進捗は変更されません。
@@ -4458,7 +4458,7 @@ useEffect(() => {
                                 )}
                                 <div className="mt-1 text-xs text-zinc-500">OKR {okrCount}件</div>
                                 {similar.length > 0 && (
-                                  <div className="mt-2 rounded-xl border border-amber-300 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-900">
+                                  <div className="mt-2 rounded-xl border border-caution/40 bg-caution-soft px-3 py-2 text-xs leading-5 text-caution">
                                     同じ名称の既存プロジェクトがあります（{similar.map((s) => stripDeptPrefix(s.title ?? '', dept.name)).join('、')}）。自動では統合しません。内容を確認して判断してください。
                                   </div>
                                 )}
@@ -4502,13 +4502,13 @@ useEffect(() => {
                                     <div className="text-[11px] font-semibold text-zinc-600">現在の値</div>
                                     <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-800">{currentText || '（未設定）'}</div>
                                   </div>
-                                  <div className="rounded-xl bg-amber-50 px-3 py-2">
-                                    <div className="text-[11px] font-semibold text-amber-800">AIの案</div>
+                                  <div className="rounded-xl bg-bluegray-mist px-3 py-2">
+                                    <div className="text-[11px] font-semibold text-bluegray-deep">AIの案</div>
                                     <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-800">{proposedText || '（なし）'}</div>
                                   </div>
                                 </div>
                                 {stale && (
-                                  <div className="mt-2 text-xs text-amber-800">
+                                  <div className="mt-2 text-xs text-caution">
                                     既存の値が案を作ったあとに変わっています。反映するには再生成してください。
                                   </div>
                                 )}

@@ -547,7 +547,7 @@ export default function Stage1Page() {
     saveState === 'saving'
       ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
       : saveState === 'success'
-        ? 'bg-green-600 text-white'
+        ? 'bg-success text-white'
         : saveState === 'error'
           ? 'bg-red-600 text-white'
           : 'bg-blue-600 text-white hover:bg-blue-700';
@@ -568,7 +568,7 @@ export default function Stage1Page() {
             </p>
 
             {saveMessage && (
-              <div className={`text-xs mt-2 ${saveState === 'error' ? 'text-red-600' : 'text-green-700'}`}>
+              <div className={`text-xs mt-2 ${saveState === 'error' ? 'text-red-600' : 'text-success'}`}>
                 {saveMessage}
               </div>
             )}
@@ -578,7 +578,7 @@ export default function Stage1Page() {
             <StagePdfExportButton exportToPdf={stage1ExportToPdf} />
 
             {!saveFn && (
-              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              <div className="text-xs text-caution bg-caution-soft border border-caution/40 rounded px-3 py-2">
                 storeに保存関数が見つかりません。strategyStore.ts に saveToSupabase / saveStrategyData
                 等があるか確認してください。
               </div>
