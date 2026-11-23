@@ -23,23 +23,23 @@ export default function GlobalSidebarSaveStatus() {
 
   const statusConfig = {
     error: {
-      dotColor: 'bg-red-600',
-      textColor: 'text-red-600',
-      bgColor: 'bg-red-50',
+      dotColor: 'bg-danger',
+      textColor: 'text-danger',
+      bgColor: 'bg-danger-soft',
     },
     saving: {
-      dotColor: 'bg-blue-600',
-      textColor: 'text-blue-600',
-      bgColor: 'bg-blue-50',
+      dotColor: 'bg-accent',
+      textColor: 'text-accent-ink',
+      bgColor: 'bg-accent-soft',
     },
     dirty: {
-      dotColor: 'bg-orange-600',
-      textColor: 'text-orange-600',
-      bgColor: 'bg-orange-50',
+      dotColor: 'bg-caution',
+      textColor: 'text-caution',
+      bgColor: 'bg-caution-soft',
     },
     saved: {
-      dotColor: 'bg-green-600',
-      textColor: 'text-zinc-700',
+      dotColor: 'bg-success',
+      textColor: 'text-zinc-800',
       bgColor: 'bg-white',
     },
   };
@@ -56,9 +56,9 @@ export default function GlobalSidebarSaveStatus() {
   };
 
   return (
-    <div className="shrink-0 border-t border-gray-200 px-4 py-3 space-y-2">
+    <div className="shrink-0 border-t border-zinc-200 px-4 py-3 space-y-2">
       {/* Status header with dot */}
-      <div className={`rounded-lg ${config.bgColor} p-3`}>
+      <div className={`rounded-2xl border border-zinc-200 ${config.bgColor} p-3`}>
         <div className="flex items-center gap-2 mb-1">
           <div className={`h-2 w-2 rounded-full ${config.dotColor} flex-shrink-0`} />
           <div className={`text-sm font-semibold ${config.textColor}`}>{message}</div>
@@ -66,7 +66,7 @@ export default function GlobalSidebarSaveStatus() {
 
         {/* Help text */}
         {helpText && (
-          <div className="text-xs text-gray-600 ml-4 leading-snug">
+          <div className="text-[12px] text-zinc-600 ml-4 leading-snug">
             {helpText}
           </div>
         )}
@@ -77,13 +77,13 @@ export default function GlobalSidebarSaveStatus() {
         onClick={handleSaveClick}
         disabled={buttonDisabled || isSavingManually}
         className={[
-          'w-full rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          'w-full h-10 rounded-xl px-3 text-[14px] font-medium transition-colors',
           'flex items-center justify-center gap-2',
           buttonDisabled || isSavingManually
-            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            ? 'bg-zinc-100 text-zinc-500 cursor-not-allowed'
             : status === 'saved'
-              ? 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-              : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100',
+              ? 'bg-white border border-zinc-200 text-zinc-800 hover:bg-zinc-50'
+              : 'bg-accent-action text-white hover:bg-accent-hover',
         ].join(' ')}
         title={
           buttonDisabled

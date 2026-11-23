@@ -1015,13 +1015,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-3 flex items-center justify-between gap-2">
               <button
                 onClick={() => setOpenLeft(true)}
-                className="flex-1 rounded-lg border border-black/10 px-3 py-2 text-xs sm:text-sm shadow-sm bg-white active:scale-[0.99] font-medium"
+                className="flex-1 h-10 rounded-xl border border-zinc-200 px-3 text-[13px] sm:text-[14px] shadow-subtle bg-white text-zinc-800 hover:bg-zinc-50 active:scale-[0.99] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               >
                 メニュー
               </button>
               <button
                 onClick={() => setCeoPanelOpen(true)}
-                className="flex-1 rounded-lg border border-black/10 px-3 py-2 text-xs sm:text-sm shadow-sm bg-white active:scale-[0.99] font-medium"
+                className="flex-1 h-10 rounded-xl border border-zinc-200 px-3 text-[13px] sm:text-[14px] shadow-subtle bg-white text-zinc-800 hover:bg-zinc-50 active:scale-[0.99] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               >
                 AI経営コンサルタント
               </button>

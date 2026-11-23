@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -25,16 +25,17 @@ import {
 
 function AIcon({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex h-[18px] w-[18px] items-center justify-center opacity-75">
+    <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center text-zinc-600">
       {children}
     </span>
   );
 }
 
-const ITEM_TEXT_CLASS = 'font-normal tracking-[0.01em] leading-6 text-[13.5px]';
-const ITEM_SUBTITLE_CLASS = 'font-normal tracking-[0.01em] text-[11px] leading-[1.3]';
-const STAGE_LABEL_CLASS = 'font-semibold tracking-[0.01em] text-[13.5px] leading-6 text-gray-900';
-const STAGE_NUM_CLASS = 'font-medium text-[13px] text-gray-800';
+const ITEM_TEXT_CLASS = 'font-normal tracking-[0.01em] leading-6 text-[14px]';
+const ITEM_SUBTITLE_CLASS = 'font-normal tracking-[0.01em] text-[12px] leading-[1.3]';
+const STAGE_LABEL_CLASS = 'font-medium tracking-[0.01em] text-[14px] leading-6 text-zinc-800';
+const STAGE_NUM_CLASS = 'font-medium text-[13px] text-zinc-600';
+const GROUP_TITLE_CLASS = 'px-3 pb-1 text-[12px] font-medium text-zinc-600';
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -81,7 +82,7 @@ export default function Sidebar() {
         type="button"
         aria-label="メニューを開く"
         onClick={() => setOpen(true)}
-        className="lg:hidden fixed top-3 left-3 z-[60] inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm hover:bg-gray-50"
+        className="lg:hidden fixed top-3 left-3 z-[60] inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-[14px] font-medium text-zinc-800 shadow-subtle transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
       >
         <Menu size={18} strokeWidth={1.5} />
         メニュー
@@ -99,25 +100,25 @@ export default function Sidebar() {
       {/* Sidebar */}
       <aside
         className={[
-          'z-[56] h-full w-full bg-gray-50 border-r border-gray-200 shadow-sm text-gray-800 flex flex-col',
-          'lg:translate-x-0',
+          'z-[56] h-full w-full bg-zinc-50 border-r border-zinc-200 text-zinc-800 flex flex-col',
+          'lg:translate-x-0 lg:shadow-none shadow-card',
           'fixed top-0 left-0 h-screen w-[16rem] max-w-[80vw] transition-transform duration-200 ease-out lg:static lg:h-full lg:max-w-none',
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         ].join(' ')}
       >
-        <div className="lg:hidden shrink-0 flex items-center justify-between border-b border-gray-200 px-4 py-3">
-          <div className="text-sm font-semibold tracking-wide text-gray-700">メニュー</div>
+        <div className="lg:hidden shrink-0 flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+          <div className="text-[14px] font-medium text-zinc-800">メニュー</div>
           <button
             type="button"
             aria-label="閉じる"
             onClick={() => setOpen(false)}
-            className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-sm hover:bg-gray-50"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           >
             <X size={18} strokeWidth={1.5} />
           </button>
         </div>
 
-        <div className="shrink-0 overflow-visible border-b border-gray-200 px-1 py-3">
+        <div className="shrink-0 overflow-visible border-b border-zinc-200 px-1 py-3">
           <Link href="/" aria-label="トップページへ" className="flex justify-center no-underline">
             <img
               src="/GROWTH SHIFT.png"
@@ -128,17 +129,17 @@ export default function Sidebar() {
         </div>
 
         {!user && (
-          <div className="shrink-0 px-4 py-3 border-b border-gray-200 flex items-center justify-center gap-2">
+          <div className="shrink-0 px-4 py-3 border-b border-zinc-200 flex items-center justify-center gap-2">
             <Link
               href="/login"
-              className="no-underline inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-[12px] text-gray-800 shadow-sm hover:bg-gray-50"
+              className="no-underline inline-flex h-9 items-center gap-1 rounded-xl border border-zinc-300 bg-white px-3 text-[13px] font-medium text-zinc-900 transition-colors hover:bg-zinc-50"
             >
               <LogIn size={14} strokeWidth={1.5} />
               ログイン
             </Link>
             <Link
               href="/signup"
-              className="no-underline inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-[12px] text-white shadow-sm hover:bg-black/90"
+              className="no-underline inline-flex h-9 items-center gap-1 rounded-xl bg-accent-action px-3 text-[13px] font-medium text-white transition-colors hover:bg-accent-hover"
             >
               <UserPlus size={14} strokeWidth={1.5} />
               新規登録
@@ -146,82 +147,91 @@ export default function Sidebar() {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
-          <nav className="space-y-[18px]" role="navigation" aria-label="メインナビゲーション">
-            <PillLink
-              href="/stage0"
-              stageNum="STAGE0"
-              label="アイスブレイク"
-              active={isActive('/stage0')}
-            />
-            <PillLink
-              href="/stage1"
-              stageNum="STAGE1"
-              label="会社の現状はどうか"
-              subtitle="企業価値分析"
-              active={isActive('/stage1')}
-            />
-            <PillLink
-              href="/stage2"
-              stageNum="STAGE2"
-              label="会社は何を目指すのか"
-              subtitle="全社戦略"
-              active={isActive('/stage2')}
-            />
-            <PillLink
-              href="/cascade"
-              stageNum="STAGE3"
-              label="各部門の役割は何か"
-              subtitle="事業・部門別戦略"
-              active={isActive('/cascade')}
-            />
-            <PillLink
-              href="/okr"
-              stageNum="STAGE4"
-              label="現場は何をするのか"
-              subtitle="実行計画策定"
-              active={isActive('/okr')}
-            />
-            <PillLink
-              href="/execution"
-              stageNum="STAGE5"
-              label="どうやって前に進めるか"
-              subtitle="実行支援"
-              active={isActive('/execution')}
-            />
-            <PillLink
-              href="/stage6"
-              stageNum="STAGE6"
-              label="成果を確かめる"
-              subtitle="業績シミュレーション"
-              active={isActive('/stage6')}
-            />
-            <PillLink
-              href="/org-transformation"
-              icon={<UsersRound size={18} strokeWidth={1.5} />}
-              label="組織変革・違和感を伝えるルーム"
-              active={isActive('/org-transformation')}
-            />
-            <PillLink
-              href="/org-transformation/shared"
-              icon={<UsersRound size={18} strokeWidth={1.5} />}
-              label="組織変革・全社すり合わせルーム"
-              active={isActive('/org-transformation/shared')}
-            />
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-5 overscroll-contain">
+          <nav className="space-y-5" role="navigation" aria-label="メインナビゲーション">
+            <div className="space-y-1">
+              <div className={GROUP_TITLE_CLASS}>経営ステージ</div>
+              <NavLink
+                href="/stage0"
+                stageNum="STAGE0"
+                label="アイスブレイク"
+                active={isActive('/stage0')}
+              />
+              <NavLink
+                href="/stage1"
+                stageNum="STAGE1"
+                label="会社の現状はどうか"
+                subtitle="企業価値分析"
+                active={isActive('/stage1')}
+              />
+              <NavLink
+                href="/stage2"
+                stageNum="STAGE2"
+                label="会社は何を目指すのか"
+                subtitle="全社戦略"
+                active={isActive('/stage2')}
+              />
+              <NavLink
+                href="/cascade"
+                stageNum="STAGE3"
+                label="各部門の役割は何か"
+                subtitle="事業・部門別戦略"
+                active={isActive('/cascade')}
+              />
+              <NavLink
+                href="/okr"
+                stageNum="STAGE4"
+                label="現場は何をするのか"
+                subtitle="実行計画策定"
+                active={isActive('/okr')}
+              />
+              <NavLink
+                href="/execution"
+                stageNum="STAGE5"
+                label="どうやって前に進めるか"
+                subtitle="実行支援"
+                active={isActive('/execution')}
+              />
+              <NavLink
+                href="/stage6"
+                stageNum="STAGE6"
+                label="成果を確かめる"
+                subtitle="業績シミュレーション"
+                active={isActive('/stage6')}
+              />
+            </div>
 
-            <div className="h-px bg-gray-200/50 my-4" />
+            <div className="h-px bg-zinc-200" />
+
+            <div className="space-y-1">
+              <div className={GROUP_TITLE_CLASS}>組織変革ルーム</div>
+              <NavLink
+                href="/org-transformation"
+                icon={<UsersRound size={18} strokeWidth={1.5} />}
+                label="組織変革・違和感を伝えるルーム"
+                active={isActive('/org-transformation')}
+              />
+              <NavLink
+                href="/org-transformation/shared"
+                icon={<UsersRound size={18} strokeWidth={1.5} />}
+                label="組織変革・全社すり合わせルーム"
+                active={isActive('/org-transformation/shared')}
+              />
+            </div>
+
+            <div className="h-px bg-zinc-200" />
 
             {/* ★STEP9: 出力・レポート */}
-            <PillLink
+            <NavLink
               href="/report"
               icon={<FileText size={18} strokeWidth={1.5} />}
               label="経営計画書"
               active={isActive('/report')}
             />
 
-            <div className="h-px bg-gray-200/50 my-4" />
+            <div className="h-px bg-zinc-200" />
 
-            <PillLink
+            <NavLink
               href="/admin/members"
               icon={<Settings size={18} strokeWidth={1.5} />}
               label="管理者専用"
@@ -234,16 +244,16 @@ export default function Sidebar() {
         <GlobalSidebarSaveStatus />
 
         {user && (
-          <div className="shrink-0 border-t border-gray-200 px-4 py-4 space-y-1.5">
-            <div className="text-xs font-semibold text-gray-600 mb-1">アカウント</div>
-            <div className="text-xs text-gray-600 mb-3 truncate">{user.email}</div>
+          <div className="shrink-0 border-t border-zinc-200 px-4 py-4 space-y-1.5">
+            <div className="text-[12px] font-medium text-zinc-600 mb-1">アカウント</div>
+            <div className="text-[12px] text-zinc-600 mb-3 truncate">{user.email}</div>
             <div className="space-y-1.5">
               <Link
                 href="/account/password"
-                className={`no-underline flex h-9 items-center justify-center rounded-full text-sm font-medium transition ${
+                className={`no-underline flex h-10 items-center justify-center rounded-xl text-[14px] font-medium transition-colors ${
                   isPasswordPage
-                    ? 'bg-gray-900 text-white hover:bg-black/90'
-                    : 'bg-white text-gray-800 border border-gray-200 hover:bg-gray-50'
+                    ? 'bg-zinc-100 text-zinc-900'
+                    : 'bg-white text-zinc-800 border border-zinc-200 hover:bg-zinc-50'
                 }`}
               >
                 アカウント設定
@@ -253,7 +263,7 @@ export default function Sidebar() {
           </div>
         )}
 
-        <footer className={`shrink-0 border-t border-gray-200 px-4 py-3 text-gray-500 ${ITEM_TEXT_CLASS}`}>
+        <footer className="shrink-0 border-t border-zinc-200 px-4 py-3 text-[12px] text-zinc-600">
           © 2026 GROWTH SHIFT Platform
 
         </footer>
@@ -262,7 +272,7 @@ export default function Sidebar() {
   );
 }
 
-function PillLink({
+function NavLink({
   href,
   icon,
   label,
@@ -270,7 +280,6 @@ function PillLink({
   stageNum,
   active,
   disabled,
-  variant = 'default',
 }: {
   href: string;
   icon?: React.ReactNode;
@@ -279,12 +288,9 @@ function PillLink({
   stageNum?: string;
   active: boolean;
   disabled?: boolean;
-  variant?: 'default' | 'warm';
 }) {
-  const isWarm = variant === 'warm';
   const isStageLink = !!stageNum;
-  const linkHeight = subtitle ? 'h-auto min-h-10' : 'h-10';
-  const linkPadding = subtitle ? 'py-1.5' : '';
+  const linkHeight = subtitle ? 'min-h-12 py-1.5' : 'h-10';
   const stageLabel = stageNum ? `${stageNum}｜${label}` : label;
 
   return (
@@ -297,43 +303,37 @@ function PillLink({
         }
       }}
       className={[
-        `no-underline group flex items-center gap-2 rounded-full px-3 transition ${linkPadding}`.trim(),
+        'no-underline group relative flex items-center gap-2 rounded-xl px-3 transition-colors',
         linkHeight,
-        active
-          ? isWarm
-            ? 'bg-orange-500 text-white shadow hover:bg-orange-600'
-            : 'bg-gray-900 text-white shadow hover:bg-black/90'
-          : isWarm
-          ? 'bg-orange-50 text-orange-700 hover:bg-orange-100 shadow-sm border border-orange-200'
-          : 'bg-white text-gray-800 hover:bg-white/90 shadow-sm border border-gray-200',
-        'focus:outline-none focus:ring-1',
-        isWarm ? 'focus:ring-orange-300' : 'focus:ring-black/10',
-        disabled ? 'opacity-60 pointer-events-auto cursor-not-allowed' : '',
+        active ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-700 hover:bg-zinc-100',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+        disabled ? 'opacity-50 pointer-events-auto cursor-not-allowed' : '',
       ].join(' ')}
       aria-label={subtitle ? `${stageLabel} (${subtitle})` : stageLabel}
       aria-current={active ? 'page' : undefined}
       aria-disabled={disabled || undefined}
     >
+      {active && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent" />}
       {icon && <AIcon>{icon}</AIcon>}
       <div className="flex flex-col justify-center min-w-0">
         {isStageLink ? (
           <>
             <div className="flex items-baseline gap-1 truncate">
-              <span className={`shrink-0 ${STAGE_NUM_CLASS} ${active ? 'text-white' : ''}`}>{stageNum}</span>
-              <span className={`opacity-50 ${active ? 'text-white opacity-100' : ''}`}>｜</span>
-              <span className={`truncate ${STAGE_LABEL_CLASS} ${active ? 'text-white' : ''}`}>{label}</span>
+              <span className={`shrink-0 ${STAGE_NUM_CLASS} ${active ? 'text-zinc-900' : ''}`}>{stageNum}</span>
+              <span className="text-zinc-400">｜</span>
+              <span className={`truncate ${STAGE_LABEL_CLASS} ${active ? 'font-semibold text-zinc-900' : ''}`}>{label}</span>
             </div>
             {subtitle && (
-              <span className={`truncate ${ITEM_SUBTITLE_CLASS} ${active ? 'text-gray-200 opacity-100' : 'opacity-70'}`}>
+              <span className={`truncate ${ITEM_SUBTITLE_CLASS} text-zinc-600`}>
                 {subtitle}
               </span>
             )}
           </>
         ) : (
           <>
-            <span className={`truncate ${ITEM_TEXT_CLASS}`}>{label}</span>
+            <span className={`truncate ${ITEM_TEXT_CLASS} ${active ? 'font-semibold text-zinc-900' : ''}`}>{label}</span>
             {subtitle && (
-              <span className={`truncate ${ITEM_SUBTITLE_CLASS} ${active ? 'opacity-90' : 'opacity-70'}`}>
+              <span className={`truncate ${ITEM_SUBTITLE_CLASS} text-zinc-600`}>
                 {subtitle}
               </span>
             )}

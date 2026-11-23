@@ -7,12 +7,20 @@ type CardProps = HTMLAttributes<HTMLDivElement> & {
   elevated?: boolean;
 };
 
+// 呼び出し側が枠線・内側余白を指定した場合は、既定値を重ねない（Tailwindの生成順で既定が勝つのを防ぐ）
+const SPECIFIES_BORDER = /(^|\s)border(\s|-|$)/;
+const SPECIFIES_PADDING = /(^|\s)p[xytrbl]?-/;
+
 export function Card({ className, elevated = false, ...props }: CardProps) {
+  const specifiesBorder = SPECIFIES_BORDER.test(className ?? '');
+  const specifiesPadding = SPECIFIES_PADDING.test(className ?? '');
   return (
     <div
       {...props}
       className={clsx(
-        'rounded-2xl border border-zinc-200 bg-white p-5',
+        'rounded-2xl bg-white',
+        !specifiesBorder && 'border border-zinc-200',
+        !specifiesPadding && 'p-5',
         elevated && 'shadow-card',
         className
       )}
