@@ -34,7 +34,7 @@ export default function PlanStatusBar({
   onGenerate,
   onCopy,
   onDownload,
-  accentClassName = 'bg-blue-600 hover:bg-blue-700',
+  accentClassName = 'bg-accent-action hover:bg-accent-hover',
 }: PlanStatusBarProps) {
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
@@ -60,7 +60,7 @@ export default function PlanStatusBar({
             </span>
           )}
           {!isRestoring && doc && doc.saveStatus === 'unsaved' && (
-            <span className="font-semibold text-amber-700">
+            <span className="font-semibold text-caution">
               未保存 ／ 生成日時: {formatDateTime(doc.generatedAt)}
             </span>
           )}
@@ -86,7 +86,7 @@ export default function PlanStatusBar({
       </div>
 
       {doc && doc.saveStatus === 'unsaved' && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+        <div className="rounded-lg border border-caution bg-caution-soft px-5 py-4 text-sm text-caution">
           <p className="font-semibold">
             この本文は保存されていません（{doc.saveReason === 'conflict' ? '別の操作で更新されたため' : '保存に失敗したため'}）。
           </p>
@@ -97,18 +97,18 @@ export default function PlanStatusBar({
             <button
               type="button"
               onClick={handleCopy}
-              className="rounded border border-amber-400 bg-white px-3 py-1.5 font-semibold text-amber-900 hover:bg-amber-100"
+              className="rounded border border-caution bg-white px-3 py-1.5 font-semibold text-caution hover:bg-caution-soft"
             >
               本文をコピー
             </button>
             <button
               type="button"
               onClick={onDownload}
-              className="rounded border border-amber-400 bg-white px-3 py-1.5 font-semibold text-amber-900 hover:bg-amber-100"
+              className="rounded border border-caution bg-white px-3 py-1.5 font-semibold text-caution hover:bg-caution-soft"
             >
               Markdownでダウンロード
             </button>
-            {copyMessage && <span className="text-xs text-amber-800">{copyMessage}</span>}
+            {copyMessage && <span className="text-xs text-caution">{copyMessage}</span>}
           </div>
         </div>
       )}

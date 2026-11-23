@@ -17,9 +17,9 @@ export default function PlanSourceNotice({
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div
-        className={`bg-white rounded-lg p-8 max-w-md border ${isError ? 'border-red-300' : 'border-amber-300'}`}
+        className={`bg-white rounded-lg p-8 max-w-md border ${isError ? 'border-red-300' : 'border-zinc-200'}`}
       >
-        <h1 className={`text-xl font-bold mb-4 ${isError ? 'text-red-600' : 'text-amber-700'}`}>
+        <h1 className={`text-xl font-bold mb-4 ${isError ? 'text-red-600' : 'text-accent-ink'}`}>
           {isError ? 'エラー' : '会社データが見つかりません'}
         </h1>
         <p className="text-gray-700 mb-6">
@@ -31,7 +31,7 @@ export default function PlanSourceNotice({
           {!isError && (
             <Link
               href="/stage1"
-              className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+              className="inline-block bg-accent-action hover:bg-accent-hover text-white px-4 py-2 rounded"
             >
               STAGE1へ
             </Link>

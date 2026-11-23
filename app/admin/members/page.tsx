@@ -277,7 +277,7 @@ export default function AdminMembersPage() {
                               ? '最後の管理者は削除できません'
                               : undefined
                           }
-                          className="rounded-md border border-gray-300 px-3 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                          className="rounded-md border border-gray-300 px-3 py-1 text-xs text-danger hover:bg-danger-soft disabled:opacity-50"
                         >
                           削除
                         </button>
@@ -312,7 +312,7 @@ function Th({
 function RoleBadge({ role }: { role: Role }) {
   const cls =
     role === 'admin'
-      ? 'bg-rose-50 text-rose-700 border-rose-200'
+      ? 'bg-bluegray-mist text-bluegray-deep border-bluegray-light'
       : role === 'manager'
       ? 'bg-accent-soft text-accent-ink border-accent-soft'
       : 'bg-gray-50 text-gray-700 border-gray-200';

@@ -256,7 +256,7 @@ export default function AdminDataManagementPage() {
         {/* セクション2: データ初期化 */}
         <section className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
           <div className="flex items-start gap-3">
-            <RotateCcw className="w-6 h-6 text-orange-600 shrink-0 mt-1" />
+            <RotateCcw className="w-6 h-6 text-caution shrink-0 mt-1" />
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-gray-900">データ初期化</h2>
               <p className="text-sm text-gray-600 mt-1">
@@ -268,7 +268,7 @@ export default function AdminDataManagementPage() {
           <button
             onClick={handleReset}
             disabled={loading || !canManage}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-caution text-white rounded-lg hover:bg-caution/90 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             <RotateCcw className="w-4 h-4" />
             ローカルデータを初期化
@@ -276,12 +276,12 @@ export default function AdminDataManagementPage() {
         </section>
 
         {/* セクション3: 全削除 */}
-        <section className="bg-rose-50 border border-rose-200 rounded-lg p-6 space-y-4">
+        <section className="bg-danger-soft border border-danger rounded-lg p-6 space-y-4">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-1" />
+            <AlertCircle className="w-6 h-6 text-danger shrink-0 mt-1" />
             <div className="flex-1">
-              <h2 className="text-lg font-semibold text-rose-900">全削除</h2>
-              <p className="text-sm text-rose-800 mt-1">
+              <h2 className="text-lg font-semibold text-danger">全削除</h2>
+              <p className="text-sm text-danger mt-1">
                 この会社の STAGE1〜6 の経営データをサーバーから削除します。会社名・会社ID・ログイン・所属・監査ログは残ります。この操作は取り消せません。
               </p>
             </div>
@@ -302,7 +302,7 @@ export default function AdminDataManagementPage() {
               setError(null);
             }}
             disabled={loading || !canManage}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-danger text-white rounded-lg hover:bg-danger/90 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             <Trash2 className="w-4 h-4" />
             すべてのデータを削除
@@ -369,7 +369,7 @@ export default function AdminDataManagementPage() {
                     setDeleteCompanyNameInput(e.target.value);
                     setError(null);
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-action"
                   disabled={loading}
                 />
                 <div className="flex gap-3 justify-end pt-4">
@@ -386,7 +386,7 @@ export default function AdminDataManagementPage() {
                   <button
                     onClick={handleDeleteConfirm}
                     disabled={loading || !deleteTarget || deleteCompanyNameInput !== deleteTarget.companyName}
-                    className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 transition"
+                    className="px-4 py-2 bg-danger text-white rounded-lg hover:bg-danger/90 disabled:opacity-50 transition"
                   >
                     次へ
                   </button>
@@ -394,19 +394,19 @@ export default function AdminDataManagementPage() {
               </>
             ) : (
               <>
-                <h3 className="text-lg font-semibold text-rose-900">
+                <h3 className="text-lg font-semibold text-danger">
                   本当にすべてのデータを削除しますか？
                 </h3>
-                <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 space-y-2">
-                  <p className="text-sm font-semibold text-rose-900">この操作は取り消せません：</p>
-                  <ul className="text-sm text-rose-800 space-y-1 list-disc list-inside">
+                <div className="bg-danger-soft border border-danger rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-semibold text-danger">この操作は取り消せません：</p>
+                  <ul className="text-sm text-danger space-y-1 list-disc list-inside">
                     <li>基本情報・財務データ（STAGE1）</li>
                     <li>戦略ストーリー・SWOT・回答（STAGE2）</li>
                     <li>戦略展開・部門・目標（STAGE3〜4）</li>
                     <li>経営計画書・実行計画・実績・OKR（STAGE4〜5）</li>
                     <li>シミュレーション結果（STAGE6）</li>
                   </ul>
-                  <p className="text-sm text-rose-800">
+                  <p className="text-sm text-danger">
                     残るもの：会社名・会社ID・ログイン・所属・監査ログ。組織整合・AIとの会話ログ・組織マスタは削除しません。
                   </p>
                 </div>
@@ -426,7 +426,7 @@ export default function AdminDataManagementPage() {
                   <button
                     onClick={handleDeleteConfirm}
                     disabled={loading || !deleteTarget || liveCompanyId !== deleteTarget.companyId}
-                    className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 transition"
+                    className="px-4 py-2 bg-danger text-white rounded-lg hover:bg-danger/90 disabled:opacity-50 transition"
                   >
                     {loading ? '削除中...' : 'すべて削除する'}
                   </button>
