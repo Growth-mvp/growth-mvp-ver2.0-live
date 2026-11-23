@@ -48,7 +48,6 @@ const NO_KRS: KRStructured[] = [];
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
 type Tone = 'blue' | 'emerald' | 'violet';
-const storyTone: Tone = 'blue';
 const deptTone = (di: number): Tone => (di % 3 === 0 ? 'blue' : di % 3 === 1 ? 'emerald' : 'violet');
 
 // ---- helpers (execution page) ----
@@ -98,8 +97,6 @@ const toEpochMs = (value?: string) => {
 
 
 const toneToDot = (t: Tone) => (t === 'blue' ? 'bg-blue-500' : t === 'emerald' ? 'bg-emerald-500' : 'bg-violet-500');
-const toneToTint = (t: Tone) => (t === 'blue' ? 'bg-blue-50' : t === 'emerald' ? 'bg-emerald-50' : 'bg-violet-50');
-const toneToStroke = (t: Tone) => (t === 'blue' ? 'stroke-blue-300' : t === 'emerald' ? 'stroke-emerald-300' : 'stroke-violet-300');
 
 /* =========================
  * ユーティリティ
@@ -2630,12 +2627,21 @@ function ExecutionPageContent() {
       if (b) projBoxes[k] = b;
     }
 
+    // svg は absolute 配置のため root.scrollHeight に含まれる。canvas を内容高さに縮めると
+    // 前回の svg 高さが残って固着するので、svg の高さは計測した箱の最下端から決める。
+    const contentBottom = Math.max(
+      0,
+      storyBox ? storyBox.y + storyBox.h : 0,
+      ...Object.values(deptBoxes).map((b) => b.y + b.h),
+      ...Object.values(projBoxes).map((b) => b.y + b.h),
+    );
+
     setBoxes({
       story: storyBox ?? undefined,
       depts: deptBoxes,
       projs: projBoxes,
       w: Math.max(root.scrollWidth, root.clientWidth),
-      h: Math.max(root.scrollHeight, root.clientHeight),
+      h: Math.max(root.clientHeight, Math.ceil(contentBottom)),
     });
   }, []);
 
@@ -2796,7 +2802,7 @@ function ExecutionPageContent() {
       <div className="hidden md:block p-6">
         <div
           ref={canvasRef}
-          className="relative h-[calc(100vh-92px)] overflow-auto rounded-3xl border border-black/10 bg-white shadow-sm"
+          className="relative max-h-[calc(100vh-92px)] overflow-auto rounded-3xl border border-black/10 bg-white shadow-sm"
         >
           {/* SVG lines (under content) */}
           <svg
@@ -2809,19 +2815,18 @@ function ExecutionPageContent() {
             {boxes.story
               ? Object.entries(boxes.depts).map(([k, db]) => {
                   const di = Number(k);
-                  const tone = deptTone(di);
                   const from = { x: rightX(boxes.story!), y: centerY(boxes.story!) };
                   const to = { x: leftX(db), y: centerY(db) };
                   return (
                     <path
                       key={`s-d-${di}`}
                       d={makeElbowPath(from, to)}
-                      className={`${toneToStroke(tone)} `}
+                      className="stroke-accent-action"
                       strokeWidth={2}
                       fill="none"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      opacity={0.9}
+                      opacity={0.85}
                     />
                   );
                 })
@@ -2834,43 +2839,42 @@ function ExecutionPageContent() {
               const di = Number(diStr);
               const db = boxes.depts[di];
               if (!db) return null;
-              const tone = deptTone(di);
               const from = { x: rightX(db), y: centerY(db) };
               const to = { x: leftX(pb), y: centerY(pb) };
               return (
                 <path
                   key={`d-p-${key}`}
                   d={makeElbowPath(from, to)}
-                  className={`${toneToStroke(tone)} `}
-                  strokeWidth={2}
+                  className="stroke-accent"
+                  strokeWidth={1.5}
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  opacity={0.75}
+                  opacity={0.7}
                 />
               );
             })}
           </svg>
 
           {/* Content */}
-          <div className="relative z-10 min-w-0 max-w-6xl mx-auto px-4 md:px-6 lg:px-6 py-6">
+          <div className="relative z-10 min-w-0 max-w-6xl mx-auto px-4 md:px-6 lg:px-6 py-5">
             <div className="flex min-w-[880px] items-start gap-6">
-              {/* Story node */}
+              {/* Story node (top tier) */}
               <button
                 ref={storyRef}
                 type="button"
                 onClick={() => setStoryOpen(true)}
-                className={`group w-[248px] rounded-3xl border border-black/10 hover:border-blue-300 ${toneToTint(storyTone)} hover:bg-blue-50 px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
+                className="group w-[248px] rounded-2xl border border-accent/20 bg-accent-soft hover:border-accent/40 px-5 py-4 text-left shadow-sm hover:shadow-md transition"
               >
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-gray-700 group-hover:text-blue-700 tracking-wide transition">経営戦略ストーリー</div>
-                  <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition">全体方針と勝ち筋を確認</div>
-                  <div className="text-xs text-gray-500 group-hover:text-blue-600 transition">クリックで全文を表示</div>
+                  <div className="text-xs font-semibold text-accent-ink group-hover:text-accent-hover tracking-wide transition">経営戦略ストーリー</div>
+                  <div className="text-sm font-semibold text-zinc-900 group-hover:text-accent-ink transition">全体方針と勝ち筋を確認</div>
+                  <div className="text-xs text-zinc-600 group-hover:text-accent-hover transition">クリックで全文を表示</div>
                 </div>
               </button>
 
               {/* Dept + Projects */}
-              <div className="flex-1 space-y-6 pb-6">
+              <div className="flex-1 space-y-4 pb-1">
                 {pyramid.length ? (
                   pyramid.map((dept) => {
                     const tone = dept.tone;
@@ -2885,11 +2889,11 @@ function ExecutionPageContent() {
                           }}
                           type="button"
                           onClick={() => setDeptOpen({ open: true, di: dept.di })}
-                          className={`group w-[260px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-5 py-5 text-left transition`}
+                          className={`group w-[260px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-5 py-4 text-left shadow-sm transition`}
                         >
                           <div className="flex items-center gap-2">
-                            <span className={`h-2.5 w-2.5 rounded-full ${dot}`} />
-                            <div className="text-sm font-medium text-zinc-900 group-hover:text-accent-ink transition">
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+                            <div className="text-[15px] font-semibold text-zinc-900 group-hover:text-accent-ink transition">
                               {dept.deptName?.trim() ? dept.deptName : '（部門名未設定）'}
                             </div>
                           </div>
@@ -2898,10 +2902,10 @@ function ExecutionPageContent() {
                           </div>
                         </button>
 
-                        {/* Projects node list */}
+                        {/* Projects node list (project tier) */}
                         <div className="flex-1">
-                          <div className="text-xs font-semibold text-gray-600 tracking-wide mb-3">プロジェクト</div>
-                          <div className="grid grid-cols-1 gap-3">
+                          <div className="text-xs font-semibold text-zinc-600 tracking-wide mb-2">プロジェクト</div>
+                          <div className="grid grid-cols-1 gap-2">
                             {dept.projects.length ? (
                               dept.projects.map((p) => {
                                 const key = `${p.di}:${p.pi}`;
@@ -2938,14 +2942,14 @@ function ExecutionPageContent() {
                                       const sel: SelectedExecutionItem = { ...p.selection, di: p.di, pi: p.pi };
                                       void openExecutionSelection(sel);
                                     }}
-                                    className="group w-full max-w-[520px] rounded-2xl border border-black/10 bg-white hover:border-blue-200 hover:bg-blue-50 px-4 py-3 text-left shadow-sm hover:shadow-md transition"
+                                    className="group w-full max-w-[520px] rounded-2xl border border-zinc-200 bg-white hover:border-accent/40 hover:bg-accent-soft px-4 py-2.5 text-left shadow-sm hover:shadow-md transition"
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2 min-w-0">
-                                          <div className="truncate text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition">{p.title || '（プロジェクト名未設定）'}</div>
+                                          <div className="truncate text-[14px] font-semibold text-zinc-900 group-hover:text-accent-ink transition">{p.title || '（プロジェクト名未設定）'}</div>
                                           {isProjectStopped(p.projForCard) && (
-                                            <span className="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 whitespace-nowrap">
+                                            <span className="inline-flex items-center rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-semibold text-danger whitespace-nowrap">
                                               中止{actualMaxYmOf(p.projForCard) ? `（${actualMaxYmOf(p.projForCard)}）` : ''}
                                             </span>
                                           )}
@@ -2953,20 +2957,20 @@ function ExecutionPageContent() {
                                             const updateInfo = projectUpdateMap[key];
                                             if (!updateInfo?.hasUnread) return null;
                                             return (
-                                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 whitespace-nowrap">
+                                              <span className="inline-flex items-center rounded-full bg-caution-soft px-2 py-0.5 text-[11px] font-semibold text-caution whitespace-nowrap">
                                                 更新あり
                                               </span>
                                             );
                                           })()}
                                         </div>
-                                        <div className="mt-1 text-xs text-gray-500 group-hover:text-blue-600 transition">▶ クリックで詳細表示</div>
+                                        <div className="mt-1 text-xs text-zinc-500 group-hover:text-accent-hover transition">▶ クリックで詳細表示</div>
                                       </div>
-                                      <div className="flex items-center gap-2 text-gray-500 group-hover:text-blue-600 transition shrink-0">
+                                      <div className="flex items-center gap-2 text-zinc-500 group-hover:text-accent-hover transition shrink-0">
                                         {(() => {
                                           const impactData = projectImpactMap[key];
                                           const score = impactData?.max ?? 0;
                                           return score > 0 ? (
-                                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-blue-700">
+                                            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-accent-ink">
                                               インパクト {score}/5
                                             </span>
                                           ) : null;
