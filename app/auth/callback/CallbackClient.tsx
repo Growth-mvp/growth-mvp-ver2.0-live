@@ -6,11 +6,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { authErrorFromHash } from '@/lib/safeRedirect';
 
-const INVITE_ACCEPT_PATH = '/invite/accept';
+const INVITE_PATH_PREFIX = '/invite/';
 
-function errorMessageOf(code: string | null): string {
+function errorMessageOf(code: string | null, inviteFlow: boolean): string {
   if (code === 'otp_expired' || code === 'access_denied') {
-    return '確認リンクの有効期限が切れているか、既に使用されています。招待の受諾画面から確認メールを再送するか、最新の確認メールのリンクを開いてください。';
+    return inviteFlow
+      ? '確認リンクの有効期限が切れているか、既に使用されています。招待の受諾画面から確認メールを再送するか、最新の確認メールのリンクを開いてください。'
+      : '確認リンクの有効期限が切れているか、既に使用されています。最新の確認メールのリンクを開くか、ログイン画面からログインしてください。';
   }
   return '認証に失敗しました。もう一度お試しください。';
 }
@@ -49,6 +51,10 @@ export default function CallbackClient() {
 
     return validated;
   }, [searchParams]);
+
+  const inviteFlow = nextParam.startsWith(INVITE_PATH_PREFIX);
+  const loginHref =
+    nextParam === '/' ? '/login' : `/login?redirect_to=${encodeURIComponent(nextParam)}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -137,17 +143,19 @@ export default function CallbackClient() {
           </>
         ) : (
           <div className="w-full space-y-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-            <p className="whitespace-pre-wrap">❌ {errorMessageOf(errorCode)}</p>
+            <p className="whitespace-pre-wrap">❌ {errorMessageOf(errorCode, inviteFlow)}</p>
+            {inviteFlow && (
+              <button
+                type="button"
+                onClick={() => router.replace(nextParam)}
+                className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90"
+              >
+                招待の受諾画面へ
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => router.replace(INVITE_ACCEPT_PATH)}
-              className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90"
-            >
-              招待の受諾画面へ
-            </button>
-            <button
-              type="button"
-              onClick={() => router.replace(`/login?redirect_to=${encodeURIComponent(INVITE_ACCEPT_PATH)}`)}
+              onClick={() => router.replace(loginHref)}
               className="w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
             >
               ログイン画面へ
