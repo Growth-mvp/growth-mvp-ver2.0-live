@@ -46,6 +46,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
+    const { data: row } = await admin
+      .from('strategy_data')
+      .select('revision')
+      .eq('id', body.strategyId)
+      .eq('company_id', body.companyId)
+      .maybeSingle();
+    if (typeof row?.revision !== 'number') {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     await logAuditEvent({
       companyId: body.companyId,
       actorUserId: userId,
@@ -55,7 +65,7 @@ export async function POST(req: Request) {
       metadata: { operation: body.operation, ...(body.year !== undefined ? { year: body.year } : {}) },
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, revision: row.revision });
   } catch {
     return NextResponse.json({ error: 'server_error' }, { status: 500 });
   }

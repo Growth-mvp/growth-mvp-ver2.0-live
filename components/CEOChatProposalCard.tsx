@@ -83,8 +83,13 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         setError('承認の確認ができませんでした。所属と権限を確認して、もう一度お試しください。');
         return;
       }
+      const { revision: serverRevision } = (await res.json()) as { revision?: number };
 
       const after = useStrategyStore.getState();
+      if (typeof serverRevision !== 'number' || after.revision !== serverRevision) {
+        discard('ほかの画面で内容が更新されたため、入力案を破棄しました。保存していません。もう一度指示してください。');
+        return;
+      }
       const reRead = proposalBlockReason(proposal, {
         companyId: after.companyId ?? null,
         strategyId: after.strategyId ?? null,
@@ -100,7 +105,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
       if (proposal.kind === 'stage2.ceoIntent') {
         const prev = after.ceoIntent ?? '';
         after.setCeoIntent(appendCeoIntent(proposal.before, addition));
-        const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage2:ai-operation' });
+        const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage2:ai-operation', conflictRetry: false });
         if (!saved.ok) {
           useStrategyStore.getState().setCeoIntent(prev);
           setError('保存できませんでした。入力内容は画面に戻しています。もう一度お試しください。');
@@ -120,7 +125,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
       after.setFinancePL(nextPL as never);
       const summary = summaryFollowsPL(prevSummary, prevPL, nextPL);
       if (summary) useStrategyStore.getState().setFinanceSummary(summary as never);
-      const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:ai-operation' });
+      const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:ai-operation', conflictRetry: false });
       if (!saved.ok) {
         useStrategyStore.getState().setFinancePL(prevPL as never);
         if (summary) useStrategyStore.getState().setFinanceSummary(prevSummary as never);

@@ -217,7 +217,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.ai-input-approve',
     screenIds: ['stage1', 'stage2'],
     label: '承認して保存',
-    source: { file: 'components/CEOChatProposalCard.tsx', line: 189 },
+    source: { file: 'components/CEOChatProposalCard.tsx', line: 194 },
     purpose:
       'AI経営コンサルタントに「経営者の思いに〜と追加して」（STAGE2）や「2025年度の全社売上高は1億6,000万円です」（STAGE1）と指示すると、入力案を作る。入力案は保存されず、確認して承認すると保存される。保存後は、再読込しても残る。',
     steps: [

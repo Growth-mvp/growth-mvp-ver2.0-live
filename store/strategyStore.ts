@@ -663,7 +663,7 @@ export type StrategyState = {
 
   buildPayload: () => any;
 
-  saveStrategyData: (opts?: { reason?: string; force?: boolean }) => Promise<SaveResult>;
+  saveStrategyData: (opts?: { reason?: string; force?: boolean; conflictRetry?: boolean }) => Promise<SaveResult>;
   refetchFromServer: (options?: { discardLocal?: boolean }) => Promise<void>;
   /** 会社データの読込を手動で再試行する（失敗・タイムアウト後の復旧用） */
   retryScopeLoad: () => void;
@@ -4081,6 +4081,11 @@ export const useStrategyStore = create<StrategyState>()(
               if (!res || (res as any).error) {
                 const err = (res as any)?.error;
                 const errCode = (res as any)?.errorCode || (err as any)?.code;
+
+                if (errCode === 'REVISION_CONFLICT' && opts?.conflictRetry === false) {
+                  set({ pendingConflictRecovery: false, saveError: '他のユーザーの更新と競合したため、保存しませんでした。内容を確かめ直してから、もう一度お試しください。' });
+                  return { ok: false, reason: 'revision_conflict', error: err, code: 'REVISION_CONFLICT' };
+                }
 
                 if (errCode === 'REVISION_CONFLICT') {
                   const conflictInfo = {
