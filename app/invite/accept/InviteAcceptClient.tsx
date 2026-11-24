@@ -295,23 +295,22 @@ export default function InviteAcceptClient() {
       )}
 
       {mailSent && (
-        <div className="mb-4 space-y-4 rounded-lg border border-bluegray-light bg-success-soft p-4 text-sm text-success">
-          <div className="space-y-2">
-            <p className="text-base font-semibold">✅ 確認メールを送信しました</p>
-            <p>届いたメールを開き、メール内のリンクをクリックしてください。</p>
-            <p>確認が完了すると、GROWTH SHIFTをご利用いただけます。</p>
+        <div className="mb-4 space-y-6 rounded-lg border border-bluegray-light bg-success-soft p-6 text-success">
+          <div className="space-y-3">
+            <p className="text-xl font-bold">✅ 確認メールを送信しました</p>
+            <p className="text-base leading-relaxed">メールをご確認ください。届いたメール内のリンクをクリックすると、登録手続きが進みます。</p>
             <p className="text-xs text-gray-600">メールが届かない場合は、迷惑メールフォルダをご確認ください。</p>
           </div>
-          <div className="space-y-2 border-t pt-3">
-            <p className="text-xs text-gray-600">既にメール認証がお済みの方</p>
-            <button
-              onClick={goToLogin}
-              className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90"
-            >
-              ログインへ進む
-            </button>
-            <p className="text-xs text-gray-600">
-              既存のアカウントの場合は、最初に設定したパスワードでログインしてください。今回入力したパスワードは反映されません。
+          <div className="border-t pt-4">
+            <p className="text-xs leading-relaxed text-gray-600">
+              既にメール認証がお済みの方は、以前設定したパスワードで
+              <button
+                type="button"
+                onClick={goToLogin}
+                className="cursor-pointer underline font-semibold text-gray-900 hover:text-black"
+              >
+                ログインしてください
+              </button>
             </p>
           </div>
         </div>
