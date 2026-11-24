@@ -106,6 +106,7 @@ export default function CEOChatStage5Reflect({ question, answer, execKey, compan
       {phase === 'preview' ? (
         <>
           <p className="font-semibold text-zinc-800">入力案（確認してから反映します）</p>
+          <p className="text-zinc-500">「私が困っていること」は、ご自身の相談文からそのまま選んだ言葉です。反映後も、社内共有の入力欄で編集できます。</p>
           <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 p-2 text-zinc-900">{text}</div>
           <div className="flex gap-2">
             <button

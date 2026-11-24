@@ -36,8 +36,9 @@ jest.mock('@/lib/server/auditLog', () => ({
 import { POST } from './route';
 
 const IDS = { companyId: 'c1', strategyId: 's1', departmentId: 'd1', projectId: 'p1' };
-const QUESTION = '配達の遅れが続いています。何から見直せばよいですか。';
+const QUESTION = '最近、朝の配達が間に合わなくて焦っています。人手も足りないし、正直、このままでいいのか不安です。';
 const ANSWER = '配達順の組み方とルートの長さを確認してください。';
+const SENT_0 = '最近、朝の配達が間に合わなくて焦っています。';
 
 function request(body: unknown, token: string | null = 'token') {
   return new Request('http://localhost/api/stage5/consult-draft', {
@@ -49,28 +50,20 @@ function request(body: unknown, token: string | null = 'token') {
 
 const validBody = { ...IDS, question: QUESTION, answer: ANSWER };
 
+function modelReturns(content: string) {
+  mockCreate.mockResolvedValue({ choices: [{ message: { content } }] });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetUserId.mockResolvedValue('u1');
   mockRequireMembership.mockResolvedValue({ companyId: 'c1', role: 'member' });
   mockAssertScope.mockResolvedValue('c1');
   mockLoadScope.mockResolvedValue({ ok: true, projectTitle: '配送の効率化', promptBlock: '【プロジェクト】配送の効率化' });
-  mockCreate.mockResolvedValue({
-    choices: [
-      {
-        message: {
-          content: JSON.stringify({
-            issues: ['配達の遅れが続いている'],
-            examined: ['配達順とルートの長さを確認する'],
-            nextActions: ['配達順を週次で確認する'],
-          }),
-        },
-      },
-    ],
-  });
+  modelReturns(JSON.stringify({ ownSentenceIndexes: [0], plannedSentenceIndexes: [], insights: [] }));
 });
 
-describe('STAGE5 入力案の作成API', () => {
+describe('STAGE5 社内共有の入力案の作成API', () => {
   it('ログインしていなければ拒否し、AIを呼ばない', async () => {
     mockGetUserId.mockResolvedValue(null);
     const res = await POST(request(validBody, null));
@@ -105,16 +98,36 @@ describe('STAGE5 入力案の作成API', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('相談から入力案（課題・検討したこと・次の行動）を作り、文章として返す', async () => {
+  it('本人の困りごとは、相談文の原文のまま入力案に入る', async () => {
     const res = await POST(request(validBody));
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { draft: { issues: string[] }; text: string };
-    expect(json.draft.issues).toEqual(['配達の遅れが続いている']);
-    expect(json.text).toContain('【次の行動（未実施）】');
+    const json = (await res.json()) as { draft: { ownWords: string[] }; text: string };
+    expect(json.draft.ownWords).toEqual([SENT_0]);
+    expect(json.text).toBe(`【私が困っていること】\n${SENT_0}`);
+  });
+
+  it('AIが文を書き換えて返しても、入力案に入るのは番号で選ばれた原文だけ', async () => {
+    modelReturns(JSON.stringify({ ownSentenceIndexes: [0], plannedSentenceIndexes: [], insights: [], ownWords: ['配送業務の効率化が必要'] }));
+    const res = await POST(request(validBody));
+    const json = (await res.json()) as { text: string };
+    expect(json.text).toContain(SENT_0);
+    expect(json.text).not.toContain('配送業務の効率化');
+  });
+
+  it('本人の困りごとが選ばれなければ、入力案を作らずに失敗を返す', async () => {
+    modelReturns(JSON.stringify({ ownSentenceIndexes: [], plannedSentenceIndexes: [], insights: [] }));
+    const res = await POST(request(validBody));
+    expect(res.status).toBe(502);
+  });
+
+  it('相談文から文が取れなければ（句点や記号だけなど）AIを呼ばずに拒否する', async () => {
+    const res = await POST(request({ ...validBody, question: '。。' }));
+    expect(res.status).toBe(422);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('AIの応答が形式に合わなければ、入力案を作らずに失敗を返す', async () => {
-    mockCreate.mockResolvedValue({ choices: [{ message: { content: 'not json' } }] });
+    modelReturns('not json');
     const res = await POST(request(validBody));
     expect(res.status).toBe(502);
   });
@@ -128,11 +141,14 @@ describe('STAGE5 入力案の作成API', () => {
     expect(logged).toContain('STAGE5_CONSULT_DRAFT_CREATED');
   });
 
-  it('AIへの指示は、未実施の行動や個人の悩みを書かないことを含み、相談文は材料として渡す', async () => {
+  it('AIへの指示は、文を書き換えないことと、本人の悩みを一律に除外しないことを含む。相談文は番号付きの材料として渡す', async () => {
     await POST(request(validBody));
     const sent = (mockCreate.mock.calls[0][0] as { messages: Array<{ content: string }> }).messages;
-    expect(sent[0].content).toContain('「実施した」「対応した」とは書かない');
-    expect(sent[0].content).toContain('個人的な悩み');
-    expect(sent[1].content).toContain(QUESTION);
+    expect(sent[0].content).toContain('書き換えない');
+    expect(sent[0].content).toContain('他の人の個人情報');
+    expect(sent[0].content).toContain('不安、焦り、不満、違和感');
+    expect(sent[0].content).not.toContain('個人的な悩み');
+    expect(sent[1].content).toContain(`[0] ${SENT_0}`);
+    expect(sent[1].content).toContain(`[1] 人手も足りないし、正直、このままでいいのか不安です。`);
   });
 });

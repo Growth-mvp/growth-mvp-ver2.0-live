@@ -7,7 +7,7 @@ import { getAuthUserIdFromBearer, requireMembership, assertCompanyScopeByStrateg
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { logAuditEvent } from '@/lib/server/auditLog';
 import { loadExecutionScope, parseExecutionInput } from '@/lib/ceoChat/executionScope';
-import { formatConsultDraft, parseConsultDraft } from '@/lib/stage5/consultDraft';
+import { buildConsultDraft, formatConsultDraft, splitSentences } from '@/lib/stage5/consultDraft';
 import { buildConsultDraftUserPrompt, CONSULT_DRAFT_SYSTEM_PROMPT } from '@/lib/stage5/consultDraftPrompt';
 
 export const runtime = 'nodejs';
@@ -64,6 +64,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: scope.error }, { status: scope.status });
     }
 
+    const sentences = splitSentences(body.question);
+    if (sentences.length === 0) {
+      return NextResponse.json({ error: 'no_sentences' }, { status: 422 });
+    }
+
     const completion = await openai.chat.completions.create({
       model: AI_MODELS.lightweight,
       max_completion_tokens: MODEL_CONFIGURATIONS.stage5ConsultDraft.maxCompletionTokens,
@@ -72,7 +77,7 @@ export async function POST(req: Request) {
         { role: 'system', content: CONSULT_DRAFT_SYSTEM_PROMPT },
         {
           role: 'user',
-          content: buildConsultDraftUserPrompt({ scopeBlock: scope.promptBlock, question: body.question, answer: body.answer }),
+          content: buildConsultDraftUserPrompt({ scopeBlock: scope.promptBlock, sentences, answer: body.answer }),
         },
       ],
     });
@@ -83,7 +88,7 @@ export async function POST(req: Request) {
     } catch {
       json = null;
     }
-    const draft = parseConsultDraft(json);
+    const draft = buildConsultDraft({ question: body.question, selection: json });
     if (!draft) {
       return NextResponse.json({ error: 'draft_invalid' }, { status: 502 });
     }
