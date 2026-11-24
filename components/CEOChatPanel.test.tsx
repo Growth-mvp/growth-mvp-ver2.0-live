@@ -8,6 +8,7 @@ let mockPathname = '/stage1';
 
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
 }));
 
 jest.mock('@/utils/supabase/client', () => {

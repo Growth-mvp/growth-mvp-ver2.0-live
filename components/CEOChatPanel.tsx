@@ -22,9 +22,13 @@ import CEOChatStage5Reflect from '@/components/CEOChatStage5Reflect';
 import CEOChatStage2Reflect from '@/components/CEOChatStage2Reflect';
 import { parseReviewTargets } from '@/lib/ceoChat/reviewTargets';
 import { supabase } from '@/utils/supabase/client';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
 import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
+import CEOChatVoiceControls from '@/components/CEOChatVoiceControls';
+import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
+import { isVoiceDisabledFor, readAutoRead, toSpeakableText, writeAutoRead } from '@/lib/voice/voiceSettings';
+import { speakJapanese, stopSpeaking } from '@/lib/voice/browserSpeech';
 import { isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
 import { useAutofillStore } from '@/lib/autofill/autofillStore';
 import { runAutofillPipeline } from '@/lib/autofill/client';
@@ -227,7 +231,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // 会社切替の検知用。会話履歴と進行中の応答はこの会社に紐づける
   const companyId = useUserStore((s) => s.companyId);
   const pathname = usePathname();
+  const router = useRouter();
   const ownerKey = ceoChatOwnerKey(user?.id, companyId);
+  const voiceOff = isVoiceDisabledFor(
+    companyId,
+    process.env.NEXT_PUBLIC_CEO_VOICE_DISABLED,
+    process.env.NEXT_PUBLIC_CEO_VOICE_DISABLED_COMPANY_IDS,
+  );
 
   // === Strategy Store ===
   const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
@@ -297,6 +307,42 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const unmountedRef = useRef(false);
   const autoEnsureOnceRef = useRef(false);
   const askAbortRef = useRef<AbortController | null>(null);
+
+  // 音声：読み上げは初期状態でOFF。開いた時点の履歴は読み上げず、新しく届いた回答だけを読む
+  const [autoRead, setAutoRead] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const spokenRef = useRef<{ owner: string | null; msg: Msg | null }>({ owner: null, msg: null });
+
+  useEffect(() => {
+    if (!user?.id) return;
+    setAutoRead(readAutoRead(window.localStorage, user.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    const last = messages[messages.length - 1] ?? null;
+    const prev = spokenRef.current;
+    spokenRef.current = { owner: ownerKey, msg: last };
+    if (prev.owner !== ownerKey || prev.msg === last) return;
+    if (!autoRead || voiceOff || !last || last.role !== 'assistant' || !last.answered) return;
+    speakJapanese(toSpeakableText(last.content), {
+      onStart: () => setSpeaking(true),
+      onEnd: () => setSpeaking(false),
+    });
+  }, [messages, ownerKey, autoRead, voiceOff]);
+
+  useEffect(() => () => stopSpeaking(), []);
+
+  const changeAutoRead = (on: boolean) => {
+    setAutoRead(on);
+    if (user?.id) writeAutoRead(window.localStorage, user.id, on);
+    if (!on) stopSpeaking();
+  };
+
+  // 認識結果は入力欄に入れるだけにし、送信は本人が行う
+  const appendTranscript = useCallback((text: string) => {
+    setInput((prev) => (prev.trim() ? `${prev.trimEnd()}\n${text}` : text));
+    textareaRef.current?.focus();
+  }, []);
 
 
   // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
@@ -389,6 +435,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       return false;
     }
     setNotice(null);
+    stopSpeaking();
     let keepDraft = false;
 
     const controller = new AbortController();
@@ -411,6 +458,23 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
     try {
       if (!userOK) throw new AskFailureError({ kind: 'http', status: 401 });
+
+      // 画面を開くだけの指示は、AIを呼ばずに既存の画面へ移動する（データは変更しない）
+      const navigation = resolveVoiceNavigation(trimmed, useStrategyStore.getState().departments as unknown as VoiceDepartment[]);
+      if (navigation) {
+        if (navigation.kind === 'clarify') {
+          updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: navigation.message }]);
+        } else {
+          router.push(navigation.href);
+          const target = [navigation.departmentName, navigation.projectTitle].filter(Boolean).join(' / ');
+          const hint = navigation.departmentName && !navigation.projectTitle ? '該当の部門は画面で選択してください。' : '';
+          updateCeoChatMessages(ticket, (msgs) => [
+            ...msgs,
+            { role: 'assistant', content: `「${navigation.screenLabel}」を開きました。${target ? `対象：${target}。` : ''}${hint}` },
+          ]);
+        }
+        return true;
+      }
 
       // ★ Option 2: restore 完了を待つ中は送信不可
       if (shouldWaitForRestore) {
@@ -555,7 +619,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       autoResize();
     }
     return true;
-  }, [ownerKey, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize]);
+  }, [ownerKey, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize, router]);
 
   const onSubmit = () => { if (input.trim()) void send(input); };
 
@@ -1063,6 +1127,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             rows={3}
             disabled={sending || !userOK || shouldWaitForRestore}
           />
+          {!voiceOff && userOK && user?.id ? (
+            <CEOChatVoiceControls
+              userId={user.id}
+              disabled={!!sending || !userOK || !!shouldWaitForRestore}
+              onTranscript={appendTranscript}
+              autoRead={autoRead}
+              onAutoReadChange={changeAutoRead}
+              speaking={speaking}
+            />
+          ) : null}
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-gray-400">
               Enterで送信

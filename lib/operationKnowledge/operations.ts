@@ -214,10 +214,27 @@ export const OPERATIONS: readonly OperationEntry[] = [
     save: { kind: 'manual', target: '承認の操作の中で、既存の保存処理（saveStrategyData）を1回呼ぶ' },
   },
   {
+    operationId: 'common.voice-input',
+    screenIds: [],
+    label: '音声で入力',
+    source: { file: 'components/CEOChatVoiceControls.tsx', line: 116 },
+    purpose:
+      'AI経営コンサルタントの入力欄に、話した内容を文字として入れる。ブラウザの音声認識（日本語）を使い、有料の音声APIは使わない。認識された文字は入力欄に入るだけで、送信するまでAIには届かない。',
+    steps: [
+      'AI経営コンサルタントの入力欄の上の「音声で入力」を押す（初回は同意の案内が出る）',
+      '「録音中です」の表示が出ている間に話す。話し終わると自動で止まる（途中で止めるときは「録音を停止」）',
+      '入力欄の文字を確認・修正してから「送信」を押す',
+    ],
+    conditions:
+      '初回は、ブラウザ提供元などの外部の音声認識サービスで文字に変換される場合がある旨の同意が必要。マイクは録音中の表示がある間だけ使われる。音声の読み上げは「回答を読み上げ」で切り替える（初期状態はオフ）。対応していないブラウザでは音声入力は表示されず、文字で入力する。企業単位で無効化されている場合は表示されない',
+    permission: NONE_PERMISSION,
+    save: { kind: 'none', target: '保存しない（入力欄に文字を入れるだけ。送信するまでAIにも保存にも使われない）' },
+  },
+  {
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 151 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 157 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -240,7 +257,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1026 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1151 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
