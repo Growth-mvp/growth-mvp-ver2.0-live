@@ -10,7 +10,7 @@ import { useUserStore } from '@/store/userStore';
 import { resolveCompanyId } from '@/utils/company';
 import { joinCompany } from '@/utils/supabase/membership';
 import { isValidUUID, setCompanyIdCookie } from '@/utils/supabase/client';
-import { safeInternalPath } from '@/lib/safeRedirect';
+import { postLoginDestination } from '@/lib/safeRedirect';
 
 export default function LoginClient() {
   const router = useRouter();
@@ -19,7 +19,7 @@ export default function LoginClient() {
   const { setUser, setMembership, setCompanyId } = useUserStore();
 
   const joinCompanyId = (search?.get('company') || '').trim() || null;
-  const redirectTo = safeInternalPath(search?.get('redirect_to'));
+  const redirectTo = postLoginDestination(search);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

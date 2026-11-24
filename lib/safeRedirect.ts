@@ -17,3 +17,16 @@ export function safeInternalPath(raw: string | null | undefined): string | null 
   if (hasControlChar(value)) return null;
   return value;
 }
+
+/** ログイン後の戻り先。`redirect_to` を優先し、無ければ `next` を使う（どちらも安全判定を通す） */
+export function postLoginDestination(search: { get(name: string): string | null } | null | undefined): string | null {
+  return safeInternalPath(search?.get('redirect_to')) ?? safeInternalPath(search?.get('next')) ?? null;
+}
+
+/** 認証リンクのハッシュ（#error=…）から、エラーの種類を読む。エラーが無ければ null */
+export function authErrorFromHash(hash: string): { code: string } | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const error = params.get('error');
+  if (!error) return null;
+  return { code: params.get('error_code') || error };
+}

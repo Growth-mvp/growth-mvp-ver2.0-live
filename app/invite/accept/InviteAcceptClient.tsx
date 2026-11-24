@@ -47,6 +47,7 @@ export default function InviteAcceptClient() {
   const [error, setError] = useState<string>('');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isEmailMismatch, setIsEmailMismatch] = useState(false);
+  const [needsRelogin, setNeedsRelogin] = useState(false);
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
@@ -73,6 +74,7 @@ export default function InviteAcceptClient() {
 
       if (!res.ok) {
         if (data?.error === 'email_mismatch') setIsEmailMismatch(true);
+        if (data?.error === 'unauthorized') setNeedsRelogin(true);
         setError(inviteErrorMessage(data));
         return;
       }
@@ -281,6 +283,15 @@ export default function InviteAcceptClient() {
                 ログアウト
               </button>
             </div>
+          )}
+
+          {needsRelogin && (
+            <button
+              onClick={goToLogin}
+              className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90"
+            >
+              ログイン画面へ進む
+            </button>
           )}
         </div>
       )}
