@@ -14,6 +14,7 @@ import { EmptyExecutionMessage } from '@/components/stage5/EmptyExecutionMessage
 import { EmptyPyramidMessage } from '@/components/stage5/EmptyPyramidMessage';
 import { ProjectPlanSection } from '@/components/stage5/ProjectPlanSection';
 import { useSelectedProjectStore } from '@/lib/stage5/selectedProjectStore';
+import { appendDraftText, isSameDraftTarget } from '@/lib/stage5/consultDraft';
 import { RecordMenu, type RecordMenuItem } from '@/components/stage5/RecordMenu';
 import { canEditRecord, recordKindOf } from '@/lib/stage5/recordActions';
 import { okrService } from '@/services/okrService';
@@ -1285,6 +1286,29 @@ function ExecPanel(props: {
       setShareOpen(false);
     }
   }, [notice]);
+
+  // AI相談から反映された入力案を、社内共有の入力欄へ追記する（保存はしない）。編集中の投稿には反映しない
+  const pendingDraft = useSelectedProjectStore((st) => st.draft);
+  const clearPendingDraft = useSelectedProjectStore((st) => st.clearDraft);
+  useEffect(() => {
+    if (!open || !pendingDraft) return;
+    const target = {
+      companyId: companyId ?? '',
+      strategyId: strategyId ?? '',
+      departmentId: departmentId ?? '',
+      projectId: projectId ?? '',
+    };
+    if (!isSameDraftTarget(pendingDraft.target, target)) return;
+    clearPendingDraft();
+    if (shareEditing) {
+      setNotice('編集中の投稿があるため、AIの入力案は反映していません。編集をやめてから反映してください。');
+      return;
+    }
+    setShareOpen(true);
+    setShareDraft((prev) => appendDraftText(prev, pendingDraft.text));
+    setNotice('AIの入力案を社内共有の入力欄に反映しました。内容を確認し、「社内に共有する」を押すまで保存されません。');
+    window.setTimeout(() => shareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+  }, [open, pendingDraft, companyId, strategyId, departmentId, projectId, shareEditing, clearPendingDraft]);
   useEffect(() => {
     if (!open || !companyId || !resolvedProgressOkrId) {
       setSharedLogs([]);
@@ -1505,6 +1529,9 @@ function ExecPanel(props: {
       {shareOpen && (
         <section ref={shareSectionRef} className="rounded-2xl border border-zinc-200 bg-white p-4">
           <div className="text-sm font-medium text-zinc-900">{shareEditing ? '社内に共有した投稿を編集' : '社内に共有する投稿'}</div>
+          {!shareEditing && (
+            <p className="mt-1 text-xs text-zinc-500">右側のAI経営コンサルタントの回答で「STAGE5に反映」を押すと、入力案をここに入れられます。保存されるのは「社内に共有する」を押したときだけです。</p>
+          )}
           <AutoResizeTextarea
             minRows={3}
             maxRows={8}

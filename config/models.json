@@ -113,6 +113,11 @@
       "modelRole": "lightweight",
       "maxCompletionTokens": 1000,
       "jsonMode": true
+    },
+    "stage5ConsultDraft": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 1000,
+      "jsonMode": true
     }
   }
 }
