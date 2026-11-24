@@ -30,6 +30,18 @@ export type OperationProposal =
       question: string;
       before: string;
       answer: string;
+    }
+  | {
+      kind: 'stage4.plan';
+      pathname: '/okr';
+      companyId: string;
+      strategyId: string;
+      projectId: string;
+      departmentName: string;
+      projectTitle: string;
+      expectedVersion: number;
+      changes: Array<{ itemId: string; label: string; before: string; after: string }>;
+      edits: Record<string, string>;
     };
 
 export type OperationContext = {

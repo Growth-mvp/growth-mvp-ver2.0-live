@@ -1888,7 +1888,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
   let userId: string | undefined = args[1];
   let companyIdOverride: string | null | undefined = args[2];
   let revision: number | undefined = args[3];
-  let opts: { mode?: 'upsert' | 'updateOnly' } | undefined = args[4];
+  let opts: { mode?: 'upsert' | 'updateOnly'; aiOperation?: boolean } | undefined = args[4];
 
   if (args.length === 1) {
     userId = (await getActiveUserId()) ?? undefined;
@@ -2060,8 +2060,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       (x: any) => Array.isArray(x?.steps) && x.steps.length > 0,
     );
 
-    // ★ answers2 は company-level がある時だけ保存（部門用は保存しない）
-    if (storyAnswersBundle.length > 0) {
+    // ★ answers2 は company-level がある時だけ保存（部門用は保存しない）。AI操作は主更新の成功後に保存する
+    if (storyAnswersBundle.length > 0 && !opts?.aiOperation) {
       const ares = await saveStoryAnswers2(userId, storyAnswersBundle, {
         companyId: cleanCompanyId,
       });

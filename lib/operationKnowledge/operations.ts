@@ -215,11 +215,11 @@ export const OPERATIONS: readonly OperationEntry[] = [
   },
   {
     operationId: 'common.ai-input-approve',
-    screenIds: ['stage1', 'stage2', 'stage3'],
+    screenIds: ['stage1', 'stage2', 'stage3', 'stage4'],
     label: '承認して保存',
-    source: { file: 'components/CEOChatProposalCard.tsx', line: 248 },
+    source: { file: 'components/CEOChatProposalCard.tsx', line: 280 },
     purpose:
-      'AI経営コンサルタントに「経営者の思いに〜と追加して」（STAGE2）や「2025年度の全社売上高は1億6,000万円です」（STAGE1）、「宅配事業の6つの問いの1番目に〇〇と入力して」（STAGE3）と指示すると、入力案を作る。入力案は保存されず、確認して承認すると保存される。保存後は、再読込しても残る。',
+      'AI経営コンサルタントに「経営者の思いに〜と追加して」（STAGE2）や「2025年度の全社売上高は1億6,000万円です」（STAGE1）、「宅配事業の6つの問いの1番目に〇〇と入力して」（STAGE3）、「目的に〇〇を追加して」（STAGE4）と指示すると、入力案を作る。入力案は保存されず、確認して承認すると保存される。保存後は、再読込しても残る。',
     steps: [
       'AI経営コンサルタントの入力欄に、指示を文字または音声で入れて送信する（例：「経営者の思いに、地域とのつながりを大切にしたいと追加して」）',
       '表示された「入力案」の内容を確かめる（STAGE2は追加する文を編集できる。STAGE1は現在の値と入力案の値を比べる）',
@@ -279,7 +279,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 161 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 163 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -302,7 +302,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1217 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1257 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [

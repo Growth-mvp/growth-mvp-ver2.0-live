@@ -52,7 +52,7 @@ export async function saveWithAudit(
   userId?: string,
   companyIdOverride?: string | null,
   revision?: number,
-  opts?: { mode?: 'upsert' | 'updateOnly'; retryCount?: number },
+  opts?: { mode?: 'upsert' | 'updateOnly'; retryCount?: number; aiOperation?: boolean },
   caller?: string,
   restoreDecisionId?: string,
   trigger?: string,

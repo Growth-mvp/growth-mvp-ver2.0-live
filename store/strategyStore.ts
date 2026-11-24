@@ -663,7 +663,7 @@ export type StrategyState = {
 
   buildPayload: () => any;
 
-  saveStrategyData: (opts?: { reason?: string; force?: boolean; conflictRetry?: boolean }) => Promise<SaveResult>;
+  saveStrategyData: (opts?: { reason?: string; force?: boolean; conflictRetry?: boolean; patch?: Partial<StrategyState> }) => Promise<SaveResult>;
   refetchFromServer: (options?: { discardLocal?: boolean }) => Promise<void>;
   /** 会社データの読込を手動で再試行する（失敗・タイムアウト後の復旧用） */
   retryScopeLoad: () => void;
@@ -3709,6 +3709,9 @@ export const useStrategyStore = create<StrategyState>()(
        * This saveStrategyData is for strategy_data snapshot persistence only.
        */
       async saveStrategyData(opts) {
+        // AI操作：ストアを変えずに、差分を含めた内容で保存する。成功した時だけ差分を画面へ反映する
+        const aiPatch = opts?.conflictRetry === false ? opts.patch : undefined;
+        const baseState = (): StrategyState => (aiPatch ? ({ ...get(), ...aiPatch } as StrategyState) : (get() as StrategyState));
         return enqueueSave(async () => {
           const reason = opts?.reason ?? 'manual';
           const force = opts?.force ?? false;
@@ -3907,7 +3910,7 @@ export const useStrategyStore = create<StrategyState>()(
             reason?.startsWith('stage2:') ||
             reason?.startsWith('stage3:');
 
-          if (!force && !isManual && !state0.dirty) {
+          if (!force && !isManual && !state0.dirty && !aiPatch) {
             if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip (not forced, not manual)', { reason, isManual });
             return { ok: false, skipped: true, reason: 'dirty_false' };
           }
@@ -3934,7 +3937,7 @@ export const useStrategyStore = create<StrategyState>()(
             for (let attempt = 1; attempt <= 3; attempt++) {
               if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
               commitMissingProjectIds();
-              const state = get();
+              const state = baseState();
               reportDuplicateProjectIds(state.departments);
               const payload = buildSavePayload(state as StrategyState);
               const payloadHashAtStart = stableHash(payload);
@@ -4019,7 +4022,7 @@ export const useStrategyStore = create<StrategyState>()(
               const currentHash = stableHash(payload);
 
               // ★ TASK A: manual saves bypass same hash skip（手動保存は常にDBに書く）
-              if (!force && !isManual && state.__lastSavedHash && state.__lastSavedHash === currentHash) {
+              if (!force && !isManual && !aiPatch && state.__lastSavedHash && state.__lastSavedHash === currentHash) {
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash, skip (not forced, not manual)');
                 set({ dirty: false });
                 return { ok: false, skipped: true, reason: 'same_hash' };
@@ -4057,9 +4060,9 @@ export const useStrategyStore = create<StrategyState>()(
 
               const res = await (async () => {
                 try {
-                  return await saveWithAudit(payload, userId, companyId, state.revision, { mode: 'upsert' }, `store:saveStrategyData:${reason}`);
+                  return await saveWithAudit(payload, userId, companyId, state.revision, { mode: 'upsert', ...(aiPatch ? { aiOperation: true } : {}) }, `store:saveStrategyData:${reason}`);
                 } catch (e) {
-                  if (typeof state.revision === 'number') {
+                  if (typeof state.revision === 'number' || aiPatch) {
                     console.warn('[strategyStore] saveWithAudit thrown（revision あり）。比較なしの再送はしません', e);
                     return { error: e };
                   }
@@ -4186,10 +4189,11 @@ export const useStrategyStore = create<StrategyState>()(
               }
               const nowMs = Date.now();
               // 保存中に利用者が編集した場合は、保存済みと判定せず、保存し直す（同じ内容なら未保存としない）
-              const editedDuringSave = stableHash(buildSavePayload(get() as StrategyState)) !== payloadHashAtStart;
+              const editedDuringSave = stableHash(buildSavePayload(baseState())) !== payloadHashAtStart;
               const serverPatch = editedDuringSave ? minimalWithoutEditedFields(minimal, payload, get()) : minimal;
 
               const safePatch: Partial<StrategyState> = {
+                ...(aiPatch ?? {}),
                 dirty: editedDuringSave,
                 ...(editedDuringSave && { _pendingSave: true, _pendingSaveReason: 'edited-during-save' }),
                 __lastSavedHash: currentHash,

@@ -14,11 +14,11 @@ const ID_MAX = 100;
 const bodySchema = z.object({
   companyId: z.string().trim().min(1).max(ID_MAX),
   strategyId: z.string().trim().min(1).max(ID_MAX),
-  operation: z.enum(['stage2.ceoIntent', 'stage1.revenue', 'stage3.question']),
+  operation: z.enum(['stage2.ceoIntent', 'stage1.revenue', 'stage3.question', 'stage4.plan']),
   year: z.number().int().min(1900).max(2100).optional(),
 });
 
-const REQUIRED_ROLE = { 'stage2.ceoIntent': 'admin', 'stage1.revenue': 'manager', 'stage3.question': 'manager' } as const;
+const REQUIRED_ROLE = { 'stage2.ceoIntent': 'admin', 'stage1.revenue': 'manager', 'stage3.question': 'manager', 'stage4.plan': 'manager' } as const;
 
 /** 利用者が承認した入力案を保存する前に、認証・会社所属・権限・戦略の所属を再検証する。保存はしない */
 export async function POST(req: Request) {

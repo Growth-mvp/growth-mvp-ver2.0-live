@@ -8,6 +8,11 @@ import { summaryFollowsPL } from '@/lib/autofill/financeWrite';
 import { appendCeoIntent, contextDepartments, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { proposalBlockReason, proposalStaleReason } from '@/lib/aiOperations/guard';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
+import { planStore } from '@/lib/aiOperations/stage4Client';
+import { useUserStore } from '@/store/userStore';
+
+const SAVE_FAILED_MESSAGE =
+  '保存されませんでした。ほかの画面で内容が更新された可能性があります。保存済みのデータは変わっていません。画面を再読み込みして、内容を確かめてからもう一度指示してください。';
 
 type Props = {
   proposal: OperationProposal;
@@ -34,6 +39,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
   const [addition, setAddition] = useState(
     proposal.kind === 'stage2.ceoIntent' ? proposal.addition : proposal.kind === 'stage3.question' ? proposal.answer : '',
   );
+  const needsText = proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage3.question';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,13 +68,15 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         ? { ceoIntent: st.ceoIntent ?? '' }
         : proposal.kind === 'stage3.question'
           ? { stage3Answer: stage3AnswerOf(contextDepartments(st.departments as unknown as StoreDept[]), proposal.departmentName, proposal.stepNumber) }
-          : { revenueYen: revenueOf(st.financePL as Row[] | undefined, proposal.year) };
+          : proposal.kind === 'stage4.plan'
+            ? { stage4Version: proposal.expectedVersion }
+            : { revenueYen: revenueOf(st.financePL as Row[] | undefined, proposal.year) };
     const stale = proposalStaleReason(proposal, current);
     if (stale) {
       discard(stale.message);
       return;
     }
-    if (proposal.kind !== 'stage1.revenue' && addition.trim() === '') {
+    if (needsText && addition.trim() === '') {
       setError('入力してください。');
       return;
     }
@@ -94,6 +102,10 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         setError('承認の確認ができませんでした。所属と権限を確認して、もう一度お試しください。');
         return;
       }
+      if (proposal.kind === 'stage4.plan') {
+        await approveStage4(proposal, discard, setError);
+        return;
+      }
       const { revision: serverRevision } = (await res.json()) as { revision?: number };
 
       const after = useStrategyStore.getState();
@@ -114,12 +126,14 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
       }
 
       if (proposal.kind === 'stage2.ceoIntent') {
-        const prev = after.ceoIntent ?? '';
-        after.setCeoIntent(appendCeoIntent(proposal.before, addition));
-        const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage2:ai-operation', conflictRetry: false });
+        const nextIntent = appendCeoIntent(proposal.before, addition).trim();
+        const saved = await useStrategyStore.getState().saveStrategyData({
+          reason: 'stage2:ai-operation',
+          conflictRetry: false,
+          patch: { ceoIntent: nextIntent },
+        });
         if (!saved.ok) {
-          useStrategyStore.getState().setCeoIntent(prev);
-          setError('保存できませんでした。入力内容は画面に戻しています。もう一度お試しください。');
+          setError(SAVE_FAILED_MESSAGE);
           return;
         }
         discard('「経営者の思い」に追加して保存しました。再読込しても残っています。');
@@ -138,11 +152,13 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         const steps = (chapters[0]?.steps ?? []).map((s) => (s.stepNumber === proposal.stepNumber ? { ...s, answer: addition.trim() } : s));
         const nextChapters = [{ ...(chapters[0] ?? { chapterIndex: 0, chapterTitle: '6つの問い' }), steps }, ...chapters.slice(1)];
         const nextDepts = prevDepts.map((d, i) => (i === idx ? { ...d, answers2: nextChapters } : d));
-        after.setDepartments(nextDepts as never);
-        const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage3:ai-operation', conflictRetry: false });
+        const saved = await useStrategyStore.getState().saveStrategyData({
+          reason: 'stage3:ai-operation',
+          conflictRetry: false,
+          patch: { departments: nextDepts as never },
+        });
         if (!saved.ok) {
-          useStrategyStore.getState().setDepartments(prevDepts as never);
-          setError('保存できませんでした。入力内容は画面に戻しています。もう一度お試しください。');
+          setError(SAVE_FAILED_MESSAGE);
           return;
         }
         discard(`${proposal.departmentName}の6つの問い ${proposal.stepNumber}番目に回答を保存しました。`);
@@ -156,14 +172,18 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         idx >= 0
           ? prevPL.map((r, i) => (i === idx ? { ...r, revenue: proposal.afterYen } : r))
           : [...prevPL, { year: proposal.year, revenue: proposal.afterYen }].sort((a, b) => a.year - b.year);
-      after.setFinancePL(nextPL as never);
       const summary = summaryFollowsPL(prevSummary, prevPL, nextPL);
-      if (summary) useStrategyStore.getState().setFinanceSummary(summary as never);
-      const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:ai-operation', conflictRetry: false });
+      const saved = await useStrategyStore.getState().saveStrategyData({
+        reason: 'stage1:ai-operation',
+        conflictRetry: false,
+        patch: {
+          financePL: nextPL as never,
+          financeUnitConfirmed: { ...(after.financeUnitConfirmed ?? {}), pl: nextPL.map((r) => r.year) } as never,
+          ...(summary ? { financeSummary: summary as never } : {}),
+        },
+      });
       if (!saved.ok) {
-        useStrategyStore.getState().setFinancePL(prevPL as never);
-        if (summary) useStrategyStore.getState().setFinanceSummary(prevSummary as never);
-        setError('保存できませんでした。入力内容は画面に戻しています。もう一度お試しください。');
+        setError(SAVE_FAILED_MESSAGE);
         return;
       }
       discard(`${proposal.year}年度の全社売上高を${formatYen(proposal.afterYen)}で保存しました。企業価値分析にも同じ値が使われます。`);
@@ -223,6 +243,18 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           <p className="text-[12px] text-zinc-600">現在の回答：{proposal.before || '（未回答）'}</p>
           {isConflict ? <p className="text-rose-700">登録済みの回答を、入力案の内容に置き換えます。内容を確かめてから承認してください。</p> : null}
         </>
+      ) : proposal.kind === 'stage4.plan' ? (
+        <>
+          <p className="text-zinc-700">対象：STAGE4「{proposal.projectTitle}」の実行計画書（{proposal.departmentName}）</p>
+          <ul className="space-y-1 rounded-md bg-white p-2 text-[12px] text-zinc-800">
+            {proposal.changes.map((c) => (
+              <li key={c.itemId}>
+                <span className="font-medium">{c.label}</span>：{c.before || '（未入力）'} → <span className="font-medium">{c.after}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[12px] text-zinc-600">承認すると、この項目だけを実行計画書に保存します。AIの草案は変わりません。</p>
+        </>
       ) : (
         <>
           <p className="text-zinc-700">
@@ -242,7 +274,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         <button
           type="button"
           onClick={() => void approve()}
-          disabled={busy || (proposal.kind !== 'stage1.revenue' && addition.trim() === '')}
+          disabled={busy || (needsText && addition.trim() === '')}
           className="rounded-lg bg-accent-action px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
         >
           {busy ? '保存しています…' : isConflict ? '既存の値を置き換えて保存' : '承認して保存'}
@@ -263,4 +295,35 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
       ) : null}
     </section>
   );
+}
+
+async function approveStage4(
+  proposal: Extract<OperationProposal, { kind: 'stage4.plan' }>,
+  discard: (message: string) => void,
+  setError: (message: string) => void,
+) {
+  const user = useUserStore.getState();
+  const actor = { userId: user.user?.id ?? '', memberships: [{ companyId: proposal.companyId, role: user.role ?? 'member' }] };
+  const key = { companyId: proposal.companyId, strategyId: proposal.strategyId, projectId: proposal.projectId };
+  const loaded = await planStore().load(actor, key);
+  if (loaded.status !== 'FOUND') {
+    discard('実行計画書を読み込めなかったため、入力案を破棄しました。保存していません。');
+    return;
+  }
+  const stale = proposalStaleReason(proposal, { stage4Version: loaded.record.version });
+  if (stale) {
+    discard(stale.message);
+    return;
+  }
+  const userEdits = { ...(loaded.record.userEdits ?? {}), ...proposal.edits };
+  const out = await planStore().update(actor, key, loaded.record.version, { userEdits, adopted: loaded.record.adopted });
+  if (out.status === 'SAVED') {
+    discard(`「${proposal.projectTitle}」の実行計画書に保存しました。STAGE4の画面で再読込すると、内容を確認できます。`);
+    return;
+  }
+  if (out.status === 'CONFLICT') {
+    discard('ほかで更新されたため保存しませんでした。保存済みの計画は変わっていません。計画書を開き直してから、もう一度指示してください。');
+    return;
+  }
+  setError(SAVE_FAILED_MESSAGE);
 }

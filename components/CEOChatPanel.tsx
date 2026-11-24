@@ -29,6 +29,8 @@ import CEOChatVoiceControls from '@/components/CEOChatVoiceControls';
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
 import { contextDepartments, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
+import { parseStage4Intent } from '@/lib/aiOperations/stage4';
+import { requestStage4, stage4ExcludedTitles, stage4ProjectRefs } from '@/lib/aiOperations/stage4Client';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
 import CEOChatProposalCard from '@/components/CEOChatProposalCard';
 import { isVoiceDisabledFor, readAutoRead, toSpeakableText, writeAutoRead } from '@/lib/voice/voiceSettings';
@@ -233,6 +235,9 @@ function revenueYenByYear(rows: RevenueRow[] | undefined): Record<number, number
 }
 
 function proposalIntroText(p: OperationProposal): string {
+  if (p.kind === 'stage4.plan') {
+    return `「${p.projectTitle}」の実行計画書への変更の入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。`;
+  }
   if (p.kind === 'stage3.question') {
     return `${p.departmentName}の6つの問い${p.stepNumber}番目の入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。`;
   }
@@ -547,6 +552,41 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
+
+      // 実行計画書（STAGE4）への指示：変更案を作る（保存はしない。承認は入力案のカードで行う）
+      const stage4Intent = parseStage4Intent(trimmed);
+      if (stage4Intent && requestCompanyId && latestStrategyId && user?.id) {
+        const pendingNow = useOperationProposalStore.getState().pending;
+        const result = await requestStage4({
+          intent: stage4Intent,
+          text: trimmed,
+          companyId: requestCompanyId,
+          strategyId: latestStrategyId,
+          actor: { userId: user.id, memberships: [{ companyId: requestCompanyId, role: useUserStore.getState().role ?? 'member' }] },
+          projects: stage4ProjectRefs(useStrategyStore.getState().departments),
+          excludedTitles: stage4ExcludedTitles(useStrategyStore.getState().departments),
+          selectedProjectId: useSelectedProjectStore.getState().selection?.projectId ?? null,
+          now: new Date(),
+          pathnameNow: window.location.pathname,
+          hasPendingStage4: pendingNow?.kind === 'stage4.plan',
+        });
+        if (result.kind === 'proposal') {
+          useOperationProposalStore.getState().setPending(result.proposal);
+          if (window.location.pathname !== '/okr') {
+            router.push(`/okr?dept=${encodeURIComponent(result.proposal.departmentName)}&project=${encodeURIComponent(result.proposal.projectTitle)}`);
+          }
+          updateCeoChatMessages(ticket, (msgs) => [
+            ...msgs,
+            { role: 'assistant', content: `「${result.proposal.projectTitle}」の実行計画書への変更の入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。` },
+          ]);
+        } else if (result.kind === 'navigate') {
+          if (window.location.pathname !== '/okr') router.push(result.href);
+          updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: result.text }]);
+        } else {
+          updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: result.text }]);
+        }
+        return true;
+      }
 
       // 音声・文字の指示から入力案を作る（保存はしない。承認は入力案のカードで行う）
       if (latestStrategyId && requestCompanyId) {
