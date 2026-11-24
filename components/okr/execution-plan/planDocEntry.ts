@@ -45,6 +45,8 @@ export type PlanDocEntry = {
   investments?: InvestmentRowDraft[];
   /** 削除予定の投資明細のID（「計画を保存」で削除する。保存に失敗したら予定のまま残す） */
   investmentRemovals?: string[];
+  /** 投資・追加費用が保存されなかった理由（計画の保存とは別。残っている間は「保存済み」と表示しない） */
+  investmentUnsaved?: string | null;
   /** 保存済みの版（未保存なら null） */
   stored: StoredState | null;
   plan: ProjectPlanState;

@@ -667,12 +667,16 @@ function Stage3ProjectBrowser({
     const ready = checks.flatMap((c) => (c.ok ? [c.record] : []));
     const incomplete = checks.length - ready.length;
     if (ready.length === 0 && removeIds.length === 0) {
-      if (rows.length > 0) updateEntry(targetId, (e) => ({ ...e, notice: '未入力の項目があるため、投資・追加費用は保存していません。' }));
+      if (rows.length > 0) {
+        const unsaved = '未入力の項目があるため、投資・追加費用は保存していません。';
+        updateEntry(targetId, (e) => ({ ...e, notice: unsaved, investmentUnsaved: unsaved }));
+      }
       return;
     }
     const out = await writeInvestmentsToProject({ companyId: sel.companyId, strategyId: sel.strategyId, projectId, records: ready, removeIds });
     if (!out.ok) {
-      updateEntry(targetId, (e) => ({ ...e, notice: `計画は保存しましたが、投資・追加費用は保存できませんでした：${out.message}` }));
+      const failed = `投資・追加費用は保存できませんでした：${out.message}`;
+      updateEntry(targetId, (e) => ({ ...e, notice: `計画は保存しましたが、${failed}`, investmentUnsaved: failed }));
       return;
     }
     const savedIds = new Set(ready.map((r) => String(r.id)));
@@ -680,10 +684,12 @@ function Stage3ProjectBrowser({
       ...(removeIds.length > 0 ? [`投資・追加費用を${removeIds.length}件削除しました（登録済みの月次実績は残ります）。`] : []),
       ...(incomplete > 0 ? [`投資・追加費用のうち${incomplete}件は未入力の項目があるため保存していません（欄の理由を確認してください）。`] : []),
     ];
+    const remaining = rows.filter((r) => !savedIds.has(r.recordId));
     updateEntry(targetId, (e) => ({
       ...e,
-      investments: rows.filter((r) => !savedIds.has(r.recordId)),
+      investments: remaining,
       investmentRemovals: [],
+      investmentUnsaved: remaining.length > 0 ? '未入力の項目があるため、投資・追加費用は保存していません。' : null,
       ...(notes.length > 0 ? { notice: notes.join('') } : {}),
     }));
   };
@@ -1006,6 +1012,7 @@ function Stage3ProjectBrowser({
 function saveStatusText(entry: PlanDocEntry): string {
   const s = entry.save;
   if (s.status === 'SAVING') return '保存しています…';
+  if (s.status === 'SAVED' && entry.investmentUnsaved) return '計画は保存済み。ただし投資・追加費用は保存されていません（下の注意を確認してください）';
   if (s.status === 'SAVED') return s.mergedFromRemote ? '保存済み（他の人の修正を取り込みました）' : '保存済み';
   if (s.status === 'FAILED') return s.message;
   if (s.status === 'DENIED') return 'この計画を保存する権限がありません。';

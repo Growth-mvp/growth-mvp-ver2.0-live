@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerUser } from '@/lib/supabaseServer';
+import { pickCurrentMembership } from '@/lib/companyMembership';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -319,14 +320,11 @@ export async function POST(req: NextRequest) {
     {
       const { data: memberships, error: exErr } = await admin
         .from('company_members')
-        .select('company_id, role, created_at')
+        .select('company_id, role, created_at, companies(deleted_at)')
         .eq('user_id', userId!)
         .order('created_at', { ascending: false });
       const selectedCid = req.cookies.get('company_id')?.value;
-      const ex =
-        (memberships ?? []).find((m: { company_id: string }) => m.company_id === selectedCid) ??
-        memberships?.[0] ??
-        null;
+      const ex = pickCurrentMembership(memberships, selectedCid);
 
       if (!exErr && ex?.company_id) {
         const cid = String(ex.company_id);

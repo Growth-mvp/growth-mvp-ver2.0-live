@@ -47,6 +47,8 @@ export default function InviteAcceptClient() {
   const [error, setError] = useState<string>('');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isEmailMismatch, setIsEmailMismatch] = useState(false);
+  const [needsRelogin, setNeedsRelogin] = useState(false);
+  const [mailSent, setMailSent] = useState(false);
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
@@ -73,6 +75,7 @@ export default function InviteAcceptClient() {
 
       if (!res.ok) {
         if (data?.error === 'email_mismatch') setIsEmailMismatch(true);
+        if (data?.error === 'unauthorized') setNeedsRelogin(true);
         setError(inviteErrorMessage(data));
         return;
       }
@@ -221,10 +224,7 @@ export default function InviteAcceptClient() {
       // 既存・新規のどちらでも同じ応答。確認メールを送ったので、メールのリンクかログインで進めてもらう
       setPassword('');
       setPasswordConfirm('');
-      setMsg(
-        '確認メールを送信しました。メール内のリンクを開いて、メールアドレスの確認を完了してください。' +
-          '確認メールを以前に受け取っている場合は、最初に設定したパスワードでログインしてください（今回入力したパスワードは反映されません）。'
-      );
+      setMailSent(true);
     } catch (e: any) {
       console.error('[invite/accept] password submit failed:', e?.name || 'unknown');
       setError('パスワード設定に失敗しました。もう一度お試しください。');
@@ -282,6 +282,37 @@ export default function InviteAcceptClient() {
               </button>
             </div>
           )}
+
+          {needsRelogin && (
+            <button
+              onClick={goToLogin}
+              className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90"
+            >
+              ログイン画面へ進む
+            </button>
+          )}
+        </div>
+      )}
+
+      {mailSent && (
+        <div className="mb-4 space-y-6 rounded-lg border border-bluegray-light bg-success-soft p-6 text-success">
+          <div className="space-y-3">
+            <p className="text-xl font-bold">✅ 確認メールを送信しました</p>
+            <p className="text-base leading-relaxed">メールをご確認ください。届いたメール内のリンクをクリックすると、登録手続きが進みます。</p>
+            <p className="text-xs text-gray-600">メールが届かない場合は、迷惑メールフォルダをご確認ください。</p>
+          </div>
+          <div className="border-t pt-4">
+            <p className="text-xs leading-relaxed text-gray-600">
+              既にメール認証がお済みの方は、以前設定したパスワードで
+              <button
+                type="button"
+                onClick={goToLogin}
+                className="cursor-pointer underline font-semibold text-gray-900 hover:text-black"
+              >
+                ログインしてください
+              </button>
+            </p>
+          </div>
         </div>
       )}
 
@@ -304,7 +335,7 @@ export default function InviteAcceptClient() {
       )}
 
       {/* 未ログイン時：招待内容とパスワード設定（新規の方）／ログイン（既存の方） */}
-      {inviteInfo && !currentUserEmail && !msg && !submitting && (
+      {inviteInfo && !currentUserEmail && !msg && !mailSent && !submitting && (
         <div className="mb-6 space-y-4">
           <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
             <p className="text-sm text-gray-600">
