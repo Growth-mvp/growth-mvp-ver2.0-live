@@ -2,7 +2,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const page = readFileSync(join(__dirname, '../../app/cascade/page.tsx'), 'utf8');
+const page = readFileSync(join(__dirname, '../../app/cascade/page.tsx'), 'utf8').replace(/\r\n/g, '\n');
 
 function section(startMarker: string, endMarker: string): string {
   const start = page.indexOf(startMarker);
