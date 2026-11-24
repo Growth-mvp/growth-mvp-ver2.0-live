@@ -48,6 +48,7 @@ export default function InviteAcceptClient() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isEmailMismatch, setIsEmailMismatch] = useState(false);
   const [needsRelogin, setNeedsRelogin] = useState(false);
+  const [mailSent, setMailSent] = useState(false);
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
@@ -223,10 +224,7 @@ export default function InviteAcceptClient() {
       // 既存・新規のどちらでも同じ応答。確認メールを送ったので、メールのリンクかログインで進めてもらう
       setPassword('');
       setPasswordConfirm('');
-      setMsg(
-        '確認メールを送信しました。メール内のリンクを開いて、メールアドレスの確認を完了してください。' +
-          '確認メールを以前に受け取っている場合は、最初に設定したパスワードでログインしてください（今回入力したパスワードは反映されません）。'
-      );
+      setMailSent(true);
     } catch (e: any) {
       console.error('[invite/accept] password submit failed:', e?.name || 'unknown');
       setError('パスワード設定に失敗しました。もう一度お試しください。');
@@ -296,6 +294,29 @@ export default function InviteAcceptClient() {
         </div>
       )}
 
+      {mailSent && (
+        <div className="mb-4 space-y-4 rounded-lg border border-bluegray-light bg-success-soft p-4 text-sm text-success">
+          <div className="space-y-2">
+            <p className="text-base font-semibold">✅ 確認メールを送信しました</p>
+            <p>届いたメールを開き、メール内のリンクをクリックしてください。</p>
+            <p>確認が完了すると、GROWTH SHIFTをご利用いただけます。</p>
+            <p className="text-xs text-gray-600">メールが届かない場合は、迷惑メールフォルダをご確認ください。</p>
+          </div>
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-xs text-gray-600">既にメール認証がお済みの方</p>
+            <button
+              onClick={goToLogin}
+              className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90"
+            >
+              ログインへ進む
+            </button>
+            <p className="text-xs text-gray-600">
+              既存のアカウントの場合は、最初に設定したパスワードでログインしてください。今回入力したパスワードは反映されません。
+            </p>
+          </div>
+        </div>
+      )}
+
       {msg && (
         <div className="mb-4 space-y-3 rounded-lg border border-bluegray-light bg-success-soft p-3 text-success text-sm">
           <p>✅ {msg}</p>
@@ -315,7 +336,7 @@ export default function InviteAcceptClient() {
       )}
 
       {/* 未ログイン時：招待内容とパスワード設定（新規の方）／ログイン（既存の方） */}
-      {inviteInfo && !currentUserEmail && !msg && !submitting && (
+      {inviteInfo && !currentUserEmail && !msg && !mailSent && !submitting && (
         <div className="mb-6 space-y-4">
           <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
             <p className="text-sm text-gray-600">
