@@ -38,11 +38,14 @@ export function pickProject(
   text: string,
   projects: Stage4ProjectRef[],
   selectedProjectId: string | null,
+  contextTitle: string | null = null,
 ): Stage4ProjectRef | null {
   const squashed = text.replace(/[\s　]+/g, '');
   const named = projects.filter((p) => p.title && squashed.includes(p.title.replace(/[\s　]+/g, '')));
   if (named.length === 1) return named[0];
   if (named.length > 1) return null;
+  const open = projects.find((p) => contextTitle !== null && p.title === contextTitle);
+  if (open) return open;
   const selected = projects.find((p) => p.projectId === selectedProjectId);
   if (selected) return selected;
   return projects.length === 1 ? projects[0] : null;
@@ -87,6 +90,7 @@ export async function requestStage4(args: {
   projects: Stage4ProjectRef[];
   excludedTitles: string[];
   selectedProjectId: string | null;
+  contextTitle: string | null;
   now: Date;
   pathnameNow: string;
   hasPendingStage4: boolean;
@@ -108,7 +112,7 @@ export async function requestStage4(args: {
   if (excluded) {
     return { kind: 'message', text: `「${excluded}」は中止・除外されているため、操作の対象にできません。` };
   }
-  const project = pickProject(args.text, args.projects, args.selectedProjectId);
+  const project = pickProject(args.text, args.projects, args.selectedProjectId, args.contextTitle);
   if (!project) {
     return { kind: 'message', text: 'どの施策の実行計画書か教えてください（施策の名前を含めて指示してください）。' };
   }

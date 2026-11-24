@@ -566,6 +566,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           projects: stage4ProjectRefs(useStrategyStore.getState().departments),
           excludedTitles: stage4ExcludedTitles(useStrategyStore.getState().departments),
           selectedProjectId: useSelectedProjectStore.getState().selection?.projectId ?? null,
+          contextTitle: new URLSearchParams(window.location.search).get('project'),
           now: new Date(),
           pathnameNow: window.location.pathname,
           hasPendingStage4: pendingNow?.kind === 'stage4.plan',
