@@ -4,11 +4,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
+import { authErrorFromHash } from '@/lib/safeRedirect';
+
+const INVITE_PATH_PREFIX = '/invite/';
+
+function errorMessageOf(code: string | null, inviteFlow: boolean): string {
+  if (code === 'otp_expired' || code === 'access_denied') {
+    return inviteFlow
+      ? '確認リンクの有効期限が切れているか、既に使用されています。招待の受諾画面から確認メールを再送するか、最新の確認メールのリンクを開いてください。'
+      : '確認リンクの有効期限が切れているか、既に使用されています。最新の確認メールのリンクを開くか、ログイン画面からログインしてください。';
+  }
+  return '認証に失敗しました。もう一度お試しください。';
+}
 
 export default function CallbackClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<'processing' | 'error'>('processing');
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   const nextParam = useMemo(() => {
     const rawNext = searchParams?.get('next') || '/';
@@ -39,11 +52,24 @@ export default function CallbackClient() {
     return validated;
   }, [searchParams]);
 
+  const inviteFlow = nextParam.startsWith(INVITE_PATH_PREFIX);
+  const loginHref =
+    nextParam === '/' ? '/login' : `/login?redirect_to=${encodeURIComponent(nextParam)}`;
+
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       console.log('[auth/callback] Started processing callback');
+
+      // 1) 確認リンクが失敗した（期限切れ・使用済み）場合は、セッションを待たずに案内する
+      const hashError = authErrorFromHash(window.location.hash);
+      if (hashError) {
+        console.warn('[auth/callback] Confirmation link failed:', { code: hashError.code });
+        setErrorCode(hashError.code);
+        setStatus('error');
+        return;
+      }
 
       // 2) Check if we already have a session
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -53,7 +79,6 @@ export default function CallbackClient() {
       if (sessionError) {
         console.error('[auth/callback] Session error:', sessionError);
         setStatus('error');
-        router.replace('/login');
         return;
       }
 
@@ -94,7 +119,6 @@ export default function CallbackClient() {
 
         console.error('[auth/callback] No session after retries');
         setStatus('error');
-        router.replace(`/login?next=${encodeURIComponent(nextParam)}`);
         return;
       }
 
@@ -118,10 +142,25 @@ export default function CallbackClient() {
             <p className="text-sm text-gray-500">Please wait while we verify your invitation.</p>
           </>
         ) : (
-          <>
-            <p className="text-gray-600">ログイン画面へ移動します…</p>
-            <p className="text-sm text-gray-500">セッションの確立に失敗しました。</p>
-          </>
+          <div className="w-full space-y-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <p className="whitespace-pre-wrap">❌ {errorMessageOf(errorCode, inviteFlow)}</p>
+            {inviteFlow && (
+              <button
+                type="button"
+                onClick={() => router.replace(nextParam)}
+                className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90"
+              >
+                招待の受諾画面へ
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => router.replace(loginHref)}
+              className="w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+            >
+              ログイン画面へ
+            </button>
+          </div>
         )}
       </div>
     </main>

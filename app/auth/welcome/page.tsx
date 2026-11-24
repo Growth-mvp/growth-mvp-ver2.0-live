@@ -101,7 +101,7 @@ function WelcomeInner() {
       setRole('member');
       setMembership({ companyId: undefined, departmentId: undefined });
       setMsg('このアカウントはまだ会社に所属していません。管理者から届いた招待メールのリンクからアクセスしてください。');
-      setCompanyMissing(false); // 見た目は未所属でなく、通常メッセージ表示状態へ
+      setCompanyMissing(true);
       setLoading(false);
       return;
     }
@@ -152,5 +152,14 @@ function WelcomeInner() {
   }
 
 
-  return <div className="mx-auto max-w-xl p-8 text-sm text-gray-600">{msg}</div>;
+  return (
+    <div className="mx-auto max-w-xl space-y-4 p-8 text-sm text-gray-600">
+      <p>{msg}</p>
+      {companyMissing && (
+        <a href="/invite/accept" className="inline-block rounded-md bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-black/90">
+          招待の受諾画面へ
+        </a>
+      )}
+    </div>
+  );
 }
