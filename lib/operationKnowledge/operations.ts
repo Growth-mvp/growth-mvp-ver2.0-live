@@ -214,6 +214,29 @@ export const OPERATIONS: readonly OperationEntry[] = [
     save: { kind: 'manual', target: '承認の操作の中で、既存の保存処理（saveStrategyData）を1回呼ぶ' },
   },
   {
+    operationId: 'common.ai-input-approve',
+    screenIds: ['stage1', 'stage2'],
+    label: '承認して保存',
+    source: { file: 'components/CEOChatProposalCard.tsx', line: 189 },
+    purpose:
+      'AI経営コンサルタントに「経営者の思いに〜と追加して」（STAGE2）や「2025年度の全社売上高は1億6,000万円です」（STAGE1）と指示すると、入力案を作る。入力案は保存されず、確認して承認すると保存される。保存後は、再読込しても残る。',
+    steps: [
+      'AI経営コンサルタントの入力欄に、指示を文字または音声で入れて送信する（例：「経営者の思いに、地域とのつながりを大切にしたいと追加して」）',
+      '表示された「入力案」の内容を確かめる（STAGE2は追加する文を編集できる。STAGE1は現在の値と入力案の値を比べる）',
+      '「承認して保存」を押す。保存できたという表示が出たら完了。取り消す場合は「取り消す」を押す',
+    ],
+    conditions:
+      'STAGE2の「経営者の思い」は管理者、STAGE1の財務は管理職以上が必要。既存の文章は消さず末尾に追加する。登録済みの売上高と違う値は、表示を確かめたうえで承認した時だけ置き換える。画面・会社を切り替えると入力案は破棄される。未保存の変更があるときは保存せず、「全体保存」で保存してから承認し直す',
+    permission: {
+      minRole: 'manager',
+      enforcement: 'ui-and-api',
+      apiRoute: 'app/api/ai-operations/authorize/route.ts',
+      mfaRequired: false,
+      note: '承認時にサーバーで認証・所属・権限（STAGE2は管理者、STAGE1は管理職以上）・戦略の所属を再検証し、監査ログに操作名だけを残す',
+    },
+    save: { kind: 'api', target: '既存の保存処理（saveStrategyData）。承認の操作の中で1回だけ呼ぶ。失敗時は入力内容を画面に戻す' },
+  },
+  {
     operationId: 'common.voice-input',
     screenIds: [],
     label: '音声で入力',
@@ -234,7 +257,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 157 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 160 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -257,7 +280,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1151 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1205 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [

@@ -27,6 +27,9 @@ import { screenIdForPathname } from '@/lib/screens/screenContext';
 import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
 import CEOChatVoiceControls from '@/components/CEOChatVoiceControls';
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
+import { resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
+import CEOChatProposalCard from '@/components/CEOChatProposalCard';
 import { isVoiceDisabledFor, readAutoRead, toSpeakableText, writeAutoRead } from '@/lib/voice/voiceSettings';
 import { speakJapanese, stopSpeaking } from '@/lib/voice/browserSpeech';
 import { isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
@@ -220,6 +223,21 @@ async function requestDocumentFromChat(args: {
   }
 }
 
+type RevenueRow = { year: number; revenue?: number | null };
+
+function revenueYenByYear(rows: RevenueRow[] | undefined): Record<number, number | null> {
+  const out: Record<number, number | null> = {};
+  for (const r of rows ?? []) out[r.year] = typeof r.revenue === 'number' ? r.revenue : null;
+  return out;
+}
+
+function proposalIntroText(p: OperationProposal): string {
+  if (p.kind === 'stage2.ceoIntent') {
+    return '「経営者の思い」への入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。';
+  }
+  return `${p.year}年度の全社売上高の入力案を作りました（まだ保存していません）。「承認して保存」を押すと、STAGE1の財務に反映して保存されます。`;
+}
+
 const STARTER_QUESTIONS = [
   '今、何から取り組めばいい？',
   '当社の経営戦略について相談したい',
@@ -338,6 +356,17 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     if (!on) stopSpeaking();
   };
 
+  // 承認待ちの入力案は、会社・画面が変わったら破棄する
+  const pendingProposal = useOperationProposalStore((s) => s.pending);
+  useEffect(() => {
+    const p = useOperationProposalStore.getState().pending;
+    if (p && p.pathname !== pathname) useOperationProposalStore.getState().clearPending();
+  }, [pathname]);
+  const postProposalResult = useCallback((message: string) => {
+    const ticket = openCeoChatRequest(useCeoChatStore.getState().ownerKey);
+    if (ticket) updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: message }]);
+  }, []);
+
   // 認識結果は入力欄に入れるだけにし、送信は本人が行う
   const appendTranscript = useCallback((text: string) => {
     setInput((prev) => (prev.trim() ? `${prev.trimEnd()}\n${text}` : text));
@@ -356,6 +385,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     askAbortRef.current = null;
     setNotice(null);
     setInput('');
+    useOperationProposalStore.getState().clearPending();
   }, [companyId]);
 
   // 切替が確定（ストアの企業が画面の企業と一致）したら、切替中の通知を消す
@@ -513,6 +543,27 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
+
+      // 音声・文字の指示から入力案を作る（保存はしない。承認は入力案のカードで行う）
+      if (latestStrategyId && requestCompanyId) {
+        const st = useStrategyStore.getState();
+        const instruction = resolveOperationInstruction(trimmed, {
+          companyId: requestCompanyId,
+          strategyId: latestStrategyId,
+          ceoIntent: st.ceoIntent ?? '',
+          revenueYenByYear: revenueYenByYear(st.financePL as RevenueRow[] | undefined),
+        });
+        if (instruction) {
+          if (instruction.kind === 'clarify') {
+            updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: instruction.message }]);
+          } else {
+            useOperationProposalStore.getState().setPending(instruction.proposal);
+            if (window.location.pathname !== instruction.proposal.pathname) router.push(instruction.proposal.pathname);
+            updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: proposalIntroText(instruction.proposal) }]);
+          }
+          return true;
+        }
+      }
 
       if (isAutofillRequest(trimmed)) {
         if (latestStrategyId && requestCompanyId) {
@@ -1088,6 +1139,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             ))}
           </div>
         )}
+        {pendingProposal && companyId && pendingProposal.companyId === companyId && pendingProposal.pathname === (pathname ?? '') ? (
+          <CEOChatProposalCard proposal={pendingProposal} pathname={pathname ?? ''} onResult={postProposalResult} />
+        ) : null}
         {sending && (
           <div className="mr-auto inline-flex items-center gap-2 rounded-lg bg-white border border-zinc-200 px-2 py-1 text-[12px] text-zinc-500">
             <span className="h-2 w-2 animate-pulse rounded-full" />
