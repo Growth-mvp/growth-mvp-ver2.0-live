@@ -48,7 +48,7 @@ describe('画面レジストリの属性', () => {
     const legacy = SCREENS.filter((s) => s.lifecycle === 'legacy');
     expect(legacy.every((s) => s.status === 'redirect')).toBe(true);
     expect(legacy.map((s) => s.pathname).sort()).toEqual(
-      ['/report/preview', '/report/stakeholder-select', '/signup', '/signup/admin', '/stage3', '/strategy'].sort()
+      ['/auth/resend-set-password', '/report/preview', '/report/stakeholder-select', '/signup', '/signup/admin', '/stage3', '/strategy'].sort()
     );
   });
 

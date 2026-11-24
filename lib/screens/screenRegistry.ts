@@ -124,7 +124,7 @@ export const SCREENS: readonly ScreenEntry[] = [
   { id: 'auth-set-password', pathname: '/auth/set-password', label: '初回パスワード設定', area: 'auth', navVisible: false, status: 'active' },
   { id: 'auth-update-password', pathname: '/auth/update-password', label: 'パスワード更新', area: 'auth', navVisible: false, status: 'active' },
   { id: 'auth-forgot-password', pathname: '/auth/forgot-password', label: 'パスワード再設定', area: 'auth', navVisible: false, status: 'active' },
-  { id: 'auth-resend-set-password', pathname: '/auth/resend-set-password', label: 'パスワード設定メールの再送', area: 'auth', navVisible: false, status: 'active' },
+  { id: 'auth-resend-set-password', lifecycle: 'legacy', pathname: '/auth/resend-set-password', label: 'パスワード設定メールの再送（旧）', area: 'auth', navVisible: false, status: 'redirect', redirectTo: '/login' },
   { id: 'auth-mfa-enroll', pathname: '/auth/mfa/enroll', label: '2段階認証の登録', area: 'auth', navVisible: false, status: 'active' },
   { id: 'auth-mfa-challenge', pathname: '/auth/mfa/challenge', label: '2段階認証の確認', area: 'auth', navVisible: false, status: 'active' },
 
