@@ -5,8 +5,8 @@ import { buildLegacyDraftPrompt, type LegacyRequestBody } from './legacyPrompt';
 const routeSource = readFileSync(
   path.resolve(__dirname, '..', '..', '..', 'app', 'api', 'stage4', 'generate-execution-draft', 'route.ts'),
   'utf8'
-);
-const copySource = readFileSync(path.resolve(__dirname, 'legacyPrompt.ts'), 'utf8');
+).replace(/\r\n/g, '\n');
+const copySource = readFileSync(path.resolve(__dirname, 'legacyPrompt.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 /** ソース内の文を、開始マーカーから終了マーカーまで切り出す（終了マーカーを含む） */
 function segment(src: string, start: string, end: string): string {

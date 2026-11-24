@@ -8,7 +8,7 @@ import OpenAI from 'openai';
 import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
-import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
+import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
 const ROUTE_TAG = 'app/api/org-alignment/generate';
@@ -486,6 +486,10 @@ export async function POST(req: NextRequest) {
     const counterpartyDetail = firstText(payload.counterpartyDetail, payload.counterparty_detail);
     const visibilityMode = firstText(payload.visibilityMode, payload.visibility_mode, 'manager_only');
     let strategyId = payload.strategyId;
+    const requestedCompanyId = firstText((payload as Record<string, unknown>).companyId);
+    if (requestedCompanyId && requestedCompanyId !== membership.companyId) {
+      return json({ error: 'forbidden', code: 'company_mismatch' }, 403);
+    }
 
     if (!situationText || !myRecognitionText || !idealText || !expectationText) {
       return json({ error: '入力フィールドが不足しています。' }, 400);
@@ -494,9 +498,15 @@ export async function POST(req: NextRequest) {
     // ★ FIX: strategyId が null の場合、companyId から最新の strategy を取得
     if (!strategyId && membership.companyId) {
       try {
-        const { data: companyData, error: companyError } = await getFullStrategyDataByCompany(membership.companyId, admin);
-        if (!companyError && companyData) {
-          strategyId = companyData.id;
+        const { data: latestStrategy, error: companyError } = await admin
+          .from('strategy_data')
+          .select('id')
+          .eq('company_id', membership.companyId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!companyError && latestStrategy?.id) {
+          strategyId = latestStrategy.id;
           console.log('[org-alignment/generate] strategyId recovered from companyId:', {
             companyId: membership.companyId,
             strategyId,

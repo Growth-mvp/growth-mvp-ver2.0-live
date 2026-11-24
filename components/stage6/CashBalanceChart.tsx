@@ -58,7 +58,7 @@ export function CashBalanceChart({
           <Callout
             tone="ok"
             title={minCashYen === null ? '最低必要現預金が未入力です' : '資金不足はありません'}
-            body={minCashYen === null ? '判定には最低必要現預金の入力が必要です。' : '全年度で最低必要現預金を上回っています。'}
+            body={minCashYen === null ? '判定には最低必要現預金の入力が必要です（「財務計画の詳細・設定」を開き、「3. お金は足りるか」で入力）。' : '全年度で最低必要現預金を上回っています。'}
           />
         )}
         <Callout tone={fundingWarning ? 'caution' : 'ok'} title={fundingLabel} body={fundingDetail} />

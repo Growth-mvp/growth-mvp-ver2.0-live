@@ -42,7 +42,8 @@ export type UnifiedPl = {
   gap: UnifiedPlGap | null;
 };
 
-const OP_UNKNOWN_REASON = '売上増加の営業利益への効果が未入力のため、営業費用と営業利益は未算定';
+const OP_UNKNOWN_REASON =
+  '売上増加の営業利益への効果が未入力のため、営業費用と営業利益は未算定（STAGE4の財務効果で「営業利益への効果」を入力するか、「粗利率」と「追加販売管理費等」を入力してください。増えない費用は0円）';
 
 export function buildUnifiedPl(args: {
   baseline: BaselineYear[];

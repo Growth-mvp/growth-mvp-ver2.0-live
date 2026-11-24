@@ -141,9 +141,12 @@ function DraftRow({
       </label>
       {row.recurrence === 'ONE_TIME' && (
         <label>
-          支出年月
+          支出年月（必須）
           <input type="month" aria-label="投資・追加費用の支出年月" value={row.paymentYm} disabled={disabled} onChange={(e) => set({ paymentYm: e.target.value })} />
         </label>
+      )}
+      {row.recurrence === '' && (
+        <span className="text-[12px] text-zinc-600">「一時支出」を選ぶと、支出年月（必須）を入力できます。</span>
       )}
       {row.recurrence === 'RECURRING' && (
         <>

@@ -155,8 +155,9 @@ function ReadOnlyBlock({
 }) {
   if (!readOnly) return <>{children}</>;
 
+  const inertProps: Record<string, boolean> = { inert: true };
   return (
-    <div className="relative">
+    <div className="relative" {...inertProps}>
       <div className="pointer-events-none opacity-80">{children}</div>
       <div className="absolute inset-0 rounded-md" aria-hidden="true" />
     </div>

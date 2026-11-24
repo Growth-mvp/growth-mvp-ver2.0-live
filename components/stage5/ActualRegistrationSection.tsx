@@ -23,6 +23,10 @@ export type RegistrationConsultView = {
 
 const YM_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+/** 単位が未設定のKPIでも「undefined」を表示しない */
+const kpiUnitLabel = (unit: string | null | undefined): string => (unit && unit.trim() ? unit : '単位未設定');
+const kpiUnitSuffix = (unit: string | null | undefined): string => (unit && unit.trim() ? unit : '');
+
 export type RegistrationDraft = {
   ym: string;
   finance: Record<string, string>;
@@ -296,10 +300,10 @@ export function ActualRegistrationSection({
                       <>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr] sm:items-end">
                           <label className="block">
-                            実績値（{k.unit}）
+                            実績値（{kpiUnitLabel(k.unit)}）
                             <input
                               inputMode="decimal"
-                              aria-label={`${k.label}の実績値（${k.unit}）`}
+                              aria-label={`${k.label}の実績値（${kpiUnitLabel(k.unit)}）`}
                               value={kr[k.id]?.value ?? ''}
                               disabled={busy || ym === ''}
                               onChange={(e) => setKr((prev) => ({ ...prev, [k.id]: { asOf: prev[k.id]?.asOf ?? ym, value: e.target.value } }))}
@@ -321,9 +325,9 @@ export function ActualRegistrationSection({
                           {ym === ''
                             ? ''
                             : sameMonth
-                              ? `登録済み：${actual!.value}${k.unit}（基準日 ${actual!.asOf}）`
+                              ? `登録済み：${actual!.value}${kpiUnitSuffix(k.unit)}（基準日 ${actual!.asOf}）`
                               : otherMonth
-                                ? `別の基準日の実績：${actual!.value}${k.unit}（基準日 ${actual!.asOf}）。対象年月と異なるため入力欄は空です`
+                                ? `別の基準日の実績：${actual!.value}${kpiUnitSuffix(k.unit)}（基準日 ${actual!.asOf}）。対象年月と異なるため入力欄は空です`
                                 : '未登録'}
                         </div>
                       </>

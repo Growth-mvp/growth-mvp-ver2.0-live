@@ -22,7 +22,16 @@ export type ScenarioRow = {
   stateLabel: string;
   estimate: ImpactEstimate;
   overlapNote: string | null;
+  /** STAGE4で登録した投資・追加費用明細の合計（円）。明細が無ければ null */
+  registeredInvestYen: number | null;
 };
+
+function registeredInvestYenOf(project: Json): number | null {
+  const items = Array.isArray(project.executionHumanInvestments) ? (project.executionHumanInvestments as Json[]) : [];
+  const amounts = items.map((x) => x.amount).filter((a): a is number => typeof a === 'number' && Number.isFinite(a));
+  if (amounts.length === 0) return null;
+  return amounts.reduce((s, a) => s + a, 0);
+}
 
 const OVERLAP_NOTE =
   'STAGE3の業績インパクトと同じ効果の可能性があるため、合計には含めていない（正式な反映は、財務効果の確認を経て行う）';
@@ -61,6 +70,7 @@ export function scenarioRowsOf(args: { departments: unknown; records: ScenarioRe
         stateLabel: scenarioStateLabel(rec),
         estimate,
         overlapNote: hasStage3Impact ? OVERLAP_NOTE : null,
+        registeredInvestYen: registeredInvestYenOf(project),
       });
     }
   }

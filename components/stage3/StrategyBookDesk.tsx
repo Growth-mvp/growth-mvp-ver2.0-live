@@ -273,7 +273,7 @@ const DEFAULT_ERROR = '処理に失敗しました。時間をおいて再度お
 const DECISIONS_UNSAVED_MESSAGE = '採否の保存が終わっていません。保存が終わってから操作してください。';
 /* 処理中の進行状態。AIの処理は時間がかかるため、何をしているかを利用者に示す */
 const BUSY_TEXT: Record<string, string> = {
-  initial: '戦略書のたたき台を作っています。1〜2分かかることがあります。',
+  initial: '戦略書のたたき台を作っています。数分かかることがあります。画面を閉じずにお待ちください。',
   regenerated: '6問の回答を反映して、戦略書を作り直しています。',
   analyze: '部門間の調整を分析しています。終わるまで、戦略書は閲覧できます。',
   proposal: 'AI調整案を作っています。',
@@ -2547,7 +2547,7 @@ export function StrategyBookDesk({
       {departments.length === 0 && tab !== 'compare' && (
         <section className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-5">
           <h3 className="font-semibold">最初に事業・部門を登録します</h3>
-          <p className="text-sm text-zinc-700">戦略書を作る部門がありません。上の「事業・部門の追加・管理」から追加してください。</p>
+          <p className="text-sm text-zinc-700">戦略書を作る部門がありません。画面右上の「事業・部門の追加・管理」を開き、部門名を入力して「部門を追加」を押してください。</p>
         </section>
       )}
 

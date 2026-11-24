@@ -55,7 +55,11 @@ export function Stage4ScenarioTable({ rows }: { rows: ScenarioRow[] }) {
                     </td>
                     <td className="border px-2 py-1">{gross.text}</td>
                     <td className="border px-2 py-1">{op.text}</td>
-                    <td className="border px-2 py-1">{invest.text}</td>
+                    <td className="border px-2 py-1">
+                      {invest.text === '未算定' && row.registeredInvestYen !== null
+                        ? `${(row.registeredInvestYen / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}百万円（登録済みの投資明細の合計）`
+                        : invest.text}
+                    </td>
                     <td className="border px-2 py-1">{period.text}</td>
                     <td className="border px-2 py-1 text-[12px] text-zinc-700">{row.overlapNote ?? '—'}</td>
                   </tr>
