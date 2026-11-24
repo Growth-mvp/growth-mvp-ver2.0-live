@@ -118,6 +118,11 @@
       "modelRole": "lightweight",
       "maxCompletionTokens": 1000,
       "jsonMode": true
+    },
+    "stage2ConsultIntent": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 1000,
+      "jsonMode": true
     }
   }
 }

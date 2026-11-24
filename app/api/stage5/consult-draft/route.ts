@@ -7,7 +7,8 @@ import { getAuthUserIdFromBearer, requireMembership, assertCompanyScopeByStrateg
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { logAuditEvent } from '@/lib/server/auditLog';
 import { loadExecutionScope, parseExecutionInput } from '@/lib/ceoChat/executionScope';
-import { buildConsultDraft, consultSelectionSchema, formatConsultDraft, splitSentences } from '@/lib/stage5/consultDraft';
+import { buildConsultDraft, consultSelectionSchema, formatConsultDraft } from '@/lib/stage5/consultDraft';
+import { splitSentences } from '@/lib/consult/sentenceSelection';
 import { buildConsultDraftUserPrompt, CONSULT_DRAFT_SYSTEM_PROMPT } from '@/lib/stage5/consultDraftPrompt';
 
 export const runtime = 'nodejs';

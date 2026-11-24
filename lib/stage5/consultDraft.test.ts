@@ -1,4 +1,5 @@
-import { appendDraftText, buildConsultDraft, formatConsultDraft, isSameDraftTarget, splitSentences } from './consultDraft';
+import { appendDraftText, buildConsultDraft, formatConsultDraft, isSameDraftTarget } from './consultDraft';
+import { splitSentences } from '@/lib/consult/sentenceSelection';
 
 const TARGET = { companyId: 'c1', strategyId: 's1', departmentId: 'd1', projectId: 'p1' };
 const Q = '最近、朝の配達が間に合わなくて焦っています。人手も足りないし、正直、このままでいいのか不安です。';

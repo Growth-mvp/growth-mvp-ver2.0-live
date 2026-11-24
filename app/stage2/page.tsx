@@ -20,6 +20,8 @@ import { useUserStore } from '@/store/userStore';
 import { buildStage2FinancePayload } from '@/utils/finance/stage2FinancePayload';
 import { withoutCandidateState } from '@/lib/swot/candidatePool';
 import { useAutoSave } from '@/hooks/useAutoSave';
+import { resolveCeoIntentApply } from '@/lib/stage2/ceoIntent';
+import { useIntentReflectStore } from '@/lib/stage2/intentReflectStore';
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 import {
@@ -930,12 +932,31 @@ function IssueBlockPreview({
 function CEOIntentSection() {
   const setCeoIntent = useStrategyStore((s: StrategyState) => s.setCeoIntent);
   const ceoIntent = useStrategyStore((s: StrategyState) => s.ceoIntent ?? '');
+  const stage2CompanyId = useStrategyStore((s: StrategyState) => s.companyId ?? '');
+  const stage2StrategyId = useStrategyStore((s: StrategyState) => s.strategyId ?? '');
+  const pendingIntent = useIntentReflectStore((st) => st.pending);
+  const clearPendingIntent = useIntentReflectStore((st) => st.clearPending);
+  const [intentNotice, setIntentNotice] = useState('');
+
+  // AI経営コンサルタントの相談から作った思いを、既存の文章を消さずに末尾へ追記する（対象の会社・戦略が違えば破棄する）
+  useEffect(() => {
+    if (!pendingIntent) return;
+    clearPendingIntent();
+    const next = resolveCeoIntentApply({
+      pending: pendingIntent,
+      screen: { companyId: stage2CompanyId, strategyId: stage2StrategyId },
+      current: useStrategyStore.getState().ceoIntent ?? '',
+    });
+    if (next === null) return;
+    setCeoIntent(next);
+    setIntentNotice('AI経営コンサルタントの相談から、経営者の思いを入れました。内容を編集できます。入力内容は自動で保存されます。');
+  }, [pendingIntent, stage2CompanyId, stage2StrategyId, clearPendingIntent, setCeoIntent]);
 
   return (
     <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
       <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">経営者の思い</h3>
 
-      <GlassCard title="経営者の思い" hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください">
+      <GlassCard title="経営者の思い" hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください。右側のAI経営コンサルタントの回答で「STAGE2に反映」を押すと、相談の中の経営者ご自身の思いを、この欄の末尾に追記できます。">
         <AutoResizeTextarea
           value={ceoIntent}
           onChange={(e) => setCeoIntent(e.target.value)}
@@ -944,6 +965,7 @@ function CEOIntentSection() {
           minRows={6}
           maxRows={32}
         />
+        {intentNotice ? <p className="mt-2 text-xs text-gray-600">{intentNotice}</p> : null}
       </GlassCard>
     </div>
   );

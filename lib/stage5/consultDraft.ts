@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { pickSentences, splitSentences } from '@/lib/consult/sentenceSelection';
 
 /* 右側のAI経営コンサルタントとの相談から作る、STAGE5の社内共有の入力案。
  * 本人の言葉は、相談文の文を原文のまま選んで使う（AIは文を書き換えない）。
@@ -24,27 +25,16 @@ export type ConsultDraft = {
   plannedActions: string[];
 };
 
-/** 相談文を、文ごとに分ける（文の中身は変えない） */
-export function splitSentences(text: string): string[] {
-  const matches = text.match(/[^。！？!?\n]+[。！？!?]*/g) ?? [];
-  return matches.map((s) => s.trim()).filter((s) => s.length > 0);
-}
-
 /** AIが選んだ文番号から、相談文の原文を取り出す。番号以外の内容は入力案に入らない */
 export function buildConsultDraft(args: { question: string; selection: unknown }): ConsultDraft | null {
   const parsed = consultSelectionSchema.safeParse(args.selection);
   if (!parsed.success) return null;
   const sentences = splitSentences(args.question);
-  const pick = (indexes: number[], max: number): string[] =>
-    [...new Set(indexes)]
-      .filter((i) => i < sentences.length)
-      .sort((a, b) => a - b)
-      .slice(0, max)
-      .map((i) => sentences[i]);
-
-  const ownWords = pick(parsed.data.ownSentenceIndexes, MAX_OWN);
+  const ownWords = pickSentences(sentences, parsed.data.ownSentenceIndexes, MAX_OWN);
   if (ownWords.length === 0) return null;
-  const plannedActions = pick(parsed.data.plannedSentenceIndexes, MAX_PLANNED).filter((s) => !ownWords.includes(s));
+  const plannedActions = pickSentences(sentences, parsed.data.plannedSentenceIndexes, MAX_PLANNED).filter(
+    (s) => !ownWords.includes(s),
+  );
   return { ownWords, insights: parsed.data.insights, plannedActions };
 }
 

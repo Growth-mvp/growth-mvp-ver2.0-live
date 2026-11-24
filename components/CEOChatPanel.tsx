@@ -19,6 +19,7 @@ import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
 import CEOChatMarkdown from '@/components/CEOChatMarkdown';
 import CEOChatReviewTargets from '@/components/CEOChatReviewTargets';
 import CEOChatStage5Reflect from '@/components/CEOChatStage5Reflect';
+import CEOChatStage2Reflect from '@/components/CEOChatStage2Reflect';
 import { parseReviewTargets } from '@/lib/ceoChat/reviewTargets';
 import { supabase } from '@/utils/supabase/client';
 import { usePathname } from 'next/navigation';
@@ -527,7 +528,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       const reviewTargets = parseReviewTargets(data?.reviewTargets);
       updateCeoChatMessages(ticket, (msgs) => [
         ...msgs,
-        { role: 'assistant', content, ...(reviewTargets.length > 0 ? { reviewTargets } : {}), ...(execKey ? { consultKey: execKey } : {}) },
+        { role: 'assistant', content, answered: true, ...(reviewTargets.length > 0 ? { reviewTargets } : {}), ...(execKey ? { consultKey: execKey } : {}) },
       ]);
       return true;
     } catch (e) {
@@ -978,6 +979,21 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             {m.role === 'assistant' && m.reviewTargets && (
               <CEOChatReviewTargets targets={m.reviewTargets} currentStrategyId={strategyId} />
             )}
+            {m.role === 'assistant' &&
+            m.answered &&
+            i > 0 &&
+            messages[i - 1].role === 'user' &&
+            (pathname ?? '') === '/stage2' &&
+            userRole === 'admin' &&
+            companyId &&
+            strategyId ? (
+              <CEOChatStage2Reflect
+                question={messages[i - 1].content}
+                answer={m.content}
+                companyId={companyId}
+                strategyId={strategyId}
+              />
+            ) : null}
             {m.role === 'assistant' &&
             m.consultKey &&
             companyId &&

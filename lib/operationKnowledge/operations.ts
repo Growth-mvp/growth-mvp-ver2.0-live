@@ -262,10 +262,25 @@ export const OPERATIONS: readonly OperationEntry[] = [
 
   // ---- STAGE2 ----
   {
+    operationId: 'stage2.ceo-intent-reflect',
+    screenIds: ['stage2'],
+    label: 'STAGE2に反映',
+    source: { file: 'app/stage2/page.tsx', line: 959 },
+    purpose: 'AI経営コンサルタントの相談から、経営者ご自身の思いを「経営者の思い」欄の末尾に入れる。',
+    steps: [
+      '右側のAI経営コンサルタントに相談する',
+      '回答の下の「STAGE2に反映」を押す。「経営者の思い」欄が空なら、そのまま入る。文章があれば「末尾に追記する」か「中止する」を選ぶ',
+      '欄の内容を確認・編集する。入力内容は自動で保存される',
+    ],
+    conditions: '管理者のみ有効。STAGE2の画面を開いている時だけ使える。相談の文は原文のまま選ばれ、AIは創作しない。既存の文章は消さない',
+    permission: ADMIN_UI,
+    save: { kind: 'api', target: '「経営者の思い」欄の既存の自動保存（strategy_data.ceo_intent）' },
+  },
+  {
     operationId: 'stage2.generate-ot',
     screenIds: ['stage2'],
     label: 'AIで機会・脅威を提案',
-    source: { file: 'app/stage2/page.tsx', line: 4105 },
+    source: { file: 'app/stage2/page.tsx', line: 4127 },
     purpose: '会社情報からSWOTの機会・脅威の候補をAIで提案する。',
     steps: ['「入力」タブを開く', '「SWOT分析」欄を確認する', '「AIで機会・脅威を提案」を押す'],
     conditions: '管理者のみ有効。実行中は無効',
@@ -276,7 +291,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-draft',
     screenIds: ['stage2'],
     label: 'たたき台を生成',
-    source: { file: 'app/stage2/page.tsx', line: 4125 },
+    source: { file: 'app/stage2/page.tsx', line: 4147 },
     purpose: '論点・MVV・SWOTなどから、ストーリーの下書き（4章）を生成する。',
     steps: [
       '「入力」タブで経営者の思い、MVV、業績目標、SWOT分析を入力する',
@@ -290,7 +305,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.deep-dive',
     screenIds: ['stage2'],
     label: 'AIともう一段掘り下げる',
-    source: { file: 'app/stage2/page.tsx', line: 1984 },
+    source: { file: 'app/stage2/page.tsx', line: 2006 },
     purpose: '対象の4問について、AIが追加の質問を1つ出す。',
     steps: [
       '「戦略議論」タブを開く',
@@ -306,7 +321,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.add-company-target',
     screenIds: ['stage2'],
     label: '+ 新規メトリクスを追加',
-    source: { file: 'app/stage2/page.tsx', line: 1389 },
+    source: { file: 'app/stage2/page.tsx', line: 1411 },
     purpose: '業績目標（売上・営業利益など）を1件追加する。',
     steps: [
       '「入力」タブの「業績目標」を開く',
@@ -321,7 +336,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.edit-final-document',
     screenIds: ['stage2'],
     label: '本文を編集する',
-    source: { file: 'app/stage2/page.tsx', line: 4276 },
+    source: { file: 'app/stage2/page.tsx', line: 4298 },
     purpose: '最終ストーリーの章本文を直接編集し、保存する。',
     steps: ['「最終確定」タブを開く', '「本文を編集する」を押す', '章本文を編集し「保存」を押す'],
     conditions: '管理者のみ。読み取り専用のときは表示されない',
@@ -332,7 +347,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-final',
     screenIds: ['stage2'],
     label: '経営戦略を生成',
-    source: { file: 'app/stage2/page.tsx', line: 4214 },
+    source: { file: 'app/stage2/page.tsx', line: 4236 },
     purpose: '4章の最終ストーリーを生成し、結論を作る。',
     steps: ['「戦略議論」タブでたたき台を生成する', '必要に応じて論点に回答する', '「経営戦略を生成」を押す'],
     conditions:
@@ -344,7 +359,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.commit-final-strategy',
     screenIds: ['stage2'],
     label: '全社戦略を確定し、STAGE3へ引き渡す',
-    source: { file: 'app/stage2/page.tsx', line: 4467 },
+    source: { file: 'app/stage2/page.tsx', line: 4489 },
     purpose: '最終ストーリーを確定し、STAGE3への引き渡しデータを作る。',
     steps: [
       '「最終確定」タブで内容を確認する',

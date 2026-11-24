@@ -7,6 +7,8 @@ export type CeoChatMessage = {
   execKey?: string;
   /** 回答が得られた相談の対象。STAGE5への反映の可否に使う（相談履歴の絞り込みには使わない） */
   consultKey?: string;
+  /** AIの回答として得られた本文（挨拶・エラー文では付かない）。入力欄への反映の対象に使う */
+  answered?: boolean;
 };
 
 export const CEO_CHAT_GREETING: CeoChatMessage[] = [
