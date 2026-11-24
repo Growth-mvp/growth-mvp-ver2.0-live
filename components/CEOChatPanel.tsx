@@ -27,7 +27,8 @@ import { screenIdForPathname } from '@/lib/screens/screenContext';
 import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
 import CEOChatVoiceControls from '@/components/CEOChatVoiceControls';
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
-import { resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { contextDepartments, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
 import CEOChatProposalCard from '@/components/CEOChatProposalCard';
 import { isVoiceDisabledFor, readAutoRead, toSpeakableText, writeAutoRead } from '@/lib/voice/voiceSettings';
@@ -232,6 +233,9 @@ function revenueYenByYear(rows: RevenueRow[] | undefined): Record<number, number
 }
 
 function proposalIntroText(p: OperationProposal): string {
+  if (p.kind === 'stage3.question') {
+    return `${p.departmentName}の6つの問い${p.stepNumber}番目の入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。`;
+  }
   if (p.kind === 'stage2.ceoIntent') {
     return '「経営者の思い」への入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。';
   }
@@ -552,10 +556,18 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           strategyId: latestStrategyId,
           ceoIntent: st.ceoIntent ?? '',
           revenueYenByYear: revenueYenByYear(st.financePL as RevenueRow[] | undefined),
+          departments: contextDepartments(st.departments as unknown as Parameters<typeof contextDepartments>[0]),
         });
         if (instruction) {
           if (instruction.kind === 'clarify') {
             updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: instruction.message }]);
+          } else if (instruction.kind === 'command') {
+            useStage3CommandStore.getState().setPendingDepartmentName(instruction.departmentName);
+            if (window.location.pathname !== '/cascade') router.push('/cascade');
+            updateCeoChatMessages(ticket, (msgs) => [
+              ...msgs,
+              { role: 'assistant', content: `「${instruction.departmentName}」の戦略書を、6つの問いの回答を反映して再生成します。完了すると、STAGE3の画面に新しい版が表示されます。` },
+            ]);
           } else {
             useOperationProposalStore.getState().setPending(instruction.proposal);
             if (window.location.pathname !== instruction.proposal.pathname) router.push(instruction.proposal.pathname);

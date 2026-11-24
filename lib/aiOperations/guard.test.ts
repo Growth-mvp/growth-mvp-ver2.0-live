@@ -72,3 +72,31 @@ describe('proposalRequiredRole', () => {
     expect(proposalRequiredRole(REVENUE)).toBe('manager');
   });
 });
+
+describe('STAGE3 の6問の入力案', () => {
+  const QUESTION: OperationProposal = {
+    kind: 'stage3.question',
+    pathname: '/cascade',
+    companyId: 'company-1',
+    strategyId: 'strategy-1',
+    departmentName: '宅配事業',
+    stepNumber: 1,
+    question: '地域の配送需要はどこにあるか',
+    before: '',
+    answer: '地域の配送需要を取り込む',
+  };
+
+  it('管理職以上で承認する', () => {
+    expect(proposalRequiredRole(QUESTION)).toBe('manager');
+  });
+
+  it('作成後に回答が変わっていれば保存しない', () => {
+    expect(proposalStaleReason(QUESTION, { stage3Answer: '' })).toBeNull();
+    expect(proposalStaleReason(QUESTION, { stage3Answer: '別の回答' })).toEqual(expect.objectContaining({ discard: true }));
+  });
+
+  it('対象の画面が変わったら破棄する', () => {
+    expect(proposalBlockReason(QUESTION, { ...SAME, pathname: '/cascade' })).toBeNull();
+    expect(proposalBlockReason(QUESTION, { ...SAME, pathname: '/okr' })).toEqual(expect.objectContaining({ discard: true }));
+  });
+});

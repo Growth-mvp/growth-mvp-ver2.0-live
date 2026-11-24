@@ -1,5 +1,6 @@
 /* 音声・文字の指示から、既存の入力欄への「入力案」を作る（AIは呼ばない。保存もしない）。
- * 対象は STAGE2「経営者の思い」への追加と、STAGE1 財務表の全社売上高。 */
+ * 対象は STAGE2「経営者の思い」への追加、STAGE1 財務表の全社売上高、STAGE3 6つの問いの回答。
+ * STAGE3 の戦略書の再生成は入力案ではなく、既存の生成処理を呼ぶ指示として扱う。 */
 
 export type OperationProposal =
   | {
@@ -18,6 +19,17 @@ export type OperationProposal =
       year: number;
       beforeYen: number | null;
       afterYen: number;
+    }
+  | {
+      kind: 'stage3.question';
+      pathname: '/cascade';
+      companyId: string;
+      strategyId: string;
+      departmentName: string;
+      stepNumber: number;
+      question: string;
+      before: string;
+      answer: string;
     };
 
 export type OperationContext = {
@@ -25,11 +37,16 @@ export type OperationContext = {
   strategyId: string;
   ceoIntent: string;
   revenueYenByYear: Record<number, number | null | undefined>;
+  departments?: ReadonlyArray<{
+    name: string;
+    steps: ReadonlyArray<{ stepNumber: number; question?: string; answer?: string }>;
+  }>;
 };
 
 export type OperationInstruction =
   | { kind: 'proposal'; proposal: OperationProposal }
-  | { kind: 'clarify'; message: string };
+  | { kind: 'clarify'; message: string }
+  | { kind: 'command'; departmentName: string };
 
 const QUESTION_CUE = /[?？]|ですか|でしょうか|か？/;
 const CEO_INTENT_CUE = /経営者の思い/;
@@ -49,6 +66,13 @@ const UNIT_YEN: Record<string, number> = {
   千: 1e3,
   円: 1,
 };
+const STEP_NUMBER_WORDS: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
+const STAGE3_QUESTION_CUE = /6つの問い|6問|六問|問い/;
+const STAGE3_ANSWER_PATTERN = /(?:番目|問目|つ目|番|問)に(.+?)(?:と|を)?\s*(?:入力|記入|書い|追加|入れ|答え)(?:て|ておいて|してください|して)?\s*$/;
+const STAGE3_STEP_PATTERN = /(?:6つの問い|6問|問い)の?\s*([1-6一二三四五六])\s*(?:番目|問目|つ目|番|問)/;
+const STAGE3_UNNUMBERED_PATTERN = /(?:6つの問い|6問|問い)に(.+?)(?:と|を)?\s*(?:入力|記入|書い|追加|入れ|答え)(?:て|ておいて|してください|して)?\s*$/;
+const REGENERATE_CUE = /再生成/;
+const STRATEGY_BOOK_CUE = /戦略書|部門戦略/;
 
 function normalizeDigits(text: string): string {
   return text
@@ -136,11 +160,113 @@ function resolveRevenue(text: string, ctx: OperationContext): OperationInstructi
   };
 }
 
+function mentionedDepartments(text: string, departments: NonNullable<OperationContext['departments']>) {
+  const squashed = text.replace(/[\s　]+/g, '');
+  return departments.filter((d) => d.name && squashed.includes(d.name.replace(/[\s　]+/g, '')));
+}
+
+function stepNumberOf(token: string): number {
+  return /^[1-6]$/.test(token) ? Number(token) : STEP_NUMBER_WORDS[token];
+}
+
+function bigrams(text: string): Set<string> {
+  const s = text.replace(/[\s、。,.?？]/g, '');
+  const out = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+  return out;
+}
+
+function resolveStage3(text: string, ctx: OperationContext): OperationInstruction | null {
+  const departments = ctx.departments ?? [];
+  if (QUESTION_CUE.test(text) || !STAGE3_QUESTION_CUE.test(text)) return null;
+  if (REGENERATE_CUE.test(text)) return null;
+
+  const numbered = text.match(STAGE3_ANSWER_PATTERN);
+  const unnumbered = numbered ? null : text.match(STAGE3_UNNUMBERED_PATTERN);
+  const content = (numbered?.[1] ?? unnumbered?.[1] ?? '').replace(/^[、,，\s]+/, '').trim();
+  if (!content) return null;
+
+  const named = mentionedDepartments(text, departments);
+  if (named.length > 1) {
+    return { kind: 'clarify', message: `対象の部門が複数あります。どの部門の6問か指定してください：${named.map((d) => `「${d.name}」`).join('、')}` };
+  }
+  const dept = named[0] ?? (departments.length === 1 ? departments[0] : undefined);
+  if (!dept) {
+    return { kind: 'clarify', message: 'どの部門の6問か教えてください（例：宅配事業の6問の1番目に〇〇と入力して）。' };
+  }
+
+  const stepToken = text.match(STAGE3_STEP_PATTERN)?.[1];
+  const withQuestion = dept.steps.filter((s) => (s.question ?? '').trim() !== '');
+  let stepNumber: number | undefined = stepToken ? stepNumberOf(stepToken) : undefined;
+  if (stepNumber === undefined) {
+    const scored = withQuestion
+      .map((s) => {
+        const a = bigrams(content);
+        const b = bigrams(s.question ?? '');
+        let shared = 0;
+        for (const g of a) if (b.has(g)) shared++;
+        return { step: s, score: shared };
+      })
+      .sort((x, y) => y.score - x.score);
+    const best = scored[0];
+    const tie = scored[1] && scored[1].score === best?.score;
+    if (!best || best.score < 2 || tie) {
+      return { kind: 'clarify', message: '何番目の問いへの回答か教えてください（例：6つの問いの1番目に〇〇と入力して）。' };
+    }
+    stepNumber = best.step.stepNumber;
+  }
+
+  const step = dept.steps.find((s) => s.stepNumber === stepNumber);
+  if (!step || (step.question ?? '').trim() === '') {
+    return {
+      kind: 'clarify',
+      message: `${stepNumber}番目の問いがまだ表示されていません。STAGE3の6つの問いで${stepNumber}番目を開いてから、もう一度指示してください。`,
+    };
+  }
+  const before = (step.answer ?? '').trim();
+  if (before === content) {
+    return { kind: 'clarify', message: `${dept.name}の${stepNumber}番目の回答は、すでに同じ内容です。` };
+  }
+  return {
+    kind: 'proposal',
+    proposal: {
+      kind: 'stage3.question',
+      pathname: '/cascade',
+      companyId: ctx.companyId,
+      strategyId: ctx.strategyId,
+      departmentName: dept.name,
+      stepNumber,
+      question: step.question ?? '',
+      before,
+      answer: content,
+    },
+  };
+}
+
+function resolveRegenerate(text: string, ctx: OperationContext): OperationInstruction | null {
+  if (!REGENERATE_CUE.test(text) || !STRATEGY_BOOK_CUE.test(text)) return null;
+  const departments = ctx.departments ?? [];
+  const named = mentionedDepartments(text, departments);
+  if (named.length > 1) {
+    return { kind: 'clarify', message: `対象の部門が複数あります。どの部門の戦略書を再生成するか指定してください：${named.map((d) => `「${d.name}」`).join('、')}` };
+  }
+  const dept = named[0] ?? (departments.length === 1 ? departments[0] : undefined);
+  if (!dept) {
+    return { kind: 'clarify', message: 'どの部門の戦略書を再生成するか教えてください（例：宅配事業の戦略書を再生成して）。' };
+  }
+  return { kind: 'command', departmentName: dept.name };
+}
+
 /** 指示が対象の操作でなければ null（通常のAI相談として扱う） */
 export function resolveOperationInstruction(text: string, ctx: OperationContext): OperationInstruction | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
   if (CEO_INTENT_CUE.test(trimmed)) return resolveCeoIntent(trimmed, ctx);
+  if (REGENERATE_CUE.test(trimmed)) return resolveRegenerate(trimmed, ctx);
+  if (STAGE3_QUESTION_CUE.test(trimmed) && (ctx.departments?.length ?? 0) > 0) {
+    const stage3 = resolveStage3(trimmed, ctx);
+    if (stage3) return stage3;
+  }
   return resolveRevenue(trimmed, ctx);
 }
 
@@ -148,4 +274,27 @@ export function resolveOperationInstruction(text: string, ctx: OperationContext)
 export function appendCeoIntent(before: string, addition: string): string {
   const base = before.trimEnd();
   return base ? `${base}\n${addition}` : addition;
+}
+
+/** 部門の6問の回答（保存済みの値）を取り出す。未保存なら空文字 */
+export function stage3AnswerOf(
+  departments: NonNullable<OperationContext['departments']>,
+  departmentName: string,
+  stepNumber: number,
+): string {
+  const dept = departments.find((d) => d.name === departmentName);
+  return (dept?.steps.find((s) => s.stepNumber === stepNumber)?.answer ?? '').trim();
+}
+
+type StoreDepartmentLike = {
+  name?: string;
+  answers2?: ReadonlyArray<{ steps?: ReadonlyArray<{ stepNumber: number; question?: string; answer?: string }> }>;
+};
+
+/** 画面の部門データを、指示の解析に使う形にする（6問の回答は先頭の章の steps） */
+export function contextDepartments(departments: ReadonlyArray<StoreDepartmentLike> | undefined): NonNullable<OperationContext['departments']> {
+  return (departments ?? []).map((d) => ({
+    name: d.name ?? '',
+    steps: (d.answers2?.[0]?.steps ?? []).map((s) => ({ stepNumber: s.stepNumber, question: s.question, answer: s.answer })),
+  }));
 }

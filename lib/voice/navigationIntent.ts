@@ -11,7 +11,7 @@ export type VoiceNavigation =
 
 type VoiceScreenId = 'stage1' | 'stage2' | 'stage3' | 'stage4';
 
-const OPEN_VERB = /(開いて|開く|開け|開きたい|見せて|見たい|表示して|表示したい|移動して|行きたい|分析したい|入力したい)/;
+const OPEN_VERB = /(開いて|開く|開け|開きたい|見せて|見たい|表示して|表示したい|移動して|行きたい|分析したい|入力したい|考えたい)/;
 const NON_NAVIGATION_CUE = /(作って|作成|生成|追加|変更|反映|保存|削除|登録|にして|書いて|まとめて|教えて|何|どう|ですか|[?？])/;
 const GENERIC_SCREEN_WORD = /(画面|ページ)/;
 const OUT_OF_SCOPE_STAGE = /STAGE\s*[56]|ステージ\s*[56]/i;

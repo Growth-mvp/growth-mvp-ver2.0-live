@@ -66,6 +66,7 @@ import { EditableBlock } from '@/components/okr/execution-plan/PlanDocument';
 import { PLAN_DOC_CSS } from '@/components/okr/execution-plan/planDocStyles';
 import { useConsultFocus } from '@/hooks/useConsultFocus';
 import type { ConsultFocus } from '@/lib/consult/consultFocus';
+import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
 
 type AnyRecord = Record<string, unknown>;
 type TextDraft = Partial<Record<TextItemKey, string>>;
@@ -914,6 +915,23 @@ export function StrategyBookDesk({
     }
     if (analyzeAfter) await analyze(analyzeAfter.draftRef, analyzeAfter.base);
   };
+
+  const stage3Command = useStage3CommandStore((s) => s.pendingDepartmentName);
+  useEffect(() => {
+    if (!stage3Command || !loaded) return;
+    useStage3CommandStore.getState().clearPending();
+    const index = departments.findIndex((d) => d.name === stage3Command);
+    if (index < 0) {
+      setNotice('指定の部門が見つからないため、戦略書を再生成しませんでした。');
+      return;
+    }
+    if (!canEdit) {
+      setNotice('戦略書の再生成は、管理者または管理職のみ実行できます。');
+      return;
+    }
+    void generateFor([index], 'regenerated');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage3Command, loaded]);
 
   /* 最新の計画案を、部門間で分析する */
   const analyze = async (draftRef: { draftId: string; version: number } | null, base: WorkspaceState = state) => {

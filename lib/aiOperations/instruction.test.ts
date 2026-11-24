@@ -1,4 +1,4 @@
-import { appendCeoIntent, parseYenAmounts, resolveOperationInstruction, type OperationContext } from './instruction';
+import { appendCeoIntent, contextDepartments, parseYenAmounts, resolveOperationInstruction, stage3AnswerOf, type OperationContext } from './instruction';
 
 const BASE: OperationContext = {
   companyId: 'company-1',
@@ -113,5 +113,89 @@ describe('resolveOperationInstruction：STAGE1 全社売上高', () => {
   it('質問や金額のない文は入力案にしない', () => {
     expect(resolveOperationInstruction('2025年度の全社売上高は1億6,000万円ですか', BASE)).toBeNull();
     expect(resolveOperationInstruction('売上を伸ばすにはどうすればいいですか', BASE)).toBeNull();
+  });
+});
+
+describe('resolveOperationInstruction：STAGE3 6つの問い', () => {
+  const STAGE3_CTX: OperationContext = {
+    ...BASE,
+    departments: [
+      {
+        name: '宅配事業',
+        steps: [
+          { stepNumber: 1, question: '地域の配送需要はどこにあるか', answer: '' },
+          { stepNumber: 2, question: '競合と比べて何で選ばれるか', answer: '既存' },
+          { stepNumber: 3, question: '採算をどう確保するか', answer: '' },
+        ],
+      },
+      { name: '新聞販売', steps: [{ stepNumber: 1, question: '購読者をどう維持するか', answer: '' }] },
+    ],
+  };
+
+  it('番号を指定した入力は、その問いの入力案にする', () => {
+    const result = resolveOperationInstruction('宅配事業の6つの問いの1番目に、地域の配送需要を取り込むと入力して', STAGE3_CTX);
+    expect(result).toEqual({
+      kind: 'proposal',
+      proposal: expect.objectContaining({
+        kind: 'stage3.question',
+        pathname: '/cascade',
+        departmentName: '宅配事業',
+        stepNumber: 1,
+        answer: '地域の配送需要を取り込む',
+        before: '',
+      }),
+    });
+  });
+
+  it('番号がなければ、内容に合う問いを候補にする', () => {
+    const result = resolveOperationInstruction('宅配事業の6問に、採算を重視して確保すると入力して', STAGE3_CTX);
+    expect(result).toEqual({
+      kind: 'proposal',
+      proposal: expect.objectContaining({ kind: 'stage3.question', stepNumber: 3, answer: '採算を重視して確保する' }),
+    });
+  });
+
+  it('内容に合う問いがなければ番号を質問する', () => {
+    expect(resolveOperationInstruction('宅配事業の6問に、まったく別の話を入力して', STAGE3_CTX)?.kind).toBe('clarify');
+  });
+
+  it('問いの質問文がまだ無い番号は、表示してから指示するよう案内する', () => {
+    const result = resolveOperationInstruction('宅配事業の6つの問いの5番目に、人材を増やすと入力して', STAGE3_CTX);
+    expect(result).toEqual({ kind: 'clarify', message: expect.stringContaining('5番目の問いがまだ表示されていません') });
+  });
+
+  it('部門が特定できなければ質問する', () => {
+    const result = resolveOperationInstruction('6つの問いの1番目に、地域の配送需要を取り込むと入力して', STAGE3_CTX);
+    expect(result).toEqual({ kind: 'clarify', message: expect.stringContaining('どの部門') });
+  });
+
+  it('同じ回答が登録済みなら入力案を作らない', () => {
+    expect(resolveOperationInstruction('宅配事業の6問の2番目に、既存と入力して', STAGE3_CTX)?.kind).toBe('clarify');
+  });
+
+  it('戦略書の再生成は、既存の生成処理を呼ぶ指示にする', () => {
+    expect(resolveOperationInstruction('6問の回答を反映して宅配事業の戦略書を再生成して', STAGE3_CTX)).toEqual({
+      kind: 'command',
+      departmentName: '宅配事業',
+    });
+  });
+
+  it('再生成で部門が特定できなければ質問する', () => {
+    expect(resolveOperationInstruction('戦略書を再生成して', STAGE3_CTX)?.kind).toBe('clarify');
+  });
+
+  it('6問の部門データが無ければ、6問の入力は対象外にする', () => {
+    expect(resolveOperationInstruction('6つの問いの1番目に、地域の配送需要を取り込むと入力して', BASE)).toBeNull();
+  });
+});
+
+describe('contextDepartments と stage3AnswerOf', () => {
+  it('章の先頭の steps を、6問の回答として取り出す', () => {
+    const ctx = contextDepartments([
+      { name: '宅配事業', answers2: [{ steps: [{ stepNumber: 1, question: 'q', answer: 'a' }] }] },
+      { name: '新聞販売' },
+    ]);
+    expect(stage3AnswerOf(ctx, '宅配事業', 1)).toBe('a');
+    expect(stage3AnswerOf(ctx, '新聞販売', 1)).toBe('');
   });
 });

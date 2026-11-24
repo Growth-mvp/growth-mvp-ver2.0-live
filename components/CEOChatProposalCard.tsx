@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useStrategyStore } from '@/store/strategyStore';
 import { summaryFollowsPL } from '@/lib/autofill/financeWrite';
-import { appendCeoIntent, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { appendCeoIntent, contextDepartments, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { proposalBlockReason, proposalStaleReason } from '@/lib/aiOperations/guard';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
 
@@ -16,15 +16,24 @@ type Props = {
 };
 
 type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
+type StoreStep = { stepNumber: number; question: string; reason?: string; answer: string } & Record<string, unknown>;
+type StoreDept = { name: string; answers2?: Array<{ chapterIndex: number; chapterTitle: string; steps: StoreStep[] } & Record<string, unknown>> } & Record<string, unknown>;
 
 function formatYen(yen: number | null): string {
   if (yen === null) return '未登録';
   return `${yen.toLocaleString('ja-JP')}円（${(yen / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}百万円）`;
 }
 
-/** 入力案の確認と承認。承認するまで保存しない。承認後は、会社・画面・値を確かめ直してから既存の保存処理で保存する */
+function revenueOf(rows: Row[] | undefined, year: number): number | null {
+  const row = (rows ?? []).find((r) => r.year === year);
+  return typeof row?.revenue === 'number' ? row.revenue : null;
+}
+
+/** 入力案の確認と承認。承認するまで保存しない。承認後は、会社・画面・revision を確かめ直してから既存の保存処理で保存する */
 export default function CEOChatProposalCard({ proposal, pathname, onResult }: Props) {
-  const [addition, setAddition] = useState(proposal.kind === 'stage2.ceoIntent' ? proposal.addition : '');
+  const [addition, setAddition] = useState(
+    proposal.kind === 'stage2.ceoIntent' ? proposal.addition : proposal.kind === 'stage3.question' ? proposal.answer : '',
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,14 +60,16 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
     const current =
       proposal.kind === 'stage2.ceoIntent'
         ? { ceoIntent: st.ceoIntent ?? '' }
-        : { revenueYen: revenueOf(st.financePL as Row[] | undefined, proposal.year) };
+        : proposal.kind === 'stage3.question'
+          ? { stage3Answer: stage3AnswerOf(contextDepartments(st.departments as unknown as StoreDept[]), proposal.departmentName, proposal.stepNumber) }
+          : { revenueYen: revenueOf(st.financePL as Row[] | undefined, proposal.year) };
     const stale = proposalStaleReason(proposal, current);
     if (stale) {
       discard(stale.message);
       return;
     }
-    if (proposal.kind === 'stage2.ceoIntent' && addition.trim() === '') {
-      setError('追加する文を入力してください。');
+    if (proposal.kind !== 'stage1.revenue' && addition.trim() === '') {
+      setError('入力してください。');
       return;
     }
 
@@ -115,6 +126,29 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         return;
       }
 
+      if (proposal.kind === 'stage3.question') {
+        const prevDepts = (after.departments ?? []) as unknown as StoreDept[];
+        const idx = prevDepts.findIndex((d) => d.name === proposal.departmentName);
+        if (idx < 0) {
+          discard('部門が見つからないため、入力案を破棄しました。保存していません。');
+          return;
+        }
+        const dept = prevDepts[idx];
+        const chapters = dept.answers2 ?? [];
+        const steps = (chapters[0]?.steps ?? []).map((s) => (s.stepNumber === proposal.stepNumber ? { ...s, answer: addition.trim() } : s));
+        const nextChapters = [{ ...(chapters[0] ?? { chapterIndex: 0, chapterTitle: '6つの問い' }), steps }, ...chapters.slice(1)];
+        const nextDepts = prevDepts.map((d, i) => (i === idx ? { ...d, answers2: nextChapters } : d));
+        after.setDepartments(nextDepts as never);
+        const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage3:ai-operation', conflictRetry: false });
+        if (!saved.ok) {
+          useStrategyStore.getState().setDepartments(prevDepts as never);
+          setError('保存できませんでした。入力内容は画面に戻しています。もう一度お試しください。');
+          return;
+        }
+        discard(`${proposal.departmentName}の6つの問い ${proposal.stepNumber}番目に回答を保存しました。`);
+        return;
+      }
+
       const prevPL = (after.financePL ?? []) as Row[];
       const prevSummary = after.financeSummary;
       const idx = prevPL.findIndex((r) => r.year === proposal.year);
@@ -145,7 +179,8 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
     onResult('入力案を取り消しました。保存していません。');
   };
 
-  const isConflict = proposal.kind === 'stage1.revenue' && proposal.beforeYen !== null;
+  const isConflict =
+    (proposal.kind === 'stage1.revenue' && proposal.beforeYen !== null) || (proposal.kind === 'stage3.question' && proposal.before !== '');
   const ceoPreview = proposal.kind === 'stage2.ceoIntent' ? appendCeoIntent(proposal.before, addition) : '';
 
   return (
@@ -169,6 +204,25 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
             <p className="whitespace-pre-wrap">{ceoPreview}</p>
           </div>
         </>
+      ) : proposal.kind === 'stage3.question' ? (
+        <>
+          <p className="text-zinc-700">
+            対象：STAGE3「{proposal.departmentName}」の6つの問い {proposal.stepNumber}番目
+          </p>
+          <p className="rounded-md bg-white p-2 text-[12px] text-zinc-700">問い：{proposal.question}</p>
+          <label className="block text-[12px] text-zinc-700">
+            回答（編集できます）
+            <textarea
+              value={addition}
+              onChange={(e) => setAddition(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white p-2 text-[13px] text-zinc-900"
+              disabled={busy}
+            />
+          </label>
+          <p className="text-[12px] text-zinc-600">現在の回答：{proposal.before || '（未回答）'}</p>
+          {isConflict ? <p className="text-rose-700">登録済みの回答を、入力案の内容に置き換えます。内容を確かめてから承認してください。</p> : null}
+        </>
       ) : (
         <>
           <p className="text-zinc-700">
@@ -188,7 +242,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         <button
           type="button"
           onClick={() => void approve()}
-          disabled={busy || (proposal.kind === 'stage2.ceoIntent' && addition.trim() === '')}
+          disabled={busy || (proposal.kind !== 'stage1.revenue' && addition.trim() === '')}
           className="rounded-lg bg-accent-action px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
         >
           {busy ? '保存しています…' : isConflict ? '既存の値を置き換えて保存' : '承認して保存'}
@@ -209,9 +263,4 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
       ) : null}
     </section>
   );
-}
-
-function revenueOf(rows: Row[] | undefined, year: number): number | null {
-  const row = (rows ?? []).find((r) => r.year === year);
-  return typeof row?.revenue === 'number' ? row.revenue : null;
 }
