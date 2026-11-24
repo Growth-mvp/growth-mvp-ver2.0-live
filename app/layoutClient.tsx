@@ -17,6 +17,7 @@ import { useUserStore } from '@/store/userStore';
 import MfaGate from '@/components/MfaGate';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { CompanyProvider } from '@/context/CompanyContext';
+import { pickCurrentMembership } from '@/lib/companyMembership';
 import CeoPanelResizeHandle from '@/components/CeoPanelResizeHandle';
 import { CeoDrawerCloseContext } from '@/components/CeoDrawerCloseContext';
 import {
@@ -434,13 +435,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       try {
         const { data: memberships, error, status } = await supabase
           .from('company_members')
-          .select('company_id, role, created_at')
+          .select('company_id, role, created_at, companies(deleted_at)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .abortSignal(signal);
         const selectedCid = getCompanyIdFromCookie();
-        const data =
-          (memberships ?? []).find((m) => m.company_id === selectedCid) ?? memberships?.[0] ?? null;
+        const data = pickCurrentMembership(memberships, selectedCid);
 
         clearTimeout(timeoutId);
 
