@@ -9,11 +9,19 @@ export type ReviewCandidate = {
   departmentId: string | null;
   departmentName: string;
   projectTitle: string;
+  laneLabel: string | null;
   summary: string;
   kpis: ReviewKpi[];
   legacyKpiLabels: string[];
   href: string;
 };
+
+const LANE_LABELS = new Map<string, string>([
+  ['existing', '既存事業'],
+  ['new', '新規事業'],
+  ['intraCollab', '部門内連携'],
+  ['interCollab', '部門間連携'],
+]);
 
 export type ReviewTarget = {
   stage: 4;
@@ -118,6 +126,7 @@ export function buildStage4ReviewCandidates(departments: unknown, strategyId: st
       departmentId: e.deptId,
       departmentName: e.deptName,
       projectTitle: textOf(e.project.title) || textOf(e.project.name) || 'プロジェクト名未設定',
+      laneLabel: LANE_LABELS.get(textOf(e.project.sourceType)) ?? null,
       summary: textOf(e.project.reason).slice(0, MAX_SUMMARY_CHARS),
       kpis,
       legacyKpiLabels,
@@ -158,7 +167,8 @@ const candidateLine = (c: ReviewCandidate): string => {
     : c.legacyKpiLabels.length > 0
       ? `${c.legacyKpiLabels.join('、')}（旧形式）`
       : '一覧に記載なし';
-  return `- ${c.id}｜部門: ${c.departmentName}｜プロジェクト: ${c.projectTitle}｜概要: ${c.summary || '記載なし'}｜KPI: ${kpis}`;
+  const project = c.laneLabel ? `${c.projectTitle}（${c.laneLabel}）` : c.projectTitle;
+  return `- ${c.id}｜部門: ${c.departmentName}｜プロジェクト: ${project}｜概要: ${c.summary || '記載なし'}｜KPI: ${kpis}`;
 };
 
 /**
@@ -207,7 +217,7 @@ export function buildReviewPromptBlock(
     '【見直し候補（STAGE4・登録済みの実在データ）】',
     `候補は全${candidates.length}件のうち、質問に関連度の高い${shown.length}件を示しています。`,
     ...(omitted > 0 ? ['一覧にないプロジェクトやKPIを、『存在しない』『未登録』と断定しないでください。'] : []),
-    '一覧にあるKPIだけを既存のKPIとして説明してください。登録されていないKPIを既存のものとして扱わないでください。',
+    '「既存のKPI」と説明してよいのは、既存事業のプロジェクトに登録された一覧のKPIだけです。新規事業・連携のプロジェクトのKPIは「新たに登録された指標」として説明し、既存のKPIとは呼ばないでください。登録されていないKPIを既存のものとして扱わないでください。',
     '実績値は示していません。達成・未達を断定せず、目標との関係は確認を促す形で書いてください。',
     '回答で既存プロジェクトのKPIや実行計画の見直しを具体的に勧める場合は、下の一覧から最も関連する候補を1件選び、回答の最後の行に「[見直し候補: r1]」の形式で候補IDを書いてください。',
     '次の場合はマーカーを出力しないでください：関連する候補が一覧にない場合、候補との関連が不明確な場合、数値の確認や一般的な質問だけの場合。',

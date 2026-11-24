@@ -118,6 +118,7 @@ describe('AIへ渡す候補一覧', () => {
       departmentId: null,
       departmentName: '部門',
       projectTitle: `案件${i}`,
+      laneLabel: null,
       summary: '',
       kpis: [],
       legacyKpiLabels: [],
@@ -135,6 +136,18 @@ describe('AIへ渡す候補一覧', () => {
     expect(text).toContain('有償開発受注件数（目標 12件）');
     expect(text).not.toContain('/okr?projectId=');
     expect(text).not.toContain('kr-1');
+  });
+
+  it('新規事業・連携の取り組みは取り組みの区分を示し、そのKPIを既存のKPIとは呼ばせない', () => {
+    const departments = [
+      { id: 'd-new', name: '新規部門', projects: [{ id: 'p-new', title: '新市場の開拓', sourceType: 'new', okrsV2: [{ id: 'kr-n', label: '新規の受注件数', target: 5, unit: '件' }] }] },
+      { id: 'd-old', name: '既存部門', projects: [{ id: 'p-old', title: '既存顧客の保守', sourceType: 'existing', okrsV2: [{ id: 'kr-o', label: '保守件数', target: 10, unit: '件' }] }] },
+    ];
+    const { candidates } = buildStage4ReviewCandidates(departments, STRATEGY);
+    const { text } = buildReviewPromptBlock({ candidates, unlinkableProjects: 0 }, '新市場 保守 KPI');
+    expect(text).toContain('プロジェクト: 新市場の開拓（新規事業）');
+    expect(text).toContain('プロジェクト: 既存顧客の保守（既存事業）');
+    expect(text).toContain('新規事業・連携のプロジェクトのKPIは「新たに登録された指標」として説明し、既存のKPIとは呼ばない');
   });
 });
 
@@ -318,6 +331,7 @@ describe('診断情報（件数と理由コードのみ）', () => {
       departmentId: null,
       departmentName: '部門',
       projectTitle: i === 3 ? '粗利改善A' : i === 4 ? '粗利改善' : `案件${i}`,
+      laneLabel: null,
       summary: '',
       kpis: [],
       legacyKpiLabels: [],

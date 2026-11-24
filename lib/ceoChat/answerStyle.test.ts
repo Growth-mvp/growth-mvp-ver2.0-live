@@ -65,6 +65,13 @@ describe('回答スタイル指示の内容', () => {
     expect(block).not.toContain('2〜4段落');
   });
 
+  it('会話型は、気持ちや困りごとを最初に受け止め、事情が足りない時だけ問いを1つ添える', () => {
+    const block = buildAnswerStyleBlock('conversation');
+    expect(block).toContain('最初の一文でその状況を受け止め');
+    expect(block).toContain('自然な問いを1つだけ添える');
+    expect(block).toContain('問い返しでかわさず');
+  });
+
   it('会話型は一度に全部を説明せず、次の一歩と見出しを絞る', () => {
     const block = buildAnswerStyleBlock('conversation');
     expect(block).toContain('見出しは使わない');
