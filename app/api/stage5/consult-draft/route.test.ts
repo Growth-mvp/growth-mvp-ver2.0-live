@@ -114,10 +114,11 @@ describe('STAGE5 社内共有の入力案の作成API', () => {
     expect(json.text).not.toContain('配送業務の効率化');
   });
 
-  it('本人の困りごとが選ばれなければ、入力案を作らずに失敗を返す', async () => {
+  it('このプロジェクトに関係する本人の言葉がなければ、入力案を作らず、その理由を返す', async () => {
     modelReturns(JSON.stringify({ ownSentenceIndexes: [], plannedSentenceIndexes: [], insights: [] }));
     const res = await POST(request(validBody));
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe('no_relevant_sentences');
   });
 
   it('相談文から文が取れなければ（句点や記号だけなど）AIを呼ばずに拒否する', async () => {
@@ -146,7 +147,8 @@ describe('STAGE5 社内共有の入力案の作成API', () => {
     const sent = (mockCreate.mock.calls[0][0] as { messages: Array<{ content: string }> }).messages;
     expect(sent[0].content).toContain('書き換えない');
     expect(sent[0].content).toContain('他の人の個人情報');
-    expect(sent[0].content).toContain('不安、焦り、不満、違和感');
+    expect(sent[0].content).toContain('不安・焦り・不満・違和感');
+    expect(sent[0].content).toContain('本人の本音を省かない');
     expect(sent[0].content).not.toContain('個人的な悩み');
     expect(sent[1].content).toContain(`[0] ${SENT_0}`);
     expect(sent[1].content).toContain(`[1] 人手も足りないし、正直、このままでいいのか不安です。`);

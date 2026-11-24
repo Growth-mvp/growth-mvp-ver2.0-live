@@ -7,7 +7,7 @@ import { getAuthUserIdFromBearer, requireMembership, assertCompanyScopeByStrateg
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { logAuditEvent } from '@/lib/server/auditLog';
 import { loadExecutionScope, parseExecutionInput } from '@/lib/ceoChat/executionScope';
-import { buildConsultDraft, formatConsultDraft, splitSentences } from '@/lib/stage5/consultDraft';
+import { buildConsultDraft, consultSelectionSchema, formatConsultDraft, splitSentences } from '@/lib/stage5/consultDraft';
 import { buildConsultDraftUserPrompt, CONSULT_DRAFT_SYSTEM_PROMPT } from '@/lib/stage5/consultDraftPrompt';
 
 export const runtime = 'nodejs';
@@ -88,9 +88,12 @@ export async function POST(req: Request) {
     } catch {
       json = null;
     }
+    if (!consultSelectionSchema.safeParse(json).success) {
+      return NextResponse.json({ error: 'draft_invalid' }, { status: 502 });
+    }
     const draft = buildConsultDraft({ question: body.question, selection: json });
     if (!draft) {
-      return NextResponse.json({ error: 'draft_invalid' }, { status: 502 });
+      return NextResponse.json({ error: 'no_relevant_sentences' }, { status: 422 });
     }
 
     await logAuditEvent({

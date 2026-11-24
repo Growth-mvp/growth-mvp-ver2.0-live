@@ -51,7 +51,7 @@ export function buildConsultDraft(args: { question: string; selection: unknown }
 export function formatConsultDraft(d: ConsultDraft): string {
   const parts = [`【私が困っていること】\n${d.ownWords.join('')}`];
   if (d.insights.length > 0) {
-    parts.push(`【相談して気づいたこと】\n${d.insights.map((i) => `・${i}`).join('\n')}`);
+    parts.push(`【相談して気づいたこと（AIの補足）】\n${d.insights.map((i) => `・${i}`).join('\n')}`);
   }
   if (d.plannedActions.length > 0) {
     parts.push(`【これから試したいこと】\n${d.plannedActions.join('')}`);

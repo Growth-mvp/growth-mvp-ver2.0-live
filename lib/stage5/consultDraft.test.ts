@@ -41,15 +41,15 @@ describe('AIが選んだ文番号から、本人の言葉を原文のまま取�
 });
 
 describe('AIの整理は、本人の言葉とは別の補足として扱う', () => {
-  it('気づきは【相談して気づいたこと】に分け、本人の言葉には混ぜない', () => {
+  it('気づきは【相談して気づいたこと（AIの補足）】に分け、本人の言葉には混ぜない', () => {
     const d = buildConsultDraft({
       question: Q,
       selection: { ownSentenceIndexes: [0], plannedSentenceIndexes: [], insights: ['人手の問題と、配達順の問題を分けて見る見方もできます。'] },
     });
     const text = formatConsultDraft(d!);
     expect(text).toContain('【私が困っていること】\n最近、朝の配達が間に合わなくて焦っています。');
-    expect(text).toContain('【相談して気づいたこと】\n・人手の問題と、配達順の問題を分けて見る見方もできます。');
-    expect(text.indexOf('【相談して気づいたこと】')).toBeGreaterThan(text.indexOf('【私が困っていること】'));
+    expect(text).toContain('【相談して気づいたこと（AIの補足）】\n・人手の問題と、配達順の問題を分けて見る見方もできます。');
+    expect(text.indexOf('【相談して気づいたこと（AIの補足）】')).toBeGreaterThan(text.indexOf('【私が困っていること】'));
   });
 
   it('本人が試したいと述べた文だけを【これから試したいこと】に入れる。選ばれていなければ見出しも出さない', () => {
