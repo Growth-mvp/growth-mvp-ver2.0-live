@@ -19,6 +19,7 @@ const rows: ScenarioRow[] = [
     stateLabel: '草案（未採用）',
     estimate,
     overlapNote: null,
+    registeredInvestYen: null,
   },
   {
     deptName: '営業部',
@@ -26,6 +27,7 @@ const rows: ScenarioRow[] = [
     projectId: 'p-2',
     stateLabel: '採用済み（正式な計画には未反映）',
     estimate: { status: 'NOT_CALCULATED', reason: 'x', params: [] },
+    registeredInvestYen: 50_000_000,
     overlapNote: 'STAGE3の業績インパクトと同じ効果の可能性があるため、合計には含めていない',
   },
 ];

@@ -117,7 +117,7 @@ export function companyBarsOf(args: {
       label: '目標',
       periodLabel: dueYear === null ? '目標年度なし' : `${dueYear}年度`,
       yen: targetYen,
-      unknownText: targetYen === null ? '経営目標が未登録' : dueYear === null ? '目標年度が未登録' : null,
+      unknownText: targetYen === null ? '経営目標が未登録（STAGE2の業績目標で入力）' : dueYear === null ? '目標年度が未登録（STAGE2の業績目標で入力）' : null,
       note: null,
     },
   ];

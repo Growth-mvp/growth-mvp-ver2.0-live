@@ -25,6 +25,7 @@ import {
   cleanupExpiredCache,
 } from '@/utils/stage1/importers/cache';
 import { parseCSV, parseExcel, detectFileType, type ExtractedTable } from '@/utils/stage1/importers/excelCsvImporter';
+import { nonYenUnitOfLabel } from '@/utils/finance/financeInputUnits';
 import {
   extractProfileFromPages,
   extractProfileFromTable,
@@ -298,7 +299,7 @@ function detectLongColumns(headers: string[]): {
   kindIdx: number;
   segIdx: number;
   yearIdx: number;
-  fieldCols: Array<{ col: number; key: string }>;
+  fieldCols: Array<{ col: number; key: string; unit?: string }>;
 } | null {
   const lower = headers.map((h) => normalizeHeaderKey(h));
 
@@ -315,7 +316,7 @@ function detectLongColumns(headers: string[]): {
 
   if (kindIdx < 0 || yearIdx < 0 || segIdx < 0) return null;
 
-  const fieldCols: Array<{ col: number; key: string }> = [];
+  const fieldCols: Array<{ col: number; key: string; unit?: string }> = [];
   for (let i = 0; i < headers.length; i++) {
     if (i === kindIdx || i === yearIdx || i === segIdx) continue;
     const hRaw = normalizeText(headers[i]);
@@ -325,7 +326,7 @@ function detectLongColumns(headers: string[]): {
     const kPl = PL_ITEM_MAP[norm] || PL_ITEM_MAP[norm.toLowerCase()];
     const kBs = BS_ITEM_MAP[norm] || BS_ITEM_MAP[norm.toLowerCase()];
     const key = kPl || kBs || hRaw;
-    fieldCols.push({ col: i, key });
+    fieldCols.push({ col: i, key, unit: nonYenUnitOfLabel(hRaw) });
   }
 
   return { kindIdx, segIdx, yearIdx, fieldCols };
@@ -415,10 +416,12 @@ function buildCandidatesFromCsvFallback(
       // 以前は segmentPL/segmentBS に限定していたため、全社が候補化されないバグになっていた
 
       const fields: Record<string, number> = {};
+      const fieldUnits: Record<string, string> = {};
       for (const fc of long.fieldCols) {
         const v = toNum(r[fc.col]);
         if (v === undefined) continue;
         fields[fc.key] = v;
+        if (fc.unit) fieldUnits[fc.key] = fc.unit;
       }
       if (Object.keys(fields).length === 0) continue;
 
@@ -429,6 +432,7 @@ function buildCandidatesFromCsvFallback(
         fields: fields as any,
         confidence: 0.98 as any,
         source: filename as any,
+        ...(Object.keys(fieldUnits).length > 0 ? { fieldUnits } : {}),
       } as any);
     }
 

@@ -160,7 +160,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-fetch',
     screenIds: ['stage1'],
     label: '候補を取得',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 390 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 394 },
     purpose:
       '会社名または証券コード（4桁）から、公開資料（有価証券報告書）の企業情報・業種・直近5期の財務・事業セグメントの候補を作る。候補を作るだけで、入力欄は変わらない。AI経営コンサルタントに「〇〇の基本情報を入力して」と依頼しても、同じ候補を作れる（結果はチャットに出る）。',
     steps: [
@@ -183,7 +183,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-approve',
     screenIds: ['stage1'],
     label: '承認して反映・保存',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 606 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 610 },
     purpose:
       '候補の内容を入力欄へ反映し、そのまま戦略データを保存する。完了は保存できたことを確認してから表示し、AI経営コンサルタントのチャットに、反映した項目・残した項目・未取得の項目を報告する。',
     steps: [
@@ -200,7 +200,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-review',
     screenIds: ['stage1'],
     label: '候補を確認・承認・保存',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 420 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 424 },
     purpose:
       'AI経営コンサルタントのチャット（Webから会社情報を取得・資料を添付）や公開資料から作った候補を、出典と確認日を見ながら確認し、必要な値を直してから承認する。承認するまで入力欄は変わらない。',
     steps: [
@@ -217,7 +217,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 151 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 152 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -240,7 +240,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1026 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1061 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -265,7 +265,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-ot',
     screenIds: ['stage2'],
     label: 'AIで機会・脅威を提案',
-    source: { file: 'app/stage2/page.tsx', line: 4105 },
+    source: { file: 'app/stage2/page.tsx', line: 4106 },
     purpose: '会社情報からSWOTの機会・脅威の候補をAIで提案する。',
     steps: ['「入力」タブを開く', '「SWOT分析」欄を確認する', '「AIで機会・脅威を提案」を押す'],
     conditions: '管理者のみ有効。実行中は無効',
@@ -276,7 +276,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-draft',
     screenIds: ['stage2'],
     label: 'たたき台を生成',
-    source: { file: 'app/stage2/page.tsx', line: 4125 },
+    source: { file: 'app/stage2/page.tsx', line: 4126 },
     purpose: '論点・MVV・SWOTなどから、ストーリーの下書き（4章）を生成する。',
     steps: [
       '「入力」タブで経営者の思い、MVV、業績目標、SWOT分析を入力する',
@@ -290,7 +290,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.deep-dive',
     screenIds: ['stage2'],
     label: 'AIともう一段掘り下げる',
-    source: { file: 'app/stage2/page.tsx', line: 1984 },
+    source: { file: 'app/stage2/page.tsx', line: 1985 },
     purpose: '対象の4問について、AIが追加の質問を1つ出す。',
     steps: [
       '「戦略議論」タブを開く',
@@ -306,7 +306,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.add-company-target',
     screenIds: ['stage2'],
     label: '+ 新規メトリクスを追加',
-    source: { file: 'app/stage2/page.tsx', line: 1389 },
+    source: { file: 'app/stage2/page.tsx', line: 1390 },
     purpose: '業績目標（売上・営業利益など）を1件追加する。',
     steps: [
       '「入力」タブの「業績目標」を開く',
@@ -321,7 +321,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.edit-final-document',
     screenIds: ['stage2'],
     label: '本文を編集する',
-    source: { file: 'app/stage2/page.tsx', line: 4276 },
+    source: { file: 'app/stage2/page.tsx', line: 4277 },
     purpose: '最終ストーリーの章本文を直接編集し、保存する。',
     steps: ['「最終確定」タブを開く', '「本文を編集する」を押す', '章本文を編集し「保存」を押す'],
     conditions: '管理者のみ。読み取り専用のときは表示されない',
@@ -332,7 +332,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-final',
     screenIds: ['stage2'],
     label: '経営戦略を生成',
-    source: { file: 'app/stage2/page.tsx', line: 4214 },
+    source: { file: 'app/stage2/page.tsx', line: 4215 },
     purpose: '4章の最終ストーリーを生成し、結論を作る。',
     steps: ['「戦略議論」タブでたたき台を生成する', '必要に応じて論点に回答する', '「経営戦略を生成」を押す'],
     conditions:
@@ -344,7 +344,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.commit-final-strategy',
     screenIds: ['stage2'],
     label: '全社戦略を確定し、STAGE3へ引き渡す',
-    source: { file: 'app/stage2/page.tsx', line: 4467 },
+    source: { file: 'app/stage2/page.tsx', line: 4468 },
     purpose: '最終ストーリーを確定し、STAGE3への引き渡しデータを作る。',
     steps: [
       '「最終確定」タブで内容を確認する',
@@ -551,12 +551,12 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage4.add-investment',
     screenIds: ['stage4'],
     label: '+ 投資・追加費用を追加',
-    source: { file: 'components/okr/execution-plan/Stage4InvestmentInput.tsx', line: 278 },
+    source: { file: 'components/okr/execution-plan/Stage4InvestmentInput.tsx', line: 281 },
     purpose: 'プロジェクトの設備投資・追加費用・追加の人員を入力する。',
     steps: [
       '計画書の投資・追加費用の欄で「+ 投資・追加費用を追加」を押す',
-      '項目と金額（または人数）を入力する',
-      '保存済みの行は「編集」「削除」で直せる',
+      '項目と金額（または人数）を入力する。支出形態で「一時支出」を選んだ場合は、支出年月も入力する（入力しないと保存されません）',
+      '保存済みの行は「編集」「削除」で直せる（実行開始後は閲覧のみ。「財務効果を設定する（STAGE6へ反映）」を開くと一覧が出る）',
       '「計画を保存」を押して保存する',
     ],
     conditions: '編集できない状態のときは無効になる（画面の表示に従う）',
@@ -1122,7 +1122,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.manual-save',
     screenIds: [],
     label: '全体保存',
-    source: { file: 'components/GlobalSidebarSaveStatus.tsx', line: 105 },
+    source: { file: 'components/GlobalSidebarSaveStatus.tsx', line: 103 },
     purpose: '戦略データを手動で保存する。',
     steps: ['サイドバー下部の「全体保存」を押す', '保存状態（保存済み、保存中、未保存の変更あり）を確認する'],
     conditions: '保存中は無効',
@@ -1133,7 +1133,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.account-settings',
     screenIds: [],
     label: 'アカウント設定',
-    source: { file: 'components/Sidebar.tsx', line: 249 },
+    source: { file: 'components/Sidebar.tsx', line: 222 },
     purpose: 'パスワード変更などのアカウント設定画面を開く。',
     steps: ['サイドバーの「アカウント設定」を押す'],
     conditions: 'ログイン中のみ表示される',
