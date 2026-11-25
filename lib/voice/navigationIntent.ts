@@ -16,6 +16,7 @@ const NON_NAVIGATION_CUE = /(作って|作成|生成|追加|変更|反映|保存
 const GENERIC_SCREEN_WORD = /(画面|ページ)/;
 const OUT_OF_SCOPE_STAGE = /STAGE\s*[56]|ステージ\s*[56]/i;
 const PLAN_WORD = /(実行計画|OKR|KPI)/i;
+const INPUT_WISH = /入力したい/;
 
 const SCREEN_PATTERNS: ReadonlyArray<{ screenId: VoiceScreenId; pattern: RegExp }> = [
   { screenId: 'stage1', pattern: /STAGE\s*1|ステージ\s*1|会社の現状|企業価値|企業情報|論点/i },
@@ -49,8 +50,21 @@ function buildHref(screenId: VoiceScreenId, params: Record<string, string>): str
 /**
  * 音声・文字の指示が「既存の画面を開く」だけの依頼かを判定する。
  * 該当しない場合は null を返し、通常のAI相談として扱う（保存・生成・編集の指示は対象外）。
+ * 今いる画面の入力について尋ねている場合は、画面を開き直さずAI相談として答える。
  */
-export function resolveVoiceNavigation(text: string, departments: readonly VoiceDepartment[] = []): VoiceNavigation | null {
+export function resolveVoiceNavigation(
+  text: string,
+  departments: readonly VoiceDepartment[] = [],
+  currentPathname: string | null = null,
+): VoiceNavigation | null {
+  const navigation = resolveNavigationTarget(text, departments);
+  if (navigation?.kind === 'navigate' && currentPathname && INPUT_WISH.test(text.trim()) && navigation.href.split('?')[0] === currentPathname) {
+    return null;
+  }
+  return navigation;
+}
+
+function resolveNavigationTarget(text: string, departments: readonly VoiceDepartment[]): VoiceNavigation | null {
   const trimmed = text.trim();
   if (!trimmed || !OPEN_VERB.test(trimmed) || NON_NAVIGATION_CUE.test(trimmed) || OUT_OF_SCOPE_STAGE.test(trimmed)) {
     return null;

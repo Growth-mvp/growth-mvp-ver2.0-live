@@ -5,6 +5,31 @@ const DEPARTMENTS: VoiceDepartment[] = [
   { name: '新聞販売', projects: [{ title: '購読者の維持' }] },
 ];
 
+describe('resolveVoiceNavigation：今いる画面の入力の質問は、AI相談に回す', () => {
+  it('今いる画面の「入力したい」は画面を開かず、AI相談として扱う', () => {
+    expect(resolveVoiceNavigation('STAGE1の会社名を入力したい', DEPARTMENTS, '/stage1')).toBeNull();
+    expect(resolveVoiceNavigation('会社の現状に売上を入力したい', DEPARTMENTS, '/stage1')).toBeNull();
+  });
+
+  it('別の画面を指す「入力したい」は、従来どおり画面を開く', () => {
+    expect(resolveVoiceNavigation('経営者の思いを入力したい', DEPARTMENTS, '/stage1')).toEqual(
+      expect.objectContaining({ kind: 'navigate', href: '/stage2' }),
+    );
+  });
+
+  it('今いる画面の「開いて」は従来どおり画面を開く', () => {
+    expect(resolveVoiceNavigation('STAGE1を開いて', DEPARTMENTS, '/stage1')).toEqual(
+      expect.objectContaining({ kind: 'navigate', href: '/stage1' }),
+    );
+  });
+
+  it('画面が分からないときは、従来どおりの判定にする', () => {
+    expect(resolveVoiceNavigation('STAGE1の会社名を入力したい', DEPARTMENTS)).toEqual(
+      expect.objectContaining({ kind: 'navigate', href: '/stage1' }),
+    );
+  });
+});
+
 describe('resolveVoiceNavigation：画面を開く指示', () => {
   it.each([
     ['会社の現状を分析したい', '/stage1'],

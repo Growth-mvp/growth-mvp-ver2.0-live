@@ -141,6 +141,11 @@ describe('画面の入力・画像に関する案内（OpenAI へ送る指示）
     expect(sent.system).toContain('この項目の直接入力は現在対応していません');
     expect(sent.system).toContain('「私は画面操作ができません」「画面に直接入力できません」といった一律の説明はしない');
   });
+
+  it('製品の概要を聞かれても、STAGE一覧をそのまま並べない指示を含む', async () => {
+    await POST(req(body([{ role: 'user', content: 'GROWTH SHIFTって何ですか？' }])));
+    expect(sentRequest().system).toContain('製品の概要を聞かれても、この一覧をそのまま並べない');
+  });
 });
 
 describe('手動チャット advisor の回答スタイル（OpenAI へ送る最終指示）', () => {

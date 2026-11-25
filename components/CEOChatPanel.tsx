@@ -578,7 +578,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (!userOK) throw new AskFailureError({ kind: 'http', status: 401 });
 
       // 画面を開くだけの指示は、AIを呼ばずに既存の画面へ移動する（データは変更しない）
-      const navigation = resolveVoiceNavigation(trimmed, useStrategyStore.getState().departments as unknown as VoiceDepartment[]);
+      const navigation = resolveVoiceNavigation(trimmed, useStrategyStore.getState().departments as unknown as VoiceDepartment[], pathname ?? null);
       if (navigation) {
         if (navigation.kind === 'clarify') {
           updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: navigation.message }]);
