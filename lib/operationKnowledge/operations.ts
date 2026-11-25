@@ -270,6 +270,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
       '回答方法は「音声＋文字」か「文字のみ」を選ぶ（「音声＋文字」のときだけ、読み上げの速さを選べる）',
       '「聞いています」と表示されたら話す。話し終わると自動で送られ、「考えています」「お答えしています」と表示が変わる',
       '「文字のみ」では回答が文字で表示され、マイクは止まる。次の質問は「次の質問を話す」を押して話す',
+      '同じ会社のSTAGE1〜4の画面を移動しても会話は続く（STAGE以外の画面へ移ると、マイクと読み上げは止まる）',
       '終わりにするときは「会話を終了する」を押す（マイクと読み上げは止まる）。文字で入力したいときは「文字で入力」を選ぶ（会話は止まる）',
     ],
     conditions:
@@ -281,7 +282,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 177 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 178 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -304,7 +305,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1351 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1361 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -1334,7 +1335,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1195 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1205 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

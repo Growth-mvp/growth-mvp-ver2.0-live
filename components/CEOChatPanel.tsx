@@ -49,6 +49,7 @@ import {
 import { speakChunks, stopSpeaking } from '@/lib/voice/browserSpeech';
 import { toSpeakableChunks } from '@/lib/voice/speechText';
 import { useVoiceConversation } from '@/hooks/useVoiceConversation';
+import { keepsVoiceOnPathChange } from '@/lib/voice/conversationScope';
 import { isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
 import { useAutofillStore } from '@/lib/autofill/autofillStore';
 import { runAutofillPipeline } from '@/lib/autofill/client';
@@ -439,12 +440,21 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     applyReplyMode(mode);
     if (user?.id) writeReplyMode(window.localStorage, user.id, mode);
   };
-  // 画面が切り替わったら、マイクと読み上げを止める（会話は再開しない）
+  // 同じ会社のSTAGE1〜4の間では会話を続ける。それ以外の画面へ移るとマイクと読み上げを止める
+  const prevPathnameRef = useRef(pathname);
   useEffect(() => {
+    const from = prevPathnameRef.current;
+    prevPathnameRef.current = pathname;
+    if (from === pathname || keepsVoiceOnPathChange(from, pathname)) return;
     voiceStopRef.current?.('画面が切り替わったため、会話を終了しました。');
     stopSpeaking();
     setSpeaking(false);
   }, [pathname]);
+  useEffect(() => {
+    voiceStopRef.current?.('ログイン中のアカウントが切り替わったため、会話を終了しました。');
+    stopSpeaking();
+    setSpeaking(false);
+  }, [user?.id]);
 
 
   // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
