@@ -1219,7 +1219,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
                 m.role === 'user'
                   ? 'whitespace-pre-wrap bg-zinc-100 text-zinc-900'
                   : greetingBubble(m)
-                    ? 'border border-zinc-200 bg-white text-zinc-900 shadow-sm [&_li]:my-1 [&_ol]:my-2 [&_p]:my-0 [&_p+p]:mt-1 [&_ul]:my-2'
+                    ? 'border border-zinc-200 bg-white text-zinc-900 shadow-sm [&_li]:my-1 [&_ol]:my-2 [&_p]:my-0 [&_p]:leading-normal [&_p+p]:mt-1 [&_ul]:my-2'
                     : 'border border-zinc-200 bg-white text-zinc-900 shadow-sm [&_li]:my-1 [&_ol]:my-2 [&_p+p]:mt-3 [&_ul]:my-2',
               ].join(' ')}
             >
