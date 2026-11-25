@@ -3,7 +3,7 @@
 import type { ExtractedTable } from './excelCsvImporter';
 import type { PdfPageText } from './pdfImporter';
 
-export type ProfileKey = 'companyName' | 'location' | 'employees' | 'businessContent';
+export type ProfileKey = 'companyName' | 'location' | 'employees' | 'businessContent' | 'industry';
 
 export type ProfileFinding = { value: string | number; where: string };
 
@@ -16,12 +16,14 @@ const LABELS: Record<ProfileKey, string[]> = {
   location: ['本店の所在地', '本店所在地', '本社の所在地', '本社所在地', '所在地', '住所'],
   employees: ['常時使用する従業員数', '従業員数'],
   businessContent: ['主要な事業の内容', '事業の内容', '事業内容', '主な事業内容'],
+  industry: ['業種'],
 };
 
 const VALID_LENGTH: Record<Exclude<ProfileKey, 'employees'>, [number, number]> = {
   companyName: [2, 100],
   location: [4, 200],
   businessContent: [2, 2000],
+  industry: [2, 100],
 };
 
 const nfkc = (s: string) => s.normalize('NFKC');
@@ -78,13 +80,31 @@ export function extractProfileFromTable(table: ExtractedTable, where: string): D
 }
 
 /** PDFの本文から、「ラベル 値」「ラベル：値」の行を読む */
+const BUSINESS_SECTION_HEADING = /^\d+\.\s*事業の概要$/;
+const NUMBERED_HEADING = /^\d+\.\s/;
+
+/** PDFの本文から、「ラベル 値」「ラベル：値」の行を読む。「N. 事業の概要」の節は、次の見出しまでを事業内容とする */
 export function extractProfileFromPages(pages: ReadonlyArray<Pick<PdfPageText, 'pageNumber' | 'text'>>, fileName: string): DocumentProfile {
   const profile: DocumentProfile = {};
   for (const page of pages) {
     const where = `${fileName}（${page.pageNumber}ページ）`;
+    let section: string[] | null = null;
+    const closeSection = () => {
+      if (section && section.length > 0) accept(profile, 'businessContent', section.join('\n'), where);
+      section = null;
+    };
     for (const raw of page.text.split('\n')) {
       const line = nfkc(raw).trim();
       if (!line) continue;
+      if (BUSINESS_SECTION_HEADING.test(line)) {
+        closeSection();
+        section = [];
+        continue;
+      }
+      if (section !== null) {
+        if (NUMBERED_HEADING.test(line)) closeSection();
+        else (section as string[]).push(line);
+      }
       for (const k of Object.keys(LABELS) as ProfileKey[]) {
         for (const label of LABELS[k]) {
           const m = new RegExp(`^${escapeRe(label)}(?:[（(][^）)]*[）)])?\\s*[:：]?\\s*(.+)$`).exec(line);
@@ -92,6 +112,7 @@ export function extractProfileFromPages(pages: ReadonlyArray<Pick<PdfPageText, '
         }
       }
     }
+    closeSection();
   }
   return profile;
 }

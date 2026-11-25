@@ -150,7 +150,13 @@ describe('資料から候補を作る（単位の換算・連結単体・事業�
     ]);
     if (r.status !== 'FOUND') throw new Error('expected FOUND');
     expect(r.candidate.segments?.periodEnd).toBe('2025');
-    expect(r.candidate.segments?.items).toEqual([{ name: '金属缶事業', memberCode: '金属缶事業', sales: 500_000, operatingIncome: 20_000 }]);
+    expect(r.candidate.segments?.items).toEqual([
+      expect.objectContaining({ name: '金属缶事業', memberCode: '金属缶事業', sales: 500_000, operatingIncome: 20_000 }),
+    ]);
+    expect(r.candidate.segments?.items[0].byYear).toEqual([
+      { year: 2024, sales: 1_000, operatingIncome: undefined },
+      { year: 2025, sales: 500_000, operatingIncome: 20_000 },
+    ]);
   });
 
   it('会社案内の基本情報（会社名・所在地・従業員数・事業内容）を、資料の記載どおりに候補にする', () => {

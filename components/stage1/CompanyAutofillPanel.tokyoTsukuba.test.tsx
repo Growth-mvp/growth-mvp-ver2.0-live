@@ -98,6 +98,11 @@ describe('東つくば地域サービスの資料（千円表記）：承認→�
     expect((s.financeBS as any[]).some((r) => r.year !== 2026 && r.totalAssets !== undefined)).toBe(false);
     expect((s.businessSegments as any[]).map((b) => b.name)).toEqual(['新聞販売・配達', '宅配', 'フィットネス']);
     expect((s.businessSegments as any[]).map((b) => b.revenue)).toEqual([122, 28, 22]);
+    expect((s.financeBS as any[]).find((r) => r.year === 2026)).toMatchObject({ cash: 12_000_000, interestBearingDebt: 23_000_000 });
+    expect((s.segmentPL['宅配'] as any[]).find((r) => r.year === 2025)).toMatchObject({ revenue: 21_000_000, operatingIncome: 1_500_000 });
+    expect((s.segmentPL['フィットネス'] as any[]).map((r) => r.revenue)).toEqual([0, 4_000_000, 11_000_000, 16_500_000, 22_000_000]);
+    expect(s.businessContent).toContain('新聞販売・配達事業');
+    expect(s.industry).toBe('');
     first.unmount();
 
     setStore(BLANK);
@@ -107,5 +112,19 @@ describe('東つくば地域サービスの資料（千円表記）：承認→�
     expect(screen.queryByRole('button', { name: APPROVE })).toBeNull();
     expect((useStrategyStore.getState() as any).companyName).toBe('株式会社東つくば地域サービス');
     expect(((useStrategyStore.getState() as any).financePL as any[]).find((r) => r.year === 2026)).toMatchObject({ revenue: 172_000_000 });
+  });
+
+  it('登録中の値と違う年度は、上書きを選ぶまで変えず、空いている項目だけを反映する', async () => {
+    setStore({ ...BLANK, financePL: [{ year: 2024, revenue: 999 }] });
+    setPending(tokyoTsukubaCandidate());
+    render(<CandidatePanel />);
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toBeTruthy());
+    expect(screen.getByText(/登録中 999円/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: DOC_CONFIRM }));
+    fireEvent.click(screen.getByRole('button', { name: APPROVE }));
+    await waitFor(() => expect(screen.getByText('反映し、保存しました')).toBeTruthy());
+
+    const s = useStrategyStore.getState() as any;
+    expect(s.financePL.find((r: any) => r.year === 2024)).toMatchObject({ revenue: 999, operatingIncome: 3_400_000 });
   });
 });

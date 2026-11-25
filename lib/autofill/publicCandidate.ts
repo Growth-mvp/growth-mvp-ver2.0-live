@@ -4,7 +4,7 @@ import type { Stage1ImportCandidate } from '@/types/strategy';
 import type { DocumentProfile } from '@/utils/stage1/importers/profileExtract';
 import { consolidationOfSource, mergeProfiles } from '@/utils/stage1/importers/profileExtract';
 import type { FieldCandidate, SourceRef, Consolidation } from './companyCandidates';
-import { BUSINESS_CONTENT_MAX, type ApplicableCandidate, type FinanceKey, type FinanceYearCandidate, type SegmentItemCandidate } from './filingCandidates';
+import { BUSINESS_CONTENT_MAX, type ApplicableCandidate, type FinanceKey, type FinanceYearCandidate, type SegmentItemCandidate, type SegmentYearCandidate } from './filingCandidates';
 import { normalizeCompanyName } from './edinetIdentify';
 import { mapEdinetIndustry } from './industryMap';
 
@@ -22,7 +22,7 @@ const SINGLE_VALUE_LABELS = ['会社名', '所在地', '業種', '従業員数']
 const BUSINESS_LABELS = ['事業内容', '主要商品・サービス', '事業展開地域'] as const;
 const FINANCE_SOURCE_KEYS: Record<'companyPL' | 'companyBS', FinanceKey[]> = {
   companyPL: ['revenue', 'operatingIncome', 'netIncome'],
-  companyBS: ['totalAssets', 'netAssets'],
+  companyBS: ['totalAssets', 'netAssets', 'cash', 'interestBearingDebt'],
 };
 const YEN_FACTOR: Readonly<Record<string, number>> = { 円: 1, 千円: 1_000, 百万円: 1_000_000 };
 const LOW_CONFIDENCE = 0.7;
@@ -200,6 +200,18 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
     segmentItems.push({ name, memberCode: name, sales, operatingIncome: op });
     sources.push(docSource(c.source ?? '資料', args.fetchedAt));
   }
+  for (const item of segmentItems) {
+    const byYear: SegmentYearCandidate[] = [];
+    for (const c of segmentRows.filter((r) => (r.segmentName as string).trim() === item.name)) {
+      const year = c.year as number;
+      if (byYear.some((y) => y.year === year)) continue;
+      const sales = convertField(c, 'revenue', unitsConverted, unitsUnsupported, unitsUnconfirmed);
+      const operatingIncome = convertField(c, 'operatingIncome', unitsConverted, unitsUnsupported, unitsUnconfirmed);
+      if (sales === undefined && operatingIncome === undefined) continue;
+      byYear.push({ year, sales, operatingIncome });
+    }
+    item.byYear = byYear.sort((a, b) => a.year - b.year);
+  }
   const segments = segmentItems.length > 0 ? { periodEnd: latestSegmentYear === null ? null : String(latestSegmentYear), items: segmentItems, issues: [] } : null;
 
   const merged = mergeProfiles(args.profiles);
@@ -219,6 +231,11 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
   if (merged.employees) {
     profileExtra.employees = { value: Number(merged.employees.value), source: docSource(merged.employees.where, args.fetchedAt), fiscalYear: null, consolidation: 'UNKNOWN' };
   }
+  if (merged.industry) {
+    const mapped = mapEdinetIndustry(String(merged.industry.value));
+    if (mapped.status === 'MAPPED') profileExtra.industry = { value: mapped.value, source: docSource(merged.industry.where, args.fetchedAt), fiscalYear: null, consolidation: 'NOT_APPLICABLE' };
+    else issues.push(`業種「${merged.industry.value}」はSTAGE1の業種区分に対応付けられなかったため、未入力のまま`);
+  }
   if (merged.businessContent) {
     profileExtra.businessContent = {
       value: String(merged.businessContent.value),
@@ -231,6 +248,7 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
     if (finding) sources.push(docSource(fileOfWhere(finding.where), args.fetchedAt));
   }
 
+  if (args.candidates.some((c) => c.fields.equity !== undefined)) issues.push('株主資本は純資産と別の項目のため、取り込んでいません（純資産の欄には入れていません）');
   if (unitsUnsupported.size > 0) issues.push(`対応していない単位（${[...unitsUnsupported].filter(Boolean).join('、')}）の金額は取り込んでいません（円・千円・百万円のみ換算します）`);
   if (unitsConverted.size > 0) issues.push(`単位を換算して円で取り込みました：${[...unitsConverted].join('、')}`);
   if (unitsUnconfirmed.size > 0) issues.push(`金額の単位が明示されていない資料（${[...unitsUnconfirmed].join('、')}）は、円単位で記載されていることを承認前に確認してください`);

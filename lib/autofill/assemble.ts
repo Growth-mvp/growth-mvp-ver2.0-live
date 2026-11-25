@@ -6,6 +6,7 @@ import type { SegmentExtract } from './segments';
 import { mapEdinetIndustry } from './industryMap';
 import {
   BUSINESS_CONTENT_MAX,
+  BS_FINANCE_KEYS,
   FINANCE_KEYS,
   FINANCE_LABEL,
   type FilingCandidate,
@@ -90,7 +91,7 @@ export function buildMultiYearCandidate(args: { filer: FilerInfo; reports: Repor
   // 年度ごとの値：最も新しい書類で値がある年度を採る（食い違いは注意に残す）
   const finance = new Map<number, FinanceYearCandidate>();
   const valueOf = (r: ReportExtract, year: number, k: FinanceKey): number | undefined => {
-    const table: FiscalYearPoint[] = k === 'totalAssets' || k === 'netAssets' ? r.facts.bs : r.facts.pl;
+    const table: FiscalYearPoint[] = BS_FINANCE_KEYS.includes(k) ? r.facts.bs : r.facts.pl;
     const p = table.find((x) => x.year === year);
     return p ? (p as unknown as Record<string, number | undefined>)[k] : undefined;
   };

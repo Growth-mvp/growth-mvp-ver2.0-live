@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import type { FinancePLRow } from '@/types/strategy';
 import { openCeoChatRequest, updateCeoChatMessages, useCeoChatStore } from '@/store/ceoChatStore';
 import { supabase } from '@/utils/supabase/client';
 import { getIndustryLabel } from '@/utils/industryTemplates';
@@ -11,6 +12,7 @@ import { runAutofillPipeline, type IdentifyCandidate, type PipelineProgress, typ
 import { normalizeCompanyName } from '@/lib/autofill/edinetIdentify';
 import { buildApplyReport, formatApplyReportText, FINANCE_SHORT_LABEL, type ApplyReport } from '@/lib/autofill/applyReport';
 import {
+  BS_FINANCE_KEYS,
   FINANCE_KEYS,
   PROFILE_KEYS,
   PROFILE_LABEL,
@@ -39,11 +41,11 @@ const ERROR_TEXT: Record<string, string> = {
 };
 
 const DISPLAY_TEXT_MAX = 60;
-const toMillion = (v: number) => Math.round(v / 1_000_000);
-const millionText = (v: number | undefined) =>
-  v === undefined ? '未取得' : Math.abs(v) < 1_000_000 ? `${v.toLocaleString('ja-JP')}円` : toMillion(v).toLocaleString('ja-JP');
+/** 候補の金額は円のまま、桁区切りで表示する（丸めると原本と照合できないため） */
+const yenText = (v: number | undefined) => (v === undefined ? '未取得' : `${v.toLocaleString('ja-JP')}円`);
 
 type RowStatus = 'empty' | 'same' | 'differs' | 'none';
+type SegmentPLCell = { value: number; registered?: number; status: RowStatus };
 
 const isPublic = (c: AutofillCandidate): c is PublicCandidate => 'origin' in c;
 
@@ -110,7 +112,7 @@ function profileStatus(k: ProfileKey, cand: string, cur: string): RowStatus {
 type ExistingYearRow = { year: number };
 
 function existingFinance(year: number, k: FinanceKey, pl: ReadonlyArray<ExistingYearRow>, bs: ReadonlyArray<ExistingYearRow>): number | undefined {
-  const table = k === 'totalAssets' || k === 'netAssets' ? bs : pl;
+  const table = BS_FINANCE_KEYS.includes(k) ? bs : pl;
   const row = table.find((r) => r.year === year) as unknown as Record<string, unknown> | undefined;
   const v = row?.[k];
   return typeof v === 'number' ? v : undefined;
@@ -128,7 +130,7 @@ function financeYearViews(c: ApplicableCandidate, pl: ReadonlyArray<ExistingYear
       const cand = y[k];
       if (!cand) continue;
       const registered = existingFinance(y.year, k, pl, bs);
-      const status: RowStatus = registered === undefined ? 'empty' : toMillion(registered) === toMillion(cand.value) ? 'same' : 'differs';
+      const status: RowStatus = registered === undefined ? 'empty' : registered === cand.value ? 'same' : 'differs';
       if (status === 'empty') hasEmpty = true;
       if (status === 'differs') hasDiffers = true;
       cells[k] = { value: cand.value, status, registered };
@@ -164,6 +166,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
   const storedBusiness = useStrategyStore((s) => s.businessContent ?? '');
   const storedIndustry = useStrategyStore((s) => s.industry ?? '');
   const storedSegments = useStrategyStore((s) => s.businessSegments ?? []);
+  const storedSegmentPL = useStrategyStore((s) => s.segmentPL ?? {});
   const financePL = useStrategyStore((s) => s.financePL ?? []);
   const financeBS = useStrategyStore((s) => s.financeBS ?? []);
   const pending = useAutofillStore((s) => s.pending);
@@ -231,13 +234,27 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
     const segKept = (candidate.segments?.items.some((i) => i.name) ?? false) && storedSegments.length > 0;
     const profileTargets = profile.filter((r) => r.status === 'empty' || r.status === 'differs').map((r) => r.key);
     const yearTargets = years.filter((y) => y.hasEmpty || y.hasDiffers).map((y) => y.year);
+    const candidateSegNames = (candidate.segments?.items ?? []).flatMap((i) => (i.name ? [i.name] : []));
+    const segPlNames = segNew ? candidateSegNames : candidateSegNames.filter((n) => storedSegments.some((s) => s.name === n));
+    const segPl = segPlNames.flatMap((name) => {
+      const item = candidate.segments?.items.find((i) => i.name === name);
+      return (item?.byYear ?? []).map((y) => {
+        const row = (storedSegmentPL[name] ?? []).find((r) => r.year === y.year);
+        const cell = (value: number | undefined, registered: number | undefined): SegmentPLCell | undefined =>
+          value === undefined ? undefined : { value, registered, status: registered === undefined ? 'empty' : registered === value ? 'same' : 'differs' };
+        return { name, year: y.year, revenue: cell(y.sales, row?.revenue), operatingIncome: cell(y.operatingIncome, row?.operatingIncome) };
+      });
+    });
+    const segPlHasEmpty = segPl.some((r) => [r.revenue, r.operatingIncome].some((c) => c?.status === 'empty'));
+    const segPlOverwrite = segPl.some((r) => [r.revenue, r.operatingIncome].some((c) => c?.status === 'differs') && overYears.includes(r.year));
     const applyCount =
       profile.filter((r) => r.status === 'empty' || (r.status === 'differs' && overProfile.includes(r.key))).length +
       years.filter((y) => y.hasEmpty || (y.hasDiffers && overYears.includes(y.year))).length +
-      (segNew ? 1 : 0);
+      (segNew ? 1 : 0) +
+      (segPlHasEmpty || segPlOverwrite ? 1 : 0);
     const differCount = profile.filter((r) => r.status === 'differs').length + years.filter((y) => y.hasDiffers).length;
-    return { profile, years, segNew, segKept, profileTargets, yearTargets, applyCount, differCount };
-  }, [candidate, current, financePL, financeBS, storedSegments.length, overProfile, overYears]);
+    return { profile, years, segNew, segKept, profileTargets, yearTargets, applyCount, differCount, segPlNames, segPl };
+  }, [candidate, current, financePL, financeBS, storedSegments, storedSegmentPL, overProfile, overYears]);
 
   if (process.env.NEXT_PUBLIC_STAGE1_AUTOFILL_DISABLED === 'true') return null;
 
@@ -338,6 +355,8 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         selectedSegments: selection.segNew,
         overwriteSegments: false,
         currentSegmentCount: (now.businessSegments ?? []).length,
+        currentSegmentPL: now.segmentPL as Record<string, Array<{ year: number } & Record<string, unknown>>>,
+        segmentPlNames: selection.segPlNames,
       });
 
       const profileWrite: Record<string, unknown> = { ...plan.profilePatch };
@@ -357,6 +376,15 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         if (summary) now.setFinanceSummary(summary as never);
       }
       if (written.bs) now.setFinanceBS(written.bs as never);
+      if (plan.segmentPlPatch) {
+        const merged: Record<string, FinancePLRow[]> = { ...(useStrategyStore.getState().segmentPL ?? {}) };
+        for (const [name, rows] of Object.entries(plan.segmentPlPatch)) {
+          const byYear = new Map<number, FinancePLRow>((merged[name] ?? []).map((r) => [r.year, r]));
+          for (const r of rows) byYear.set(r.year, { ...byYear.get(r.year), ...r } as FinancePLRow);
+          merged[name] = [...byYear.values()].sort((a, b) => a.year - b.year);
+        }
+        now.setSegmentPL(merged, Object.keys(plan.segmentPlPatch));
+      }
 
       const res = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:autofill-approve' });
       if (!res.ok) {
@@ -496,7 +524,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
 
           {selection.years.length > 0 ? (
             <>
-              <div className="font-medium">財務（直近5期・百万円）</div>
+              <div className="font-medium">財務（直近5期・円）</div>
               <div className="overflow-x-auto">
                 <table className="w-full whitespace-nowrap">
                   <thead>
@@ -520,8 +548,8 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
                             <td key={k} className="py-1 pr-3 text-right tabular-nums">
                               {cell ? (
                                 <>
-                                  {millionText(cell.value)}
-                                  {cell.status === 'differs' ? <div className="text-bluegray-deep">登録中 {millionText(cell.registered)}</div> : null}
+                                  {yenText(cell.value)}
+                                  {cell.status === 'differs' ? <div className="text-bluegray-deep">登録中 {yenText(cell.registered)}</div> : null}
                                 </>
                               ) : (
                                 <span className="text-slate-400">未取得</span>
@@ -555,17 +583,49 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
             </>
           ) : null}
 
+          {selection.segPl.length > 0 ? (
+            <>
+              <div className="font-medium">事業別PL（直近5期・円）</div>
+              <div className="overflow-x-auto">
+                <table className="w-full whitespace-nowrap">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="py-1 pr-3 font-normal">事業</th>
+                      <th className="py-1 pr-3 font-normal">年度</th>
+                      <th className="py-1 pr-3 text-right font-normal">売上高</th>
+                      <th className="py-1 pr-3 text-right font-normal">営業利益</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selection.segPl.map((r) => (
+                      <tr key={`${r.name}-${r.year}`} className="border-t align-top">
+                        <td className="py-1 pr-3 font-medium">{r.name}</td>
+                        <td className="py-1 pr-3">{r.year}年度</td>
+                        {([r.revenue, r.operatingIncome] as const).map((c, i) => (
+                          <td key={i} className="py-1 pr-3 text-right tabular-nums">
+                            {c ? yenText(c.value) : <span className="text-slate-400">未取得</span>}
+                            {c?.status === 'differs' ? <div className="text-bluegray-deep">登録中 {yenText(c.registered)}</div> : null}
+                            {c?.status === 'same' ? <div className="text-slate-500">登録済みと同じ</div> : null}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
           {selection.segNew && candidate.segments ? (
             <>
-              <div className="font-medium">事業セグメント（百万円）</div>
+              <div className="font-medium">事業セグメント（直近期・円）</div>
               <ul className="space-y-0.5">
                 {candidate.segments.items
                   .filter((s) => s.name)
                   .map((s) => (
                     <li key={s.memberCode} className="flex flex-wrap gap-x-3">
                       <span className="font-medium">{s.name}</span>
-                      <span className="whitespace-nowrap">売上高 {millionText(s.sales)}</span>
-                      <span className="whitespace-nowrap">営業利益 {millionText(s.operatingIncome)}</span>
+                      <span className="whitespace-nowrap">売上高 {yenText(s.sales)}</span>
+                      <span className="whitespace-nowrap">営業利益 {yenText(s.operatingIncome)}</span>
                     </li>
                   ))}
               </ul>
@@ -579,7 +639,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
             <div className="mt-1">
               {isPublic(candidate) ? (
                 <>
-                  <div>取得元（金額は円・表示は百万円に丸め）：</div>
+                  <div>取得元（金額は円で表示）：</div>
                   <ul className="list-disc pl-5">
                     {candidate.sources.map((s) => (
                       <li key={s.source === 'WEB' ? s.url : s.source === 'DOCUMENT' ? s.fileName : s.docId}>{sourceText(s)}</li>
@@ -588,7 +648,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
                 </>
               ) : (
                 <>
-                  取得元：{candidate.filer.name}（EDINET {candidate.filer.edinetCode}）・書類 {candidate.docId}・期末 {candidate.periodEnd ?? '未確認'}・金額の単位は円（表示は百万円に丸め）
+                  取得元：{candidate.filer.name}（EDINET {candidate.filer.edinetCode}）・書類 {candidate.docId}・期末 {candidate.periodEnd ?? '未確認'}・金額の単位は円
                   {candidate.amendedFromDocId ? `・元の書類 ${candidate.amendedFromDocId} より後の訂正を採用` : ''}
                 </>
               )}
@@ -613,6 +673,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
               取り消す
             </button>
             {nothingToApply && !mismatchBlocked ? <span className="text-slate-600">反映する項目はありません（すべて登録済みと同じです）</span> : null}
+            {mismatchBlocked ? <span className="text-caution">上の確認（チェック）を入れると承認できます</span> : null}
           </div>
         </div>
       ) : null}

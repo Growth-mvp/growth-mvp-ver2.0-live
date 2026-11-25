@@ -1,12 +1,12 @@
 /* 財務の反映：store の損益（financePL）と貸借（financeBS）の行を、年度ごとに結び付けて計画を適用し、
  * 変わった配列だけを返す。既存の行や項目は、計画が指定したものだけを変える。 */
-import type { CurrentFinanceRow, FilingApplyPlan, FinanceKey } from './filingCandidates';
+import { BS_FINANCE_KEYS, type CurrentFinanceRow, type FilingApplyPlan, type FinanceKey } from './filingCandidates';
 
 type PlRow = { year: number; revenue?: number | null; operatingIncome?: number | null; netIncome?: number | null } & Record<string, unknown>;
-type BsRow = { year: number; totalAssets?: number | null; netAssets?: number | null } & Record<string, unknown>;
+type BsRow = { year: number; totalAssets?: number | null; netAssets?: number | null; cash?: number | null; interestBearingDebt?: number | null } & Record<string, unknown>;
 
 const PL_KEYS: FinanceKey[] = ['revenue', 'operatingIncome', 'netIncome'];
-const BS_KEYS: FinanceKey[] = ['totalAssets', 'netAssets'];
+const BS_KEYS: FinanceKey[] = BS_FINANCE_KEYS;
 
 export function combineFinance(pl: PlRow[], bs: BsRow[]): CurrentFinanceRow[] {
   const years = new Set<number>([...pl.map((r) => r.year), ...bs.map((r) => r.year)]);
@@ -22,6 +22,8 @@ export function combineFinance(pl: PlRow[], bs: BsRow[]): CurrentFinanceRow[] {
         netIncome: p?.netIncome ?? undefined,
         totalAssets: b?.totalAssets ?? undefined,
         netAssets: b?.netAssets ?? undefined,
+        cash: b?.cash ?? undefined,
+        interestBearingDebt: b?.interestBearingDebt ?? undefined,
       };
     });
 }

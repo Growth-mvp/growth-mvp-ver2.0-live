@@ -4,6 +4,7 @@ import type { FilingApplyPlan } from './filingCandidates';
 const emptyPlan = (over: Partial<FilingApplyPlan>): FilingApplyPlan => ({
   segmentsPatch: null,
   segmentsSkipped: null,
+  segmentPlPatch: null,
   profilePatch: {},
   profileApplied: [],
   profileSkipped: [],

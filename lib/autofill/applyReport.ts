@@ -9,6 +9,8 @@ export const FINANCE_SHORT_LABEL: Record<FinanceKey, string> = {
   netIncome: '純利益',
   totalAssets: '総資産',
   netAssets: '純資産',
+  cash: '現預金',
+  interestBearingDebt: '有利子負債',
 };
 
 const FILL_TARGETS: Array<{ label: string; missing: (c: ApplicableCandidate) => boolean }> = [
@@ -30,6 +32,11 @@ export function buildApplyReport(args: { plan: FilingApplyPlan; candidate: Appli
     applied.push(`財務：${years.join('・')}年度`);
   }
   if (plan.segmentsPatch) applied.push(`事業セグメント：${plan.segmentsPatch.length}件`);
+  if (plan.segmentPlPatch) {
+    const names = Object.keys(plan.segmentPlPatch).length;
+    const years = [...new Set(Object.values(plan.segmentPlPatch).flat().map((r) => r.year))].sort((a, b) => a - b);
+    applied.push(`事業別PL：${names}事業（${years.join('・')}年度）`);
+  }
 
   const keptProfile = plan.profileSkipped.filter((s) => s.reason === 'already_filled').map((s) => PROFILE_LABEL[s.key]);
   if (keptProfile.length > 0) kept.push(`登録済みのため変えていない企業情報：${keptProfile.join('、')}`);

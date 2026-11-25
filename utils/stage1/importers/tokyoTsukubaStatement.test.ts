@@ -56,4 +56,33 @@ describe('架空企業の財務PDF（千円表記）の読み取り', () => {
     const c = documentCandidate();
     expect(c.issues.some((m) => m.includes('千円→円'))).toBe(true);
   });
+
+  it('事業別PLは3事業の過去5期すべてを、円で持つ', () => {
+    const c = documentCandidate();
+    const fitness = c.segments?.items.find((i) => i.name === 'フィットネス');
+    expect(fitness?.byYear).toEqual([
+      { year: 2022, sales: 0, operatingIncome: 0 },
+      { year: 2023, sales: 4_000_000, operatingIncome: -2_500_000 },
+      { year: 2024, sales: 11_000_000, operatingIncome: -1_000_000 },
+      { year: 2025, sales: 16_500_000, operatingIncome: 500_000 },
+      { year: 2026, sales: 22_000_000, operatingIncome: 1_700_000 },
+    ]);
+    expect(c.segments?.items.map((i) => i.byYear?.length)).toEqual([5, 5, 5]);
+  });
+
+  it('現預金と有利子負債を、基準日の年度の貸借対照表に読む', () => {
+    const c = documentCandidate();
+    const latest = c.finance.find((y) => y.year === 2026);
+    expect(latest?.cash?.value).toBe(12_000_000);
+    expect(latest?.interestBearingDebt?.value).toBe(23_000_000);
+    expect(c.finance.filter((y) => y.year !== 2026).every((y) => y.cash === undefined && y.interestBearingDebt === undefined)).toBe(true);
+  });
+
+  it('事業の概要の節を事業内容として読み、業種は単一の区分に決められないため入れない', () => {
+    const c = documentCandidate();
+    expect(c.profileExtra.businessContent?.value).toContain('新聞販売・配達事業');
+    expect(c.profileExtra.businessContent?.value).toContain('フィットネス事業');
+    expect(c.profileExtra.industry).toBeUndefined();
+    expect(c.issues.some((m) => m.includes('業種「新聞販売・配達業、宅配事業、フィットネス事業」'))).toBe(true);
+  });
 });

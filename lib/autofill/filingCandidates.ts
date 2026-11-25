@@ -10,6 +10,8 @@ export type FinanceYearCandidate = {
   netIncome?: FieldCandidate<number>;
   totalAssets?: FieldCandidate<number>;
   netAssets?: FieldCandidate<number>;
+  cash?: FieldCandidate<number>;
+  interestBearingDebt?: FieldCandidate<number>;
 };
 
 /** 承認して反映できる候補の共通部分（EDINET・公開情報・資料のいずれからも作れる） */
@@ -36,7 +38,10 @@ export type FilingCandidate = ApplicableCandidate & {
   reports: ReportRef[];
 };
 
-export type SegmentItemCandidate = { name: string | null; memberCode: string; sales?: number; operatingIncome?: number };
+export type SegmentYearCandidate = { year: number; sales?: number; operatingIncome?: number };
+
+/** 事業の名称と、最新期の売上・営業利益（円）。byYear は全期の値（事業別PLの反映に使う） */
+export type SegmentItemCandidate = { name: string | null; memberCode: string; sales?: number; operatingIncome?: number; byYear?: SegmentYearCandidate[] };
 
 export type SegmentsCandidate = {
   periodEnd: string | null;
@@ -47,10 +52,12 @@ export type SegmentsCandidate = {
 export type ReportRef = { docId: string; docTypeCode: string | null; periodEnd: string | null; amendedFromDocId: string | null };
 
 export type ProfileKey = 'companyName' | 'ticker' | 'fiscalYearEnd' | 'isListed' | 'location' | 'employees' | 'businessContent' | 'industry';
-export type FinanceKey = 'revenue' | 'operatingIncome' | 'netIncome' | 'totalAssets' | 'netAssets';
+export type FinanceKey = 'revenue' | 'operatingIncome' | 'netIncome' | 'totalAssets' | 'netAssets' | 'cash' | 'interestBearingDebt';
 
 export const PROFILE_KEYS: ProfileKey[] = ['companyName', 'ticker', 'fiscalYearEnd', 'isListed', 'location', 'employees', 'businessContent', 'industry'];
-export const FINANCE_KEYS: FinanceKey[] = ['revenue', 'operatingIncome', 'netIncome', 'totalAssets', 'netAssets'];
+export const FINANCE_KEYS: FinanceKey[] = ['revenue', 'operatingIncome', 'netIncome', 'totalAssets', 'netAssets', 'cash', 'interestBearingDebt'];
+/** 貸借対照表（時点）の項目。損益と違い、年度の行の BS 側（financeBS）に保存する */
+export const BS_FINANCE_KEYS: FinanceKey[] = ['totalAssets', 'netAssets', 'cash', 'interestBearingDebt'];
 
 export const PROFILE_LABEL: Record<ProfileKey, string> = {
   companyName: '会社名',
@@ -69,6 +76,8 @@ export const FINANCE_LABEL: Record<FinanceKey, string> = {
   netIncome: '親会社株主に帰属する当期純利益',
   totalAssets: '総資産',
   netAssets: '純資産',
+  cash: '現預金',
+  interestBearingDebt: '有利子負債',
 };
 
 export const BUSINESS_CONTENT_MAX = 2000;
@@ -151,9 +160,13 @@ export type CurrentFilingProfile = Record<ProfileKey, string | boolean | undefin
 export type SegmentPatchItem = { name: string; memberCode: string; revenueMillion?: number; profitMillion?: number };
 export type CurrentFinanceRow = { year: number } & Partial<Record<FinanceKey, number | null>>;
 
+export type SegmentPLRowPatch = { year: number; revenue?: number; operatingIncome?: number };
+export type SegmentPLPatch = Record<string, SegmentPLRowPatch[]>;
+
 export type FilingApplyPlan = {
   segmentsPatch: SegmentPatchItem[] | null;
   segmentsSkipped: 'not_selected' | 'no_candidate' | 'already_filled' | null;
+  segmentPlPatch: SegmentPLPatch | null;
   profilePatch: Partial<Record<ProfileKey, string | boolean>>;
   profileApplied: ProfileKey[];
   profileSkipped: Array<{ key: ProfileKey; reason: 'already_filled' | 'no_candidate' }>;
@@ -192,8 +205,13 @@ export function planFilingApply(args: {
   selectedSegments?: boolean;
   overwriteSegments?: boolean;
   currentSegmentCount?: number;
+  /** 登録中の事業別PL（事業の名称ごと）。年度の行を既存の値と比べるために使う */
+  currentSegmentPL?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
+  /** 事業別PLを反映してよい事業の名称（登録中の事業と一致するものだけ） */
+  segmentPlNames?: string[];
 }): FilingApplyPlan {
   const segmentsPlan = planSegments(args);
+  const segmentPlPatch = planSegmentPL(args);
   const profilePatch: FilingApplyPlan['profilePatch'] = {};
   const profileApplied: ProfileKey[] = [];
   const profileSkipped: FilingApplyPlan['profileSkipped'] = [];
@@ -250,6 +268,7 @@ export function planFilingApply(args: {
   return {
     segmentsPatch: segmentsPlan.patch,
     segmentsSkipped: segmentsPlan.skipped,
+    segmentPlPatch,
     profilePatch,
     profileApplied,
     profileSkipped,
@@ -259,7 +278,44 @@ export function planFilingApply(args: {
   };
 }
 
-/** セグメントは、名前が分かるものだけ反映する。売上・利益は百万円（四捨五入）に直す。既存のセグメントがあれば上書きを選んだ時だけ */
+/** 事業別PLの年度ごとの値を、登録中の行に反映する。値が違う年度は、上書きを選んだ年度だけ変える */
+function planSegmentPL(args: {
+  candidate: ApplicableCandidate;
+  currentSegmentPL?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
+  segmentPlNames?: string[];
+  overwriteYears: number[];
+}): SegmentPLPatch | null {
+  const names = args.segmentPlNames ?? [];
+  const patch: SegmentPLPatch = {};
+  for (const item of args.candidate.segments?.items ?? []) {
+    if (!item.name || !names.includes(item.name)) continue;
+    const rows = new Map<number, Record<string, unknown> & { year: number }>();
+    for (const r of args.currentSegmentPL?.[item.name] ?? []) rows.set(r.year, { ...r });
+    let changed = false;
+    for (const y of item.byYear ?? []) {
+      const row = rows.get(y.year) ?? { year: y.year };
+      const values: Array<['revenue' | 'operatingIncome', number | undefined]> = [
+        ['revenue', y.sales],
+        ['operatingIncome', y.operatingIncome],
+      ];
+      for (const [k, v] of values) {
+        if (v === undefined) continue;
+        const existing = row[k];
+        if (typeof existing === 'number') {
+          if (existing === v) continue;
+          if (!args.overwriteYears.includes(y.year)) continue;
+        }
+        row[k] = v;
+        changed = true;
+      }
+      rows.set(y.year, row);
+    }
+    if (changed) patch[item.name] = [...rows.values()].sort((a, b) => a.year - b.year) as SegmentPLRowPatch[];
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** セグメントは、名前が分かるものだけ反映する。売上・利益は百万円（事業部一覧の単位）に換算し、丸めない。既存のセグメントがあれば上書きを選んだ時だけ */
 function planSegments(args: { candidate: ApplicableCandidate; selectedSegments?: boolean; overwriteSegments?: boolean; currentSegmentCount?: number }): {
   patch: SegmentPatchItem[] | null;
   skipped: FilingApplyPlan['segmentsSkipped'];
@@ -268,7 +324,7 @@ function planSegments(args: { candidate: ApplicableCandidate; selectedSegments?:
   const items = (args.candidate.segments?.items ?? []).filter((i) => i.name);
   if (items.length === 0) return { patch: null, skipped: 'no_candidate' };
   if ((args.currentSegmentCount ?? 0) > 0 && !args.overwriteSegments) return { patch: null, skipped: 'already_filled' };
-  const toMillion = (v: number | undefined) => (v === undefined ? undefined : Math.round(v / 1_000_000));
+  const toMillion = (v: number | undefined) => (v === undefined ? undefined : v / 1_000_000);
   return {
     patch: items.map((i) => ({ name: i.name as string, memberCode: i.memberCode, revenueMillion: toMillion(i.sales), profitMillion: toMillion(i.operatingIncome) })),
     skipped: null,
