@@ -1,10 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   motion,
   useAnimationFrame,
   useMotionValue,
+  useReducedMotion,
   useSpring,
   useTransform,
   cubicBezier,
@@ -16,13 +17,19 @@ export interface AbstractCoachAvatarProps {
   size?: number;
   status?: Status;
   className?: string;
+  /** 静止させる（待機中。動きの低減設定のときも静止する） */
+  frozen?: boolean;
 }
 
 export default function AbstractCoachAvatar({
   size = 120,
   status = 'idle',
   className,
+  frozen = false,
 }: AbstractCoachAvatarProps) {
+  const reduceMotion = useReducedMotion();
+  const stillRef = useRef(false);
+  stillRef.current = frozen || !!reduceMotion;
   const easeInOutFn = cubicBezier(0.42, 0, 0.58, 1);
 
   // === 時間・回転 ===
@@ -92,6 +99,7 @@ export default function AbstractCoachAvatar({
 
   // === 時間更新 ===
   useAnimationFrame((_, deltaMs) => {
+    if (stillRef.current) return;
     const dt = Number(deltaMs) / 1000;
     t.set(Number(t.get()) + dt);
     spin.set(Number(spin.get()) + Number(spinDps.get()) * dt);

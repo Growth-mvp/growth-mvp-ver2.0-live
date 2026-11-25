@@ -1,41 +1,13 @@
 export type KeyValueStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 const AUTO_READ_PREFIX = 'growth.ceoVoice.autoRead.v1';
-const SPEECH_RATE_PREFIX = 'growth.ceoVoice.speechRate.v1';
 const REPLY_MODE_PREFIX = 'growth.ceoVoice.replyMode.v1';
 
-export const SPEECH_RATE_OPTIONS = [
-  { key: 'standard', label: '標準', rate: 1.0 },
-  { key: 'fast', label: '速め', rate: 1.3 },
-  { key: 'faster', label: '高速', rate: 1.5 },
-] as const;
-
-export type SpeechRateKey = (typeof SPEECH_RATE_OPTIONS)[number]['key'];
-export const DEFAULT_SPEECH_RATE_KEY: SpeechRateKey = 'fast';
+/** 読み上げ速度（音声会話と通常の読み上げで共通。利用者による変更はない） */
+export const VOICE_SPEECH_RATE = 1.2;
 
 export type ReplyMode = 'voice-and-text' | 'text-only';
 export const DEFAULT_REPLY_MODE: ReplyMode = 'voice-and-text';
-
-export function speechRateOf(key: SpeechRateKey): number {
-  return SPEECH_RATE_OPTIONS.find((o) => o.key === key)?.rate ?? 1.3;
-}
-
-export function readSpeechRate(storage: KeyValueStorage, userId: string): SpeechRateKey {
-  try {
-    const raw = storage.getItem(`${SPEECH_RATE_PREFIX}:${userId}`);
-    return SPEECH_RATE_OPTIONS.some((o) => o.key === raw) ? (raw as SpeechRateKey) : DEFAULT_SPEECH_RATE_KEY;
-  } catch {
-    return DEFAULT_SPEECH_RATE_KEY;
-  }
-}
-
-export function writeSpeechRate(storage: KeyValueStorage, userId: string, key: SpeechRateKey): void {
-  try {
-    storage.setItem(`${SPEECH_RATE_PREFIX}:${userId}`, key);
-  } catch {
-    // 保存できない環境では、画面を開いたときの既定の速さに戻る
-  }
-}
 
 export function readReplyMode(storage: KeyValueStorage, userId: string): ReplyMode {
   try {

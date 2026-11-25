@@ -46,7 +46,11 @@ import {
   hasCompanyReference,
   isGeneralKnowledgeQuestion,
   selectOrganizationSource,
+  isStage5RegistrationQuestion,
+  isStage3QuestionStatusQuestion,
 } from '@/lib/ceoChat/contextSelection';
+import { buildStage5RegistrationBlock } from '@/lib/ceoChat/stage5Registration';
+import { buildStage3QuestionStatusBlock } from '@/lib/ceoChat/stage3QuestionStatus';
 import { buildExecutionSummaryBlock, isDepartmentsAbsent } from '@/lib/ceoChat/stage4Projection';
 import { buildStage4PlanBlock, loadStage4PlanRows } from '@/lib/ceoChat/stage4PlanBlock';
 import {
@@ -196,7 +200,8 @@ const INPUT_AND_IMAGE_RULE = [
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
 /* ========= 進捗サマリ（プロンプトに埋め込む軽量要約） ========= */
-function buildProgressSummary(progressLogs: any[] = []) {
+function buildProgressSummary(progressLogs: any[] = [], failed = false) {
+  if (failed) return '（進捗ログは取得できませんでした。未登録とは判断しないでください）';
   if (!progressLogs.length) return '（進捗ログなし）';
   return formatOwnProgressLines(progressLogs).join('\n');
 }
@@ -327,7 +332,7 @@ async function fetchStrategyContext(args: {
   const executionText = execSummary.text;
   const stage4PlanRows = supabaseAdmin ? await loadStage4PlanRows(supabaseAdmin, companyId, strategyId) : null;
   const stage4PlanText = buildStage4PlanBlock({ rows: stage4PlanRows, departments, question });
-  const progressSummaryText = buildProgressSummary(progressLogs);
+  const progressSummaryText = buildProgressSummary(progressLogs, progressLogsFailed);
   const extraParts: ExtraParts = { execution: executionText, stage4Plan: stage4PlanText, progress: progressSummaryText };
 
   // フルが取れない場合（strategyId が無効または削除されている場合）
@@ -927,7 +932,7 @@ export async function POST(req: Request) {
           valueAnalysis: (strategy as any)?.valueAnalysis,
           financeSummary: (strategy as any)?.financeSummary,
           businessPortfolio: (strategy as any)?.businessPortfolio,
-          issueBlocks: (strategy as any)?.issueBlocks,
+          issueBlocks: (strategy as any)?.stage1Issues,
         });
         if (Object.keys(insight).length > 0) {
           systemBase +=
@@ -963,6 +968,24 @@ export async function POST(req: Request) {
         priorUserTexts: askMessages.slice(0, -1).filter((m) => m.role === 'user').map((m) => m.content),
       });
       systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle);
+    }
+
+    // 登録状況の質問は、相談の経路（モード）に関係なく、保存済みの値の集計を根拠に答える
+    if (strategy && isStage5RegistrationQuestion(lastUser)) {
+      const now = new Date();
+      const company = await fetchStage5Company(admin, companyId, now);
+      const registration = buildStage5RegistrationBlock({
+        departments: (strategy as any)?.departments,
+        planRows: await loadStage4PlanRows(admin, companyId, strategyId),
+        okrs: company.okrs,
+        companyLogs: company.companyLogs,
+        companyLogsFailed: company.companyLogsFailed,
+        now,
+      });
+      systemBase += '\n\n' + registration.text;
+    }
+    if (strategy && isStage3QuestionStatusQuestion(lastUser)) {
+      systemBase += '\n\n' + buildStage3QuestionStatusBlock((strategy as any)?.departments).text;
     }
 
     // --- OpenAI 呼び出し ---

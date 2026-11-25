@@ -142,6 +142,15 @@ describe('画面の入力・画像に関する案内（OpenAI へ送る指示）
     expect(sent.system).toContain('「私は画面操作ができません」「画面に直接入力できません」といった一律の説明はしない');
   });
 
+  it('STAGE5・STAGE3の登録状況の質問は、相談の経路に関係なく、保存済みの集計を根拠として渡す', async () => {
+    await POST(req(body([{ role: 'user', content: 'STAGE5は入力できていますか？' }])));
+    expect(sentRequest().system).toContain('# STAGE5の登録状況');
+    expect(sentRequest().system).toContain('【概要】');
+    mockChatCreate.mockClear();
+    await POST(req(body([{ role: 'user', content: '6つの問いはどこまで進んでいますか？' }])));
+    expect(sentRequest().system).toContain('# STAGE3の6つの問いの登録状況');
+  });
+
   it('製品の概要を聞かれても、STAGE一覧をそのまま並べない指示を含む', async () => {
     await POST(req(body([{ role: 'user', content: 'GROWTH SHIFTって何ですか？' }])));
     expect(sentRequest().system).toContain('製品の概要を聞かれても、この一覧をそのまま並べない');

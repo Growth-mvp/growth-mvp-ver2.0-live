@@ -262,12 +262,12 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.voice-input',
     screenIds: [],
     label: '会話を始める',
-    source: { file: 'components/CEOChatVoiceControls.tsx', line: 178 },
+    source: { file: 'components/CEOChatVoiceControls.tsx', line: 167 },
     purpose:
-      'AI経営コンサルタントと、音声で会話を続ける。「会話を始める」を1回押すと、話した内容が自動で送られる。回答方法を「音声＋文字」にすると、AIの回答を要点から読み上げ、読み上げ後にまた聞き始める。「文字のみ」にすると、回答は文字だけで表示され、「次の質問を話す」で次の質問を話す。読み上げの速さは標準・速め・高速から選べる。ブラウザの音声認識（日本語）と読み上げを使い、有料の音声APIは使わない。送信された相談は通常の相談と同じで、保存・確定・社内共有は行わない（それらは本人の承認が必要）。',
+      'AI経営コンサルタントと、音声で会話を続ける。「会話を始める」を1回押すと、話した内容が自動で送られる。回答方法を「音声＋文字」にすると、AIの回答を要点から読み上げ、読み上げ後にまた聞き始める。「文字のみ」にすると、回答は文字だけで表示され、「次の質問を話す」で次の質問を話す。読み上げの速さは1.2倍に固定されている。ブラウザの音声認識（日本語）と読み上げを使い、有料の音声APIは使わない。送信された相談は通常の相談と同じで、保存・確定・社内共有は行わない（それらは本人の承認が必要）。',
     steps: [
-      'AI経営コンサルタントの「音声で話す」を選び、「会話を始める」を押す（初回は、ブラウザのマイクの許可を求められる）',
-      '回答方法は「音声＋文字」か「文字のみ」を選ぶ（「音声＋文字」のときだけ、読み上げの速さを選べる）',
+      'AI経営コンサルタントの、マイクのアイコン（音声で話す）を選び、「会話を始める」を押す（初回は、ブラウザのマイクの許可を求められる）。聞き取り中は「録音中」と表示される',
+      '回答方法は、スピーカーのアイコンの「音声＋文字」か、音声オフのアイコンの「文字のみ」を選ぶ',
       '「聞いています」と表示されたら話す。話し終わると自動で送られ、「考えています」「お答えしています」と表示が変わる',
       '「文字のみ」では回答が文字で表示され、マイクは止まる。次の質問は「次の質問を話す」を押して話す',
       '同じ会社のSTAGE1〜4の画面を移動しても会話は続く（STAGE以外の画面へ移ると、マイクと読み上げは止まる）',
@@ -282,7 +282,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 178 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 173 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -305,7 +305,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1361 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1352 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -351,6 +351,21 @@ export const OPERATIONS: readonly OperationEntry[] = [
     conditions: '管理者のみ編集できる。入力内容は自動で保存される',
     permission: ADMIN_UI,
     save: { kind: 'auto', target: '戦略データへの自動保存' },
+  },
+  {
+    operationId: 'stage2.swot-input',
+    screenIds: ['stage2'],
+    label: 'SWOT分析',
+    source: { file: 'app/stage2/page.tsx', line: 1432 },
+    purpose: 'STAGE2の「SWOT分析」欄に、強み（S）・弱み（W）・機会（O）・脅威（T）を直接入力する。入力すると、戦略データに自動で保存される。',
+    steps: [
+      '「入力」タブを開き、「SWOT分析」欄を表示する',
+      '強み（S）・弱み（W）・機会（O）・脅威（T）の欄に、それぞれ直接入力する（直す場合は、同じ欄の文字を書き換える）',
+      '入力後、画面の保存状態が「保存済み」になれば保存は完了。機会・脅威はAIの候補からも追加できる',
+    ],
+    conditions: 'STAGE2の編集権限（管理者）が必要。',
+    permission: ADMIN_UI,
+    save: { kind: 'auto', target: '戦略データへの自動保存（強み・弱み・機会・脅威）' },
   },
   {
     operationId: 'stage2.swot-candidate-add',
@@ -1335,7 +1350,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1205 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1190 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

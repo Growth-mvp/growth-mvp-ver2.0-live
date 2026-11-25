@@ -54,6 +54,23 @@ export function selectStage56Sources(query: string): StageSources {
   return { progress: PROGRESS_CUE.test(q) || broad, plan: PLAN_CUE.test(q) || broad };
 }
 
+const STAGE5_TOPIC_CUE = /STAGE\s*5|ステージ\s*5|財務実績|KR(の)?実績|実績|実施事項|進捗|社内共有|共有|活動記録/i;
+const STAGE5_STATUS_CUE = /入力|登録|記録|入って|ありますか|どうなって|状況|はどう|教えて|されて|できていますか|進んで/;
+
+/** STAGE5の登録状況（入力・登録・実績・進捗・共有の有無）を尋ねる質問かどうか。定義の質問は含めない */
+export function isStage5RegistrationQuestion(query: string): boolean {
+  const q = query ?? '';
+  return STAGE5_TOPIC_CUE.test(q) && STAGE5_STATUS_CUE.test(q);
+}
+
+const STAGE3_TOPIC_CUE = /6つの問い|6問|六問|STAGE\s*3|ステージ\s*3|部門戦略|戦略書/i;
+
+/** STAGE3の6つの問いの回答状況を尋ねる質問かどうか（ページを開く指示は含めない） */
+export function isStage3QuestionStatusQuestion(query: string): boolean {
+  const q = query ?? '';
+  return STAGE3_TOPIC_CUE.test(q) && STAGE5_STATUS_CUE.test(q);
+}
+
 const CASH_CUE = /現預金|運転資金|キャッシュ|資金繰り|資金|借入|返済/;
 const TALENT_CUE = /人材|人員|人手|人不足|育成|採用|教育|スキル|技能|保守人材/;
 

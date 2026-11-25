@@ -34,17 +34,12 @@ import { requestStage4, stage4ExcludedTitles, stage4ProjectRefs } from '@/lib/ai
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
 import CEOChatProposalCard from '@/components/CEOChatProposalCard';
 import {
-  DEFAULT_SPEECH_RATE_KEY,
   isVoiceDisabledFor,
   readAutoRead,
   readReplyMode,
-  readSpeechRate,
-  speechRateOf,
   writeAutoRead,
   writeReplyMode,
-  writeSpeechRate,
   type ReplyMode,
-  type SpeechRateKey,
 } from '@/lib/voice/voiceSettings';
 import { speakChunks, stopSpeaking } from '@/lib/voice/browserSpeech';
 import { toSpeakableChunks } from '@/lib/voice/speechText';
@@ -353,7 +348,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // 音声：読み上げは初期状態でOFF。開いた時点の履歴は読み上げず、新しく届いた回答だけを読む
   const [autoRead, setAutoRead] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [speechRate, setSpeechRate] = useState<SpeechRateKey>(DEFAULT_SPEECH_RATE_KEY);
   const [inputMode, setInputMode] = useState<InputMode>('voice');
   const spokenRef = useRef<{ owner: string | null; msg: Msg | null }>({ owner: null, msg: null });
 
@@ -369,11 +363,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     if (prev.owner !== ownerKey || prev.msg === last) return;
     if (!autoRead || voiceOff || conversationActiveRef.current || !last || last.role !== 'assistant' || !last.answered) return;
     speakChunks(toSpeakableChunks(last.content), {
-      rate: speechRateOf(speechRate),
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
     });
-  }, [messages, ownerKey, autoRead, voiceOff, speechRate]);
+  }, [messages, ownerKey, autoRead, voiceOff]);
 
   useEffect(() => () => stopSpeaking(), []);
 
@@ -422,20 +415,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     stopSpeaking();
     setSpeaking(false);
   };
-  const { setSpeechRate: applySpeechRate, setReplyMode: applyReplyMode } = voice;
+  const applyReplyMode = voice.setReplyMode;
   useEffect(() => {
     if (!user?.id) return;
-    const storage = window.localStorage;
-    const rateKey = readSpeechRate(storage, user.id);
-    setSpeechRate(rateKey);
-    applySpeechRate(rateKey);
-    applyReplyMode(readReplyMode(storage, user.id));
-  }, [user?.id, applySpeechRate, applyReplyMode]);
-  const changeSpeechRate = (key: SpeechRateKey) => {
-    setSpeechRate(key);
-    applySpeechRate(key);
-    if (user?.id) writeSpeechRate(window.localStorage, user.id, key);
-  };
+    applyReplyMode(readReplyMode(window.localStorage, user.id));
+  }, [user?.id, applyReplyMode]);
   const changeReplyMode = (mode: ReplyMode) => {
     applyReplyMode(mode);
     if (user?.id) writeReplyMode(window.localStorage, user.id, mode);
@@ -499,6 +483,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     : sending ? ('thinking' as const)
     : ctxUpdated ? ('responding' as const)
     : ('idle' as const);
+  const avatarFrozen = (voice.status === 'off' || voice.status === 'paused') && avatarStatus === 'idle';
 
   /** ====== strategyId を待機（provision は不要） ====== */
   useEffect(() => {
@@ -802,7 +787,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       autoResize();
     }
     return true;
-  }, [ownerKey, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize, router]);
+  }, [ownerKey, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize, router, pathname]);
 
   useEffect(() => {
     sendRef.current = send;
@@ -1177,9 +1162,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       <header className="shrink-0 px-5 pt-5 pb-3 border-b">
         <div className="flex items-start justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <AbstractCoachAvatar size={64} status={
-              !userOK ? ('loading' as any) : sending ? ('thinking' as any) : ctxUpdated ? ('responding' as any) : ('idle' as any)
-            } />
+            <div className="ceo-voice-aura" data-voice-state={voice.status}>
+              <AbstractCoachAvatar size={64} frozen={avatarFrozen} status={avatarStatus} />
+            </div>
             <div className="leading-tight min-w-0 break-words">
               <div className="text-[16px] font-semibold tracking-[-0.01em]">AI経営コンサルタント</div>
               <div className="mt-0.5 text-[12px] font-normal text-zinc-500">あなたの挑戦と成長を支える戦略パートナー</div>
@@ -1318,8 +1303,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               onResume={voice.resume}
               replyMode={voice.replyMode}
               onReplyModeChange={changeReplyMode}
-              speechRate={speechRate}
-              onSpeechRateChange={changeSpeechRate}
               autoRead={autoRead}
               onAutoReadChange={changeAutoRead}
               speaking={speaking}

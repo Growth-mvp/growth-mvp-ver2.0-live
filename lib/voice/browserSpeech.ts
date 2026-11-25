@@ -1,4 +1,5 @@
 /* ブラウザ標準の音声API（音声認識・読み上げ）の薄いラッパー。外部の有料APIは使わない */
+import { VOICE_SPEECH_RATE } from './voiceSettings';
 
 export type RecognitionLike = {
   lang: string;
@@ -65,11 +66,8 @@ function loadJapaneseVoice(): Promise<SpeechSynthesisVoice | null> {
 export type SpeechHandle = { cancel(): void };
 
 /* 回答を文ごとに読む。途中の文が止まっても次へ進み、利用者が止めたら残りは読まない */
-export function speakChunks(
-  chunks: string[],
-  handlers: { onStart?: () => void; onEnd?: () => void; rate?: number } = {},
-): SpeechHandle {
-  const rate = handlers.rate ?? 1.0;
+export function speakChunks(chunks: string[], handlers: { onStart?: () => void; onEnd?: () => void } = {}): SpeechHandle {
+  const rate = VOICE_SPEECH_RATE;
   if (!isSpeechOutputSupported() || chunks.length === 0) {
     const timer = window.setTimeout(() => handlers.onEnd?.(), 0);
     return { cancel: () => window.clearTimeout(timer) };

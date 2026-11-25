@@ -12,4 +12,9 @@ describe('公開資料からの入力の依頼の判定', () => {
     expect(isAutofillRequest('日本製罐の売上の推移を教えて')).toBe(false);
     expect(isAutofillRequest('基本情報を入力して')).toBe(false);
   });
+
+  it('登録状況を尋ねる質問は、会社情報の取得の依頼にしない', () => {
+    expect(isAutofillRequest('財務実績は登録されていますか？')).toBe(false);
+    expect(isAutofillRequest('日本製罐の財務データは登録されていますか？')).toBe(false);
+  });
 });

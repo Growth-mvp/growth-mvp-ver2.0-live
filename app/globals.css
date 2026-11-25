@@ -349,3 +349,89 @@ a:hover {
   }
 }
 
+/* AI経営コンサルタントのアイコン：音声会話の状態に合わせた光（動きの低減設定では止める） */
+.ceo-voice-aura {
+  position: relative;
+  isolation: isolate;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.ceo-voice-aura::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: 9999px;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(closest-side, rgba(59, 130, 246, 0.35), rgba(59, 130, 246, 0));
+}
+
+.ceo-voice-aura[data-voice-state='listening']::before {
+  opacity: 1;
+  animation: ceo-voice-listen 2.8s ease-in-out infinite;
+}
+
+.ceo-voice-aura[data-voice-state='thinking']::before {
+  opacity: 0.8;
+  background: radial-gradient(closest-side, rgba(96, 165, 250, 0.28), rgba(96, 165, 250, 0));
+  animation: ceo-voice-think 5s ease-in-out infinite;
+}
+
+.ceo-voice-aura[data-voice-state='speaking']::before {
+  opacity: 1;
+  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.4), rgba(56, 189, 248, 0));
+  animation: ceo-voice-speak 0.9s ease-in-out infinite;
+}
+
+@keyframes ceo-voice-listen {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes ceo-voice-think {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 0.9;
+  }
+}
+
+@keyframes ceo-voice-speak {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  25% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.98);
+    opacity: 0.8;
+  }
+  75% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ceo-voice-aura::before {
+    animation: none !important;
+  }
+}
+

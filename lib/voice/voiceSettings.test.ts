@@ -1,13 +1,4 @@
-import {
-  isVoiceDisabledFor,
-  readAutoRead,
-  readReplyMode,
-  readSpeechRate,
-  speechRateOf,
-  writeAutoRead,
-  writeReplyMode,
-  writeSpeechRate,
-} from './voiceSettings';
+import { isVoiceDisabledFor, readAutoRead, readReplyMode, VOICE_SPEECH_RATE, writeAutoRead, writeReplyMode } from './voiceSettings';
 
 function memoryStorage(): Storage {
   const data = new Map<string, string>();
@@ -50,21 +41,9 @@ describe('回答の自動読み上げの設定', () => {
   });
 });
 
-describe('読み上げ速度の設定', () => {
-  it('標準1.0倍・速め1.3倍・高速1.5倍で、初期値は速め', () => {
-    expect(speechRateOf('standard')).toBe(1.0);
-    expect(speechRateOf('fast')).toBe(1.3);
-    expect(speechRateOf('faster')).toBe(1.5);
-    expect(readSpeechRate(memoryStorage(), 'user-1')).toBe('fast');
-  });
-
-  it('利用者ごとに保存し、不正な値は初期値に戻す', () => {
-    const storage = memoryStorage();
-    writeSpeechRate(storage, 'user-1', 'faster');
-    expect(readSpeechRate(storage, 'user-1')).toBe('faster');
-    expect(readSpeechRate(storage, 'user-2')).toBe('fast');
-    storage.setItem('growth.ceoVoice.speechRate.v1:user-1', '3.0');
-    expect(readSpeechRate(storage, 'user-1')).toBe('fast');
+describe('読み上げ速度', () => {
+  it('1.2倍に固定する（利用者の保存値は使わない）', () => {
+    expect(VOICE_SPEECH_RATE).toBe(1.2);
   });
 });
 

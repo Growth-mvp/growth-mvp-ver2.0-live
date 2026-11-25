@@ -12,6 +12,7 @@ export type Stage4PlanRow = {
   user_edits: unknown;
   started: unknown;
   adopted: unknown;
+  start_info?: unknown;
 };
 
 export const STAGE4_PLAN_BUDGET = 1800;
@@ -123,7 +124,7 @@ export async function loadStage4PlanRows(admin: AdminLike, companyId: string, st
   try {
     const { data, error } = await admin
       .from('stage4_plan_documents')
-      .select('project_id, ai_draft, user_edits, started, adopted')
+      .select('project_id, ai_draft, user_edits, started, adopted, start_info')
       .eq('company_id', companyId)
       .eq('strategy_id', strategyId);
     if (error) return null;
