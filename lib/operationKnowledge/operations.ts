@@ -262,7 +262,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.voice-input',
     screenIds: [],
     label: '音声で入力',
-    source: { file: 'components/CEOChatVoiceControls.tsx', line: 116 },
+    source: { file: 'components/CEOChatVoiceControls.tsx', line: 124 },
     purpose:
       'AI経営コンサルタントの入力欄に、話した内容を文字として入れる。ブラウザの音声認識（日本語）を使い、有料の音声APIは使わない。認識された文字は入力欄に入るだけで、送信するまでAIには届かない。',
     steps: [

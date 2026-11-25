@@ -6,7 +6,8 @@ import { Mic, Square, Volume2, VolumeX } from 'lucide-react';
 import {
   getRecognitionCtor,
   isSpeechOutputSupported,
-  recognitionErrorMessage,
+  microphoneErrorMessage,
+  probeMicrophone,
   stopSpeaking,
   type RecognitionLike,
 } from '@/lib/voice/browserSpeech';
@@ -68,7 +69,14 @@ export default function CEOChatVoiceControls({ userId, disabled, onTranscript, a
       if (text) transcriptRef.current(text);
       else setMessage('音声が聞き取れませんでした。もう一度お試しください。');
     };
-    recognition.onerror = (event) => setMessage(recognitionErrorMessage(event.error));
+    recognition.onerror = (event) => {
+      if (event.error === 'aborted') return;
+      void (async () => {
+        const probe = event.error === 'not-allowed' ? await probeMicrophone() : null;
+        console.warn('[voice] recognition error', { code: event.error, probe });
+        setMessage(microphoneErrorMessage(event.error, probe));
+      })();
+    };
     recognition.onend = () => {
       recognitionRef.current = null;
       setListening(false);

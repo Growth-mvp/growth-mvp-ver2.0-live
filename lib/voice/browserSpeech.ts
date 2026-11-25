@@ -42,14 +42,58 @@ export function stopSpeaking(): void {
 }
 
 export const RECOGNITION_ERROR_MESSAGE: Record<string, string> = {
-  'not-allowed': 'マイクの使用が許可されていません。ブラウザの設定でマイクを許可してください。',
   'service-not-allowed': 'このブラウザでは音声認識が許可されていません。文字でご入力ください。',
   'audio-capture': 'マイクが見つかりません。マイクの接続を確認してください。',
   'no-speech': '音声が聞き取れませんでした。もう一度お試しください。',
   network: '音声認識サービスに接続できませんでした。文字でご入力ください。',
 };
 
-export function recognitionErrorMessage(code: string): string | null {
+export type MicrophoneProbe = {
+  policyAllowed: boolean | null;
+  permission: 'granted' | 'denied' | 'prompt' | 'unknown';
+  device: 'available' | 'denied' | 'missing' | 'error' | 'unknown';
+};
+
+/* not-allowed の原因を切り分けるための読み取り。音声は録らず、取得したマイクはすぐ止める */
+export async function probeMicrophone(): Promise<MicrophoneProbe> {
+  const doc = document as unknown as { permissionsPolicy?: { allowsFeature?: (f: string) => boolean } };
+  const policyAllowed = typeof doc.permissionsPolicy?.allowsFeature === 'function' ? doc.permissionsPolicy.allowsFeature('microphone') : null;
+
+  let permission: MicrophoneProbe['permission'] = 'unknown';
+  try {
+    const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
+    if (status && (status.state === 'granted' || status.state === 'denied' || status.state === 'prompt')) permission = status.state;
+  } catch {
+    permission = 'unknown';
+  }
+
+  let device: MicrophoneProbe['device'] = 'unknown';
+  try {
+    const stream = await navigator.mediaDevices?.getUserMedia({ audio: true });
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      device = 'available';
+    }
+  } catch (e) {
+    const name = e instanceof DOMException ? e.name : '';
+    device = name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : name === 'NotFoundError' ? 'missing' : 'error';
+  }
+  return { policyAllowed, permission, device };
+}
+
+/* not-allowed は、ページのポリシー・ブラウザのマイク許可・マイク取得の結果で原因が違うため、結果に合わせて案内する */
+export function microphoneErrorMessage(code: string, probe: MicrophoneProbe | null): string | null {
   if (code === 'aborted') return null;
-  return RECOGNITION_ERROR_MESSAGE[code] ?? '音声入力でエラーが起きました。文字でご入力ください。';
+  if (code !== 'not-allowed') return RECOGNITION_ERROR_MESSAGE[code] ?? '音声入力でエラーが起きました。文字でご入力ください。';
+  if (probe?.policyAllowed === false) {
+    return 'このページではマイクの利用が制限されています（サイトの設定）。管理者に連絡してください。文字でご入力ください。';
+  }
+  if (probe?.device === 'denied' || probe?.permission === 'denied') {
+    return 'マイクの使用が許可されていません。ブラウザのアドレスバー（鍵のマーク）からこのサイトのマイクを許可してください。';
+  }
+  if (probe?.device === 'missing') return 'マイクが見つかりません。マイクの接続を確認してください。';
+  if (probe?.device === 'available') {
+    return 'マイクは使えますが、音声認識サービスがこのページでの音声入力を開始できませんでした。時間をおいて再度お試しください。文字でご入力ください。';
+  }
+  return '音声認識を開始できませんでした。文字でご入力ください。';
 }
