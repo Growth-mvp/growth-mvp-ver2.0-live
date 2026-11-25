@@ -1,6 +1,6 @@
 export const CEO_PANEL_WIDTH_STORAGE_KEY = 'growth_ceo_panel_width';
 export const CEO_PANEL_OPEN_STORAGE_KEY = 'growth_ceo_panel_open_v2';
-export const CEO_PANEL_WIDTH_DEFAULT = 320;
+export const CEO_PANEL_WIDTH_DEFAULT = 380;
 export const CEO_PANEL_WIDTH_MIN = 320;
 export const CEO_PANEL_WIDTH_MAX = 560;
 export const CEO_PANEL_DOCK_MIN_VIEWPORT = 1280;

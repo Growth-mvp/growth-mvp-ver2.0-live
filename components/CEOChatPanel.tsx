@@ -25,7 +25,7 @@ import { supabase } from '@/utils/supabase/client';
 import { usePathname, useRouter } from 'next/navigation';
 import { screenIdForPathname } from '@/lib/screens/screenContext';
 import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
-import CEOChatVoiceControls from '@/components/CEOChatVoiceControls';
+import CEOChatVoiceControls, { type InputMode } from '@/components/CEOChatVoiceControls';
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
 import { contextDepartments, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
@@ -33,7 +33,19 @@ import { parseStage4Intent } from '@/lib/aiOperations/stage4';
 import { requestStage4, stage4ExcludedTitles, stage4ProjectRefs } from '@/lib/aiOperations/stage4Client';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
 import CEOChatProposalCard from '@/components/CEOChatProposalCard';
-import { isVoiceDisabledFor, readAutoRead, writeAutoRead } from '@/lib/voice/voiceSettings';
+import {
+  DEFAULT_SPEECH_RATE_KEY,
+  isVoiceDisabledFor,
+  readAutoRead,
+  readReplyMode,
+  readSpeechRate,
+  speechRateOf,
+  writeAutoRead,
+  writeReplyMode,
+  writeSpeechRate,
+  type ReplyMode,
+  type SpeechRateKey,
+} from '@/lib/voice/voiceSettings';
 import { speakChunks, stopSpeaking } from '@/lib/voice/browserSpeech';
 import { toSpeakableChunks } from '@/lib/voice/speechText';
 import { useVoiceConversation } from '@/hooks/useVoiceConversation';
@@ -340,6 +352,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // 音声：読み上げは初期状態でOFF。開いた時点の履歴は読み上げず、新しく届いた回答だけを読む
   const [autoRead, setAutoRead] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [speechRate, setSpeechRate] = useState<SpeechRateKey>(DEFAULT_SPEECH_RATE_KEY);
+  const [inputMode, setInputMode] = useState<InputMode>('voice');
   const spokenRef = useRef<{ owner: string | null; msg: Msg | null }>({ owner: null, msg: null });
 
   useEffect(() => {
@@ -354,10 +368,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     if (prev.owner !== ownerKey || prev.msg === last) return;
     if (!autoRead || voiceOff || conversationActiveRef.current || !last || last.role !== 'assistant' || !last.answered) return;
     speakChunks(toSpeakableChunks(last.content), {
+      rate: speechRateOf(speechRate),
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
     });
-  }, [messages, ownerKey, autoRead, voiceOff]);
+  }, [messages, ownerKey, autoRead, voiceOff, speechRate]);
 
   useEffect(() => () => stopSpeaking(), []);
 
@@ -406,6 +421,30 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     stopSpeaking();
     setSpeaking(false);
   };
+  const { setSpeechRate: applySpeechRate, setReplyMode: applyReplyMode } = voice;
+  useEffect(() => {
+    if (!user?.id) return;
+    const storage = window.localStorage;
+    const rateKey = readSpeechRate(storage, user.id);
+    setSpeechRate(rateKey);
+    applySpeechRate(rateKey);
+    applyReplyMode(readReplyMode(storage, user.id));
+  }, [user?.id, applySpeechRate, applyReplyMode]);
+  const changeSpeechRate = (key: SpeechRateKey) => {
+    setSpeechRate(key);
+    applySpeechRate(key);
+    if (user?.id) writeSpeechRate(window.localStorage, user.id, key);
+  };
+  const changeReplyMode = (mode: ReplyMode) => {
+    applyReplyMode(mode);
+    if (user?.id) writeReplyMode(window.localStorage, user.id, mode);
+  };
+  // 画面が切り替わったら、マイクと読み上げを止める（会話は再開しない）
+  useEffect(() => {
+    voiceStopRef.current?.('画面が切り替わったため、会話を終了しました。');
+    stopSpeaking();
+    setSpeaking(false);
+  }, [pathname]);
 
 
   // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
@@ -421,6 +460,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setInput('');
     useOperationProposalStore.getState().clearPending();
     voiceStopRef.current?.('会社が切り替わったため、会話を終了しました。');
+    stopSpeaking();
+    setSpeaking(false);
   }, [companyId]);
 
   // 切替が確定（ストアの企業が画面の企業と一致）したら、切替中の通知を消す
@@ -440,6 +481,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const strategyOK = mounted && strategyId != null && String(strategyId).length > 0;
   const inputOK = Boolean(input.trim());
   const readyAll = userOK && strategyOK && !sending;
+  const showVoice = !voiceOff && userOK && !!user?.id;
+  const showTextInput = !showVoice || inputMode === 'text';
 
   const avatarStatus =
     !userOK ? ('loading' as const)
@@ -1177,7 +1220,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
                 'rounded-2xl px-4 py-3 text-[15px] leading-7',
                 m.role === 'user'
                   ? 'whitespace-pre-wrap bg-zinc-100 text-zinc-900'
-                  : 'border border-zinc-200 bg-white text-zinc-900 shadow-sm',
+                  : 'border border-zinc-200 bg-white text-zinc-900 shadow-sm [&_li]:my-1 [&_ol]:my-2 [&_p+p]:mt-3 [&_ul]:my-2',
               ].join(' ')}
             >
             {m.role === 'user' ? m.content : <CEOChatMarkdown content={m.content} />}
@@ -1253,19 +1296,27 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               {notice}
             </p>
           )}
-          {!voiceOff && userOK && user?.id ? (
+          {showVoice ? (
             <CEOChatVoiceControls
+              inputMode={inputMode}
+              onInputModeChange={setInputMode}
               status={voice.status}
               notice={voice.notice}
               disabled={!!sending || !userOK || !!shouldWaitForRestore}
               onStart={voice.start}
               onStop={() => voice.stop()}
+              onResume={voice.resume}
+              replyMode={voice.replyMode}
+              onReplyModeChange={changeReplyMode}
+              speechRate={speechRate}
+              onSpeechRateChange={changeSpeechRate}
               autoRead={autoRead}
               onAutoReadChange={changeAutoRead}
               speaking={speaking}
               onStopReading={stopReadingAll}
             />
           ) : null}
+          {showTextInput ? (
           <textarea
             ref={textareaRef}
             className="w-full min-h-[88px] resize-none overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 text-[14px] leading-6 outline-none focus:ring-2 focus:ring-zinc-300"
@@ -1285,9 +1336,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             rows={3}
             disabled={sending || !userOK || shouldWaitForRestore}
           />
+          ) : null}
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-gray-400">
-              Enterで送信
+              {showTextInput ? 'Enterで送信' : null}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -1314,16 +1366,18 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               >
                 クリア
               </button>
-              <button
-                onClick={() => { if (input.trim()) void send(input); }}
-                disabled={!inputOK || sending || !userOK || shouldWaitForRestore}
-                className={`rounded-md px-4 py-2 text-[12px] font-semibold min-h-[2.5rem] sm:min-h-auto transition ${
-                  (!inputOK || sending || !userOK || shouldWaitForRestore) ? 'bg-zinc-200 text-zinc-500' : 'bg-accent-action text-white hover:bg-accent-hover'
-                }`}
-                type="button"
-              >
-                送信
-              </button>
+              {showTextInput ? (
+                <button
+                  onClick={() => { if (input.trim()) void send(input); }}
+                  disabled={!inputOK || sending || !userOK || shouldWaitForRestore}
+                  className={`rounded-md px-4 py-2 text-[12px] font-semibold min-h-[2.5rem] sm:min-h-auto transition ${
+                    (!inputOK || sending || !userOK || shouldWaitForRestore) ? 'bg-zinc-200 text-zinc-500' : 'bg-accent-action text-white hover:bg-accent-hover'
+                  }`}
+                  type="button"
+                >
+                  送信
+                </button>
+              ) : null}
             </div>
           </div>
 

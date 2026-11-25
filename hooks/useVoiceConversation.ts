@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { VoiceConversation, type ConversationStatus } from '@/lib/voice/conversation';
 import { getRecognitionCtor, microphoneErrorMessage, probeMicrophone, speakChunks } from '@/lib/voice/browserSpeech';
 import { toSpeakableChunks } from '@/lib/voice/speechText';
+import { DEFAULT_REPLY_MODE, DEFAULT_SPEECH_RATE_KEY, speechRateOf, type ReplyMode, type SpeechRateKey } from '@/lib/voice/voiceSettings';
 
 const HIDDEN_MESSAGE = '画面が非表示になったため、会話を終了しました。再開するには「会話を始める」を押してください。';
 
@@ -11,8 +12,10 @@ const HIDDEN_MESSAGE = '画面が非表示になったため、会話を終了�
 export function useVoiceConversation(onSpeech: (text: string) => Promise<string | null>) {
   const [status, setStatus] = useState<ConversationStatus>('off');
   const [notice, setNotice] = useState<string | null>(null);
+  const [replyMode, setReplyModeState] = useState<ReplyMode>(DEFAULT_REPLY_MODE);
   const onSpeechRef = useRef(onSpeech);
   const controllerRef = useRef<VoiceConversation | null>(null);
+  const rateRef = useRef<number>(speechRateOf(DEFAULT_SPEECH_RATE_KEY));
 
   useEffect(() => {
     onSpeechRef.current = onSpeech;
@@ -25,7 +28,7 @@ export function useVoiceConversation(onSpeech: (text: string) => Promise<string 
         const Ctor = getRecognitionCtor();
         return Ctor ? new Ctor() : null;
       },
-      speakReply: (text, handlers) => speakChunks(toSpeakableChunks(text), { onEnd: handlers.onEnd }),
+      speakReply: (text, handlers) => speakChunks(toSpeakableChunks(text), { onEnd: handlers.onEnd, rate: rateRef.current }),
       onStatus: (next) => setStatus(next),
       onUtterance: (text) => {
         void onSpeechRef
@@ -54,6 +57,20 @@ export function useVoiceConversation(onSpeech: (text: string) => Promise<string 
     controllerRef.current?.stop(message);
   }, []);
 
+  const resume = useCallback(() => {
+    setNotice(null);
+    controllerRef.current?.resume();
+  }, []);
+
+  const setReplyMode = useCallback((mode: ReplyMode) => {
+    setReplyModeState(mode);
+    controllerRef.current?.setReplyMode(mode);
+  }, []);
+
+  const setSpeechRate = useCallback((key: SpeechRateKey) => {
+    rateRef.current = speechRateOf(key);
+  }, []);
+
   useEffect(() => {
     const onVisibility = () => {
       if (document.hidden) controllerRef.current?.stop(HIDDEN_MESSAGE);
@@ -65,5 +82,5 @@ export function useVoiceConversation(onSpeech: (text: string) => Promise<string 
     };
   }, []);
 
-  return { status, notice, start, stop, clearNotice: () => setNotice(null) };
+  return { status, notice, replyMode, start, stop, resume, setReplyMode, setSpeechRate, clearNotice: () => setNotice(null) };
 }

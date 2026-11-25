@@ -60,3 +60,17 @@ describe('toSpeakableChunks：文の途中で切らない', () => {
     expect(toSpeakableChunks('---')).toEqual([]);
   });
 });
+
+describe('toSpeakableChunks：長い回答は冒頭の結論から読む', () => {
+  const conclusion = '結論として、配送拠点の統合を最優先に進めるのがよいと考えます。';
+  const reason = '理由は、配送費が売上の八パーセントを占めており、拠点ごとの稼働率にばらつきがあるためです。';
+  const detail = `${'詳細な分析の内容を説明すると、'.repeat(12)}。`;
+
+  it('長い回答は、冒頭の文だけを文の途中で切らずに読み、詳しい内容は画面にあることを伝える', () => {
+    expect(joined(`${conclusion}${reason}${detail}`)).toBe(`${conclusion}${reason}詳しい内容は画面に表示しています。`);
+  });
+
+  it('短い回答は全文を読み、案内を足さない', () => {
+    expect(joined(`${conclusion}${reason}`)).toBe(`${conclusion}${reason}`);
+  });
+});

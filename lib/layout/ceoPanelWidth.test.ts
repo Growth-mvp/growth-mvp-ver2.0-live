@@ -13,9 +13,10 @@ import {
 } from './ceoPanelWidth';
 
 describe('ceoPanelWidth', () => {
-  it('既定幅は標準の320pxで、最小幅と同じ', () => {
-    expect(CEO_PANEL_WIDTH_DEFAULT).toBe(320);
-    expect(CEO_PANEL_WIDTH_DEFAULT).toBe(CEO_PANEL_WIDTH_MIN);
+  it('既定幅は380pxで、最小幅より広い（1280pxでも中央画面の最低幅を確保できる）', () => {
+    expect(CEO_PANEL_WIDTH_DEFAULT).toBe(380);
+    expect(CEO_PANEL_WIDTH_DEFAULT).toBeGreaterThan(CEO_PANEL_WIDTH_MIN);
+    expect(displayedCeoPanelWidth(CEO_PANEL_WIDTH_DEFAULT, 1280)).toBe(380);
   });
 
   it('1280px以上で右ペインを常設表示する', () => {
@@ -59,7 +60,7 @@ describe('ceoPanelWidth', () => {
     // 1920px: 制限に届かないので保存値のまま
     expect(displayedCeoPanelWidth(560, 1920)).toBe(560);
     // 既定幅・最小幅はそのまま
-    expect(displayedCeoPanelWidth(CEO_PANEL_WIDTH_DEFAULT, 1280)).toBe(320);
+    expect(displayedCeoPanelWidth(CEO_PANEL_WIDTH_DEFAULT, 1280)).toBe(380);
     expect(displayedCeoPanelWidth(10, 1280)).toBe(CEO_PANEL_WIDTH_MIN);
   });
 

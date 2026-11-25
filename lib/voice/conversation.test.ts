@@ -71,6 +71,74 @@ function makeHarness(opts: { describe?: (code: string) => string | null; support
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+describe('音声会話：文字のみの回答方法', () => {
+  it('文字のみでは回答を読み上げず、聞き取りも止めて次の発言を待つ', () => {
+    const h = makeHarness();
+    h.conversation.setReplyMode('text-only');
+    h.conversation.start();
+    h.lastRecognizer().emitResult('相談です');
+    h.conversation.replyDone('回答です。');
+    expect(h.speeches).toHaveLength(0);
+    expect(h.conversation.current).toBe('paused');
+    h.runPendingTimers();
+    expect(h.recognizers).toHaveLength(1);
+  });
+
+  it('次の質問は resume で話し始められ、送信後はまた次の発言を待つ', () => {
+    const h = makeHarness();
+    h.conversation.setReplyMode('text-only');
+    h.conversation.start();
+    h.lastRecognizer().emitResult('一つ目');
+    h.conversation.replyDone('回答一');
+    h.conversation.resume();
+    expect(h.conversation.current).toBe('listening');
+    expect(h.recognizers).toHaveLength(2);
+    h.lastRecognizer().emitResult('二つ目');
+    expect(h.utterances).toEqual(['一つ目', '二つ目']);
+    h.conversation.replyDone('回答二');
+    expect(h.conversation.current).toBe('paused');
+    expect(h.speeches).toHaveLength(0);
+  });
+
+  it('読み上げ中に文字のみへ切り替えると、読み上げを止めて待機する', () => {
+    const h = makeHarness();
+    h.conversation.start();
+    h.lastRecognizer().emitResult('相談です');
+    h.conversation.replyDone('回答です。');
+    expect(h.conversation.current).toBe('speaking');
+    h.conversation.setReplyMode('text-only');
+    expect(h.conversation.current).toBe('paused');
+    expect(h.speeches[0].cancelled).toBe(true);
+    h.speeches[0].onEnd();
+    expect(h.conversation.current).toBe('paused');
+    h.runPendingTimers();
+    expect(h.recognizers).toHaveLength(1);
+  });
+
+  it('待機中に音声＋文字へ戻すと、聞き取りを再開する', () => {
+    const h = makeHarness();
+    h.conversation.setReplyMode('text-only');
+    h.conversation.start();
+    h.lastRecognizer().emitResult('相談です');
+    h.conversation.replyDone('回答です。');
+    h.conversation.setReplyMode('voice-and-text');
+    expect(h.conversation.current).toBe('listening');
+    expect(h.recognizers).toHaveLength(2);
+  });
+
+  it('待機中に終了すると、以後は聞き直さない', () => {
+    const h = makeHarness();
+    h.conversation.setReplyMode('text-only');
+    h.conversation.start();
+    h.lastRecognizer().emitResult('相談です');
+    h.conversation.replyDone('回答です。');
+    h.conversation.stop();
+    expect(h.conversation.current).toBe('off');
+    h.runPendingTimers();
+    expect(h.recognizers).toHaveLength(1);
+  });
+});
+
 describe('音声会話：1回の開始で、聞く→答える→読み上げる→聞き直す を続ける', () => {
   it('開始すると聞き始め、発言を1回だけ送り、回答を読み上げてから聞き直す', () => {
     const h = makeHarness();

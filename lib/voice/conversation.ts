@@ -3,8 +3,10 @@
 
 import type { RecognitionLike } from './browserSpeech';
 import type { SpeechHandle } from './browserSpeech';
+import type { ReplyMode } from './voiceSettings';
 
-export type ConversationStatus = 'off' | 'listening' | 'thinking' | 'speaking';
+/* paused は「文字で回答を表示し、次の発言を待っている」状態。マイクは止まっている */
+export type ConversationStatus = 'off' | 'listening' | 'thinking' | 'speaking' | 'paused';
 
 export type ConversationDeps = {
   isSupported: () => boolean;
@@ -29,6 +31,7 @@ export class VoiceConversation {
   private timer: unknown = null;
   private speech: SpeechHandle | null = null;
   private generation = 0;
+  private replyMode: ReplyMode = 'voice-and-text';
 
   constructor(private readonly deps: ConversationDeps) {}
 
@@ -63,9 +66,35 @@ export class VoiceConversation {
     if (message) this.deps.notify(message);
   }
 
+  /* 回答方法を変える。文字のみにしたら読み上げを止め、音声＋文字に戻したら待機中の聞き取りを再開する */
+  setReplyMode(mode: ReplyMode): void {
+    if (this.replyMode === mode) return;
+    this.replyMode = mode;
+    if (mode === 'text-only' && this.status === 'speaking') {
+      this.generation++;
+      this.speech?.cancel();
+      this.speech = null;
+      this.setStatus('paused');
+    } else if (mode === 'voice-and-text' && this.status === 'paused') {
+      this.resume();
+    }
+  }
+
+  /* 文字で回答を読んだあと、利用者が次の発言を始める */
+  resume(): void {
+    if (this.status !== 'paused') return;
+    this.silentRounds = 0;
+    this.setStatus('listening');
+    this.listen();
+  }
+
   /* 利用者の発言への回答が終わった。回答があれば読み上げ、無ければすぐ聞き直す */
   replyDone(answer: string | null): void {
     if (this.status !== 'thinking') return;
+    if (this.replyMode === 'text-only') {
+      this.setStatus('paused');
+      return;
+    }
     if (answer && answer.trim()) {
       this.setStatus('speaking');
       const generation = this.generation;

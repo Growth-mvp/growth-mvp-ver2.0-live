@@ -1,4 +1,13 @@
-import { isVoiceDisabledFor, readAutoRead, writeAutoRead } from './voiceSettings';
+import {
+  isVoiceDisabledFor,
+  readAutoRead,
+  readReplyMode,
+  readSpeechRate,
+  speechRateOf,
+  writeAutoRead,
+  writeReplyMode,
+  writeSpeechRate,
+} from './voiceSettings';
 
 function memoryStorage(): Storage {
   const data = new Map<string, string>();
@@ -38,5 +47,33 @@ describe('回答の自動読み上げの設定', () => {
 
     writeAutoRead(storage, 'user-1', false);
     expect(readAutoRead(storage, 'user-1')).toBe(false);
+  });
+});
+
+describe('読み上げ速度の設定', () => {
+  it('標準1.0倍・速め1.3倍・高速1.5倍で、初期値は速め', () => {
+    expect(speechRateOf('standard')).toBe(1.0);
+    expect(speechRateOf('fast')).toBe(1.3);
+    expect(speechRateOf('faster')).toBe(1.5);
+    expect(readSpeechRate(memoryStorage(), 'user-1')).toBe('fast');
+  });
+
+  it('利用者ごとに保存し、不正な値は初期値に戻す', () => {
+    const storage = memoryStorage();
+    writeSpeechRate(storage, 'user-1', 'faster');
+    expect(readSpeechRate(storage, 'user-1')).toBe('faster');
+    expect(readSpeechRate(storage, 'user-2')).toBe('fast');
+    storage.setItem('growth.ceoVoice.speechRate.v1:user-1', '3.0');
+    expect(readSpeechRate(storage, 'user-1')).toBe('fast');
+  });
+});
+
+describe('回答方法の設定', () => {
+  it('初期値は音声＋文字で、文字のみを利用者ごとに保存できる', () => {
+    const storage = memoryStorage();
+    expect(readReplyMode(storage, 'user-1')).toBe('voice-and-text');
+    writeReplyMode(storage, 'user-1', 'text-only');
+    expect(readReplyMode(storage, 'user-1')).toBe('text-only');
+    expect(readReplyMode(storage, 'user-2')).toBe('voice-and-text');
   });
 });

@@ -65,7 +65,11 @@ function loadJapaneseVoice(): Promise<SpeechSynthesisVoice | null> {
 export type SpeechHandle = { cancel(): void };
 
 /* 回答を文ごとに読む。途中の文が止まっても次へ進み、利用者が止めたら残りは読まない */
-export function speakChunks(chunks: string[], handlers: { onStart?: () => void; onEnd?: () => void } = {}): SpeechHandle {
+export function speakChunks(
+  chunks: string[],
+  handlers: { onStart?: () => void; onEnd?: () => void; rate?: number } = {},
+): SpeechHandle {
+  const rate = handlers.rate ?? 1.0;
   if (!isSpeechOutputSupported() || chunks.length === 0) {
     const timer = window.setTimeout(() => handlers.onEnd?.(), 0);
     return { cancel: () => window.clearTimeout(timer) };
@@ -100,7 +104,7 @@ export function speakChunks(chunks: string[], handlers: { onStart?: () => void; 
     };
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'ja-JP';
-    utterance.rate = 1.05;
+    utterance.rate = rate;
     utterance.pitch = 1.0;
     if (voice) utterance.voice = voice;
     utterance.onstart = () => {
@@ -115,7 +119,7 @@ export function speakChunks(chunks: string[], handlers: { onStart?: () => void; 
       done = true;
       synth.cancel();
       advance();
-    }, text.length * 450 + 6000);
+    }, (text.length * 450) / rate + 6000);
     synth.speak(utterance);
   };
 

@@ -131,6 +131,18 @@ beforeEach(() => {
   mockClassifyLLM.mockRejectedValue(new Error('LLM 分類は無効'));
 });
 
+describe('画面の入力・画像に関する案内（OpenAI へ送る指示）', () => {
+  it('画像を求めず、AI入力代行の対応範囲と未対応の答え方を指示する', async () => {
+    await POST(req(body([{ role: 'user', content: '今の画面のどこに売上を入力すればいいですか' }])));
+    const sent = sentRequest();
+    expect(sent.system).toContain('画面のスクリーンショットや画像を送ってほしいと求めない');
+    expect(sent.system).toContain('資料の添付は、PDF・Excel・CSVだけに対応している');
+    expect(sent.system).toContain('STAGE1の財務表の全社売上高');
+    expect(sent.system).toContain('この項目の直接入力は現在対応していません');
+    expect(sent.system).toContain('「私は画面操作ができません」「画面に直接入力できません」といった一律の説明はしない');
+  });
+});
+
 describe('手動チャット advisor の回答スタイル（OpenAI へ送る最終指示）', () => {
   it('①業績の質問は、通常の経営相談の会話型を指示する', async () => {
     await POST(req(body([{ role: 'user', content: Q_PROFIT }])));

@@ -53,6 +53,16 @@ describe('回答スタイル指示の内容', () => {
     expect(block).not.toContain('前の会話を踏まえ');
   });
 
+  it('簡単な質問は結論を最初の一文に置き、段階の一覧を関係なく並べない', () => {
+    const block = buildAnswerStyleBlock('conversation');
+    expect(block).toContain('簡単な質問（確認や一言で答えられる問い）には、結論を最初の一文に書き、2〜4文の会話文で答える。');
+    expect(block).toContain('STAGE1〜6などの段階の一覧は、質問に関係する場合だけ触れる。');
+  });
+
+  it('詳細な回答も、最初の一文に結論を書く（音声の要点読み上げに使う）', () => {
+    expect(buildAnswerStyleBlock('detailed')).toContain('回答の最初の一文に結論を書く');
+  });
+
   it('前の会話がある会話型は、返答を受けて議論を深める指示を含む', () => {
     const block = buildAnswerStyleBlock('conversation_followup');
     expect(block).toContain('前の会話を踏まえ');

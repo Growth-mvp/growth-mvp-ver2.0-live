@@ -2,6 +2,9 @@
 
 const MAX_CHUNK = 110;
 const MIN_CHUNK = 12;
+const LONG_ANSWER_CHARS = 240;
+const LEAD_CHARS = 150;
+const MORE_ON_SCREEN = '詳しい内容は画面に表示しています。';
 
 function stripMarkup(markdown: string): string {
   return markdown
@@ -49,9 +52,25 @@ function capLength(sentence: string): string[] {
   return parts.flatMap((p) => (p.length <= MAX_CHUNK ? [p] : p.match(new RegExp(`.{1,${MAX_CHUNK}}`, 'g')) ?? []));
 }
 
+/* 長い回答は、冒頭の文（結論）から文単位で読む。途中では切らず、残りは画面に表示していることを伝える */
+function leadSentences(units: string[]): string[] {
+  const lead: string[] = [];
+  let length = 0;
+  for (const unit of units) {
+    if (lead.length > 0 && length + unit.length > LEAD_CHARS) break;
+    lead.push(unit);
+    length += unit.length;
+  }
+  return lead;
+}
+
 /** 読み上げの単位（文ごと。短すぎる文は次と合わせ、長い文は読点で区切る） */
 export function toSpeakableChunks(markdown: string): string[] {
-  const sentences = splitSentences(stripMarkup(markdown)).flatMap(capLength);
+  const units = splitSentences(stripMarkup(markdown));
+  const total = units.reduce((n, unit) => n + unit.length, 0);
+  const lead = total > LONG_ANSWER_CHARS ? leadSentences(units) : units;
+  const spoken = lead.length < units.length ? [...lead, MORE_ON_SCREEN] : lead;
+  const sentences = spoken.flatMap(capLength);
   const merged: string[] = [];
   for (const s of sentences) {
     const last = merged[merged.length - 1];
