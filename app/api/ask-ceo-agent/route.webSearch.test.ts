@@ -4,6 +4,10 @@ const mockChatCreate = jest.fn();
 const mockResponsesCreate = jest.fn();
 const mockClassifyLLM = jest.fn();
 
+const isJudgeCall = (params: unknown) =>
+  String((params as { messages?: { content?: unknown }[] })?.messages?.[0]?.content ?? '').includes('前処理です');
+const answerCalls = () => mockChatCreate.mock.calls.filter(([params]) => !isJudgeCall(params));
+
 jest.mock('openai', () => ({
   __esModule: true,
   default: class {
@@ -301,7 +305,7 @@ describe('外部検索の障害時（通常回答へ戻る）', () => {
     expect(r.status).toBe(200);
     expect(r.system).toContain(`（理由: ${reason}）`);
     expect(r.system).not.toContain(EXTERNAL_BLOCK);
-    expect(mockChatCreate).toHaveBeenCalledTimes(1);
+    expect(answerCalls()).toHaveLength(1);
   });
 
   it('検索結果ゼロ（出典なし）でも200で回答し、出典不明の内容は渡さない', async () => {
@@ -327,7 +331,7 @@ describe('外部検索の障害時（通常回答へ戻る）', () => {
     mockResponsesCreate.mockImplementation(() => new Promise((_, reject) => setTimeout(() => reject(new Error('late')), 0)));
     const r = await ask(EXTERNAL_QUESTION);
     expect(r.status).toBe(200);
-    expect(mockChatCreate).toHaveBeenCalledTimes(1);
+    expect(answerCalls()).toHaveLength(1);
   });
 });
 
@@ -373,5 +377,64 @@ describe('外部検索の状態の説明（AIが実際の状態に基づいて�
     const r = await ask(INTERNAL_QUESTION);
     expect(mockResponsesCreate).not.toHaveBeenCalled();
     expect(r.system).toContain('この質問では外部WEB検索を実行していません');
+  });
+});
+
+function mockJudge(judgement: Record<string, unknown>) {
+  mockChatCreate.mockImplementation(async (params: unknown) => ({
+    choices: [{ message: { content: isJudgeCall(params) ? JSON.stringify(judgement) : 'OK' } }],
+  }));
+}
+
+function blankCompany(name = ''): Row {
+  const row = companyA();
+  row.companyName = name;
+  row.industry = 'other';
+  row.businessContent = '';
+  row.businessSegments = [];
+  return row;
+}
+
+describe('外部検索の判定（質問の意味で判断し、会社情報の有無に左右されない）', () => {
+  beforeEach(() => {
+    process.env.CEO_CHAT_WEB_SEARCH_ENABLED = 'true';
+  });
+
+  it('会社情報が未入力でも、株価の質問は一般の公開情報を検索する', async () => {
+    mockJudge({ needsExternal: true, scope: 'general', publicQuery: '日経平均株価 本日 終値' });
+    const r = await ask('本日の日経平均の終値は？', blankCompany());
+    expect(r.status).toBe(200);
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(1);
+    expect(mockResponsesCreate.mock.calls[0][0]).toMatchObject({ input: '日経平均株価 本日 終値' });
+    expect(r.system).toContain(EXTERNAL_BLOCK);
+    expect(r.system).toContain('検索したテーマ: 日経平均株価 本日 終値');
+  });
+
+  it('一般の質問は、登録企業の業種に限定せず検索する', async () => {
+    mockJudge({ needsExternal: true, scope: 'general', publicQuery: 'ドル円 為替相場 本日' });
+    await ask('現在のドル円相場は？');
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(1);
+    expect(mockResponsesCreate.mock.calls[0][0]).toMatchObject({ input: 'ドル円 為替相場 本日' });
+    expect(JSON.stringify(mockResponsesCreate.mock.calls[0][0])).not.toContain('業務用ソフトウェア');
+  });
+
+  it('判定で外部情報が不要な社内の質問は、キーワードに関係なく検索しない', async () => {
+    mockJudge({ needsExternal: false, scope: 'company', publicQuery: '' });
+    const r = await ask('当社の経営戦略の弱点は？');
+    expect(mockResponsesCreate).not.toHaveBeenCalled();
+    expect(r.system).toContain('この質問では外部WEB検索を実行していません');
+  });
+
+  it('判定の検索語句に会社名が含まれていれば、その語句では検索しない', async () => {
+    mockJudge({ needsExternal: true, scope: 'general', publicQuery: '秘密商事 最新業績' });
+    const r = await ask('秘密商事の最新業績は？', blankCompany('秘密商事株式会社'));
+    expect(mockResponsesCreate).not.toHaveBeenCalled();
+    expect(r.system).toContain('公開情報だけでは検索条件を作れなかった');
+  });
+
+  it('判定が失敗したときは、キーワード判定に戻って従来どおり検索する', async () => {
+    const r = await ask(EXTERNAL_QUESTION);
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(1);
+    expect(r.system).toContain(EXTERNAL_BLOCK);
   });
 });

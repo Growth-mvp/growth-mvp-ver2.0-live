@@ -27,7 +27,7 @@ export function isExplicitWebSearchRequest(question: string): boolean {
 }
 
 /** 当社・自社など、会社そのものを指す語 */
-const COMPANY_REF = /当社|自社|弊社|わが社|我が社|うちの|うちは|うちが/;
+export const COMPANY_REF = /当社|自社|弊社|わが社|我が社|うちの|うちは|うちが/;
 
 /** 外部環境の中で戦略や優位性を検証することを暗に求める語。会社への言及と組み合わさったときだけ使う */
 const EVALUATIVE_CUE = /通用|妥当|優位|勝て|生き残|時代遅れ|時代に合|維持でき|維持可能|通じる/;

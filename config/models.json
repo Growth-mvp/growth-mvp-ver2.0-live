@@ -54,6 +54,11 @@
       "maxCompletionTokens": 2500,
       "jsonMode": false
     },
+    "ceoChatSearchJudge": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 1000,
+      "jsonMode": true
+    },
     "ceoRiskReview": {
       "modelRole": "reasoning",
       "maxCompletionTokens": 1500,

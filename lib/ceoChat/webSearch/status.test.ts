@@ -11,7 +11,7 @@ describe('外部WEB検索の状態の説明', () => {
     const b = buildWebSearchStatusBlock({ enabled: true, status: null });
     expect(b).toContain('外部WEB検索の機能は有効です');
     expect(b).toContain('この質問では外部WEB検索を実行していません');
-    expect(b).toContain('「WEB検索して」');
+    expect(b).toContain('自動で公開情報を検索');
   });
 
   it('検索に成功したときは、結果を渡したことを示す', () => {
