@@ -11,6 +11,8 @@ import { statisticCounts, type StatisticCounts } from './statisticScope';
 import type { CeoFact } from './search';
 
 export { countUrls, verifyAnswerUrls } from './sourceCheck';
+export { buildWebSearchStatusBlock, type WebSearchTurnState } from './status';
+export { isExplicitWebSearchRequest } from './classify';
 export {
   buildStatClaimNotice,
   checkStatisticClaims,

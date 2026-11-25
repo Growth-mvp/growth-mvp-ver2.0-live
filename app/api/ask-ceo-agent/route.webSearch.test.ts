@@ -206,6 +206,7 @@ describe('外部検索OFF（既存機能の回帰）', () => {
     const r = await ask(EXTERNAL_QUESTION);
     expect(mockResponsesCreate).not.toHaveBeenCalled();
     expect(r.system).not.toContain('外部情報');
+    expect(r.system).toContain('外部WEB検索の機能は、現在オフになっています');
   });
 
   it('OFFでも、社内データを使う従来の経営相談は同じ経路で回答する', async () => {
@@ -327,5 +328,50 @@ describe('外部検索の障害時（通常回答へ戻る）', () => {
     const r = await ask(EXTERNAL_QUESTION);
     expect(r.status).toBe(200);
     expect(mockChatCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('外部検索の状態の説明（AIが実際の状態に基づいて答える）', () => {
+  const STATUS_HEADING = '【外部WEB検索の状態】';
+
+  it('機能が有効なら、「接続していない」と答えないよう指示し、検索できることを示す', async () => {
+    process.env.CEO_CHAT_WEB_SEARCH_ENABLED = 'true';
+    const r = await ask('WEB検索はできますか？');
+    expect(r.status).toBe(200);
+    expect(mockResponsesCreate).not.toHaveBeenCalled();
+    expect(r.system).toContain(STATUS_HEADING);
+    expect(r.system).toContain('外部WEB検索の機能は有効です');
+    expect(r.system).toContain('「外部WEBに接続していない」とは答えないでください');
+  });
+
+  it('「WEB検索して」と指示された質問は、一般的な質問でも検索し、結果を渡す', async () => {
+    process.env.CEO_CHAT_WEB_SEARCH_ENABLED = 'true';
+    const r = await ask('WEB検索して、当社の人員計画を整理して');
+    expect(r.status).toBe(200);
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(1);
+    expect(r.system).toContain(EXTERNAL_BLOCK);
+    expect(r.system).toContain('この回答では外部WEB検索を実行し');
+  });
+
+  it('外部情報が必要な一般質問（会社への言及がない）でも、ONなら検索する', async () => {
+    process.env.CEO_CHAT_WEB_SEARCH_ENABLED = 'true';
+    const r = await ask('一般論として、物価高とは何か。その影響を教えて');
+    expect(r.status).toBe(200);
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(1);
+    expect(r.system).toContain(EXTERNAL_BLOCK);
+  });
+
+  it('機能が無効で「WEB検索して」と指示されたら、検索せず無効であることを示す', async () => {
+    const r = await ask('WEB検索して、当社の人員計画を整理して');
+    expect(mockResponsesCreate).not.toHaveBeenCalled();
+    expect(r.system).toContain('外部WEB検索の機能は、現在オフになっています');
+    expect(r.system).not.toContain(EXTERNAL_BLOCK);
+  });
+
+  it('検索の必要がない質問では、検索していないことを示す（検索の失敗とは区別する）', async () => {
+    process.env.CEO_CHAT_WEB_SEARCH_ENABLED = 'true';
+    const r = await ask(INTERNAL_QUESTION);
+    expect(mockResponsesCreate).not.toHaveBeenCalled();
+    expect(r.system).toContain('この質問では外部WEB検索を実行していません');
   });
 });

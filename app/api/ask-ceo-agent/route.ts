@@ -87,14 +87,17 @@ import {
 import { buildFocusAnswersBlock } from '@/lib/ceoChat/supplementBlocks';
 import {
   buildStatClaimNotice,
+  buildWebSearchStatusBlock,
   checkStatisticClaims,
   countUnmatchedNumbers,
   countUrls,
   isCeoWebSearchEnabled,
+  isExplicitWebSearchRequest,
   resolveCeoWebSearch,
   verifyAnswerUrls,
   type CeoFact,
   type WebSearchDiagnostics,
+  type WebSearchTurnState,
 } from '@/lib/ceoChat/webSearch';
 import {
   buildReviewPromptBlock,
@@ -555,7 +558,8 @@ export async function POST(req: Request) {
     } else {
       // C) meta.mode が無い → auto 判定
       autoModeResult = detectAutoMode({ lastUserText: lastUser });
-      resolvedMode = autoModeResult.mode === 'help' ? 'help' : 'advisor';
+      resolvedMode =
+        autoModeResult.mode === 'help' && !isExplicitWebSearchRequest(lastUser) ? 'help' : 'advisor';
     }
 
     // --- 意図判定（ヒューリスティック → LLM 併用） ---
@@ -613,6 +617,8 @@ export async function POST(req: Request) {
     let externalSourceAllowlist: string[] | null = null;
     let webSearchDiagnostics: WebSearchDiagnostics | null = null;
     let webSearchFacts: CeoFact[] = [];
+    let webSearchStatus: WebSearchTurnState['status'] = null;
+    const webSearchEnabled = isCeoWebSearchEnabled(process.env.CEO_CHAT_WEB_SEARCH_ENABLED);
     let reviewCandidates = new Map<string, ReviewCandidate>();
     let reviewRun: {
       applicable: boolean;
@@ -742,6 +748,28 @@ export async function POST(req: Request) {
         systemBase += '\n\n' + buildFacilitatorBlock({ stage: 'generic' });
       }
 
+      const webSearch = await resolveCeoWebSearch({
+        enabled: webSearchEnabled,
+        question: lastUser,
+        strategy: strategy as StrategyData,
+        client: openai,
+      });
+      webSearchStatus = webSearch.status;
+      if (webSearch.block) systemBase += '\n\n' + webSearch.block;
+      if (webSearch.category) {
+        externalSourceAllowlist = webSearch.allowedUrls;
+        webSearchDiagnostics = webSearch.diagnostics;
+        webSearchFacts = webSearch.facts;
+        console.log('[ask-ceo-agent]', requestId, 'ceo_web_search', {
+          category: webSearch.category,
+          status: webSearch.status,
+          categoryCount: webSearch.categoryCount,
+          sourceCount: webSearch.sourceCount,
+          elapsedMs: webSearch.elapsedMs,
+          skipReason: webSearch.skipReason ?? null,
+        });
+      }
+
       const contextSelection = selectContextSources(lastUser);
       const selectedContextBlock = buildSelectedContextBlock({
         selection: contextSelection,
@@ -829,28 +857,6 @@ export async function POST(req: Request) {
             omitted: bridge.omitted,
           };
         }
-        const webSearch = await resolveCeoWebSearch({
-          enabled: isCeoWebSearchEnabled(process.env.CEO_CHAT_WEB_SEARCH_ENABLED),
-          question: lastUser,
-          strategy: strategy as StrategyData,
-          client: openai,
-        });
-        if (webSearch.block) systemBase += '\n\n' + webSearch.block;
-        if (webSearch.category) {
-          externalSourceAllowlist = webSearch.allowedUrls;
-          webSearchDiagnostics = webSearch.diagnostics;
-          webSearchFacts = webSearch.facts;
-        }
-        if (webSearch.category) {
-          console.log('[ask-ceo-agent]', requestId, 'ceo_web_search', {
-            category: webSearch.category,
-            status: webSearch.status,
-            categoryCount: webSearch.categoryCount,
-            sourceCount: webSearch.sourceCount,
-            elapsedMs: webSearch.elapsedMs,
-            skipReason: webSearch.skipReason ?? null,
-          });
-        }
         const reviewIndex = buildStage4ReviewCandidates((strategy as any)?.departments, strategyId);
         const reviewBlock: ReturnType<typeof buildReviewPromptBlock> = isReviewQuestion(reviewIndex, lastUser)
           ? buildReviewPromptBlock(reviewIndex, lastUser)
@@ -922,6 +928,8 @@ export async function POST(req: Request) {
     if (executionPrompt) {
       systemBase += `\n\n${executionPrompt}`;
     }
+
+    systemBase += '\n\n' + buildWebSearchStatusBlock({ enabled: webSearchEnabled, status: webSearchStatus });
 
     if (guidance.text) systemBase += '\n\n' + guidance.text;
 

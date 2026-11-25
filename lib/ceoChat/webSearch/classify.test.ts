@@ -1,4 +1,4 @@
-import { classifySearchNeed } from './classify';
+import { classifySearchNeed, isExplicitWebSearchRequest } from './classify';
 
 describe('外部検索の判定（A：社内情報だけ → 検索OFF）', () => {
   it.each([
@@ -66,4 +66,40 @@ describe('外部検索の判定（語の誤一致の防止）', () => {
   it('空の質問は検索しない', () => {
     expect(classifySearchNeed('')).toEqual({ category: 'A', searchNeeded: false });
   });
+});
+
+describe('外部検索の判定（利用者の明示的な検索指示は検索ON）', () => {
+  it.each([
+    ['WEB検索して、当社の人員計画を整理して', 'C'],
+    ['Web検索で当社の採用計画を確認して', 'C'],
+    ['インターネット検索で、一般的な研修制度を調べて', 'B'],
+    ['外部検索をして、人事評価の事例を教えて', 'B'],
+    ['ネットで検索してください。組織の事例を教えて', 'B'],
+  ])('%s', (q, category) => {
+    expect(classifySearchNeed(q)).toEqual({ category, searchNeeded: true });
+    expect(isExplicitWebSearchRequest(q)).toBe(true);
+  });
+
+  it('検索の指示の節が、同じ文の能力の質問より優先される', () => {
+    expect(classifySearchNeed('市場をWEB検索して、この施策が当社でできるか？').searchNeeded).toBe(true);
+  });
+});
+
+describe('外部検索の判定（検索機能の能力を尋ねる質問は検索しない）', () => {
+  it.each(['あなたはWEB検索できますか？', 'WEB検索はできますか', '外部検索の機能はありますか？', 'インターネットに接続できますか'])(
+    '%s',
+    (q) => {
+      expect(isExplicitWebSearchRequest(q)).toBe(false);
+      expect(classifySearchNeed(q)).toEqual({ category: 'A', searchNeeded: false });
+    }
+  );
+});
+
+describe('外部検索の判定（一般質問で外部情報が必要な語）', () => {
+  it.each(['物価高の今後の見通しを教えて', '最近の円安は事業にどう影響するか', '業界の統計データはどこで確認できるか'])(
+    '%s',
+    (q) => {
+      expect(classifySearchNeed(q).searchNeeded).toBe(true);
+    }
+  );
 });
