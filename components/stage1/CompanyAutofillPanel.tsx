@@ -388,7 +388,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs">
           会社名または証券コード
-          <input className="ml-1 w-56 rounded border px-2 py-1" value={text} onChange={(e) => setText(e.target.value)} disabled={disabled || busy || saving} placeholder="例：日本製罐 / 5905" />
+          <input className="ml-1 w-56 rounded border px-2 py-1" value={text} onChange={(e) => setText(e.target.value)} disabled={disabled || busy || saving} placeholder="例：トヨタ自動車 / 7203" />
         </label>
         <button type="button" className="rounded border bg-white px-3 py-1 text-xs" onClick={fetchCandidates} disabled={disabled || busy || saving}>
           {busy ? '取得中…' : '候補を取得'}
