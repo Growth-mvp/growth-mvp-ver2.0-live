@@ -55,7 +55,7 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.16 }}
               className="mt-2 text-[14px] font-medium leading-relaxed text-zinc-700 sm:text-[15px] lg:text-[16px] xl:dark:text-neutral-300"
-            >自社を理解したAIが、戦略づくりから実行・成果確認まで伴走します。
+            >自社を深く理解したAIが、戦略づくりから実行まで伴走し、企業の成長を支えます。
               
 
             </motion.p>
