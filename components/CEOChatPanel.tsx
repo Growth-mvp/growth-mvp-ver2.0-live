@@ -87,6 +87,8 @@ import {
 
 type Msg = CeoChatMessage;
 
+const greetingBubble = (m: Msg) => m.role === 'assistant' && m.content === CEO_CHAT_GREETING[0].content;
+
 type AskResp = {
   content?: string;
   reply?: { content?: string };
@@ -1212,10 +1214,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             <span className="px-1 text-[11px] font-medium text-zinc-500">{m.role === 'user' ? 'あなた' : 'AI経営コンサルタント'}</span>
             <div
               className={[
-                'rounded-2xl px-4 py-3 text-[15px] leading-7',
+                'rounded-2xl px-4 text-[15px]',
+                greetingBubble(m) ? 'py-2.5 leading-normal' : 'py-3 leading-7',
                 m.role === 'user'
                   ? 'whitespace-pre-wrap bg-zinc-100 text-zinc-900'
-                  : 'border border-zinc-200 bg-white text-zinc-900 shadow-sm [&_li]:my-1 [&_ol]:my-2 [&_p+p]:mt-3 [&_ul]:my-2',
+                  : greetingBubble(m)
+                    ? 'border border-zinc-200 bg-white text-zinc-900 shadow-sm [&_li]:my-1 [&_ol]:my-2 [&_p]:my-0 [&_p+p]:mt-1 [&_ul]:my-2'
+                    : 'border border-zinc-200 bg-white text-zinc-900 shadow-sm [&_li]:my-1 [&_ol]:my-2 [&_p+p]:mt-3 [&_ul]:my-2',
               ].join(' ')}
             >
             {m.role === 'user' ? m.content : <CEOChatMarkdown content={m.content} />}
