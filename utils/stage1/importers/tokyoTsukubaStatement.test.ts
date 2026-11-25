@@ -19,6 +19,11 @@ describe('架空企業の財務PDF（千円表記）の読み取り', () => {
     expect(c.profileExtra.employees?.value).toBe(15);
   });
 
+  it('「決算期 3月末」の明記から決算月を3として候補にする', () => {
+    const c = documentCandidate();
+    expect(c.profile.fields.fiscalYearEnd?.value).toBe('3');
+  });
+
   it('全社PLの過去5期を千円から円に換算して読む', () => {
     const c = documentCandidate();
     expect(c.finance.map((y) => y.year)).toEqual([2022, 2023, 2024, 2025, 2026]);

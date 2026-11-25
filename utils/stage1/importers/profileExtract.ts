@@ -3,7 +3,7 @@
 import type { ExtractedTable } from './excelCsvImporter';
 import type { PdfPageText } from './pdfImporter';
 
-export type ProfileKey = 'companyName' | 'location' | 'employees' | 'businessContent' | 'industry';
+export type ProfileKey = 'companyName' | 'location' | 'employees' | 'businessContent' | 'industry' | 'fiscalYearEnd';
 
 export type ProfileFinding = { value: string | number; where: string };
 
@@ -17,9 +17,10 @@ const LABELS: Record<ProfileKey, string[]> = {
   employees: ['常時使用する従業員数', '従業員数'],
   businessContent: ['主要な事業の内容', '事業の内容', '事業内容', '主な事業内容'],
   industry: ['業種'],
+  fiscalYearEnd: ['決算期', '決算月'],
 };
 
-const VALID_LENGTH: Record<Exclude<ProfileKey, 'employees'>, [number, number]> = {
+const VALID_LENGTH: Record<Exclude<ProfileKey, 'employees' | 'fiscalYearEnd'>, [number, number]> = {
   companyName: [2, 100],
   location: [4, 200],
   businessContent: [2, 2000],
@@ -41,7 +42,15 @@ function asEmployees(raw: string): number | null {
   return n > 0 ? n : null;
 }
 
-function validText(key: Exclude<ProfileKey, 'employees'>, raw: string): string | null {
+/** 「3月末」「12月」のように決算月が明記された値だけ、月（1〜12）にする。年月（2026年3月期）からは推測しない */
+function asFiscalMonth(raw: string): number | null {
+  const m = /^(\d{1,2})\s*月/.exec(nfkc(raw).trim().replace(/^[:：]\s*/, ''));
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= 12 ? n : null;
+}
+
+function validText(key: Exclude<ProfileKey, 'employees' | 'fiscalYearEnd'>, raw: string): string | null {
   const v = raw.trim().replace(/^[:：]\s*/, '');
   const [min, max] = VALID_LENGTH[key];
   if (v.length < min || v.length > max) return null;
@@ -53,6 +62,11 @@ function accept(profile: DocumentProfile, key: ProfileKey, raw: string, where: s
   if (key === 'employees') {
     const n = asEmployees(raw);
     if (n !== null) profile.employees = { value: n, where };
+    return;
+  }
+  if (key === 'fiscalYearEnd') {
+    const month = asFiscalMonth(raw);
+    if (month !== null) profile.fiscalYearEnd = { value: String(month), where };
     return;
   }
   const v = validText(key, raw);
@@ -111,6 +125,8 @@ export function extractProfileFromPages(pages: ReadonlyArray<Pick<PdfPageText, '
           if (m && !/^[はがをにでのとへも、。]/.test(m[1])) accept(profile, k, m[1], where);
         }
       }
+      const fiscalPhrase = /(\d{1,2})月末?決算/.exec(line);
+      if (fiscalPhrase) accept(profile, 'fiscalYearEnd', `${fiscalPhrase[1]}月`, where);
     }
     closeSection();
   }

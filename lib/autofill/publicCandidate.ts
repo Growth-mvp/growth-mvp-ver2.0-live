@@ -225,6 +225,14 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
       consolidation: 'NOT_APPLICABLE',
     };
   }
+  if (merged.fiscalYearEnd) {
+    profile.fields.fiscalYearEnd = {
+      value: String(merged.fiscalYearEnd.value),
+      source: docSource(merged.fiscalYearEnd.where, args.fetchedAt),
+      fiscalYear: null,
+      consolidation: 'NOT_APPLICABLE',
+    };
+  }
   if (merged.location) {
     profileExtra.location = { value: String(merged.location.value), source: docSource(merged.location.where, args.fetchedAt), fiscalYear: null, consolidation: 'NOT_APPLICABLE' };
   }
