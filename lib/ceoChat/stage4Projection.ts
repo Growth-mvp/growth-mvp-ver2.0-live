@@ -1,10 +1,12 @@
+import { lifecycleOf } from '@/lib/cascade/projectLifecycle';
+
 type AnyRecord = Record<string, any>;
 
 export const EXECUTION_CHAR_BUDGET = 2400;
 const MISSING = '未登録';
 const OTHER_STATUS = 'その他';
 const MISSION_MAX = 120;
-const HEADER = '# 部門・OKR・実行計画（STAGE3・4、閲覧権限の範囲内の登録情報）';
+const HEADER = '# 部門・OKR・実行計画（STAGE3・4、閲覧権限の範囲内の登録情報）。KR:は部門に保存された目標で、計画書のKPIとは別';
 const OMITTED_NAME_MAX = 5;
 const OMITTED_NAME_CHARS = 80;
 const MENTION_SHARE = 0.6;
@@ -223,8 +225,9 @@ function formatImpact(project: AnyRecord): string {
 }
 
 function projectView(project: AnyRecord): ProjectView {
-  const title = orMissing(project.title ?? project.name);
-  const status = planStatusLabel(project.planStatus);
+  const lifecycle = lifecycleOf(project)?.status;
+  const title = `${lifecycle ? `【${lifecycle === 'STOPPED' ? '中止' : '除外'}】` : ''}${orMissing(project.title ?? project.name)}`;
+  const status = lifecycle ? '中止・除外（現在実行する施策ではない）' : planStatusLabel(project.planStatus);
   const links = Array.isArray(project.valueDriverLinks)
     ? project.valueDriverLinks.map(text).filter(Boolean)
     : [];
@@ -236,7 +239,7 @@ function projectView(project: AnyRecord): ProjectView {
   ].join('｜');
 
   const krs = records(project.okrsV2);
-  const krLines = krs.length > 0
+  const krRows = krs.length > 0
     ? krs.map(formatKr)
     : records(project.okrs).map((o) => {
         const krLabels = (Array.isArray(o.keyResults) ? o.keyResults : [])
@@ -244,12 +247,13 @@ function projectView(project: AnyRecord): ProjectView {
           .filter(Boolean);
         return `    - O: ${orMissing(o.objective)}${krLabels.length ? ` / KR: ${krLabels.join('、')}` : ''}`;
       });
+  const krLines = lifecycle ? [] : krRows;
 
   return {
     title,
     header,
     krLines,
-    impact: formatImpact(project),
+    impact: lifecycle ? '' : formatImpact(project),
     overviewLine: `    ・${title}（計画 ${status}）`,
   };
 }

@@ -1,5 +1,5 @@
 import { buildDocModel, type DocModel, type Edits } from '@/lib/stage4/planView/documentModel';
-import { isProjectStopped } from '@/lib/cascade/projectLifecycle';
+import { isProjectStopped, lifecycleOf } from '@/lib/cascade/projectLifecycle';
 
 /* STAGE4の実行計画書（stage4_plan_documents）を、AI経営コンサルタントが参照する文脈にする。
  * 表示の組み立ては画面と同じ buildDocModel を使い、保存された利用者の編集をAI原案より優先する。 */
@@ -62,6 +62,7 @@ function statusOf(row: Stage4PlanRow, project: AnyRecord): string {
 
 function planLines(row: Stage4PlanRow, hit: Hit): string[] {
   const head = `- ${hit.deptName || '部門名未設定'}／${hit.title || 'プロジェクト名未設定'}｜状態：${statusOf(row, hit.project)}`;
+  if (lifecycleOf(hit.project)) return [head, '  中止・除外された施策のため、実行中の施策として案内しない（施策・KPIは対象外）'];
   let view: DocModel;
   try {
     view = buildDocModel(row.ai_draft ?? {}, (row.user_edits ?? {}) as Edits);

@@ -15,6 +15,7 @@ module.exports = {
   testMatch: ['**/*.test.ts', '**/*.test.tsx'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    '^server-only$': '<rootDir>/jest/serverOnlyStub.js',
   },
   transform: {
     '^.+\\.ts$': [

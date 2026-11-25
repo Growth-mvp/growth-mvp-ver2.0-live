@@ -151,6 +151,26 @@ describe('画面の入力・画像に関する案内（OpenAI へ送る指示）
     expect(sentRequest().system).toContain('# STAGE3の6つの問いの登録状況');
   });
 
+  it('STAGE1の登録済み課題と、STAGE2の確定版・草案の区別を、相談の根拠として渡す', async () => {
+    (getFullStrategyDataByStrategyId as jest.Mock).mockResolvedValueOnce({
+      data: {
+        id: STRATEGY,
+        departments: [],
+        answers2: [],
+        finalStory: [],
+        stage1Issues: [{ title: '配送コストの上昇', description: '燃料費が増えている', scope: 'business' }],
+        finalStoryFinal: [{ title: '全社戦略', body: '確定した本文' }],
+        finalStoryDraft: [{ title: '全社戦略', body: '作り直した草案' }],
+      },
+      error: null,
+    });
+    await POST(req(body([{ role: 'user', content: '経営課題と戦略ストーリーの状態を教えて' }])));
+    const system = sentRequest().system;
+    expect(system).toContain('- 配送コストの上昇（事業）：燃料費が増えている');
+    expect(system).toContain('- 現在有効な確定版：あり（1章。確定した内容）');
+    expect(system).toContain('- 現在の草案：あり（1章。未確定。確定版ではない）');
+  });
+
   it('製品の概要を聞かれても、STAGE一覧をそのまま並べない指示を含む', async () => {
     await POST(req(body([{ role: 'user', content: 'GROWTH SHIFTって何ですか？' }])));
     expect(sentRequest().system).toContain('製品の概要を聞かれても、この一覧をそのまま並べない');

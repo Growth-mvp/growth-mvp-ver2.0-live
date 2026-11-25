@@ -48,9 +48,15 @@ import {
   selectOrganizationSource,
   isStage5RegistrationQuestion,
   isStage3QuestionStatusQuestion,
+  isStage3WorkspaceQuestion,
+  isStage4StatusQuestion,
 } from '@/lib/ceoChat/contextSelection';
 import { buildStage5RegistrationBlock } from '@/lib/ceoChat/stage5Registration';
 import { buildStage3QuestionStatusBlock } from '@/lib/ceoChat/stage3QuestionStatus';
+import { buildStage1IssuesBlock } from '@/lib/ceoChat/stage1Issues';
+import { buildStage2StoryStateBlock } from '@/lib/ceoChat/stage2StoryState';
+import { buildStage3WorkingStateBlock } from '@/lib/ceoChat/stage3WorkingState';
+import { loadWorkspace } from '@/lib/server/stage3StrategyBook';
 import { buildExecutionSummaryBlock, isDepartmentsAbsent } from '@/lib/ceoChat/stage4Projection';
 import { buildStage4PlanBlock, loadStage4PlanRows } from '@/lib/ceoChat/stage4PlanBlock';
 import {
@@ -603,6 +609,7 @@ export async function POST(req: Request) {
       : '';
 
     let systemBase: string;
+    let companyContextUsed = false;
     let externalSourceAllowlist: string[] | null = null;
     let webSearchDiagnostics: WebSearchDiagnostics | null = null;
     let webSearchFacts: CeoFact[] = [];
@@ -691,6 +698,7 @@ export async function POST(req: Request) {
 
       // generic でも、選択中企業に関する質問ならば agentPrompt を使用
       const shouldUseAgentPrompt = !isGeneralQuestion;
+      companyContextUsed = shouldUseAgentPrompt;
 
       console.log('[ask-ceo-agent]', requestId, '③_system_prompt_route', {
         intent_stage: intent.stage,
@@ -952,24 +960,6 @@ export async function POST(req: Request) {
       systemBase += '\n\n' + buildMilestoneGuard(companionMilestone);
     }
 
-    const askMessages = sanitizeAskMessages(messages);
-    if (
-      isManualAdvisorChat({
-        resolvedMode,
-        output,
-        insights: insightsMode,
-        hasCompanion: !!meta?.companion,
-        hasOperationGuidance: !!guidance.text,
-      })
-    ) {
-      const answerStyle = decideAnswerStyle({
-        userText: lastUser,
-        hasPriorAssistantTurn: askMessages.some((m) => m.role === 'assistant'),
-        priorUserTexts: askMessages.slice(0, -1).filter((m) => m.role === 'user').map((m) => m.content),
-      });
-      systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle);
-    }
-
     // 登録状況の質問は、相談の経路（モード）に関係なく、保存済みの値の集計を根拠に答える
     if (strategy && isStage5RegistrationQuestion(lastUser)) {
       const now = new Date();
@@ -986,6 +976,50 @@ export async function POST(req: Request) {
     }
     if (strategy && isStage3QuestionStatusQuestion(lastUser)) {
       systemBase += '\n\n' + buildStage3QuestionStatusBlock((strategy as any)?.departments).text;
+    }
+    if (strategy && companyContextUsed) {
+      const issuesText = buildStage1IssuesBlock((strategy as any)?.stage1Issues);
+      if (issuesText) systemBase += '\n\n' + issuesText;
+      systemBase += '\n\n' + buildStage2StoryStateBlock(strategy as Record<string, unknown>);
+    }
+    if (strategy && isStage4StatusQuestion(lastUser)) {
+      const departmentsNow = (strategy as any)?.departments;
+      if (!systemBase.includes('# 部門・OKR・実行計画')) {
+        systemBase += '\n\n' + buildExecutionSummaryBlock(departmentsNow, lastUser, undefined, false).text;
+      }
+      if (!systemBase.includes('# 実行計画（STAGE4・保存済みの計画書）')) {
+        const planRows = await loadStage4PlanRows(admin, companyId, strategyId);
+        systemBase += '\n\n' + buildStage4PlanBlock({ rows: planRows, departments: departmentsNow, question: lastUser });
+      }
+    }
+    if (strategy && companyContextUsed && isStage3WorkspaceQuestion(lastUser)) {
+      let workspace: Awaited<ReturnType<typeof loadWorkspace>>;
+      try {
+        workspace = await loadWorkspace(admin, strategyId);
+      } catch {
+        workspace = { ok: false, status: 503, error: 'workspace_unavailable' };
+      }
+      systemBase += '\n\n' + buildStage3WorkingStateBlock(
+        workspace.ok ? { state: workspace.workspace.state, failed: false } : { state: null, failed: true },
+      );
+    }
+
+    const askMessages = sanitizeAskMessages(messages);
+    if (
+      isManualAdvisorChat({
+        resolvedMode,
+        output,
+        insights: insightsMode,
+        hasCompanion: !!meta?.companion,
+        hasOperationGuidance: !!guidance.text,
+      })
+    ) {
+      const answerStyle = decideAnswerStyle({
+        userText: lastUser,
+        hasPriorAssistantTurn: askMessages.some((m) => m.role === 'assistant'),
+        priorUserTexts: askMessages.slice(0, -1).filter((m) => m.role === 'user').map((m) => m.content),
+      });
+      systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle);
     }
 
     // --- OpenAI 呼び出し ---

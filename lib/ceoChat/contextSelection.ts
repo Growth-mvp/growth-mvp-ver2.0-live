@@ -71,6 +71,21 @@ export function isStage3QuestionStatusQuestion(query: string): boolean {
   return STAGE3_TOPIC_CUE.test(q) && STAGE5_STATUS_CUE.test(q);
 }
 
+const STAGE4_TOPIC_CUE = /実行中|実行している|中止|除外|実行計画|施策|計画書|実行する/;
+
+/** 実行中・中止・除外の施策や計画の状態を尋ねる質問かどうか（施策を作る・変える指示は含めない） */
+export function isStage4StatusQuestion(query: string): boolean {
+  const q = query ?? '';
+  return STAGE4_TOPIC_CUE.test(q) && STAGE5_STATUS_CUE.test(q);
+}
+
+const STAGE3_WORKSPACE_CUE =/6つの問い|STAGE\s*3|ステージ\s*3|部門戦略|戦略書|採否|採用|不採用|保留|未判断|確定|再確定|再生成|部門間|調整|候補/;
+
+/** STAGE3の作業版・採否・確定状態に関係する質問かどうか（採否や確定を変える指示は含めない） */
+export function isStage3WorkspaceQuestion(query: string): boolean {
+  return STAGE3_WORKSPACE_CUE.test(query ?? '');
+}
+
 const CASH_CUE = /現預金|運転資金|キャッシュ|資金繰り|資金|借入|返済/;
 const TALENT_CUE = /人材|人員|人手|人不足|育成|採用|教育|スキル|技能|保守人材/;
 
