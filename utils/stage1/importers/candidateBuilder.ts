@@ -35,8 +35,8 @@ const BS_FIELD_PATTERNS: Record<string, RegExp[]> = {
   fixedAssets: [/固定資産/i, /有形固定資産/i, /fixed\s*assets/i, /property/i],
   totalAssets: [/総資産/i, /(?<!純)資産合計/i, /total\s*assets/i],
   interestBearingDebt: [/有利子負債/i, /借入金/i, /社債/i, /interest.bearing\s*debt/i],
-  equity: [/純資産(?!合計)/i, /株主資本/i, /自己資本/i, /(shareholders'?|stockholders'?)\s*equity/i],
-  netAssets: [/純資産合計/i, /net\s*assets/i],
+  equity: [/株主資本/i, /自己資本/i, /(shareholders'?|stockholders'?)\s*equity/i],
+  netAssets: [/(?<!負債[・及び]{0,2})純資産(?:合計)?/i, /net\s*assets/i],
 };
 
 /** 年度パターン */
@@ -345,6 +345,38 @@ export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCan
   return merged;
 }
 
+/** 「事業名／売上」「事業名／営業利益」の行（事業別損益の表） */
+const SEGMENT_ROW = /^(.+?)[／/]\s*(売上高?|営業利益)\s+/;
+const SEGMENT_ITEM_FIELD: Record<string, string> = { 売上: 'revenue', 売上高: 'revenue', 営業利益: 'operatingIncome' };
+/** 貸借対照表の基準日（「2026年3月31日現在」）。BSは時点の数値なので年度の列に割り当てない */
+const BALANCE_SHEET_DATE = /(\d{4})年\s*\d{1,2}月\s*\d{1,2}日\s*(?:現在|時点)/;
+
+function extractBalanceSheetYear(text: string): number | null {
+  const m = BALANCE_SHEET_DATE.exec(text.normalize('NFKC'));
+  return m ? Number(m[1]) : null;
+}
+
+/** 貸借対照表の1行に左右2項目がある時（「固定資産 54,000 純資産 28,000」）、項目ごとに先頭の金額を読む */
+function bsItemsInLine(line: string): Array<{ field: string; value: number }> {
+  const hits: Array<{ field: string; start: number; end: number }> = [];
+  for (const [field, regexes] of Object.entries(BS_FIELD_PATTERNS)) {
+    for (const regex of regexes) {
+      const m = regex.exec(line);
+      if (m && !hits.some((h) => h.field === field) && !hits.some((h) => h.start <= m.index && m.index < h.end)) {
+        hits.push({ field, start: m.index, end: m.index + m[0].length });
+      }
+    }
+  }
+  hits.sort((a, b) => a.start - b.start);
+  const out: Array<{ field: string; value: number }> = [];
+  hits.forEach((h, i) => {
+    const next = i + 1 < hits.length ? hits[i + 1].start : line.length;
+    const value = extractNumbersFromLine(line.slice(h.end, next))[0];
+    if (value !== undefined) out.push({ field: h.field, value });
+  });
+  return out;
+}
+
 /**
  * PDFテキストから候補を生成（簡易実装）
  */
@@ -362,11 +394,30 @@ export function buildCandidatesFromPdfText(pages: PdfPageText[]): Stage1ImportCa
 
     // 年度を抽出
     const years = extractYearsFromText(text);
+    const balanceSheetYear = extractBalanceSheetYear(text);
 
     for (const line of lines) {
       // 数値が含まれる行を探す
       const numbers = extractNumbersFromLine(line);
       if (numbers.length === 0) continue;
+
+      const segmentRow = SEGMENT_ROW.exec(line);
+      if (segmentRow) {
+        const field = SEGMENT_ITEM_FIELD[segmentRow[2]];
+        const values = extractNumbersFromLine(line.slice(segmentRow[0].length));
+        for (let i = 0; i < Math.min(values.length, years.length); i++) {
+          candidates.push({
+            kind: 'segmentPL' as any,
+            year: years[i],
+            segmentName: segmentRow[1].trim(),
+            fields: { [field]: values[i] },
+            confidence: 0.5,
+            sourceRef: `PDF:P${page.pageNumber}`,
+            ...(pdfSheetUnit ? { sheetUnit: pdfSheetUnit } : {}),
+          } as Stage1ImportCandidate);
+        }
+        continue;
+      }
 
       // PL項目をチェック
       const plField = matchField(line, PL_FIELD_PATTERNS);
@@ -386,9 +437,22 @@ export function buildCandidatesFromPdfText(pages: PdfPageText[]): Stage1ImportCa
         continue;
       }
 
-      // BS項目をチェック
+      // BS項目をチェック（基準日が読めた時は、項目ごとの金額を基準日の年度の値にする）
       const bsField = matchField(line, BS_FIELD_PATTERNS);
-      if (bsField && years.length > 0) {
+      if (bsField && balanceSheetYear !== null) {
+        const kind = scope === 'segment' ? ('segmentBS' as any) : ('companyBS' as any);
+        for (const item of bsItemsInLine(line)) {
+          candidates.push({
+            kind,
+            year: balanceSheetYear,
+            fields: { [item.field]: item.value },
+            confidence: 0.5,
+            sourceRef: `PDF:P${page.pageNumber}`,
+            ...(pdfSheetUnit ? { sheetUnit: pdfSheetUnit } : {}),
+            ...(scope === 'segment' && segmentName ? { segmentName } : {}),
+          } as Stage1ImportCandidate);
+        }
+      } else if (bsField && years.length > 0) {
         for (let i = 0; i < Math.min(numbers.length, years.length); i++) {
           const kind = scope === 'segment' ? ('segmentBS' as any) : ('companyBS' as any);
           candidates.push({
@@ -481,7 +545,7 @@ function extractNumbersFromLine(line: string): number[] {
   while ((match = pattern.exec(line)) !== null) {
     const s = match[0].replace(/[,]/g, '').replace(/[−]/g, '-');
     const num = parseFloat(s);
-    if (Number.isFinite(num) && Math.abs(num) >= 1) {
+    if (Number.isFinite(num) && (num === 0 || Math.abs(num) >= 1)) {
       numbers.push(num);
     }
   }

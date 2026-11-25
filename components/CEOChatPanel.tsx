@@ -45,7 +45,7 @@ import { speakChunks, stopSpeaking } from '@/lib/voice/browserSpeech';
 import { toSpeakableChunks } from '@/lib/voice/speechText';
 import { useVoiceConversation } from '@/hooks/useVoiceConversation';
 import { keepsVoiceOnPathChange } from '@/lib/voice/conversationScope';
-import { isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
+import { isAttachmentRequest, isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
 import { useAutofillStore } from '@/lib/autofill/autofillStore';
 import { runAutofillPipeline } from '@/lib/autofill/client';
 import { runDocumentFinance, runPublicProfile } from '@/lib/autofill/publicClient';
@@ -446,6 +446,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
   const activeCompanyIdRef = useRef<string | null>(companyId ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachedDocumentsRef = useRef<{ companyId: string; files: File[] } | null>(null);
   useEffect(() => {
     const nextCompanyId = companyId ?? null;
     if (activeCompanyIdRef.current === nextCompanyId) return;
@@ -684,6 +685,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         }
       }
 
+      if (isAttachmentRequest(trimmed)) {
+        const attached = attachedDocumentsRef.current;
+        if (latestStrategyId && requestCompanyId && attached?.companyId === requestCompanyId) {
+          await requestDocumentFromChat({ ticket, files: attached.files, companyId: requestCompanyId, strategyId: latestStrategyId, isStale });
+        } else {
+          updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: '添付された資料が見当たりません。資料を添付してから、もう一度依頼してください。' }]);
+        }
+        return true;
+      }
+
       if (isAutofillRequest(trimmed)) {
         if (latestStrategyId && requestCompanyId) {
           await requestAutofillFromChat({ ticket, text: trimmed, companyId: requestCompanyId, strategyId: latestStrategyId, isStale });
@@ -808,6 +819,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       setNotice('戦略データを読み込み中です…少々お待ちください。');
       return;
     }
+    attachedDocumentsRef.current = { companyId: requestCompanyId, files };
     const ticket = openCeoChatRequest(ownerKey);
     const isStale = () => activeCompanyIdRef.current !== requestCompanyId || (ticket !== null && !isCeoChatRequestCurrent(ticket));
     setCeoChatPending(ticket, true);

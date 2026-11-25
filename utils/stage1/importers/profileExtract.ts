@@ -32,7 +32,7 @@ const cellKey = (s: string) => nfkc(s).replace(/[\s　]/g, '').replace(/[（(][^
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function asEmployees(raw: string): number | null {
-  const v = nfkc(raw).replace(/[,\s]/g, '');
+  const v = nfkc(raw).replace(/[（(][^）)]*[）)]?.*$/, '').replace(/[,\s]/g, '');
   const m = /^(\d{1,7})(名|人)?$/.exec(v);
   if (!m) return null;
   const n = Number(m[1]);

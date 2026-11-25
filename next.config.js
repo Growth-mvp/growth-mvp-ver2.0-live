@@ -20,6 +20,11 @@ const nextConfig = {
   // 新STAGE4用の開発サーバーは出力先を分け、既存の開発サーバーと .next を共有しない
   distDir: process.env.NEXT_DIST_DIR || '.next',
 
+  // PDFの文字を読むCMapは動的に読むため、資料取込APIの実行環境に含める
+  outputFileTracingIncludes: {
+    '/api/stage1/import': ['./node_modules/pdfjs-dist/cmaps/**/*'],
+  },
+
   // ✅ ビルド中はESLintエラーを無視（公開を優先）
   eslint: { ignoreDuringBuilds: true },
 

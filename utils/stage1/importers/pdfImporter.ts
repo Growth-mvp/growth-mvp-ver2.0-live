@@ -5,12 +5,17 @@
  * - 巨大PDF対策：優先ページ抽出、上限設定
  */
 
+import path from 'node:path';
+
 type PdfParseModule = typeof import('pdf-parse');
 
 // Next のバンドルに含めず、Node の標準の読み込みで pdf-parse を使う（PDF.js のワーカーを正しく解決するため）
 const loadNative = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<PdfParseModule>;
 let pdfParseModule: Promise<PdfParseModule> | null = null;
 const loadPdfParse = () => (pdfParseModule ??= loadNative('pdf-parse'));
+
+/** 埋め込まれていない日本語フォントの文字コードを読むためのCMap（pdf.js 同梱）。無いと本文が空になる */
+const CMAP_DIR = path.join(process.cwd(), 'node_modules', 'pdfjs-dist', 'cmaps').replace(/\\/g, '/') + '/';
 
 /** ページごとの抽出結果 */
 export type PdfPageText = {
@@ -74,7 +79,7 @@ const FALLBACK_SAMPLE_PAGES = 10;
 export async function parsePdf(buffer: Buffer): Promise<PdfExtractResult> {
   const warnings: string[] = [];
   const { PDFParse } = await loadPdfParse();
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  const parser = new PDFParse({ data: new Uint8Array(buffer), cMapUrl: CMAP_DIR, cMapPacked: true });
 
   try {
     const info = await parser.getInfo();

@@ -8,8 +8,16 @@ const TARGET = /(基本情報|財務|有価証券報告書|有報|会社情報|�
 /* 質問（「〜ですか」「〜ていますか」など）は、取得の依頼ではなく相談として扱う */
 const QUESTION_FORM = /[?？]|ですか|ますか|でしょうか|ていますか|されていますか/;
 
+const ATTACHMENT = /(添付|資料|ファイル|PDF|Excel|エクセル|CSV)/i;
+const SECURITIES_CODE = /(?<!\d)\d{4}(?!\d)/;
+
+/** 添付した資料からの入力の依頼。証券コード（4桁）が無い時に限る（上場企業の依頼は証券コードから公開資料を取る） */
+export function isAttachmentRequest(text: string): boolean {
+  return ACTION.test(text) && ATTACHMENT.test(text) && !QUESTION_FORM.test(text) && !SECURITIES_CODE.test(text.normalize('NFKC'));
+}
+
 export function isAutofillRequest(text: string): boolean {
-  return ACTION.test(text) && TARGET.test(text) && !QUESTION_FORM.test(text) && parseIdentifyQuery(text) !== null;
+  return ACTION.test(text) && TARGET.test(text) && !QUESTION_FORM.test(text) && !isAttachmentRequest(text) && parseIdentifyQuery(text) !== null;
 }
 
 const PUBLIC_ACTION = /(調べ|検索|調査)/;
