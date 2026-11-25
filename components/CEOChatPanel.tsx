@@ -33,8 +33,10 @@ import { parseStage4Intent } from '@/lib/aiOperations/stage4';
 import { requestStage4, stage4ExcludedTitles, stage4ProjectRefs } from '@/lib/aiOperations/stage4Client';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
 import CEOChatProposalCard from '@/components/CEOChatProposalCard';
-import { isVoiceDisabledFor, readAutoRead, toSpeakableText, writeAutoRead } from '@/lib/voice/voiceSettings';
-import { speakJapanese, stopSpeaking } from '@/lib/voice/browserSpeech';
+import { isVoiceDisabledFor, readAutoRead, writeAutoRead } from '@/lib/voice/voiceSettings';
+import { speakChunks, stopSpeaking } from '@/lib/voice/browserSpeech';
+import { toSpeakableChunks } from '@/lib/voice/speechText';
+import { useVoiceConversation } from '@/hooks/useVoiceConversation';
 import { isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
 import { useAutofillStore } from '@/lib/autofill/autofillStore';
 import { runAutofillPipeline } from '@/lib/autofill/client';
@@ -350,8 +352,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     const prev = spokenRef.current;
     spokenRef.current = { owner: ownerKey, msg: last };
     if (prev.owner !== ownerKey || prev.msg === last) return;
-    if (!autoRead || voiceOff || !last || last.role !== 'assistant' || !last.answered) return;
-    speakJapanese(toSpeakableText(last.content), {
+    if (!autoRead || voiceOff || conversationActiveRef.current || !last || last.role !== 'assistant' || !last.answered) return;
+    speakChunks(toSpeakableChunks(last.content), {
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
     });
@@ -376,11 +378,34 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     if (ticket) updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: message }]);
   }, []);
 
-  // 認識結果は入力欄に入れるだけにし、送信は本人が行う
-  const appendTranscript = useCallback((text: string) => {
-    setInput((prev) => (prev.trim() ? `${prev.trimEnd()}\n${text}` : text));
-    textareaRef.current?.focus();
-  }, []);
+  // 音声会話：利用者の発言は自動で送り、AIの回答は自動で読み上げる（「会話を終了する」まで続く）
+  const sendRef = useRef<((text: string) => Promise<boolean>) | null>(null);
+  const conversationActiveRef = useRef(false);
+  const voiceStopRef = useRef<((message?: string) => void) | null>(null);
+  const ownerKeyRef = useRef(ownerKey);
+  ownerKeyRef.current = ownerKey;
+  const answerOfTurn = (beforeCount: number): string | null => {
+    const st = useCeoChatStore.getState();
+    if (st.ownerKey !== ownerKeyRef.current || st.messages.length <= beforeCount) return null;
+    const last = st.messages[st.messages.length - 1];
+    return last && last.role === 'assistant' && last.answered ? last.content : null;
+  };
+  const voice = useVoiceConversation(async (text) => {
+    const sendNow = sendRef.current;
+    if (!sendNow) return null;
+    const beforeCount = useCeoChatStore.getState().messages.length;
+    const ok = await sendNow(text);
+    return ok ? answerOfTurn(beforeCount) : null;
+  });
+  useEffect(() => {
+    conversationActiveRef.current = voice.status !== 'off';
+    voiceStopRef.current = voice.stop;
+  }, [voice.status, voice.stop]);
+  const stopReadingAll = () => {
+    if (voice.status !== 'off') voice.stop();
+    stopSpeaking();
+    setSpeaking(false);
+  };
 
 
   // 会社が切り替わったら、入力と進行中の応答を無効化する。会話履歴の破棄はストア側が行う。
@@ -395,6 +420,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setNotice(null);
     setInput('');
     useOperationProposalStore.getState().clearPending();
+    voiceStopRef.current?.('会社が切り替わったため、会話を終了しました。');
   }, [companyId]);
 
   // 切替が確定（ストアの企業が画面の企業と一致）したら、切替中の通知を消す
@@ -724,6 +750,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     }
     return true;
   }, [ownerKey, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize, router]);
+
+  useEffect(() => {
+    sendRef.current = send;
+  }, [send]);
 
   const onSubmit = () => { if (input.trim()) void send(input); };
 
@@ -1137,12 +1167,19 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         {messages.map((m, i) => (
           <div key={i}
             className={[
-              'mb-1 max-w-[90%] text-[14px] leading-6 rounded-lg px-3 py-2',
-              m.role === 'user'
-                ? 'ml-auto whitespace-pre-wrap bg-zinc-100 text-zinc-900'
-                : 'mr-auto bg-white border border-zinc-200 text-zinc-900'
+              'flex max-w-[92%] flex-col gap-1',
+              m.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start',
             ].join(' ')}
           >
+            <span className="px-1 text-[11px] font-medium text-zinc-500">{m.role === 'user' ? 'あなた' : 'AI経営コンサルタント'}</span>
+            <div
+              className={[
+                'rounded-2xl px-4 py-3 text-[15px] leading-7',
+                m.role === 'user'
+                  ? 'whitespace-pre-wrap bg-zinc-100 text-zinc-900'
+                  : 'border border-zinc-200 bg-white text-zinc-900 shadow-sm',
+              ].join(' ')}
+            >
             {m.role === 'user' ? m.content : <CEOChatMarkdown content={m.content} />}
             {m.role === 'assistant' && m.reviewTargets && (
               <CEOChatReviewTargets targets={m.reviewTargets} currentStrategyId={strategyId} />
@@ -1175,6 +1212,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
                 strategyId={strategyId}
               />
             ) : null}
+            </div>
           </div>
         ))}
         {!messages.some((m) => m.role === 'user') && (
@@ -1215,6 +1253,19 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               {notice}
             </p>
           )}
+          {!voiceOff && userOK && user?.id ? (
+            <CEOChatVoiceControls
+              status={voice.status}
+              notice={voice.notice}
+              disabled={!!sending || !userOK || !!shouldWaitForRestore}
+              onStart={voice.start}
+              onStop={() => voice.stop()}
+              autoRead={autoRead}
+              onAutoReadChange={changeAutoRead}
+              speaking={speaking}
+              onStopReading={stopReadingAll}
+            />
+          ) : null}
           <textarea
             ref={textareaRef}
             className="w-full min-h-[88px] resize-none overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 text-[14px] leading-6 outline-none focus:ring-2 focus:ring-zinc-300"
@@ -1234,16 +1285,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             rows={3}
             disabled={sending || !userOK || shouldWaitForRestore}
           />
-          {!voiceOff && userOK && user?.id ? (
-            <CEOChatVoiceControls
-              userId={user.id}
-              disabled={!!sending || !userOK || !!shouldWaitForRestore}
-              onTranscript={appendTranscript}
-              autoRead={autoRead}
-              onAutoReadChange={changeAutoRead}
-              speaking={speaking}
-            />
-          ) : null}
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-gray-400">
               Enterで送信

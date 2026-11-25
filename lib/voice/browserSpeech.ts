@@ -24,17 +24,114 @@ export function isSpeechOutputSupported(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
 }
 
-export function speakJapanese(text: string, handlers: { onStart?: () => void; onEnd?: () => void } = {}): boolean {
-  if (!isSpeechOutputSupported() || !text) return false;
+/* 日本語の声のうち、自然に聞こえやすいものを優先する。候補が無ければ null（ブラウザ既定の声を使う） */
+export function pickJapaneseVoice<T extends { name: string; lang: string }>(voices: readonly T[]): T | null {
+  const japanese = voices.filter((v) => /^ja([-_]|$)/i.test(v.lang));
+  if (japanese.length === 0) return null;
+  const rank = (v: T): number => {
+    if (/natural/i.test(v.name)) return 0;
+    if (/Google 日本語/.test(v.name)) return 1;
+    if (/Nanami|Keita|Haruka|Ayumi|Ichiro/.test(v.name)) return 2;
+    return 3;
+  };
+  return [...japanese].sort((a, b) => rank(a) - rank(b))[0];
+}
+
+let cachedVoice: SpeechSynthesisVoice | null = null;
+
+/* 声の一覧は読み込みが遅れることがあるため、voiceschanged を待つ（最大1.5秒） */
+function loadJapaneseVoice(): Promise<SpeechSynthesisVoice | null> {
+  if (cachedVoice) return Promise.resolve(cachedVoice);
+  return new Promise((resolve) => {
+    const synth = window.speechSynthesis;
+    const finish = (voice: SpeechSynthesisVoice | null) => {
+      synth.removeEventListener('voiceschanged', onChanged);
+      resolve(voice);
+    };
+    const onChanged = () => {
+      const voice = pickJapaneseVoice(synth.getVoices());
+      if (voice) {
+        cachedVoice = voice;
+        finish(voice);
+      }
+    };
+    onChanged();
+    if (cachedVoice) return;
+    synth.addEventListener('voiceschanged', onChanged);
+    window.setTimeout(() => finish(null), 1500);
+  });
+}
+
+export type SpeechHandle = { cancel(): void };
+
+/* 回答を文ごとに読む。途中の文が止まっても次へ進み、利用者が止めたら残りは読まない */
+export function speakChunks(chunks: string[], handlers: { onStart?: () => void; onEnd?: () => void } = {}): SpeechHandle {
+  if (!isSpeechOutputSupported() || chunks.length === 0) {
+    const timer = window.setTimeout(() => handlers.onEnd?.(), 0);
+    return { cancel: () => window.clearTimeout(timer) };
+  }
   const synth = window.speechSynthesis;
+  let cancelled = false;
+  let ended = false;
+  let started = false;
+  let index = 0;
+  let voice: SpeechSynthesisVoice | null = null;
+  let watchdog: number | undefined;
+
+  const finish = () => {
+    if (ended || cancelled) return;
+    ended = true;
+    handlers.onEnd?.();
+  };
+
+  const advance = (): void => {
+    if (cancelled || ended) return;
+    if (index >= chunks.length) {
+      finish();
+      return;
+    }
+    const text = chunks[index++];
+    let done = false;
+    const next = () => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(watchdog);
+      advance();
+    };
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ja-JP';
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+    if (voice) utterance.voice = voice;
+    utterance.onstart = () => {
+      if (started) return;
+      started = true;
+      handlers.onStart?.();
+    };
+    utterance.onend = next;
+    utterance.onerror = next;
+    watchdog = window.setTimeout(() => {
+      if (done) return;
+      done = true;
+      synth.cancel();
+      advance();
+    }, text.length * 450 + 6000);
+    synth.speak(utterance);
+  };
+
   synth.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'ja-JP';
-  utterance.onstart = () => handlers.onStart?.();
-  utterance.onend = () => handlers.onEnd?.();
-  utterance.onerror = () => handlers.onEnd?.();
-  synth.speak(utterance);
-  return true;
+  void loadJapaneseVoice().then((v) => {
+    voice = v;
+    if (!cancelled) advance();
+  });
+
+  return {
+    cancel: () => {
+      cancelled = true;
+      window.clearTimeout(watchdog);
+      synth.cancel();
+    },
+  };
 }
 
 export function stopSpeaking(): void {
