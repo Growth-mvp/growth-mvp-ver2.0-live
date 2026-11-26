@@ -466,3 +466,99 @@ describe('保存中に加わった編集（保存済みと判定しない）', (
     expect(get().companyId).toBe('co-other');
   });
 });
+
+describe('STAGE2: 再生成→結論生成→確定保存（自分の操作で保存競合を起こさない）', () => {
+  const chapters = (tag: string) => [1, 2, 3, 4].map((i) => ({ title: `章${i}`, body: `${tag}の本文${i}` }));
+  const bridge = (tag: string) => ({
+    keyThemes: [{ title: tag }],
+    departmentIssues: [],
+    kpiCriteria: [],
+    commonBehaviorChanges: [],
+    generatedAt: '2026-11-26T00:00:00.000Z',
+    strategicCore: { concreteDomains: [tag] },
+  });
+  const docEdits = (tag: string, confirmedAt: string) => ({
+    assumptions: [{ id: 'a1', text: tag }],
+    confirmed: { at: confirmedAt, chapters: chapters(tag) },
+  });
+  const failedSaves = () => db.saves.filter((s) => !s.ok);
+  const saveWithAuditMock = () =>
+    jest.requireMock('@/utils/persist/saveWithAudit').saveWithAudit as (...args: unknown[]) => Promise<any>;
+
+  /* 結論生成APIはDBを直接更新する（revision も +1）。画面は返った revision を保存基準に取り込む。 */
+  const conclusionFromApi = (conclusion: string, generatedAt: string, sync: boolean) => {
+    db.row = {
+      ...db.row,
+      final_story_conclusion: { conclusion, generated_at: generatedAt, source: 'ai', story_fingerprint: 'fp' },
+      revision: (db.row.revision ?? 0) + 1,
+    };
+    get().setStage2FinalGeneratedConclusion(conclusion);
+    if (sync) get().markSavedPayload({ stage2FinalGeneratedConclusion: conclusion, stage2FinalGeneratedConclusionAt: generatedAt }, db.row.revision);
+  };
+
+  async function regenerate() {
+    const before = get();
+    const payload = { ...before, finalStory: [], finalStoryEdited: chapters('新'), finalStoryDraft: chapters('新') };
+    const regen = await saveWithAuditMock()(payload, 'user-1', A, before.revision, {}, 'stage2:generateFinal');
+    expect(regen.error).toBeNull();
+    get().markSavedPayload(payload, regen.data?.revision);
+    get().setFinalStoryEdited(chapters('新'));
+    get().setFinalStory([]);
+  }
+
+  it('既存の確定版がない状態で、再生成→結論生成→確定しても、保存競合は起きず保存できる', async () => {
+    await loadedStore(true);
+    await regenerate();
+    conclusionFromApi('新しい結論', '2026-11-26T01:00:00.000Z', true);
+
+    localChange({ finalStoryFinal: chapters('新'), finalStoryEdited: chapters('新'), finalStory: chapters('新') });
+    const res = await get().saveStrategyData({ force: true, reason: 'stage2:confirmAndBridge' });
+
+    expect(res.ok).toBe(true);
+    expect(failedSaves()).toHaveLength(0);
+    expect(db.row.final_story_conclusion.conclusion).toBe('新しい結論');
+  });
+
+  it('結論生成の後に画面の保存基準を同期しないと、確定保存は競合になる（同期の必要性）', async () => {
+    await loadedStore(true);
+    await regenerate();
+    conclusionFromApi('新しい結論', '2026-11-26T01:00:00.000Z', false);
+
+    localChange({ finalStoryFinal: chapters('新'), finalStoryEdited: chapters('新'), finalStory: chapters('新') });
+    await get().saveStrategyData({ force: true, reason: 'stage2:confirmAndBridge' });
+
+    expect(failedSaves().length).toBeGreaterThan(0);
+  });
+
+  it('既存の確定版を持つ状態で、再生成・結論再生成・再確定しても、保存競合は起きず新しい版が保存される', async () => {
+    await loadedStore(true);
+    conclusionFromApi('最初の結論', '2026-11-20T00:00:00.000Z', true);
+    localChange({
+      finalStoryFinal: chapters('旧'),
+      finalStoryEdited: chapters('旧'),
+      finalStory: chapters('旧'),
+      stage3_strategy_bridge: bridge('旧'),
+      stage2FinalDocumentEdits: docEdits('旧', '2026-11-21T00:00:00.000Z'),
+    });
+    expect((await get().saveStrategyData({ force: true, reason: 'stage2:confirmAndBridge' })).ok).toBe(true);
+
+    db.saves = [];
+    await regenerate();
+    conclusionFromApi('新しい結論', '2026-11-26T01:00:00.000Z', true);
+    localChange({
+      finalStoryFinal: chapters('新'),
+      finalStoryEdited: chapters('新'),
+      finalStory: chapters('新'),
+      stage3_strategy_bridge: bridge('新'),
+      stage2FinalDocumentEdits: docEdits('新', '2026-11-26T02:00:00.000Z'),
+    });
+    const res = await get().saveStrategyData({ force: true, reason: 'stage2:confirmAndBridge' });
+
+    expect(res.ok).toBe(true);
+    expect(failedSaves()).toHaveLength(0);
+    const saved = actual.buildStateFromDbRow(clone(db.row)) as any;
+    expect(saved.finalStoryFinal).toEqual(chapters('新'));
+    expect(saved.stage3_strategy_bridge.keyThemes).toEqual([{ title: '新' }]);
+    expect(saved.stage2FinalGeneratedConclusion).toBe('新しい結論');
+  });
+});

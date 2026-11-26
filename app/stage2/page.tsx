@@ -43,7 +43,7 @@ import {
 } from '@/lib/strategy/saveScope';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, Stage2FinalDocumentEdits, Stage2DeepDive } from '@/types/strategy';
-import { commitFinalStoryDraft, FINAL_STORY_INVALID_MESSAGE, FINAL_STORY_SAVE_FAILED_MESSAGE } from '@/lib/stage2/finalStoryDraft';
+import { commitFinalStoryDraft, FINAL_STORY_INVALID_MESSAGE, FINAL_STORY_SAVE_FAILED_MESSAGE, isSameStoryChapters } from '@/lib/stage2/finalStoryDraft';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { buildDeepDiveApplyPatch, isDeepDiveApplicable, isDeepDiveUnreflected } from '@/components/stage2/deepDiveApply';
@@ -3638,7 +3638,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       try {
         const conclusionRes = await authFetchJson<any>('/api/stage2/generate-conclusion', {
           method: 'POST',
-          json: { strategyDataId: strategyId },
+          json: {
+            strategyDataId: strategyId,
+            expectedRevision: stage2SaveRevision(useStrategyStore.getState() as any),
+          },
         });
 
         if (conclusionRes && typeof conclusionRes.conclusion === 'string') {
@@ -3646,6 +3649,15 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           const conclusionInScope = !scopeAtStart || isSaveScopeCurrent(scopeAtStart);
           if (conclusionInScope && typeof store.setStage2FinalGeneratedConclusion === 'function') {
             store.setStage2FinalGeneratedConclusion?.(conclusionRes.conclusion);
+            if (typeof conclusionRes.revision === 'number') {
+              store.markSavedPayload?.(
+                {
+                  stage2FinalGeneratedConclusion: conclusionRes.conclusion,
+                  stage2FinalGeneratedConclusionAt: conclusionRes.generated_at,
+                },
+                conclusionRes.revision,
+              );
+            }
           }
         } else {
           console.warn('[Stage2] generate-conclusion: unexpected response format', conclusionRes);
@@ -3792,6 +3804,17 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
       // Step 2: store を更新（dirty=true と version increment を明示）
       console.log('[Stage2Confirm] store set start', { operationId, strategyDataId });
+      const beforeConfirm = useStrategyStore.getState() as any;
+      const previousConfirmed = {
+        finalStoryFinal: beforeConfirm.finalStoryFinal,
+        stage3_strategy_bridge: beforeConfirm.stage3_strategy_bridge,
+        stage2FinalDocumentEdits: beforeConfirm.stage2FinalDocumentEdits,
+        midtermStrategy: beforeConfirm.midtermStrategy,
+      };
+      const restorePreviousConfirmed = () => {
+        if (!isSaveScopeCurrent(commitScope)) return;
+        useStrategyStore.setState({ ...previousConfirmed, dirty: true } as any);
+      };
       useStrategyStore.setState((s: any) => ({
         ...s,
         finalStoryFinal: finalStoryToSave,
@@ -3874,8 +3897,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         }
 
         // ★ 修正：final_story_final と stage3_strategy_bridge の両方を検証
-        if (!Array.isArray(verifyResult.final_story_final) || verifyResult.final_story_final.length === 0) {
-          throw new Error('DB verification failed: final_story_final is empty.');
+        if (!isSameStoryChapters(verifyResult.final_story_final, finalStoryToSave)) {
+          throw new Error('DB verification failed: final_story_final does not match the confirmed story.');
         }
 
         if (!verifyResult.stage3_strategy_bridge) {
@@ -3894,7 +3917,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         router.push('/cascade');
       } catch (saveErr: any) {
         console.error('[Stage2Confirm] saveStrategyData error', { operationId, error: saveErr?.message });
-        setCommitFinalStoryError(`保存に失敗しました: ${saveErr?.message || 'unknown error'}`);
+        restorePreviousConfirmed();
+        setCommitFinalStoryError(
+          `保存に失敗しました: ${saveErr?.message || 'unknown error'}。確定は完了していません。直前の確定版を保持しています。`,
+        );
         setCommittingStatus(null);
         setCommittingFinalStory(false);
         return;

@@ -1165,6 +1165,7 @@ async function reconcileAfterConflict(args: {
 
   const updates: Record<string, any> = {};
   const conflicts: DepartmentsConflict[] = [];
+  const conflictKeys: string[] = [];
   for (const key of Object.keys(server)) {
     if (SYNC_META_KEYS.has(key) || key.startsWith('__')) continue;
     const s = server[key];
@@ -1177,7 +1178,10 @@ async function reconcileAfterConflict(args: {
         server: Array.isArray(s) ? s : [],
       });
       if (merged.ok) updates.departments = merged.departments;
-      else conflicts.push(...merged.conflicts);
+      else {
+        conflicts.push(...merged.conflicts);
+        conflictKeys.push(key);
+      }
       continue;
     }
 
@@ -1189,9 +1193,11 @@ async function reconcileAfterConflict(args: {
     }
     if (sameValue(s, b) || sameValue(l, s)) continue;
     conflicts.push({ departmentName: '', projectId: null, title: conflictFieldLabel(key) });
+    conflictKeys.push(key);
   }
 
   if (conflicts.length > 0) {
+    console.warn('[strategyStore] 競合したキー（保存を止めました）', { keys: conflictKeys, strategyId: args.strategyId });
     const names = Array.from(new Set(conflicts.map((c) => (c.departmentName ? `${c.departmentName}の${c.title}` : c.title))))
       .slice(0, 4)
       .join('、');

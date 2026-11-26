@@ -7,13 +7,16 @@ export const FINAL_STORY_INVALID_MESSAGE =
 export const FINAL_STORY_SAVE_FAILED_MESSAGE =
   '最終ストーリーを保存できませんでした。既存の下書きと編集内容は変更していません。もう一度お試しください。';
 
-function isPersistedFinalStoryDraft(saved: unknown, chapters: StoryChapter[]): boolean {
-  const persisted = (saved as { finalStoryDraft?: unknown } | null | undefined)?.finalStoryDraft;
+export function isSameStoryChapters(saved: unknown, chapters: StoryChapter[]): boolean {
   return (
-    Array.isArray(persisted) &&
-    persisted.length === chapters.length &&
-    chapters.every((ch, i) => persisted[i]?.title === ch.title && persisted[i]?.body === ch.body)
+    Array.isArray(saved) &&
+    saved.length === chapters.length &&
+    chapters.every((ch, i) => saved[i]?.title === ch.title && saved[i]?.body === ch.body)
   );
+}
+
+function isPersistedFinalStoryDraft(saved: unknown, chapters: StoryChapter[]): boolean {
+  return isSameStoryChapters((saved as { finalStoryDraft?: unknown } | null | undefined)?.finalStoryDraft, chapters);
 }
 
 export function isValidFinalStoryDraft(value: unknown): value is StoryChapter[] {

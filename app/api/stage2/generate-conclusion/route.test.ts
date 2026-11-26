@@ -26,11 +26,13 @@ const USER = '99999999-9999-4999-8999-999999999999';
 const MEMBER_COMPANY = '11111111-1111-4111-8111-111111111111';
 const OTHER_COMPANY = '22222222-2222-4222-8222-222222222222';
 const STRATEGY_ID = '33333333-3333-4333-8333-333333333333';
+const REVISION = 6;
 
-function strategyRow(companyId: string | null) {
+function strategyRow(companyId: string | null, revision = REVISION) {
   return {
     id: STRATEGY_ID,
     company_id: companyId,
+    revision,
     final_story_draft: [{ title: '第1章', body: '顧客価値を明確にする本文です。' }],
     final_story_edited: null,
     final_story_final: null,
@@ -38,9 +40,10 @@ function strategyRow(companyId: string | null) {
   };
 }
 
-function setupAdmin(strategy: ReturnType<typeof strategyRow> | null) {
+/* 更新時の条件（id・company_id・revision）が一致した行だけ更新し、トリガー相当に revision を +1 する */
+function setupAdmin(strategy: ReturnType<typeof strategyRow> | null, opts: { revisionAtUpdate?: number } = {}) {
   const admin: any = { label: 'admin' };
-  const updates: Array<{ payload: any; filters: Record<string, unknown> }> = [];
+  const updates: Array<{ payload: any; filters: Record<string, unknown>; updated: boolean }> = [];
   admin.from = (table: string) => {
     if (table !== 'strategy_data') throw new Error(`unexpected table ${table}`);
     const filters: Record<string, unknown> = {};
@@ -54,14 +57,28 @@ function setupAdmin(strategy: ReturnType<typeof strategyRow> | null) {
         data: strategy && strategy.id === filters.id ? strategy : null,
         error: null,
       }),
-      update: (payload: any) => ({
-        eq: (c1: string, v1: unknown) => ({
-          eq: async (c2: string, v2: unknown) => {
-            updates.push({ payload, filters: { [c1]: v1, [c2]: v2 } });
-            return { error: null };
+      update: (payload: any) => {
+        const updateFilters: Record<string, unknown> = {};
+        const upd: any = {
+          eq: (col: string, val: unknown) => {
+            updateFilters[col] = val;
+            return upd;
           },
-        }),
-      }),
+          select: () => upd,
+          maybeSingle: async () => {
+            const current = opts.revisionAtUpdate ?? strategy?.revision;
+            const matches =
+              !!strategy &&
+              updateFilters.id === strategy.id &&
+              updateFilters.company_id === strategy.company_id &&
+              updateFilters.revision === current;
+            updates.push({ payload, filters: { ...updateFilters }, updated: matches });
+            if (!matches) return { data: null, error: null };
+            return { data: { revision: (strategy?.revision ?? 0) + 1 }, error: null };
+          },
+        };
+        return upd;
+      },
     };
     return builder;
   };
@@ -95,7 +112,7 @@ describe('POST /api/stage2/generate-conclusion', () => {
     (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue(null);
     const { updates } = setupAdmin(strategyRow(MEMBER_COMPANY));
 
-    const res = await POST(req({ strategyDataId: STRATEGY_ID }));
+    const res = await POST(req({ strategyDataId: STRATEGY_ID, expectedRevision: REVISION }));
 
     expect(res.status).toBe(401);
     expect(openai.chat.completions.create).not.toHaveBeenCalled();
@@ -105,7 +122,7 @@ describe('POST /api/stage2/generate-conclusion', () => {
   it('所属していない会社の strategy は 403 で、AI 呼び出しも保存も行わない', async () => {
     const { admin, updates } = setupAdmin(strategyRow(OTHER_COMPANY));
 
-    const res = await POST(req({ strategyDataId: STRATEGY_ID }));
+    const res = await POST(req({ strategyDataId: STRATEGY_ID, expectedRevision: REVISION }));
 
     expect(res.status).toBe(403);
     expect(requireMembership).toHaveBeenCalledWith(admin, USER, OTHER_COMPANY);
@@ -116,7 +133,7 @@ describe('POST /api/stage2/generate-conclusion', () => {
   it('company_id が無い strategy は所属確認を通さず 403 にする', async () => {
     const { updates } = setupAdmin(strategyRow(null));
 
-    const res = await POST(req({ strategyDataId: STRATEGY_ID }));
+    const res = await POST(req({ strategyDataId: STRATEGY_ID, expectedRevision: REVISION }));
 
     expect(res.status).toBe(403);
     expect(requireMembership).not.toHaveBeenCalled();
@@ -128,23 +145,53 @@ describe('POST /api/stage2/generate-conclusion', () => {
     (requireMembership as jest.Mock).mockResolvedValue({ userId: USER, companyId: MEMBER_COMPANY, role: 'member', departmentId: null });
     const { updates } = setupAdmin(strategyRow(MEMBER_COMPANY));
 
-    const res = await POST(req({ strategyDataId: STRATEGY_ID }));
+    const res = await POST(req({ strategyDataId: STRATEGY_ID, expectedRevision: REVISION }));
 
     expect(res.status).toBe(403);
     expect(openai.chat.completions.create).not.toHaveBeenCalled();
     expect(updates).toHaveLength(0);
   });
 
-  it('manager 以上は結論を生成し、対象会社の strategy にだけ保存する', async () => {
+  it('manager 以上は結論を生成し、対象会社の strategy にだけ保存し、保存後の revision を返す', async () => {
     const { admin, updates } = setupAdmin(strategyRow(MEMBER_COMPANY));
 
-    const res = await POST(req({ strategyDataId: STRATEGY_ID }));
+    const res = await POST(req({ strategyDataId: STRATEGY_ID, expectedRevision: REVISION }));
 
     expect(res.status).toBe(200);
+    expect((await res.json()).revision).toBe(REVISION + 1);
     expect(requireMembership).toHaveBeenCalledWith(admin, USER, MEMBER_COMPANY);
     expect(openai.chat.completions.create).toHaveBeenCalledTimes(1);
     expect(updates).toHaveLength(1);
-    expect(updates[0].filters).toEqual({ id: STRATEGY_ID, company_id: MEMBER_COMPANY });
+    expect(updates[0].filters).toEqual({ id: STRATEGY_ID, company_id: MEMBER_COMPANY, revision: REVISION });
     expect(updates[0].payload.final_story_conclusion).toMatchObject({ source: 'ai' });
+  });
+
+  it('画面の revision が古ければ、AI を呼ばず 409 を返し、保存しない', async () => {
+    setupAdmin(strategyRow(MEMBER_COMPANY, REVISION + 1));
+
+    const res = await POST(req({ strategyDataId: STRATEGY_ID, expectedRevision: REVISION }));
+
+    expect(res.status).toBe(409);
+    expect(openai.chat.completions.create).not.toHaveBeenCalled();
+  });
+
+  it('確認後に別の保存が入った場合は、条件付き更新が外れて 409 を返し、結論を保存しない', async () => {
+    const { updates } = setupAdmin(strategyRow(MEMBER_COMPANY), { revisionAtUpdate: REVISION + 1 });
+
+    const res = await POST(req({ strategyDataId: STRATEGY_ID, expectedRevision: REVISION }));
+
+    expect(res.status).toBe(409);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].updated).toBe(false);
+  });
+
+  it('expectedRevision が無ければ 400 を返し、AI も保存も行わない', async () => {
+    const { updates } = setupAdmin(strategyRow(MEMBER_COMPANY));
+
+    const res = await POST(req({ strategyDataId: STRATEGY_ID }));
+
+    expect(res.status).toBe(400);
+    expect(openai.chat.completions.create).not.toHaveBeenCalled();
+    expect(updates).toHaveLength(0);
   });
 });
