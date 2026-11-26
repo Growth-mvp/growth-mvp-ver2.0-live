@@ -946,6 +946,14 @@ function reportDuplicateProjectIds(departments: unknown): void {
   if (duplicates.length > 0) console.error('[stage3:duplicate-project-id] 同じIDのプロジェクトが複数あります（自動では直しません）', duplicates);
 }
 
+/* 重複した部門IDは直さず、検出して報告する（保存・復元で同じIDが書き戻されるのを見つけるため） */
+function reportDuplicateDepartmentIds(departments: unknown): void {
+  const list = Array.isArray(departments) ? departments : [];
+  const ids = list.map((d: any) => d?.id).filter((id: unknown) => typeof id === 'string' && id !== '');
+  const duplicates = [...new Set(ids.filter((id: string, i: number) => ids.indexOf(id) !== i))];
+  if (duplicates.length > 0) console.error('[stage3:duplicate-department-id] 同じIDの部門が複数あります（自動では直しません）', duplicates);
+}
+
 export function buildSavePayload(s: StrategyState) {
   const plForSave = financePLForSave(s);
   // okrsV2 サニタイズ（空labelを除外）
@@ -3970,6 +3978,7 @@ export const useStrategyStore = create<StrategyState>()(
               commitMissingProjectIds();
               const state = baseState();
               reportDuplicateProjectIds(state.departments);
+              reportDuplicateDepartmentIds(state.departments);
               const payload = buildSavePayload(state as StrategyState);
               const payloadHashAtStart = stableHash(payload);
 
