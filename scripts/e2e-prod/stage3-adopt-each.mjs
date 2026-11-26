@@ -1,0 +1,36 @@
+import { chromium } from 'playwright';
+import fs from 'node:fs';
+import path from 'node:path';
+import { BASE, PROFILE_DIR, RUN_DIR } from './common.mjs';
+const dir = path.join(RUN_DIR, 'stage3'); fs.mkdirSync(dir, { recursive: true });
+const results = [];
+const check = (id, ok, detail = '') => { results.push({ id, ok, detail }); console.log(`CHECK ${ok ? 'PASS' : 'FAIL'} ${id} ${detail}`); };
+const ctx = await chromium.launchPersistentContext(PROFILE_DIR, { headless: true, viewport: { width: 1400, height: 900 } });
+const page = ctx.pages()[0] ?? (await ctx.newPage());
+let crashed = false;
+page.on('crash', () => { crashed = true; });
+const puts = [];
+page.on('response', (r) => { if (r.url().includes('/api/stage3/strategy-book') && r.request().method() === 'PUT') puts.push(r.status()); });
+const pending = () => page.evaluate(() => (document.body.innerText.match(/調整の判断が(\d+)件残っています/) || [null, 'none'])[1]);
+await page.goto(`${BASE}/cascade`, { waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(2500);
+await page.getByRole('button', { name: '部門間調整' }).first().click({ force: true });
+await page.waitForTimeout(3000);
+const start = await pending();
+for (let i = 1; i <= 5; i++) {
+  const btn = page.getByRole('button', { name: '採用する', exact: true }).nth(i);
+  const putBefore = puts.length;
+  await btn.click({ force: true });
+  await page.waitForTimeout(3500);
+  const p = await pending();
+  check(`S3-A${i + 1} 候補${i + 1}を採用して保存`, puts.length > putBefore && puts[puts.length - 1] === 200, `put=${puts[puts.length - 1]} pending=${p} crashed=${crashed}`);
+  if (crashed) break;
+}
+check('S3-A 残件 0', (await pending()) === 'none' || (await pending()) === '0', `start=${start} end=${await pending()}`);
+await page.reload({ waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(3000);
+await page.getByRole('button', { name: '部門間調整' }).first().click({ force: true });
+await page.waitForTimeout(3000);
+check('S3-A リロード後も残件 0', (await pending()) === 'none' || (await pending()) === '0', `reloaded=${await pending()}`);
+fs.writeFileSync(path.join(dir, 'adopt-each-result.json'), JSON.stringify({ at: new Date().toISOString(), results, crashed }, null, 2));
+await ctx.close();

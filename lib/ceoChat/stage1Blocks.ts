@@ -21,6 +21,16 @@ export function hasFinanceSummaryValues(rows: unknown): boolean {
   return Array.isArray(rows) && rows.some((r: any) => r?.revenue != null || r?.operatingIncome != null);
 }
 
+/** 質問の分類に関係なく、財務データの登録有無だけを1行で伝える（数値は含めない） */
+export function buildFinanceRegistrationStatus(financePL: unknown): string {
+  const rows = financeSummaryRowsFromPL(financePL);
+  if (rows.length === 0) {
+    return '【財務データの登録状況】財務データ（損益）は未登録。財務の話題になったら、STAGE1の財務データ入力を案内する。';
+  }
+  const latest = Math.max(...rows.map((r) => r.year));
+  return `【財務データの登録状況】損益データ登録済み（最新年 ${latest}年）。財務の数値を聞かれたら、登録済みの数値を根拠に答える。登録が必要だと案内しない。`;
+}
+
 export function financeSummaryForPrompt(financeSummary: unknown, financePL: unknown): unknown {
   if (hasFinanceSummaryValues(financeSummary)) return financeSummary;
   const rows = financeSummaryRowsFromPL(financePL);

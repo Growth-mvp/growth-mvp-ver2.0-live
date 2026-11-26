@@ -55,7 +55,7 @@ import {
 import { buildStage5RegistrationBlock } from '@/lib/ceoChat/stage5Registration';
 import { buildStage3QuestionStatusBlock } from '@/lib/ceoChat/stage3QuestionStatus';
 import { buildStage1IssuesBlock } from '@/lib/ceoChat/stage1Issues';
-import { financeSummaryForPrompt } from '@/lib/ceoChat/stage1Blocks';
+import { buildFinanceRegistrationStatus, financeSummaryForPrompt } from '@/lib/ceoChat/stage1Blocks';
 import { buildStage2StoryStateBlock } from '@/lib/ceoChat/stage2StoryState';
 import { buildStage3WorkingStateBlock } from '@/lib/ceoChat/stage3WorkingState';
 import { loadWorkspace } from '@/lib/server/stage3StrategyBook';
@@ -782,6 +782,7 @@ export async function POST(req: Request) {
         organization: selectOrganizationSource(lastUser),
       });
       if (selectedContextBlock) systemBase += '\n\n' + selectedContextBlock;
+      if (strategy) systemBase += '\n\n' + buildFinanceRegistrationStatus((strategy as any).financePL);
 
       if (shouldUseAgentPrompt) {
         const stageSources = selectStage56Sources(lastUser);

@@ -1,4 +1,5 @@
 import {
+  buildFinanceRegistrationStatus,
   buildFinanceSummaryBlock,
   financeSummaryForPrompt,
   financeSummaryRowsFromPL,
@@ -56,5 +57,20 @@ describe('財務ブロックへの反映', () => {
 
   it('年だけの行のままでは数値が出ない', () => {
     expect(buildFinanceSummaryBlock([{ year: 2025 }] as any[])).not.toContain('売上');
+  });
+});
+
+describe('buildFinanceRegistrationStatus', () => {
+  it('財務データが登録済みなら、未登録と案内させない', () => {
+    const line = buildFinanceRegistrationStatus([{ year: 2025, revenue: 160000000, operatingIncome: 1500000 }]);
+    expect(line).toContain('登録済み');
+    expect(line).toContain('最新年 2025年');
+    expect(line).toContain('登録が必要だと案内しない');
+    expect(line).not.toContain('未登録');
+  });
+
+  it('財務データが無ければ未登録として扱う', () => {
+    expect(buildFinanceRegistrationStatus(undefined)).toContain('未登録');
+    expect(buildFinanceRegistrationStatus([{ year: 2025 }])).toContain('未登録');
   });
 });

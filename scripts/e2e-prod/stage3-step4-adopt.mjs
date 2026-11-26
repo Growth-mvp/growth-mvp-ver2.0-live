@@ -1,0 +1,35 @@
+import { chromium } from 'playwright';
+import fs from 'node:fs';
+import path from 'node:path';
+import { BASE, PROFILE_DIR, RUN_DIR } from './common.mjs';
+const dir = path.join(RUN_DIR, 'stage3'); fs.mkdirSync(dir, { recursive: true });
+const results = [];
+const check = (id, ok, detail = '') => { results.push({ id, ok, detail }); console.log(`CHECK ${ok ? 'PASS' : 'FAIL'} ${id} ${detail}`); };
+const ctx = await chromium.launchPersistentContext(PROFILE_DIR, { headless: true, viewport: { width: 1400, height: 900 } });
+const page = ctx.pages()[0] ?? (await ctx.newPage());
+let crashed = false;
+page.on('crash', () => { crashed = true; });
+const puts = [];
+page.on('response', (r) => { if (r.url().includes('/api/stage3/') && r.request().method() !== 'GET') puts.push(`${r.request().method()} ${r.status()} ${new URL(r.url()).pathname}`); });
+await page.goto(`${BASE}/cascade`, { waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(2500);
+await page.getByRole('button', { name: '新聞販売・配達事業', exact: true }).first().click();
+await page.waitForTimeout(2000);
+await page.getByRole('button', { name: /STEP4 重点プロジェクトを選ぶ/ }).first().click({ force: true });
+await page.waitForTimeout(3000);
+for (let i = 0; i < 2 && !crashed; i++) {
+  const btn = page.getByRole('button', { name: '採用する', exact: true }).nth(i);
+  const before = puts.length;
+  await btn.click({ force: true });
+  await page.waitForTimeout(4000);
+  check(`S3-P${i + 1} プロジェクト候補を採用して保存`, puts.length > before && /PUT|POST 200/.test(puts.slice(before).join(' ')) || puts.slice(before).some((p) => / 200 /.test(p)), puts.slice(before).join(' ') || 'no save call');
+}
+await page.reload({ waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(3000);
+await page.goto(`${BASE}/okr`, { waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(6000);
+const s4 = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' ').match(/表示できるプロジェクトがありません|プロジェクト[^。]{0,60}/)?.[0] ?? '');
+check('S4-1 STAGE4にプロジェクトが表示', !/表示できるプロジェクトがありません/.test(s4), s4.slice(0, 120));
+check('S3-crash', !crashed, `crashed=${crashed}`);
+fs.writeFileSync(path.join(dir, 'step4-result.json'), JSON.stringify({ at: new Date().toISOString(), results, puts }, null, 2));
+await ctx.close();
