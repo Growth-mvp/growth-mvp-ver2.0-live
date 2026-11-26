@@ -3847,6 +3847,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         console.warn('[Stage2Confirm] failed to set manual save flag:', e);
       }
 
+      let savedToDb = false;
       try {
         // store.saveStrategyData に統一（queue / dirty / force 制御を通す）
         const saveResult = await useStrategyStore.getState().saveStrategyData({
@@ -3865,6 +3866,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           });
           throw new Error(`DB save failed: ${saveResult?.reason || 'unknown error'}`);
         }
+        savedToDb = true;
 
         // DB 再SELECT で保存確認（必須）
         setCommittingStatus('保存を確認しています...');
@@ -3916,11 +3918,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         // ★ 修正：verify 成功後に STAGE3へ遷移
         router.push('/cascade');
       } catch (saveErr: any) {
-        console.error('[Stage2Confirm] saveStrategyData error', { operationId, error: saveErr?.message });
-        restorePreviousConfirmed();
-        setCommitFinalStoryError(
-          `保存に失敗しました: ${saveErr?.message || 'unknown error'}。確定は完了していません。直前の確定版を保持しています。`,
-        );
+        console.error('[Stage2Confirm] saveStrategyData error', { operationId, savedToDb, error: saveErr?.message });
+        if (savedToDb) {
+          // DB には新しい版が保存済み。戻すと画面と DB が食い違い、次の保存で旧版に戻ってしまうため、画面は保持する
+          setCommitFinalStoryError(
+            `確定内容は保存されましたが、保存後の確認に失敗しました: ${saveErr?.message || 'unknown error'}。画面を再読み込みして、確定内容を確認してください。`,
+          );
+        } else {
+          restorePreviousConfirmed();
+          setCommitFinalStoryError(
+            `保存に失敗しました: ${saveErr?.message || 'unknown error'}。確定は完了していません。直前の確定版を保持しています。`,
+          );
+        }
         setCommittingStatus(null);
         setCommittingFinalStory(false);
         return;
