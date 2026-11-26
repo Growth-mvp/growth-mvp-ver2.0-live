@@ -385,3 +385,70 @@ describe('POST /api/stage3/strategy-book/confirm', () => {
     expect(await res.json()).toMatchObject({ error: 'already_confirmed' });
   });
 });
+
+describe('確定時の採否の記録（confirmedJudgments）', () => {
+  const regenDraft = {
+    draftId: 'draft-r1',
+    kind: 'regenerated' as const,
+    version: 1,
+    createdAt: '2026-11-12T00:00:00.000Z',
+    departments: [{ id: 'd-sales', name: '営業部', projects: [{ id: 'p-1', title: '既存顧客の再受注施策' }] }],
+    newProjects: [newProjectCandidate],
+  };
+  const candidateSelection = {
+    departmentKey: 'id:d-sales',
+    departmentName: '営業部',
+    candidateId: 'np-0000abcd',
+    title: '6問を反映した新しい案',
+  };
+
+  it('採用の判断を記録し、正式データへの反映は採用分だけにする', async () => {
+    tables.stage3_strategy_books[0] = workspaceWith({
+      ...decidedAll,
+      drafts: [regenDraft],
+      projectSelections: [{ ...candidateSelection, decision: 'applied' }],
+    });
+    const res = await POST(post(body));
+    expect(res.status).toBe(200);
+    const saved = tables.stage3_strategy_books[0].state as WorkspaceState;
+    expect(saved.confirmedJudgments).toEqual([
+      expect.objectContaining({ kind: 'project', departmentKey: 'id:d-sales', itemId: 'np-0000abcd', decision: 'adopted', draftVersion: 1 }),
+    ]);
+    expect(saved.projectSelections[0].decision).toBe('deferred');
+    const sales = (tables.strategy_data[0].departments as Array<{ projects: unknown[] }>)[0];
+    expect(sales.projects).toHaveLength(2);
+  });
+
+  it('不採用の判断も記録し、正式データは変えない', async () => {
+    tables.stage3_strategy_books[0] = workspaceWith({
+      ...decidedAll,
+      drafts: [regenDraft],
+      projectSelections: [{ ...candidateSelection, decision: 'discarded' }],
+    });
+    const res = await POST(post(body));
+    expect(res.status).toBe(200);
+    const saved = tables.stage3_strategy_books[0].state as WorkspaceState;
+    expect(saved.confirmedJudgments).toEqual([expect.objectContaining({ itemId: 'np-0000abcd', decision: 'rejected' })]);
+    const sales = (tables.strategy_data[0].departments as Array<{ projects: unknown[] }>)[0];
+    expect(sales.projects).toEqual(originalDepartments()[0].projects);
+  });
+
+  it('次の確定では、変更していない以前の判断を残し、採用済みの計画を重ねて追加しない', async () => {
+    tables.stage3_strategy_books[0] = workspaceWith({
+      ...decidedAll,
+      drafts: [regenDraft],
+      projectSelections: [{ ...candidateSelection, decision: 'applied' }],
+    });
+    expect((await POST(post(body))).status).toBe(200);
+    const first = tables.stage3_strategy_books[0].state as WorkspaceState;
+    const countAfterFirst = (tables.strategy_data[0].departments as Array<{ projects: unknown[] }>)[0].projects.length;
+
+    tables.stage3_strategy_books[0] = workspaceWith({ ...first, status: 'draft', confirmed: null }, 3);
+    const res = await POST(post({ ...body, expectedRevision: 6, expectedVersion: 3 }));
+    expect(res.status).toBe(200);
+    const sales = (tables.strategy_data[0].departments as Array<{ projects: unknown[] }>)[0];
+    expect(sales.projects).toHaveLength(countAfterFirst);
+    const saved = tables.stage3_strategy_books[0].state as WorkspaceState;
+    expect(saved.confirmedJudgments).toEqual(first.confirmedJudgments);
+  });
+});

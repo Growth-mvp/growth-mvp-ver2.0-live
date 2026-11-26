@@ -13,7 +13,8 @@ import { logAuditEvent } from '@/lib/server/auditLog';
 import { failResponse } from '@/lib/server/stage3DepartmentWrite';
 import { loadStrategyAccess } from '@/lib/server/stage3Adjustment';
 import { confirmAtomically, loadWorkspace } from '@/lib/server/stage3StrategyBook';
-import { verifyWorkspaceState, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
+import { latestDraft, verifyWorkspaceState, type WorkspaceState } from '@/lib/cascade/stage3StrategyBook';
+import { judgmentItemsOf, mergeConfirmedJudgments } from '@/lib/cascade/stage3ConfirmedJudgments';
 import { analysisBlockerOf } from '@/lib/cascade/stage3Judgments';
 import { buildConfirmPlan } from '@/lib/server/stage3ConfirmPlan';
 import { settleLegacySelections } from '@/lib/cascade/stage3Settle';
@@ -68,17 +69,24 @@ export async function POST(req: Request) {
     }
     const plan = built.plan;
 
+    const confirmedAt = new Date().toISOString();
     const confirmedState: WorkspaceState = {
       ...current,
       status: 'confirmed',
-      // 確定した採否は正式データに反映済みのため保留に戻す。採用しなかった候補も、後から再検討できるよう保留として残す
+      // 確定時の判断は表示用に残す（正式データの確定には使わない）。作業用の採否は、次の確定で再処理されないよう保留に戻す
+      confirmedJudgments: mergeConfirmedJudgments({
+        previous: current.confirmedJudgments ?? [],
+        items: judgmentItemsOf(current),
+        draftVersion: latestDraft(current)?.version ?? null,
+        confirmedAt,
+      }),
       projectSelections: current.projectSelections.map((p) =>
         p.decision === 'deferred' ? p : { ...p, decision: 'deferred' },
       ),
       projectEdits: [],
       projectRemovals: [],
       projectProposals: [],
-      confirmed: { confirmedAt: new Date().toISOString(), appliedCount: plan.appliedCount },
+      confirmed: { confirmedAt, appliedCount: plan.appliedCount },
     };
     const finalCheck = verifyWorkspaceState(confirmedState, who.departments);
     if (!finalCheck.ok) return failResponse(409, finalCheck.error);

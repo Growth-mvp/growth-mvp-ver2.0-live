@@ -365,3 +365,62 @@ describe('事業・部門の追加ボタン（課題8）', () => {
     expect(screen.queryAllByRole('button', { name: /事業・部門を追加する/ })).toHaveLength(0);
   });
 });
+
+function confirmedState(): WorkspaceState {
+  const base = stateWithRegeneratedDraft();
+  return {
+    ...base,
+    status: 'confirmed',
+    confirmed: { confirmedAt: '2026-11-25T00:00:00.000Z', appliedCount: 0 },
+    projectSelections: [{ ...base.projectSelections[0], decision: 'deferred' }],
+    confirmedJudgments: [
+      {
+        kind: 'project',
+        departmentKey: DEPT_KEY,
+        departmentName: '営業部',
+        itemId: 'np-1',
+        title: '新規A',
+        decision: 'adopted',
+        draftVersion: 2,
+        confirmedAt: '2026-11-25T00:00:00.000Z',
+      },
+    ],
+  } as WorkspaceState;
+}
+
+describe('確定後の表示', () => {
+  it('確定済みのSTEP4は確定完了画面を出し、採用0件の誤った警告を出さない', async () => {
+    mockServer(confirmedState());
+    renderDesk();
+    await waitFor(() => expect((screen.getByRole('button', { name: /^STEP4/ }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /^STEP4/ }));
+    expect(await screen.findByText('事業・部門戦略書が確定しました')).toBeTruthy();
+    expect(screen.queryByText(/採用するプロジェクトが0件です/)).toBeNull();
+    expect(screen.getByText('新規A')).toBeTruthy();
+    expect(screen.getByText(/：採用$/)).toBeTruthy();
+  });
+
+  it('STEP3を行き来しても、確定版と過去の草案を区別して表示し、確定状態は変えない', async () => {
+    mockServer(confirmedState());
+    renderDesk();
+    await waitFor(() => expect((screen.getByRole('button', { name: /^STEP3/ }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /^STEP3/ }));
+    expect(await screen.findByText(/版 2・確定版/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^STEP4/ }));
+    expect(await screen.findByText('事業・部門戦略書が確定しました')).toBeTruthy();
+    expect(putBodies()).toHaveLength(0);
+  });
+
+  it('採否を変更する操作で採否画面を開き、既存の採否ボタンを使える', async () => {
+    mockServer(confirmedState());
+    renderDesk();
+    await waitFor(() => expect((screen.getByRole('button', { name: /^STEP4/ }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: /^STEP4/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '採否を変更する' }));
+    const card = (await screen.findByText('新規A')).closest('div.rounded-xl') as HTMLElement;
+    fireEvent.click(within(card).getByRole('button', { name: '採用しない' }));
+    await waitFor(() => expect(putBodies()).toHaveLength(1));
+    expect(putBodies()[0].state.projectSelections[0].decision).toBe('discarded');
+    expect(putBodies()[0].state.status).toBe('draft');
+  });
+});

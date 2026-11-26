@@ -161,6 +161,22 @@ const ProjectProposalSchema = z.object({
 
 export type ProjectProposal = z.infer<typeof ProjectProposalSchema>;
 
+const MAX_CONFIRMED_JUDGMENTS = 300;
+
+/** 確定時の採否の記録。表示と判断の確認にだけ使い、正式データの確定処理には使わない。 */
+const ConfirmedJudgmentSchema = z.object({
+  kind: z.enum(['project', 'proposal']),
+  departmentKey: z.string().min(1).max(200),
+  departmentName: z.string().trim().min(1).max(200),
+  itemId: z.string().min(1).max(200),
+  title: z.string().trim().min(1).max(300),
+  decision: z.enum(['adopted', 'rejected', 'deferred']),
+  draftVersion: z.number().int().min(1).nullable(),
+  confirmedAt: z.string().max(40),
+});
+
+export type ConfirmedJudgment = z.infer<typeof ConfirmedJudgmentSchema>;
+
 export const WorkspaceStateSchema = z.object({
   schemaVersion: z.literal(1),
   status: z.enum(['draft', 'confirmed']),
@@ -193,6 +209,7 @@ export const WorkspaceStateSchema = z.object({
     .nullable()
     .default(null),
   confirmed: z.object({ confirmedAt: z.string().max(40), appliedCount: z.number().int().min(0) }).nullable(),
+  confirmedJudgments: z.array(ConfirmedJudgmentSchema).max(MAX_CONFIRMED_JUDGMENTS).optional(),
 });
 
 export type WorkspaceState = z.infer<typeof WorkspaceStateSchema>;

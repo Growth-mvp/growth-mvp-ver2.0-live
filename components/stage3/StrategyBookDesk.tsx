@@ -48,6 +48,7 @@ import type { Department } from '@/types/strategy';
 import { StrategyBookDocument, type DocProject, type SectionEdit, type StrategyDocumentProps, type TextItemKey } from '@/components/stage3/StrategyBookDocument';
 import { projectDetailOf, type DraftProjectInput } from '@/lib/cascade/stage3ProjectDetail';
 import { analysisBlockerOf, judgmentBlockerOf, judgmentSummaryOf } from '@/lib/cascade/stage3Judgments';
+import { confirmedJudgmentOf } from '@/lib/cascade/stage3ConfirmedJudgments';
 import { replayDecisions, settleSentDecisions, type DecisionEntry } from '@/lib/cascade/stage3DecisionQueue';
 import type { SettleCounts } from '@/lib/cascade/stage3Settle';
 import { projectTextOf } from '@/lib/cascade/stage3Confirm';
@@ -642,6 +643,8 @@ export function StrategyBookDesk({
   const [mgmtOpen, setMgmtOpen] = useState(false);
   // 部門ごとの閲覧位置のみを管理。草案・採否・回答は従来どおりサーバーへ保存する。
   const [viewByDept, setViewByDept] = useState<Record<string, Phase>>({});
+  // 確定済みの部門で、採否の変更を始めた部門（STEP4の採否画面を開く。変更すると再確定が必要になる）
+  const [revisingDept, setRevisingDept] = useState<Record<string, boolean>>({});
   const [newDeptName, setNewDeptName] = useState('');
   const [newDeptMission, setNewDeptMission] = useState('');
   const [renaming, setRenaming] = useState<{ index: number; name: string } | null>(null);
@@ -1574,6 +1577,7 @@ export function StrategyBookDesk({
       });
       await load();
       setViewByDept({}); // 確定後は対象部門でPDFが主操作となる
+      setRevisingDept({});
       const message = `事業・部門戦略書が確定しました。正式データに反映済みです（文章の反映${res.appliedCount}件・新規プロジェクトの追加${res.adoptedProjectIds.length}件）。`;
       setConfirmResult({ tone: 'ok', message });
       await onConfirmed(`✅ ${message}`);
@@ -1649,6 +1653,8 @@ export function StrategyBookDesk({
   /* 表示中の段階。閲覧できる段階だけを、利用者の選択として採る（それ以外は作業の進み具合の段階） */
   const phaseOf = (key: string, progress: ReturnType<typeof progressOf>): Phase => {
     const requested = viewByDept[key];
+    // 確定済みのSTEP4は確定完了画面（Phase6）。採否の変更を始めた部門だけ採否画面を開く
+    if (requested === 5 && progress.deptConfirmed && !revisingDept[key]) return 6;
     const allowed =
       requested === 1 ||
       (requested === 2 && progress.hasInitial) ||
@@ -1658,12 +1664,13 @@ export function StrategyBookDesk({
   };
 
   /* 段階の移動。編集中の内容が残る場合は、保存せずに移動するかを確認する */
-  const goToPhase = (key: string, phase: Phase) => {
+  const goToPhase = (key: string, phase: Phase, revise = false) => {
     const hasUnsaved = (docDraft !== null && docDraft.deptKey === key) || candEdit !== null;
     if (hasUnsaved && !window.confirm('保存していない編集があります。移動すると、この編集内容は破棄されます。移動しますか？')) return;
     sixFlushRef.current[key]?.();
     if (docDraft?.deptKey === key) setDocDraft(null);
     setCandEdit(null);
+    setRevisingDept((prev) => ({ ...prev, [key]: revise }));
     setViewByDept((prev) => ({ ...prev, [key]: phase }));
   };
 
@@ -1762,10 +1769,20 @@ export function StrategyBookDesk({
     const progress = progressOf(key);
     const effective = phaseOf(key, progress);
     const showPhase = (phase: Phase) => goToPhase(key, phase);
+    const reviseJudgments = () => goToPhase(key, 5, true);
     const latestInitial = [...state.drafts].reverse().find((d) => d.kind === 'initial' && (d.generatedDepartmentKeys ?? []).includes(key));
     const latestRegen = progress.hasRegen ? [...state.drafts].reverse().find((d) => d.kind === 'regenerated' && (d.generatedDepartmentKeys ?? []).includes(key)) : undefined;
     const initialDept = latestInitial?.departments.find((x) => departmentKeyOf(x as unknown as AnyRecord) === key);
     const projs = state.projectSelections.filter((p) => p.departmentKey === key);
+    /* 採否の表示。作業版で今回選んだ判断を優先し、それ以外は確定時の記録を示す（保留のままの候補は作業版の値） */
+    const judgedDecisionOf = (p: ProjectSelection): ProjectSelection['decision'] => {
+      const working = choiceOf(`proj:${p.candidateId}`, p.decision) ?? p.decision;
+      if (working === 'applied' || working === 'discarded') return working;
+      const recorded = confirmedJudgmentOf(state.confirmedJudgments, 'project', key, p.candidateId);
+      if (recorded?.decision === 'adopted') return 'applied';
+      if (recorded?.decision === 'rejected') return 'discarded';
+      return working;
+    };
     const officialProjects = ((dept.projects ?? []) as unknown as AnyRecord[]).filter((p) => isProjectActive(p));
     /* 文書に出るのは採用（反映）された変更だけ。それ以外の項目は、正式データの現在の値を表示する */
     const selOf = (item: DeptProposalItem) => state.selections.find((s) => s.departmentKey === key && s.item === item && s.decision === 'applied');
@@ -1812,7 +1829,13 @@ export function StrategyBookDesk({
       });
       return {
         departmentName: dept.name,
-        versionLabel: draft.kind === 'initial' ? `版 ${draft.version}・AIたたき台・未確定` : `版 ${draft.version}・6問反映後の再生成版・未確定`,
+        versionLabel: progress.deptConfirmed
+          ? draft === latestRegen
+            ? `版 ${draft.version}・確定版`
+            : `版 ${draft.version}・過去の草案（確定版ではありません）`
+          : draft.kind === 'initial'
+            ? `版 ${draft.version}・AIたたき台・未確定`
+            : `版 ${draft.version}・6問反映後の再生成版・未確定`,
         texts: {
           mission: docText('mission'),
           missionDescription: docText('missionDescription'),
@@ -2161,9 +2184,9 @@ export function StrategyBookDesk({
                 これはAIの候補です。すべて採用する必要はありません。重要な2〜3件を選んでください。選ばなかった候補は消えず、保留として残ります。
               </p>
               <p className="text-xs text-gray-700">
-                採用 {projs.filter((p) => p.decision === 'applied').length}件 ／ 候補 {projs.length}件
+                採用 {projs.filter((p) => judgedDecisionOf(p) === 'applied').length}件 ／ 候補 {projs.length}件
               </p>
-              {projs.length > 0 && !projs.some((p) => p.decision === 'applied') && (
+              {projs.length > 0 && !projs.some((p) => judgedDecisionOf(p) === 'applied') && (
                 <p className="text-xs text-caution">
                   採用するプロジェクトが0件です。このまま確定すると、STAGE4の実行計画が作成されない可能性があります。
                 </p>
@@ -2223,7 +2246,7 @@ export function StrategyBookDesk({
                 const linked = linkedProjectOf(departments, p.candidateId);
                 const linkedActive = !!linked && isProjectActive(linked);
                 const linkedExcluded = !!linked && !linkedActive;
-                const shownDecision = choiceOf(`proj:${p.candidateId}`, p.decision) ?? p.decision;
+                const shownDecision = judgedDecisionOf(p);
                 return (
                   <div key={p.candidateId} className="space-y-2 rounded-xl border border-zinc-200 p-4">
                     <div className="flex flex-wrap items-center gap-2">
@@ -2380,6 +2403,39 @@ export function StrategyBookDesk({
               </Button>
               <span className="text-xs text-zinc-600">確定した内容だけを出力します（未確定の内容は含みません）</span>
             </div>
+            {projs.length > 0 && (
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-xs font-semibold text-zinc-800">新規プロジェクトの採否（確定時の判断）</p>
+                {projs.map((p) => {
+                  const recorded = confirmedJudgmentOf(state.confirmedJudgments, 'project', key, p.candidateId);
+                  const linked = linkedProjectOf(departments, p.candidateId);
+                  const linkedActive = !!linked && isProjectActive(linked);
+                  const label =
+                    recorded?.decision === 'adopted'
+                      ? '採用'
+                      : recorded?.decision === 'rejected'
+                        ? '採用しない'
+                        : linkedActive
+                          ? '採用中（正式データに入っています）'
+                          : recorded
+                            ? '未選択（保留として残しています）'
+                            : '判断の記録なし（確定前の形式のため、判断は残っていません）';
+                  const versionNote = recorded && recorded.draftVersion !== latest?.version ? `（版${recorded.draftVersion}時点の判断）` : '';
+                  return (
+                    <p key={p.candidateId} className="text-xs text-gray-700">
+                      <span className="font-semibold text-zinc-900">{showText(p.title)}</span>：{label}
+                      {versionNote}
+                    </p>
+                  );
+                })}
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="outline" onClick={reviseJudgments} disabled={!canOperate} className="rounded-full h-8 px-3 text-xs">
+                    採否を変更する
+                  </Button>
+                  <span className="text-xs text-zinc-600">変更すると、確定した内容は未確定になり、再確定が必要です</span>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-zinc-800">
                 次の操作：確定した計画から実行計画書を作成するか、STAGE4の実行計画画面へ進めます。
