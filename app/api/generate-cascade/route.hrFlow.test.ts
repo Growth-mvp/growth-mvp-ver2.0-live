@@ -39,11 +39,13 @@ const completion = (content: string) => ({ choices: [{ message: { content }, fin
 /** 人事部の施策（モデルが返す想定の形）。KPIは間接部門の成果分類（支援先部門の成果）で作る */
 const badSlot2Once: string[] = [];
 const badSlot4PhasesOnce: boolean[] = [];
+let themeBadBasisTimes = 0;
 let initialDeptName = '人事部';
 let businessSegmentNames = ['営業部'];
 
 function hrSlotProject(slot: number, payload: any) {
   const basis = payload.strategyReferences?.[0]?.id ?? 'S1';
+  const templateBasis = payload.responseTemplate.project.strategyBasisIds;
   const lane = slot <= 2 ? 'existing' : slot === 3 ? 'new' : slot === 4 ? 'intraCollab' : 'interCollab';
   const levers: Record<number, string> = { 1: 'FUTURE', 2: 'EFFICIENCY', 3: 'FUTURE', 4: 'COST', 5: 'FUTURE' };
   const invalidOnce = slot === 2 && badSlot2Once.length > 0 ? badSlot2Once.shift() : undefined;
@@ -53,7 +55,7 @@ function hrSlotProject(slot: number, payload: any) {
     reason: '全社戦略の実現に必要な人材を育てるため',
     hypothesis: `もし支援の仕組みを整えれば、営業部の提案準備が早くなる（施策${slot}）`,
     objective: '事業部門の提案力を高める',
-    strategyBasisIds: [basis],
+    strategyBasisIds: Array.isArray(templateBasis) && templateBasis.length > 0 ? templateBasis : [basis],
     mainLever: invalidOnce ?? levers[slot],
     horizon: 'mid',
     kind: slot === 3 ? 'future' : 'growth',
@@ -90,6 +92,8 @@ function respond(params: any): any {
   }
   if (task.includes('全社戦略本文から対象departmentの役割')) {
     const basis = payload.strategyReferences?.[0]?.id ?? 'S1';
+    const badBasis = themeBadBasisTimes > 0;
+    if (badBasis) themeBadBasisTimes--;
     return completion(JSON.stringify({
       missionDraft: '人材を育て、全社戦略を事業部門で実行できる組織にする',
       missionDescription: '全社戦略を実行できる人材と仕組みを整える',
@@ -98,7 +102,9 @@ function respond(params: any): any {
       themes: payload.requiredSlots.map((spec: any) => ({
         ...spec, title: `人材施策${spec.slot}`, buyer: '事業部門の責任者', problem: '準備に時間がかかる',
         intervention: '支援の仕組みを整える', customerChange: '準備時間が減る', revenueMechanism: '全社の業績に寄与する',
-        differentiation: '人材の育成手順', strategyBasisIds: [basis], partnerDepartment: spec.slot === 5 ? (payload.allowedPartners?.[0] ?? '') : undefined,
+        differentiation: '人材の育成手順',
+        strategyBasisIds: badBasis && spec.slot === 2 ? ['fact-seg-1'] : [basis],
+        partnerDepartment: spec.slot === 5 ? (payload.allowedPartners?.[0] ?? '') : undefined,
       })),
     }));
   }
@@ -112,6 +118,7 @@ function respond(params: any): any {
 beforeEach(() => {
   initialDeptName = '人事部';
   businessSegmentNames = ['営業部'];
+  themeBadBasisTimes = 0;
   mockCreate.mockReset();
   mockCreate.mockImplementation(async (params: any) => respond(params));
 });
@@ -232,6 +239,28 @@ describe('人事部（間接部門）の生成を、ルートの経路で通す�
     const systems = mockCreate.mock.calls.map((c: any[]) => String(c[0].messages?.[0]?.content ?? ''));
     expect(systems.some((t) => t.includes('発注企業または施設利用者のcustomer_outcome'))).toBe(true);
     expect(systems.some((t) => t.includes('支援先の事業部門の成果を測るcustomer_outcome'))).toBe(false);
+  });
+
+  it('テーマ設計が参照IDにない根拠IDを返したら、テーマ設計をやり直し、そのIDを使ったままスロットを作らない', async () => {
+    themeBadBasisTimes = 1;
+    const res = await POST(requestFor());
+    expect(res.status).toBe(200);
+    const themeCalls = mockCreate.mock.calls.filter((c: any[]) => {
+      try { return String(JSON.parse(c[0].messages[1].content).task ?? '').includes('全社戦略本文から対象departmentの役割'); } catch { return false; }
+    });
+    expect(themeCalls).toHaveLength(2);
+    for (const p of slotCalls()) {
+      const refIds = p.strategyReferences.map((r: any) => r.id);
+      expect(p.responseTemplate.project.strategyBasisIds.every((id: string) => refIds.includes(id))).toBe(true);
+    }
+  });
+
+  it('テーマ設計が参照IDにない根拠IDを繰り返す場合は、検証を緩めず422で止める', async () => {
+    themeBadBasisTimes = 10;
+    const res = await POST(requestFor());
+    expect(res.status).toBe(422);
+    expect((await res.json()).issues.join(',')).toContain('theme_design');
+    expect(slotCalls()).toHaveLength(0);
   });
 
   it('連携フェーズが1件だけのスロット4は、そのスロットだけを1回修復して通る', async () => {

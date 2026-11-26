@@ -3148,7 +3148,7 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
   let planIssues: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     plan = await call('theme_design', { ...context, previousValidationErrors: planIssues,
-      task: '全社戦略本文から対象departmentの役割と全スロットの具体的テーマを設計する。既存2件は対象事業内の異なる用途・顧客課題・収益機会。slot4は職能連携、slot5はallowedPartnersから実名を選ぶ。別事業・別セグメント等の未指定案は禁止。新規をSaaSに固定しない。各テーマに他テーマとの差を記す。本文の事実と仮説を区別する。',
+      task: '全社戦略本文から対象departmentの役割と全スロットの具体的テーマを設計する。既存2件は対象事業内の異なる用途・顧客課題・収益機会。slot4は職能連携、slot5はallowedPartnersから実名を選ぶ。別事業・別セグメント等の未指定案は禁止。新規をSaaSに固定しない。各テーマに他テーマとの差を記す。本文の事実と仮説を区別する。各テーマの根拠は、入力のstrategyReferencesにあるIDだけをstrategyBasisIdsに1〜3個選ぶ（fact-で始まるanchor IDや存在しないIDは使わない）。',
       responseTemplate: { missionDraft: '', missionDescription: '', currentPosition: '', strategicRole: '',
         themes: input.requiredSlots.map((spec: any) => ({ ...spec, title: '', buyer: '', problem: '',
           intervention: '', customerChange: '', revenueMechanism: '', differentiation: '',
@@ -3160,6 +3160,7 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
     }
     const themes = Array.isArray(plan.themes) ? plan.themes : [];
     if (themes.length !== templates.length) planIssues.push('theme_count');
+    const referenceIds = new Set((Array.isArray(input.strategyReferences) ? input.strategyReferences : []).map((r: any) => r?.id));
     for (const spec of input.requiredSlots) {
       const matches = themes.filter((t: any) => t?.slot === spec.slot);
       if (matches.length !== 1) { planIssues.push(`slot_${spec.slot}_theme`); continue; }
@@ -3168,6 +3169,8 @@ async function generateCascadeBySlot(params: any, diagnosticAttempts?: any[]): P
         .some(f => typeof t[f] !== 'string' || !t[f].trim())) planIssues.push(`slot_${spec.slot}_theme_detail`);
       if (/別セグメント|別事業|未確認|未設定/.test(`${t.title} ${t.buyer}`)) planIssues.push(`slot_${spec.slot}_unspecified_theme`);
       if (spec.slot === 5 && !input.allowedPartners.includes(t.partnerDepartment)) planIssues.push('unregistered_partner');
+      if (referenceIds.size > 0 && (!Array.isArray(t.strategyBasisIds) || t.strategyBasisIds.length === 0 ||
+          !t.strategyBasisIds.every((id: unknown) => referenceIds.has(id)))) planIssues.push(`slot_${spec.slot}_basis`);
     }
     if (!planIssues.length) break;
   }
