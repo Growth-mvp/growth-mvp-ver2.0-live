@@ -1,0 +1,14 @@
+import { chromium } from 'playwright';
+import { BASE, PROFILE_DIR } from './common.mjs';
+const ctx = await chromium.launchPersistentContext(PROFILE_DIR, { headless: true, viewport: { width: 1400, height: 900 } });
+const page = ctx.pages()[0] ?? (await ctx.newPage());
+const pressed = () => page.evaluate(() => [...document.querySelectorAll('button[aria-pressed]')].filter((b) => /音声で話す|文字で入力/.test(b.getAttribute('aria-label') || b.innerText)).map((b) => `${(b.getAttribute('aria-label') || b.innerText).trim()}=${b.getAttribute('aria-pressed')}`));
+await page.goto(`${BASE}/stage1`, { waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(3000);
+await page.getByRole('button', { name: '音声で話す' }).first().click({ force: true }).catch((e) => console.log('ERR', e.message.slice(0, 80)));
+await page.waitForTimeout(1500);
+console.log('AFTER_VOICE_CLICK', JSON.stringify(await pressed()));
+await page.reload({ waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(3000);
+console.log('AFTER_RELOAD', JSON.stringify(await pressed()));
+await ctx.close();
