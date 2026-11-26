@@ -56,9 +56,12 @@ export function mergeConfirmedJudgments(input: {
   const byKey = new Map(input.previous.map((e) => [keyOf(e), e] as const));
   for (const item of input.items) {
     const key = keyOf(item);
+    const prev = byKey.get(key);
+    // 計画・KPIの変更案は、版が変わると内容も変わり得るため、前の版の判断を引き継がない（候補名で同じと扱う新規候補とは異なる）
+    const fromOtherVersion = item.kind === 'proposal' && prev !== undefined && prev.draftVersion !== input.draftVersion;
     if (item.explicit) {
       byKey.set(key, recordOf(item, item.explicit, input));
-    } else if (!byKey.has(key)) {
+    } else if (!prev || fromOtherVersion) {
       byKey.set(key, recordOf(item, 'deferred', input));
     }
   }

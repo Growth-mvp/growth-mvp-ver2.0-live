@@ -211,6 +211,38 @@ describe('PUT /api/stage3/strategy-book', () => {
     expect(allowed.status).toBe(200);
   });
 
+  it('作業版を保存しても、保存済みの確定時の判断の記録は送信内容で置き換えられない', async () => {
+    const record = {
+      kind: 'project',
+      departmentKey: 'id:d-sales',
+      departmentName: '営業部',
+      itemId: 'np-1a2b3c4d',
+      title: '新規A',
+      decision: 'adopted',
+      draftVersion: 1,
+      confirmedAt: '2026-11-20T00:00:00.000Z',
+    };
+    tables.stage3_strategy_books.push({
+      strategy_id: S1,
+      company_id: C1,
+      version: 3,
+      state: { ...draftState(), confirmedJudgments: [record] },
+    });
+    const forged = { ...draftState(), confirmedJudgments: [{ ...record, decision: 'rejected' }] };
+    const res = await PUT(put({ companyId: C1, strategyId: S1, expectedVersion: 3, state: forged }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, version: 4 });
+    expect(tables.stage3_strategy_books[0].state).toMatchObject({ confirmedJudgments: [record] });
+  });
+
+  it('保存済みの記録が無いときは、送信された記録を保存しない', async () => {
+    tables.stage3_strategy_books.push({ strategy_id: S1, company_id: C1, version: 1, state: draftState() });
+    const record = { kind: 'project', departmentKey: 'id:d-sales', departmentName: '営業部', itemId: 'np-1a2b3c4d', title: '新規A', decision: 'adopted', draftVersion: 1, confirmedAt: '2026-11-20T00:00:00.000Z' };
+    const res = await PUT(put({ companyId: C1, strategyId: S1, expectedVersion: 1, state: { ...draftState(), confirmedJudgments: [record] } }));
+    expect(res.status).toBe(200);
+    expect((tables.stage3_strategy_books[0].state as Row).confirmedJudgments).toBeUndefined();
+  });
+
   it('所属がない利用者は保存できず、他社の戦略にも書けない', async () => {
     authUser = 'user-9';
     expect((await PUT(put({ companyId: C1, strategyId: S1, expectedVersion: 0, state: draftState() }))).status).toBe(403);

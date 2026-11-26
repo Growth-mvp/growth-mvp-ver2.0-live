@@ -105,4 +105,33 @@ describe('確定時の採否の記録（mergeConfirmedJudgments）', () => {
     const merged = mergeConfirmedJudgments({ previous: [], items, draftVersion: 1, confirmedAt: T1 });
     expect(merged.map((e) => `${e.kind}:${e.decision}`).sort()).toEqual(['project:adopted', 'proposal:rejected']);
   });
+
+  it('計画・KPIの変更案は、版が変わったら前の版の判断を引き継がず、未判断として保留にする', () => {
+    const proposal = (decision: ProjectProposal['decision']): ProjectProposal => ({
+      departmentKey: DEPT,
+      departmentName: '営業部',
+      projectId: 'p-1',
+      projectTitle: '既存顧客の再受注施策',
+      reason: '理由',
+      base: { title: 'a', reason: null, hypothesis: null, description: null, kpis: [] },
+      proposed: { title: 'a', reason: 'b', hypothesis: null, description: null, kpis: [] },
+      decision,
+    });
+    const previous = [{ ...record('p-1', 'adopted', 1), kind: 'proposal' as const }];
+    const next = mergeConfirmedJudgments({
+      previous,
+      items: judgmentItemsOf({ projectSelections: [], projectProposals: [proposal('pending')] }),
+      draftVersion: 2,
+      confirmedAt: T2,
+    });
+    expect(next.find((e) => e.kind === 'proposal' && e.itemId === 'p-1')).toMatchObject({ decision: 'deferred', draftVersion: 2 });
+
+    const sameVersion = mergeConfirmedJudgments({
+      previous,
+      items: judgmentItemsOf({ projectSelections: [], projectProposals: [proposal('pending')] }),
+      draftVersion: 1,
+      confirmedAt: T2,
+    });
+    expect(sameVersion.find((e) => e.kind === 'proposal' && e.itemId === 'p-1')).toMatchObject({ decision: 'adopted', draftVersion: 1 });
+  });
 });

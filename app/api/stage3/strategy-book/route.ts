@@ -80,12 +80,16 @@ export async function PUT(req: Request) {
     const verified = verifyWorkspaceState(body.state, access.access.departments);
     if (!verified.ok) return failResponse(400, verified.error);
 
+    // 確定時の判断の記録は確定処理だけが書く。作業版の保存では保存済みの記録を残し、送信内容で置き換えない
+    const existing = body.expectedVersion === 0 ? null : await loadWorkspace(admin, body.strategyId);
+    if (existing && !existing.ok) return failResponse(existing.status, existing.error);
+
     const saved = await saveWorkspace(admin, {
       companyId: body.companyId,
       strategyId: body.strategyId,
       userId: access.access.userId,
       expectedVersion: body.expectedVersion,
-      state: verified.state,
+      state: { ...verified.state, confirmedJudgments: existing?.ok ? existing.workspace.state.confirmedJudgments : undefined },
     });
     if (!saved.ok) return failResponse(saved.status, saved.error);
 
