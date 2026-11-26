@@ -3,18 +3,14 @@
 
 import { useMemo, useState } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
-import DocumentImportPanel from './DocumentImportPanel';
 import { FinanceYearEditorTable } from './FinanceYearEditorTable';
-
-type FinanceDataMode = 'import' | 'manual';
 
 /**
  * 財務データ統合パネル
- * - 「読込み（DocumentImportPanel）」と「手入力（FinanceYearEditorTable）」を切り替え
- * - 全社 PL/BS と事業部別 PL/BS を編集可能
+ * - 資料の取込は AI経営コンサルタントへの添付で行う（候補はSTAGE1の候補欄で確認して反映する）
+ * - 全社 PL/BS と事業部別 PL/BS を、手入力で編集できる
  */
 export default function FinanceDataPanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
-  const [mode, setMode] = useState<FinanceDataMode>('import');
   const [selectedSegmentName, setSelectedSegmentName] = useState<string | null>(null);
 
   const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? []);
@@ -29,61 +25,26 @@ export default function FinanceDataPanel({ readOnly, disabled }: { readOnly?: bo
     <div className="space-y-8">
       {/* 全社データ入力 */}
       <section className="space-y-4">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-zinc-900">全社財務データ</h3>
-            <p className="mt-1 text-sm text-zinc-500">
-              PL/BSを入力すると、企業価値指標（ROIC等）が自動計算されます。
-            </p>
-          </div>
+        <div>
+          <h3 className="text-lg font-semibold text-zinc-900">全社財務データ</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            PL/BSを入力すると、企業価値指標（ROIC等）が自動計算されます。
+          </p>
+          <p className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+            決算書や財務資料をAI経営コンサルタントに添付すると、入力を支援します。直接入力することもできます。
+          </p>
+        </div>
 
-          {/* タブ */}
-          <div className="inline-flex rounded-full border border-zinc-200 bg-white p-1 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setMode('import')}
-              disabled={disabled}
-              className={
-                'px-4 py-2 text-sm font-semibold rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ' +
-                (mode === 'import'
-                  ? 'bg-zinc-900 text-white shadow'
-                  : 'text-zinc-700 hover:bg-zinc-100')
-              }
-            >
-              ファイルから読込み
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('manual')}
-              disabled={disabled}
-              className={
-                'px-4 py-2 text-sm font-semibold rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ' +
-                (mode === 'manual'
-                  ? 'bg-zinc-900 text-white shadow'
-                  : 'text-zinc-700 hover:bg-zinc-100')
-              }
-            >
-              手入力
-            </button>
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-semibold text-zinc-900">操作</span>
+            <span>クリック＝選択</span>
+            <span>Enter / F2 / ダブルクリック＝編集</span>
+            <span>Ctrl+V＝貼り付け</span>
+            <span>Ctrl+Z＝戻る</span>
           </div>
         </div>
 
-        {/* パネル */}
-        {mode === 'import' ? (
-          <DocumentImportPanel disabled={disabled} />
-        ) : (
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span className="font-semibold text-zinc-900">操作</span>
-              <span>クリック＝選択</span>
-              <span>Enter / F2 / ダブルクリック＝編集</span>
-              <span>Ctrl+V＝貼り付け</span>
-              <span>Ctrl+Z＝戻る</span>
-            </div>
-          </div>
-        )}
-
-        {/* 常に表示：全社財務データ（編集UI一本化） */}
         <FinanceYearEditorTable mode="company" disabled={disabled} />
       </section>
 

@@ -37,6 +37,11 @@ export function buildApplyReport(args: { plan: FilingApplyPlan; candidate: Appli
     const years = [...new Set(Object.values(plan.segmentPlPatch).flat().map((r) => r.year))].sort((a, b) => a - b);
     applied.push(`事業別PL：${names}事業（${years.join('・')}年度）`);
   }
+  if (plan.segmentBsPatch) {
+    const names = Object.keys(plan.segmentBsPatch).length;
+    const years = [...new Set(Object.values(plan.segmentBsPatch).flat().map((r) => r.year))].sort((a, b) => a - b);
+    applied.push(`事業部別BS：${names}事業（${years.join('・')}年度）`);
+  }
 
   const keptProfile = plan.profileSkipped.filter((s) => s.reason === 'already_filled').map((s) => PROFILE_LABEL[s.key]);
   if (keptProfile.length > 0) kept.push(`登録済みのため変えていない企業情報：${keptProfile.join('、')}`);

@@ -101,10 +101,11 @@ export async function parsePdf(buffer: Buffer): Promise<PdfExtractResult> {
     const text = await parser.getText({ first: Math.min(totalPages, MAX_PAGES) });
 
     const analyzedPages: PdfPageText[] = text.pages.map((page: { num: number; text: string }) => {
-      const { isPriority, reason } = checkPriority(page.text);
+      const pageText = normalizePdfText(page.text);
+      const { isPriority, reason } = checkPriority(pageText);
       return {
         pageNumber: page.num,
-        text: page.text,
+        text: pageText,
         isPriority,
         priorityReason: reason,
       };
@@ -161,4 +162,17 @@ export function isPdfBuffer(buffer: Buffer): boolean {
   if (buffer.length < 5) return false;
   const header = buffer.slice(0, 5).toString('ascii');
   return header === '%PDF-';
+}
+
+/**
+ * PDFの抽出文字を、候補の読み取りに使える形にする。
+ * 全角・半角の差と空白の入り方（「2026 年 3 月 31 日」「15 名」「5,000 千円」）を正規化し、年度・金額単位・従業員数を読めるようにする。
+ */
+export function normalizePdfText(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/[^\S\r\n]/g, ' ')
+    .replace(/(\d)[ \t]+(?=[年月日名人期千百万円%])/g, '$1')
+    .replace(/([年月日])[ \t]+(?=\d)/g, '$1')
+    .replace(/[ \t]+$/gm, '');
 }

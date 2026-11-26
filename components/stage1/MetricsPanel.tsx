@@ -1075,7 +1075,7 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
       ) : (
         <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 mb-6 text-center">
           <p className="text-gray-500 text-sm">
-            全社の年次データがありません。「③ 財務データ入力」で全社PLを入力、または資料アップロードで反映してください。
+            全社の年次データがありません。「③ 財務データ入力」で全社PLを入力、またはAI経営コンサルタントに資料を添付して反映してください。
           </p>
         </div>
       )}

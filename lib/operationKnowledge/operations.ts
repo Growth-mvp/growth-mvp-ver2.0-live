@@ -64,36 +64,6 @@ export const OPERATIONS: readonly OperationEntry[] = [
     save: { kind: 'auto', target: '戦略データへの自動保存' },
   },
   {
-    operationId: 'stage1.finance-read-from-file',
-    screenIds: ['stage1'],
-    label: 'ファイルから読込み',
-    source: { file: 'components/stage1/FinanceDataPanel.tsx', line: 53 },
-    purpose: 'PDF・Excel・CSVの決算資料から財務データを抽出する。',
-    steps: [
-      '「② 財務データ（読込・手入力）」を開く',
-      '「ファイルから読込み」を選ぶ（既定で選択済み）',
-      '資料をアップロードし、抽出結果を確認する',
-    ],
-    conditions: '編集権限が必要（親画面の読み取り専用制御による）',
-    permission: MANAGER_UI,
-    save: { kind: 'api', target: '抽出は POST /api/stage1/import。画面へ反映するまでは保存されない' },
-  },
-  {
-    operationId: 'stage1.apply-imported-finance',
-    screenIds: ['stage1'],
-    label: '↓ 財務入力に適用',
-    source: { file: 'components/stage1/DocumentImportPanel.tsx', line: 1274 },
-    purpose: '抽出した財務候補を財務入力（PL・BS・PBR）に反映する。既存データはマージされる。',
-    steps: [
-      '資料をアップロードし、抽出結果を確認する',
-      '単位が明示されていない資料は「の金額は円単位です」にチェックする',
-      '「↓ 財務入力に適用」を押す',
-    ],
-    conditions: '円単位の確認にチェックするまで無効。円以外の単位が明示された資料は取り込めない',
-    permission: MANAGER_UI,
-    save: { kind: 'auto', target: '財務入力の自動保存' },
-  },
-  {
     operationId: 'stage1.listing-company-flag',
     screenIds: ['stage1'],
     label: '上場企業',
@@ -160,7 +130,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-fetch',
     screenIds: ['stage1'],
     label: '候補を取得',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 394 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 353 },
     purpose:
       '会社名または証券コード（4桁）から、公開資料（有価証券報告書）の企業情報・業種・直近5期の財務・事業セグメントの候補を作る。候補を作るだけで、入力欄は変わらない。AI経営コンサルタントに「〇〇の基本情報を入力して」と依頼しても、同じ候補を作れる（結果はチャットに出る）。',
     steps: [
@@ -183,7 +153,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-approve',
     screenIds: ['stage1'],
     label: '承認して反映・保存',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 610 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 755 },
     purpose:
       '候補の内容を入力欄へ反映し、そのまま戦略データを保存する。完了は保存できたことを確認してから表示し、AI経営コンサルタントのチャットに、反映した項目・残した項目・未取得の項目を報告する。',
     steps: [
@@ -200,7 +170,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.autofill-review',
     screenIds: ['stage1'],
     label: '候補を確認・承認・保存',
-    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 424 },
+    source: { file: 'components/stage1/CompanyAutofillPanel.tsx', line: 495 },
     purpose:
       'AI経営コンサルタントのチャット（Webから会社情報を取得・資料を添付）や公開資料から作った候補を、出典と確認日を見ながら確認し、必要な値を直してから承認する。承認するまで入力欄は変わらない。',
     steps: [
@@ -282,7 +252,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 173 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 176 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -305,7 +275,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1352 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1375 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -1350,7 +1320,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1190 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1218 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',
@@ -1690,7 +1660,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.edit-finance-table',
     screenIds: ['stage1'],
     label: '全社財務データ',
-    source: { file: 'components/stage1/FinanceDataPanel.tsx', line: 34 },
+    source: { file: 'components/stage1/FinanceDataPanel.tsx', line: 29 },
     purpose: '登録済みの全社の財務データ（年度ごとの損益・貸借）を、表の中で直す。',
     steps: [
       '「② 財務データ（読込・手入力）」を開く',

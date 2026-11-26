@@ -52,5 +52,8 @@ export function describeDocumentCandidate(c: ApplicableCandidate): DocumentSumma
     missing.push('事業セグメント・事業別PL');
   }
 
+  const segmentBS = c.segmentBS?.filter((s) => s.byYear.length > 0) ?? [];
+  if (segmentBS.length > 0) obtained.push(`事業部別BS（${segmentBS.length}事業）`);
+
   return { obtained, missing };
 }

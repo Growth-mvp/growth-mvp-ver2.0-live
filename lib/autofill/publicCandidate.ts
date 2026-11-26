@@ -4,7 +4,17 @@ import type { Stage1ImportCandidate } from '@/types/strategy';
 import type { DocumentProfile } from '@/utils/stage1/importers/profileExtract';
 import { consolidationOfSource, mergeProfiles } from '@/utils/stage1/importers/profileExtract';
 import type { FieldCandidate, SourceRef, Consolidation } from './companyCandidates';
-import { BUSINESS_CONTENT_MAX, type ApplicableCandidate, type FinanceKey, type FinanceYearCandidate, type SegmentItemCandidate, type SegmentYearCandidate } from './filingCandidates';
+import {
+  BUSINESS_CONTENT_MAX,
+  SEGMENT_BS_KEYS,
+  type ApplicableCandidate,
+  type FinanceKey,
+  type FinanceYearCandidate,
+  type SegmentBSCandidate,
+  type SegmentBSYearCandidate,
+  type SegmentItemCandidate,
+  type SegmentYearCandidate,
+} from './filingCandidates';
 import { normalizeCompanyName } from './edinetIdentify';
 import { mapEdinetIndustry } from './industryMap';
 
@@ -214,6 +224,27 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
   }
   const segments = segmentItems.length > 0 ? { periodEnd: latestSegmentYear === null ? null : String(latestSegmentYear), items: segmentItems, issues: [] } : null;
 
+  const segmentBS: SegmentBSCandidate[] = [];
+  const segmentBsRows = args.candidates.filter((c) => c.kind === 'segmentBS' && c.year !== undefined && c.segmentName);
+  for (const name of [...new Set(segmentBsRows.map((c) => (c.segmentName as string).trim()))]) {
+    if (!name) continue;
+    const byYear: SegmentBSYearCandidate[] = [];
+    for (const c of segmentBsRows.filter((r) => (r.segmentName as string).trim() === name)) {
+      const year = c.year as number;
+      const values: Partial<Record<(typeof SEGMENT_BS_KEYS)[number], number>> = {};
+      for (const k of SEGMENT_BS_KEYS) {
+        const v = convertField(c, k, unitsConverted, unitsUnsupported, unitsUnconfirmed);
+        if (v !== undefined) values[k] = v;
+      }
+      if (Object.keys(values).length === 0) continue;
+      const existing = byYear.find((y) => y.year === year);
+      if (existing) Object.assign(existing, values);
+      else byYear.push({ year, ...values });
+      sources.push(docSource(c.source ?? '資料', args.fetchedAt));
+    }
+    if (byYear.length > 0) segmentBS.push({ name, byYear: byYear.sort((a, b) => a.year - b.year) });
+  }
+
   const merged = mergeProfiles(args.profiles);
   const profile: ApplicableCandidate['profile'] = { fields: {}, issues: [] };
   const profileExtra: ApplicableCandidate['profileExtra'] = {};
@@ -267,7 +298,7 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
   if (conflicted) issues.push('同じ年度の金額が複数の資料にあるため、先に読んだ資料の値を候補にしました（要確認）');
   if (!merged.companyName) issues.push('資料から会社名を読み取れなかったため、会社名は未入力のまま');
 
-  const hasAny = finance.length > 0 || segments !== null || Object.keys(profile.fields).length > 0 || Object.keys(profileExtra).length > 0;
+  const hasAny = finance.length > 0 || segments !== null || segmentBS.length > 0 || Object.keys(profile.fields).length > 0 || Object.keys(profileExtra).length > 0;
   if (!hasAny) {
     return {
       status: 'NOT_CONFIRMED',
@@ -285,6 +316,7 @@ export function buildDocumentCandidate(args: DocumentInput): PublicCandidateResu
       profileExtra,
       finance,
       segments,
+      segmentBS: segmentBS.length > 0 ? segmentBS : undefined,
       issues: issues.filter(Boolean),
       sources: uniqueSources(sources),
     },

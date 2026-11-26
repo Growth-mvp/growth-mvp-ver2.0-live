@@ -27,6 +27,8 @@ export type ApplicableCandidate = {
   }>;
   finance: FinanceYearCandidate[];
   segments: SegmentsCandidate | null;
+  /** 事業部別BS（事業の名称ごと）。資料に事業部別の貸借がある時だけ */
+  segmentBS?: SegmentBSCandidate[];
   issues: string[];
 };
 
@@ -48,6 +50,12 @@ export type SegmentsCandidate = {
   items: SegmentItemCandidate[];
   issues: string[];
 };
+
+/** 事業部別BSの項目（事業部への配賦に必要な項目。SegmentBSRowの項目と同じ） */
+export const SEGMENT_BS_KEYS = ['ar', 'inventory', 'ap', 'fixedAssets', 'interestBearingDebt', 'equity'] as const;
+export type SegmentBSKey = (typeof SEGMENT_BS_KEYS)[number];
+export type SegmentBSYearCandidate = { year: number } & Partial<Record<SegmentBSKey, number>>;
+export type SegmentBSCandidate = { name: string; byYear: SegmentBSYearCandidate[] };
 
 export type ReportRef = { docId: string; docTypeCode: string | null; periodEnd: string | null; amendedFromDocId: string | null };
 
@@ -162,11 +170,13 @@ export type CurrentFinanceRow = { year: number } & Partial<Record<FinanceKey, nu
 
 export type SegmentPLRowPatch = { year: number; revenue?: number; operatingIncome?: number };
 export type SegmentPLPatch = Record<string, SegmentPLRowPatch[]>;
+export type SegmentBSPatch = Record<string, Array<{ year: number } & Partial<Record<SegmentBSKey, number>>>>;
 
 export type FilingApplyPlan = {
   segmentsPatch: SegmentPatchItem[] | null;
   segmentsSkipped: 'not_selected' | 'no_candidate' | 'already_filled' | null;
   segmentPlPatch: SegmentPLPatch | null;
+  segmentBsPatch: SegmentBSPatch | null;
   profilePatch: Partial<Record<ProfileKey, string | boolean>>;
   profileApplied: ProfileKey[];
   profileSkipped: Array<{ key: ProfileKey; reason: 'already_filled' | 'no_candidate' }>;
@@ -209,9 +219,14 @@ export function planFilingApply(args: {
   currentSegmentPL?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
   /** 事業別PLを反映してよい事業の名称（登録中の事業と一致するものだけ） */
   segmentPlNames?: string[];
+  /** 登録中の事業部別BS（事業の名称ごと） */
+  currentSegmentBS?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
+  /** 事業部別BSを反映してよい事業の名称 */
+  segmentBsNames?: string[];
 }): FilingApplyPlan {
   const segmentsPlan = planSegments(args);
   const segmentPlPatch = planSegmentPL(args);
+  const segmentBsPatch = planSegmentBS(args);
   const profilePatch: FilingApplyPlan['profilePatch'] = {};
   const profileApplied: ProfileKey[] = [];
   const profileSkipped: FilingApplyPlan['profileSkipped'] = [];
@@ -269,6 +284,7 @@ export function planFilingApply(args: {
     segmentsPatch: segmentsPlan.patch,
     segmentsSkipped: segmentsPlan.skipped,
     segmentPlPatch,
+    segmentBsPatch,
     profilePatch,
     profileApplied,
     profileSkipped,
@@ -278,27 +294,24 @@ export function planFilingApply(args: {
   };
 }
 
-/** 事業別PLの年度ごとの値を、登録中の行に反映する。値が違う年度は、上書きを選んだ年度だけ変える */
-function planSegmentPL(args: {
-  candidate: ApplicableCandidate;
-  currentSegmentPL?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
-  segmentPlNames?: string[];
+type SegmentRowsItem = { name: string; byYear: Array<{ year: number; values: Record<string, number | undefined> }> };
+
+/** 事業ごとの年度の行に、資料の値を入れる。空いている項目は入れ、違う値は上書きを選んだ年度だけ変える */
+function planSegmentRows(args: {
+  items: SegmentRowsItem[];
+  current?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
+  names: string[];
   overwriteYears: number[];
-}): SegmentPLPatch | null {
-  const names = args.segmentPlNames ?? [];
-  const patch: SegmentPLPatch = {};
-  for (const item of args.candidate.segments?.items ?? []) {
-    if (!item.name || !names.includes(item.name)) continue;
-    const rows = new Map<number, Record<string, unknown> & { year: number }>();
-    for (const r of args.currentSegmentPL?.[item.name] ?? []) rows.set(r.year, { ...r });
+}): Record<string, Array<{ year: number } & Record<string, unknown>>> | null {
+  const patch: Record<string, Array<{ year: number } & Record<string, unknown>>> = {};
+  for (const item of args.items) {
+    if (!args.names.includes(item.name)) continue;
+    const rows = new Map<number, { year: number } & Record<string, unknown>>();
+    for (const r of args.current?.[item.name] ?? []) rows.set(r.year, { ...r });
     let changed = false;
-    for (const y of item.byYear ?? []) {
+    for (const y of item.byYear) {
       const row = rows.get(y.year) ?? { year: y.year };
-      const values: Array<['revenue' | 'operatingIncome', number | undefined]> = [
-        ['revenue', y.sales],
-        ['operatingIncome', y.operatingIncome],
-      ];
-      for (const [k, v] of values) {
+      for (const [k, v] of Object.entries(y.values)) {
         if (v === undefined) continue;
         const existing = row[k];
         if (typeof existing === 'number') {
@@ -310,9 +323,36 @@ function planSegmentPL(args: {
       }
       rows.set(y.year, row);
     }
-    if (changed) patch[item.name] = [...rows.values()].sort((a, b) => a.year - b.year) as SegmentPLRowPatch[];
+    if (changed) patch[item.name] = [...rows.values()].sort((a, b) => a.year - b.year);
   }
   return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** 事業別PLの年度ごとの値（売上高・営業利益）を、登録中の行に反映する */
+function planSegmentPL(args: {
+  candidate: ApplicableCandidate;
+  currentSegmentPL?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
+  segmentPlNames?: string[];
+  overwriteYears: number[];
+}): SegmentPLPatch | null {
+  const items: SegmentRowsItem[] = (args.candidate.segments?.items ?? []).flatMap((i) =>
+    i.name ? [{ name: i.name, byYear: (i.byYear ?? []).map((y) => ({ year: y.year, values: { revenue: y.sales, operatingIncome: y.operatingIncome } })) }] : [],
+  );
+  return planSegmentRows({ items, current: args.currentSegmentPL, names: args.segmentPlNames ?? [], overwriteYears: args.overwriteYears }) as SegmentPLPatch | null;
+}
+
+/** 事業部別BSの年度ごとの値を、登録中の行に反映する */
+function planSegmentBS(args: {
+  candidate: ApplicableCandidate;
+  currentSegmentBS?: Record<string, Array<{ year: number } & Record<string, unknown>>>;
+  segmentBsNames?: string[];
+  overwriteYears: number[];
+}): SegmentBSPatch | null {
+  const items: SegmentRowsItem[] = (args.candidate.segmentBS ?? []).map((s) => ({
+    name: s.name,
+    byYear: s.byYear.map((y) => ({ year: y.year, values: Object.fromEntries(SEGMENT_BS_KEYS.map((k) => [k, y[k]])) })),
+  }));
+  return planSegmentRows({ items, current: args.currentSegmentBS, names: args.segmentBsNames ?? [], overwriteYears: args.overwriteYears }) as SegmentBSPatch | null;
 }
 
 /** セグメントは、名前が分かるものだけ反映する。売上・利益は百万円（事業部一覧の単位）に換算し、丸めない。既存のセグメントがあれば上書きを選んだ時だけ */

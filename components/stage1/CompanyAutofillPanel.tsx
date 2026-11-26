@@ -14,6 +14,8 @@ import { buildApplyReport, formatApplyReportText, FINANCE_SHORT_LABEL, type Appl
 import {
   BS_FINANCE_KEYS,
   FINANCE_KEYS,
+  SEGMENT_BS_KEYS,
+  type SegmentBSKey,
   PROFILE_KEYS,
   PROFILE_LABEL,
   planFilingApply,
@@ -41,6 +43,14 @@ const ERROR_TEXT: Record<string, string> = {
 };
 
 const DISPLAY_TEXT_MAX = 60;
+const SEGMENT_BS_LABEL: Record<SegmentBSKey, string> = {
+  ar: '売掛金',
+  inventory: '棚卸資産',
+  ap: '買掛金',
+  fixedAssets: '固定資産',
+  interestBearingDebt: '有利子負債',
+  equity: '株主資本',
+};
 /** 候補の金額は円のまま、桁区切りで表示する（丸めると原本と照合できないため） */
 const yenText = (v: number | undefined) => (v === undefined ? '未取得' : `${v.toLocaleString('ja-JP')}円`);
 
@@ -167,6 +177,7 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
   const storedIndustry = useStrategyStore((s) => s.industry ?? '');
   const storedSegments = useStrategyStore((s) => s.businessSegments ?? []);
   const storedSegmentPL = useStrategyStore((s) => s.segmentPL ?? {});
+  const storedSegmentBS = useStrategyStore((s) => (s as unknown as { segmentBS?: Record<string, Array<{ year: number } & Record<string, unknown>>> }).segmentBS ?? {});
   const financePL = useStrategyStore((s) => s.financePL ?? []);
   const financeBS = useStrategyStore((s) => s.financeBS ?? []);
   const pending = useAutofillStore((s) => s.pending);
@@ -247,14 +258,34 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
     });
     const segPlHasEmpty = segPl.some((r) => [r.revenue, r.operatingIncome].some((c) => c?.status === 'empty'));
     const segPlOverwrite = segPl.some((r) => [r.revenue, r.operatingIncome].some((c) => c?.status === 'differs') && overYears.includes(r.year));
+    const candidateBsNames = (candidate.segmentBS ?? []).map((s) => s.name);
+    const segBsNames = segNew ? candidateBsNames : candidateBsNames.filter((n) => storedSegments.some((s) => s.name === n));
+    const segBs = segBsNames.flatMap((name) => {
+      const item = candidate.segmentBS?.find((s) => s.name === name);
+      return (item?.byYear ?? []).map((y) => {
+        const row = (storedSegmentBS[name] ?? []).find((r) => r.year === y.year);
+        const cells: Partial<Record<SegmentBSKey, SegmentPLCell>> = {};
+        for (const k of SEGMENT_BS_KEYS) {
+          const value = y[k];
+          if (value === undefined) continue;
+          const registered = typeof row?.[k] === 'number' ? (row[k] as number) : undefined;
+          cells[k] = { value, registered, status: registered === undefined ? 'empty' : registered === value ? 'same' : 'differs' };
+        }
+        return { name, year: y.year, cells };
+      });
+    });
+    const allSegBsCells = segBs.flatMap((r) => Object.values(r.cells));
+    const segBsHasEmpty = allSegBsCells.some((c) => c?.status === 'empty');
+    const segBsOverwrite = segBs.some((r) => Object.values(r.cells).some((c) => c?.status === 'differs') && overYears.includes(r.year));
     const applyCount =
       profile.filter((r) => r.status === 'empty' || (r.status === 'differs' && overProfile.includes(r.key))).length +
       years.filter((y) => y.hasEmpty || (y.hasDiffers && overYears.includes(y.year))).length +
       (segNew ? 1 : 0) +
-      (segPlHasEmpty || segPlOverwrite ? 1 : 0);
+      (segPlHasEmpty || segPlOverwrite ? 1 : 0) +
+      (segBsHasEmpty || segBsOverwrite ? 1 : 0);
     const differCount = profile.filter((r) => r.status === 'differs').length + years.filter((y) => y.hasDiffers).length;
-    return { profile, years, segNew, segKept, profileTargets, yearTargets, applyCount, differCount, segPlNames, segPl };
-  }, [candidate, current, financePL, financeBS, storedSegments, storedSegmentPL, overProfile, overYears]);
+    return { profile, years, segNew, segKept, profileTargets, yearTargets, applyCount, differCount, segPlNames, segPl, segBsNames, segBs };
+  }, [candidate, current, financePL, financeBS, storedSegments, storedSegmentPL, storedSegmentBS, overProfile, overYears]);
 
   if (process.env.NEXT_PUBLIC_STAGE1_AUTOFILL_DISABLED === 'true') return null;
 
@@ -357,6 +388,8 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
         currentSegmentCount: (now.businessSegments ?? []).length,
         currentSegmentPL: now.segmentPL as Record<string, Array<{ year: number } & Record<string, unknown>>>,
         segmentPlNames: selection.segPlNames,
+        currentSegmentBS: (now as unknown as { segmentBS?: Record<string, Array<{ year: number } & Record<string, unknown>>> }).segmentBS ?? {},
+        segmentBsNames: selection.segBsNames,
       });
 
       const profileWrite: Record<string, unknown> = { ...plan.profilePatch };
@@ -384,6 +417,16 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
           merged[name] = [...byYear.values()].sort((a, b) => a.year - b.year);
         }
         now.setSegmentPL(merged, Object.keys(plan.segmentPlPatch));
+      }
+      if (plan.segmentBsPatch) {
+        const storeNow = useStrategyStore.getState() as unknown as { segmentBS?: Record<string, Array<{ year: number } & Record<string, unknown>>>; setSegmentBS: (d: Record<string, unknown[]>, names: string[]) => void };
+        const mergedBs: Record<string, Array<{ year: number } & Record<string, unknown>>> = { ...(storeNow.segmentBS ?? {}) };
+        for (const [name, rows] of Object.entries(plan.segmentBsPatch)) {
+          const byYear = new Map<number, { year: number } & Record<string, unknown>>((mergedBs[name] ?? []).map((r) => [r.year, r]));
+          for (const r of rows) byYear.set(r.year, { ...byYear.get(r.year), ...r });
+          mergedBs[name] = [...byYear.values()].sort((a, b) => a.year - b.year);
+        }
+        storeNow.setSegmentBS(mergedBs, Object.keys(plan.segmentBsPatch));
       }
 
       const res = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:autofill-approve' });
@@ -608,6 +651,43 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
                             {c?.status === 'same' ? <div className="text-slate-500">登録済みと同じ</div> : null}
                           </td>
                         ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+          {selection.segBs.length > 0 ? (
+            <>
+              <div className="font-medium">事業部別BS（円）</div>
+              <div className="overflow-x-auto">
+                <table className="w-full whitespace-nowrap">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="py-1 pr-3 font-normal">事業</th>
+                      <th className="py-1 pr-3 font-normal">年度</th>
+                      {SEGMENT_BS_KEYS.map((k) => (
+                        <th key={k} className="py-1 pr-3 text-right font-normal">
+                          {SEGMENT_BS_LABEL[k]}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selection.segBs.map((r) => (
+                      <tr key={`${r.name}-${r.year}`} className="border-t align-top">
+                        <td className="py-1 pr-3 font-medium">{r.name}</td>
+                        <td className="py-1 pr-3">{r.year}年度</td>
+                        {SEGMENT_BS_KEYS.map((k) => {
+                          const c = r.cells[k];
+                          return (
+                            <td key={k} className="py-1 pr-3 text-right tabular-nums">
+                              {c ? yenText(c.value) : <span className="text-slate-400">未取得</span>}
+                              {c?.status === 'differs' ? <div className="text-bluegray-deep">登録中 {yenText(c.registered)}</div> : null}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>

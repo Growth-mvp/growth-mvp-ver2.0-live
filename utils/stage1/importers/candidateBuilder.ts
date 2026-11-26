@@ -529,7 +529,7 @@ export function buildCandidatesFromPdfText(pages: PdfPageText[]): Stage1ImportCa
             ...(scope === 'segment' && segmentName ? { segmentName } : {}),
           } as Stage1ImportCandidate);
         }
-      } else if (bsField && years.length > 0) {
+      } else if (bsField && years.length > 0 && numbers.length >= years.length) {
         for (let i = 0; i < Math.min(numbers.length, years.length); i++) {
           const kind = scope === 'segment' ? ('segmentBS' as any) : ('companyBS' as any);
           candidates.push({
