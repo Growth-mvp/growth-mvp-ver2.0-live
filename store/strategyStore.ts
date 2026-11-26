@@ -452,6 +452,7 @@ export type StrategyState = {
 
   /** 直近保存のペイロードハッシュ（無駄保存抑止） */
   __lastSavedHash?: string;
+  __savedDirtyHash?: string;
 
   /* Actions */
   reset: () => void;
@@ -465,6 +466,7 @@ export type StrategyState = {
 
   setRevision: (rev?: number) => void;
   markSavedPayload: (payload: Record<string, any>, rev?: number) => void;
+  settleDirtyIfSaved: () => void;
   setStrategyId: (id: string | null) => void;
   hydrateFromFullState: (fullState: Partial<StrategyData> & { revision?: number }) => void;
   setCompanyScope: (id: string | null) => void;
@@ -957,15 +959,28 @@ export function buildSavePayload(s: StrategyState) {
 
   // ★ CRITICAL EMERGENCY FIX: Department ID 暫定復元（STAGE5 保存失敗対策）
   // departments を保存や store 反映に使う前に、department.id を補完する
-  // 優先順位: d.id > d.departmentId > `dept_${idx}`
-  const normalizedDepts = (Array.isArray(s.departments) ? s.departments : []).map((d: any, dIdx: number) => ({
-    ...d,
-    id: d?.id ?? d?.departmentId ?? `dept_${dIdx}`,
-    projects: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
-      ...p,
-      id: p?.id ?? p?.projectId,
-    })),
-  }));
+  // 優先順位: d.id > d.departmentId > `dept_${idx}`（同じ一覧で使用中のIDとは重複させない）
+  const departmentList: any[] = Array.isArray(s.departments) ? s.departments : [];
+  const takenDepartmentIds = new Set<string>(
+    departmentList.map((d: any) => d?.id ?? d?.departmentId).filter((id: unknown) => id !== undefined && id !== null && id !== '').map(String),
+  );
+  const normalizedDepts = departmentList.map((d: any, dIdx: number) => {
+    let fallbackId = d?.id ?? d?.departmentId;
+    if (fallbackId === undefined || fallbackId === null || fallbackId === '') {
+      let candidate = `dept_${dIdx}`;
+      for (let k = 1; takenDepartmentIds.has(candidate); k += 1) candidate = `dept_${dIdx}_${k}`;
+      takenDepartmentIds.add(candidate);
+      fallbackId = candidate;
+    }
+    return {
+      ...d,
+      id: fallbackId,
+      projects: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
+        ...p,
+        id: p?.id ?? p?.projectId,
+      })),
+    };
+  });
 
   // departments をサニタイズ
   // ★ Phase 1: { ...p } で ownerUserId / ownerName を保存ペイロードに含める
@@ -2221,7 +2236,17 @@ export const useStrategyStore = create<StrategyState>()(
       setRevision: (rev) => set({ revision: rev }),
       markSavedPayload: (payload, rev) => {
         __syncedRaw = { ...(__syncedRaw ?? {}), ...cloneState(payload) };
-        if (typeof rev === 'number') set({ revision: rev });
+        const savedState = { ...get(), ...payload } as StrategyState;
+        set({
+          ...(typeof rev === 'number' ? { revision: rev } : {}),
+          __savedDirtyHash: stableHash(buildSavePayload(savedState)),
+        });
+      },
+      /* 保存に使った内容と、今の画面の内容が同じなら、未保存の印を外す（同じでなければ外さない） */
+      settleDirtyIfSaved: () => {
+        const savedHash = get().__savedDirtyHash;
+        if (!savedHash) return;
+        if (stableHash(buildSavePayload(get() as StrategyState)) === savedHash) set({ dirty: false });
       },
       setStrategyId: (id) => set({ strategyId: id }),
 

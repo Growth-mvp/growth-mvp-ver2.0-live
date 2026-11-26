@@ -3598,6 +3598,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               store.setMidtermStrategy?.(data.midtermStrategy);
             } catch {}
           }
+          store.settleDirtyIfSaved?.();
 
           // ★ TASK A-2: 再生成成功直後は draft を表示
           setStoryViewMode('draft');
