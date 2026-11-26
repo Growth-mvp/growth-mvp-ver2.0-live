@@ -1,0 +1,15 @@
+import { createCanvas } from '@napi-rs/canvas';
+import fs from 'node:fs';
+const file = process.argv[2];
+const page = Number(process.argv[3] ?? 7);
+const out = process.argv[4] ?? '/tmp/page.png';
+const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+const data = new Uint8Array(fs.readFileSync(file));
+const doc = await pdfjs.getDocument({ data, useSystemFonts: true, disableFontFace: true }).promise;
+const pg = await doc.getPage(page);
+const viewport = pg.getViewport({ scale: 1.3 });
+const canvas = createCanvas(viewport.width, viewport.height);
+const ctx = canvas.getContext('2d');
+await pg.render({ canvasContext: ctx, viewport, canvas }).promise;
+fs.writeFileSync(out, canvas.toBuffer('image/png'));
+console.log('WROTE', out, viewport.width, viewport.height);
