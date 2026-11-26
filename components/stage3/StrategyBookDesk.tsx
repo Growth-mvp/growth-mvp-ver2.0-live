@@ -1086,7 +1086,8 @@ export function StrategyBookDesk({
         ],
       });
       if (!saved) return;
-      await verifyPlan();
+      // 検証が保存されなかった・失敗した場合は、成功として通知しない（理由は verifyPlan が表示済み）
+      if ((await verifyPlan()) !== 'saved') return;
       const count = res.departments.reduce((n, d) => n + d.proposals.length, 0);
       const projectCount = res.projects.length;
       const firstKey = res.departments[0]?.departmentKey;
@@ -1299,6 +1300,7 @@ export function StrategyBookDesk({
         return 'saved';
       }
       setState((prev) => ({ ...prev, verification: res.verification }));
+      setNotice('検証結果を保存できませんでした。画面を再読み込みしてから、もう一度お試しください。');
       return 'failed';
     } catch (e) {
       setNotice(errorMessage(e));
