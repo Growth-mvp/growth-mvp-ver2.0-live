@@ -3635,6 +3635,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       }
 
       // ★ 4章生成・保存成功後、generate-conclusion を別リクエストで呼び出し（非ブロッキング）
+      // AI呼び出しの数秒間に自動保存が走ると revision が進み、結論の保存が 409 になるため、この間は自動保存を止める
+      const CONCLUSION_SAVE_FLAG_KEY = '__generation_save_in_progress__';
+      try {
+        localStorage.setItem(CONCLUSION_SAVE_FLAG_KEY, JSON.stringify({
+          expiresAt: Date.now() + 90000,
+          operationId: `conclusion_${Date.now()}`,
+        }));
+      } catch (e) {
+        console.warn('[Stage2] Failed to set conclusion save flag:', e);
+      }
       try {
         const conclusionRes = await authFetchJson<any>('/api/stage2/generate-conclusion', {
           method: 'POST',
@@ -3665,6 +3675,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       } catch (conclusionErr) {
         // ★ Conclusion生成失敗は非ブロッキング（4章は既に保存済み）
         console.warn('[Stage2] generate-conclusion: FAILED (non-blocking)', conclusionErr);
+      } finally {
+        try {
+          localStorage.removeItem(CONCLUSION_SAVE_FLAG_KEY);
+        } catch (e) {
+          console.warn('[Stage2] Failed to clear conclusion save flag:', e);
+        }
       }
     } catch (e: any) {
       console.error('[Stage2] GenerateFinal error:', e);
