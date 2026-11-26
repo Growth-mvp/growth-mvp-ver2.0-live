@@ -74,6 +74,7 @@ function accept(profile: DocumentProfile, key: ProfileKey, raw: string, where: s
 }
 
 /** 表（CSV・Excel）の見出しと行から、ラベルの右隣にある値を読む */
+/** 表（CSV・Excel）の見出しと行から、1列目のラベルの右隣にある値を読む。「事業名」「事業内容」の表からは事業内容を組み立てる */
 export function extractProfileFromTable(table: ExtractedTable, where: string): DocumentProfile {
   const profile: DocumentProfile = {};
   const rows: string[][] = [
@@ -81,14 +82,23 @@ export function extractProfileFromTable(table: ExtractedTable, where: string): D
     ...table.rows.map((r) => Object.values(r).map((v) => (v === null || v === undefined ? '' : String(v)))),
   ];
   for (const cells of rows) {
-    cells.forEach((cell, i) => {
-      const key = cellKey(cell);
-      for (const k of Object.keys(LABELS) as ProfileKey[]) {
-        if (!LABELS[k].some((l) => cellKey(l) === key)) continue;
-        const value = cells.slice(i + 1).find((c) => c.trim() !== '');
-        if (value !== undefined) accept(profile, k, value, where);
-      }
-    });
+    const key = cellKey(cells[0] ?? '');
+    for (const k of Object.keys(LABELS) as ProfileKey[]) {
+      if (!LABELS[k].some((l) => cellKey(l) === key)) continue;
+      const value = cells.slice(1).find((c) => c.trim() !== '');
+      if (value !== undefined) accept(profile, k, value, where);
+    }
+  }
+
+  const nameKey = table.headers.find((h) => h === '事業名');
+  const contentKey = table.headers.find((h) => h === '事業内容');
+  if (nameKey !== undefined && contentKey !== undefined) {
+    const text = table.rows
+      .map((r) => [String(r[nameKey] ?? '').trim(), String(r[contentKey] ?? '').trim()] as const)
+      .filter(([name, content]) => name !== '' && content !== '')
+      .map(([name, content]) => `${name}\n${content}`)
+      .join('\n');
+    if (text) accept(profile, 'businessContent', text, where);
   }
   return profile;
 }

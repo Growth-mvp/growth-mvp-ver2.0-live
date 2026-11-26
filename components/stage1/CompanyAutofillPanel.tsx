@@ -631,7 +631,12 @@ export default function CompanyAutofillPanel({ disabled }: { disabled?: boolean 
               </ul>
             </>
           ) : selection.segKept ? (
-            <div className="text-slate-500">事業セグメント：登録済みのため変更しません</div>
+            <div className="space-y-0.5 text-slate-500">
+              <div>事業セグメント：登録済みのため変更しません</div>
+              {selection.segPlNames.length === 0 ? (
+                <div>資料の事業名（{candidate.segments?.items.map((i) => i.name).filter(Boolean).join('、')}）が登録中の事業名と一致しないため、事業別PLは反映しません</div>
+              ) : null}
+            </div>
           ) : null}
 
           <details className="text-[11px] text-slate-600">

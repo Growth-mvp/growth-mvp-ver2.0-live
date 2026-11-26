@@ -124,59 +124,81 @@ export function parseExcel(buffer: Buffer): ExtractedTable[] {
 
     if (!jsonData || jsonData.length === 0) continue;
 
-    // 空行をスキップして最初の有効な行を探す
-    let headerIndex = 0;
-    for (let i = 0; i < jsonData.length; i++) {
-      const row = jsonData[i];
-      const nonEmpty = row?.filter((c) => c !== null && c !== undefined && c !== '').length || 0;
-      if (nonEmpty >= 2) {
-        headerIndex = i;
-        break;
-      }
-    }
-
-    const headerRow = jsonData[headerIndex] || [];
-    const headers = headerRow.map((h, idx) => {
-      const s = String(h ?? '').trim();
-      return s || `col_${idx}`;
-    });
-
-    const rows: TableRow[] = [];
-    for (let i = headerIndex + 1; i < jsonData.length; i++) {
-      const row = jsonData[i];
-      if (!row) continue;
-
-      const obj: TableRow = {};
-      let hasValue = false;
-
-      for (let j = 0; j < headers.length; j++) {
-        const key = headers[j];
-        const val = row[j];
-        if (val !== undefined && val !== null && val !== '') {
-          const num = typeof val === 'number' ? val : parseNumber(String(val));
-          obj[key] = num !== null ? num : String(val).trim();
-          hasValue = true;
-        } else {
-          obj[key] = null;
-        }
-      }
-
-      if (hasValue) {
-        rows.push(obj);
-      }
-    }
-
-    if (rows.length > 0) {
-      tables.push({
-        sheetName,
-        headers,
-        rows,
-        sourceRef: `Excel:${sheetName}`,
-      });
-    }
+    tables.push(...splitRowsIntoTables(jsonData, { sheetName, sourceRef: `Excel:${sheetName}` }));
   }
 
   return tables;
+}
+
+const isBlankCell = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+
+/**
+ * 行の並び（シートまたはCSV）を、空行で区切った表に分ける。
+ * 1セルだけの行（表の前に置かれたタイトル）は次の表のタイトルとして、表の名前（sheetName）に続けて使う（単位・PL/BSの判定に使う）。
+ * 表の最初の行を見出しとし、2セル以上ある行を数値に直す。
+ */
+export function splitRowsIntoTables(rows: unknown[][], base: { sheetName?: string; sourceRef: string }): ExtractedTable[] {
+  const tables: ExtractedTable[] = [];
+  let title: string | null = null;
+  let block: unknown[][] = [];
+
+  const flush = () => {
+    if (block.length >= 2) {
+      const [headerRow, ...dataRows] = block;
+      const headers = headerRow.map((h, idx) => {
+        const s = String(h ?? '').trim();
+        return s || `col_${idx}`;
+      });
+      const tableRows: TableRow[] = dataRows.map((row) => {
+        const obj: TableRow = {};
+        headers.forEach((key, j) => {
+          const val = row[j];
+          if (isBlankCell(val)) obj[key] = null;
+          else if (typeof val === 'number') obj[key] = val;
+          else {
+            const num = parseNumber(String(val));
+            obj[key] = num !== null ? num : String(val).trim();
+          }
+        });
+        return obj;
+      });
+      const name = [base.sheetName, title].filter(Boolean).join('｜') || undefined;
+      tables.push({ sheetName: name, headers, rows: tableRows, sourceRef: base.sourceRef });
+      title = null;
+    }
+    block = [];
+  };
+
+  for (const row of rows) {
+    const cells = (row ?? []).filter((c) => !isBlankCell(c));
+    if (cells.length === 0) {
+      flush();
+    } else if (cells.length === 1 && block.length === 0) {
+      title = String(cells[0]).trim();
+    } else {
+      block.push(row ?? []);
+    }
+  }
+  flush();
+  return tables;
+}
+
+/**
+ * CSV文字列を、空行で区切った表の列に分ける（1つの表だけのCSVは従来どおり）
+ */
+export function parseCSVTables(csvText: string): ExtractedTable[] {
+  const result = Papa.parse<string[]>(csvText, {
+    skipEmptyLines: false,
+    preview: MAX_ROWS_PER_SHEET + 1,
+  });
+  if (result.data.length > MAX_ROWS_PER_SHEET) {
+    throw new Error(
+      `CSV file exceeds maximum row limit of ${MAX_ROWS_PER_SHEET} rows. ` +
+      `Detected ${result.data.length} rows.`
+    );
+  }
+  const tables = splitRowsIntoTables(result.data, { sourceRef: 'CSV' });
+  return tables.length > 0 ? tables : [parseCSV(csvText)];
 }
 
 /**

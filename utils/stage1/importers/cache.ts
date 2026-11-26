@@ -19,7 +19,7 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 // ★ IMPORTANT: パーサー仕様バージョン
 // parser/candidateBuilder の大きな変更時にバージョンを上げる
 // これにより、古いキャッシュが自動的に無効化される
-const IMPORT_PARSER_VERSION = 'v2';
+const IMPORT_PARSER_VERSION = 'v3';
 
 /**
  * ファイルからキャッシュキーを生成

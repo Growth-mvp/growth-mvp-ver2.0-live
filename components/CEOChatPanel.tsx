@@ -46,6 +46,7 @@ import { toSpeakableChunks } from '@/lib/voice/speechText';
 import { useVoiceConversation } from '@/hooks/useVoiceConversation';
 import { keepsVoiceOnPathChange } from '@/lib/voice/conversationScope';
 import { isAttachmentRequest, isAutofillRequest, publicProfileQuery } from '@/lib/autofill/intent';
+import { describeDocumentCandidate } from '@/lib/autofill/documentSummary';
 import { useAutofillStore } from '@/lib/autofill/autofillStore';
 import { runAutofillPipeline } from '@/lib/autofill/client';
 import { runDocumentFinance, runPublicProfile } from '@/lib/autofill/publicClient';
@@ -223,12 +224,25 @@ async function requestDocumentFromChat(args: {
         candidate: result.candidate,
       });
       const years = result.candidate.finance.map((y) => `${y.year}年度`).join('・');
+      const summary = describeDocumentCandidate(result.candidate);
+      const lead = years
+        ? [
+            `資料から財務の候補を作りました（${years}）。`,
+            'STAGE1の「①企業情報・事業内容」にある候補欄で、資料が登録中の企業のものか確認し、承認すると反映して保存されます。承認するまで入力欄は変わりません。',
+          ]
+        : [
+            '資料から財務の候補は作れませんでした。取得できた項目だけを、STAGE1の候補欄に出しています。',
+            'STAGE1の「①企業情報・事業内容」にある候補欄で確認できます。承認するまで入力欄は変わりません。',
+          ];
       return setLast(
         [
-          `資料から財務の候補を作りました（${years}）。`,
-          'STAGE1の「①企業情報・事業内容」にある候補欄で、資料が登録中の企業のものか確認し、承認すると反映して保存されます。承認するまで入力欄は変わりません。',
+          ...lead,
+          summary.obtained.length > 0 ? `取得できた項目：${summary.obtained.join('、')}` : '',
+          summary.missing.length > 0 ? `取得できなかった項目：${summary.missing.join('、')}` : '',
           ...result.candidate.issues,
-        ].join('\n'),
+        ]
+          .filter(Boolean)
+          .join('\n'),
       );
     }
     return setLast(result.message);

@@ -112,6 +112,11 @@ function detectScopeFromTable(table: ExtractedTable): ScopeInfo {
       return { scope: 'segment', segmentName: seg };
     }
 
+    if (/損益計算書|貸借対照表/.test(seg)) {
+      console.log('[detectScopeFromTable] → company (statement title)');
+      return { scope: 'company' };
+    }
+
     // キーワード未検出の場合のデフォルト
     console.log('[detectScopeFromTable] → segment (default fallback)');
     return { scope: 'segment', segmentName: seg };
@@ -167,6 +172,75 @@ function detectSheetUnitFromTable(table: ExtractedTable): string | undefined {
   return undefined;
 }
 
+const LONG_YEAR_HEADER = /^(年度|年|決算期|期)$/;
+const LONG_SEGMENT_HEADER = /事業名|事業部名|セグメント名|セグメント/;
+
+function yearOfCell(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d{4}$/.test(v.trim()) ? Number(v.trim()) : NaN;
+  return Number.isInteger(n) && n >= 1990 && n <= 2100 ? n : null;
+}
+
+/**
+ * 縦持ちの表（行＝事業×年度、列＝売上高・営業利益など）から候補を作る。年度の列が「年度」など1列にまとまっている表だけを対象にする
+ */
+function buildCandidatesFromLongTable(
+  table: ExtractedTable,
+  statementType: StatementType,
+  scope: 'company' | 'segment',
+  segmentName: string | undefined,
+  sheetUnit: string | undefined,
+): Stage1ImportCandidate[] | null {
+  const yearHeader = table.headers.find((h) => LONG_YEAR_HEADER.test(h.trim()));
+  if (!yearHeader || findYearColumns(table.headers).length > 0) return null;
+  const segmentHeader = table.headers.find((h) => LONG_SEGMENT_HEADER.test(h)) ?? null;
+
+  const fieldOf = (h: string): { field: string; bs: boolean } | null => {
+    if (statementType === 'BS') {
+      const f = matchField(h, BS_FIELD_PATTERNS);
+      return f ? { field: f, bs: true } : null;
+    }
+    const pl = statementType === 'PL' || statementType === 'unknown' ? matchField(h, PL_FIELD_PATTERNS) : null;
+    if (pl) return { field: pl, bs: false };
+    if (statementType === 'PL') return null;
+    const bs = matchField(h, BS_FIELD_PATTERNS);
+    return bs ? { field: bs, bs: true } : null;
+  };
+  const valueFields = table.headers
+    .filter((h) => h !== yearHeader && h !== segmentHeader)
+    .flatMap((h) => {
+      const f = fieldOf(h);
+      return f ? [{ header: h, ...f }] : [];
+    });
+  if (valueFields.length === 0) return null;
+
+  const isSegment = scope === 'segment' || segmentHeader !== null;
+  const out: Stage1ImportCandidate[] = [];
+  for (const row of table.rows) {
+    const year = yearOfCell((row as any)[yearHeader]);
+    if (year === null) continue;
+    const seg = segmentHeader ? String((row as any)[segmentHeader] ?? '').trim() : '';
+    const rowSegmentName = seg || segmentName;
+    for (const vf of valueFields) {
+      const value = (row as any)[vf.header];
+      if (typeof value !== 'number') continue;
+      const kind = vf.bs ? (isSegment ? 'segmentBS' : 'companyBS') : (isSegment ? 'segmentPL' : 'companyPL');
+      const explicitUnit = nonYenUnitOfLabel(vf.header);
+      out.push({
+        kind: kind as any,
+        year,
+        fields: { [vf.field]: value },
+        confidence: 0.7,
+        sourceRef: `${(table as any).sourceRef}:${vf.header}`,
+        source: table.sourceRef ?? '',
+        ...(explicitUnit ? { fieldUnits: { [vf.field]: explicitUnit } } : {}),
+        ...(sheetUnit ? { sheetUnit } : {}),
+        ...(isSegment && rowSegmentName ? { segmentName: rowSegmentName } : {}),
+      } as Stage1ImportCandidate);
+    }
+  }
+  return out;
+}
+
 export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCandidate[] {
   const sheetUnit = detectSheetUnitFromTable(table);
   const candidates: Stage1ImportCandidate[] = [];
@@ -176,6 +250,9 @@ export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCan
   // ★ NEW：シート名から財務諸表種別を検出（PL か BS か）
   const sheetName = String((table as any).sheetName ?? '').trim();
   const statementType = detectStatementType(sheetName);
+
+  const longFormat = buildCandidatesFromLongTable(table, statementType, scope, segmentName, sheetUnit);
+  if (longFormat) return mergeCandidates(longFormat);
 
   // ★ DEBUG：テーブル解析開始（常時ログ出力）
   console.log('[buildCandidatesFromTable] START', {

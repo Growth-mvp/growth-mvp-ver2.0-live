@@ -24,7 +24,7 @@ import {
   saveToCache,
   cleanupExpiredCache,
 } from '@/utils/stage1/importers/cache';
-import { parseCSV, parseExcel, detectFileType, type ExtractedTable } from '@/utils/stage1/importers/excelCsvImporter';
+import { parseCSVTables, parseExcel, detectFileType, type ExtractedTable } from '@/utils/stage1/importers/excelCsvImporter';
 import { nonYenUnitOfLabel } from '@/utils/finance/financeInputUnits';
 import {
   extractProfileFromPages,
@@ -818,13 +818,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             throw new Error(`Failed to decode CSV file as UTF-8: ${errMsg}`);
           }
 
-          let table: ExtractedTable;
+          let csvTables: ExtractedTable[];
           try {
-            console.log(`[stage1/import] [${reqId}] Calling parseCSV for ${file.name}`);
-            table = parseCSV(text);
-            console.log(`[stage1/import] [${reqId}] parseCSV succeeded for ${file.name}`, {
-              headersCount: table.headers?.length ?? 0,
-              rowsCount: (table.rows as any)?.length ?? 0,
+            console.log(`[stage1/import] [${reqId}] Calling parseCSVTables for ${file.name}`);
+            csvTables = parseCSVTables(text);
+            console.log(`[stage1/import] [${reqId}] parseCSVTables succeeded for ${file.name}`, {
+              tables: csvTables.length,
               timestamp: new Date().toISOString(),
             });
           } catch (parseErr) {
@@ -846,37 +845,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
 
-          // ★ DEBUG：CSV パース結果の詳細ログ
-          console.log('[stage1/import] CSV parsed - detailed debug', {
-            fileName: file.name,
-            headerCount: table.headers?.length ?? 0,
-            headers: table.headers?.slice(0, 10) ?? [],
-            rowCount: (table.rows as any)?.length ?? 0,
-            firstRow: (table.rows as any)?.[0] ?? {},
-            sourceRef: table.sourceRef,
-          });
-
-          // 標準解析（既存）
-          candidates = buildCandidatesFromTable(table);
-          fileProfile = extractProfileFromTable(table, file.name);
-
-          // ★ DEBUG：buildCandidatesFromTable 結果
-          console.log('[stage1/import] buildCandidatesFromTable result', {
-            fileName: file.name,
-            candidatesGenerated: candidates.length,
-            candidateKinds: candidates.length > 0 ? Array.from(new Set(candidates.map(c => c.kind))) : [],
-          });
-
-          const approxRows =
-            (Array.isArray((table as any)?.rows) && (table as any).rows.length) ||
-            (Array.isArray((table as any)?.data) && (table as any).data.length) ||
-            (Array.isArray((table as any)?.cells) && (table as any).cells.length) ||
-            'unknown';
-          tableHints.push(`${file.name}: CSV（${approxRows}行）`);
+          // 標準解析（既存）：空行で区切られた表ごとに候補と基本情報を読む
+          for (const table of csvTables) {
+            candidates.push(...buildCandidatesFromTable(table).map((c) => ({ ...c, source: file.name })));
+            fileProfile = mergeProfiles([fileProfile, extractProfileFromTable(table, file.name)]);
+            tableHints.push(`${file.name}: CSV（${(table.rows as any)?.length ?? 0}行）`);
+          }
 
           // candidates が 0 の場合のみフォールバック
-          if (candidates.length === 0) {
-            const rows = tableToRows(table);
+          if (candidates.length === 0 && csvTables.length > 0) {
+            const rows = tableToRows(csvTables[0]);
             const localHints: string[] = [];
             const fallback = buildCandidatesFromCsvFallback(rows, file.name, localHints);
 
@@ -941,7 +919,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               console.log(`[stage1/import] [${reqId}] [Step 10] About to call buildCandidatesFromTable for sheet: ${sheetName}`, {
                 timestamp: new Date().toISOString(),
               });
-              candidates.push(...buildCandidatesFromTable(t));
+              candidates.push(...buildCandidatesFromTable(t).map((c) => ({ ...c, source: file.name })));
               fileProfile = mergeProfiles([fileProfile, extractProfileFromTable(t, `${file.name}（${sheetName}）`)]);
               const afterLen = candidates.length;
               console.log(`[stage1/import] [${reqId}] [Step 10] Sheet processed: ${sheetName}`, {
