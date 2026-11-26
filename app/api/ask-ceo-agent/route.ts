@@ -782,7 +782,6 @@ export async function POST(req: Request) {
         organization: selectOrganizationSource(lastUser),
       });
       if (selectedContextBlock) systemBase += '\n\n' + selectedContextBlock;
-      if (strategy) systemBase += '\n\n' + buildFinanceRegistrationStatus((strategy as any).financePL);
 
       if (shouldUseAgentPrompt) {
         const stageSources = selectStage56Sources(lastUser);
@@ -937,6 +936,7 @@ export async function POST(req: Request) {
     systemBase += '\n\n' + buildWebSearchStatusBlock({ enabled: webSearchEnabled, status: webSearchStatus });
 
     if (guidance.text) systemBase += '\n\n' + guidance.text;
+    if (strategy) systemBase += '\n\n' + buildFinanceRegistrationStatus((strategy as any).financePL);
 
     // ★ meta.output === 'json' のときだけJSON出力指示を追加
     const output = meta?.output ?? 'text';

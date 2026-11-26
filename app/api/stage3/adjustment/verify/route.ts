@@ -79,8 +79,7 @@ export async function POST(req: Request) {
       rejectedCandidates: 0,
       rejectedReferences: 0,
     };
-    if (changeCount > 0) {
-      if (countDepartments(units) < 2) return failResponse(422, 'insufficient_departments');
+    if (changeCount > 0 && countDepartments(units) >= 2) {
       const completion = await openai.chat.completions.create({
         ...getOpenAIModelParamsForProcess('stage3AdjustmentAnalyze'),
         messages: buildAnalysisMessages({

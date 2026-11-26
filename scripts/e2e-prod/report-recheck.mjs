@@ -1,0 +1,24 @@
+import { chromium } from 'playwright';
+import fs from 'node:fs';
+import path from 'node:path';
+import { BASE, PROFILE_DIR, RUN_DIR } from './common.mjs';
+const dir = path.join(RUN_DIR, 'report');
+fs.mkdirSync(dir, { recursive: true });
+const ctx = await chromium.launchPersistentContext(PROFILE_DIR, { headless: true, viewport: { width: 1400, height: 900 } });
+const page = ctx.pages()[0] ?? (await ctx.newPage());
+await page.goto(`${BASE}/stage6`, { waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(5000);
+const s6 = await page.evaluate(() => {
+  const t = document.body.innerText.replace(/\s+/g, ' ');
+  const i = t.indexOf('② 経営目標は実現できそうか');
+  return t.slice(i, i + 520);
+});
+console.log('STAGE6', s6);
+await page.goto(`${BASE}/report/bank-plan`, { waitUntil: 'networkidle', timeout: 120000 });
+const pdfBtn = page.getByRole('button', { name: 'PDFダウンロード' }).first();
+await pdfBtn.waitFor({ state: 'visible', timeout: 120000 });
+const [download] = await Promise.all([page.waitForEvent('download', { timeout: 240000 }), pdfBtn.click({ force: true })]);
+const file = path.join(dir, `bank-plan-recheck-${Date.now()}.pdf`);
+await download.saveAs(file);
+console.log('PDF', file, fs.statSync(file).size);
+await ctx.close();

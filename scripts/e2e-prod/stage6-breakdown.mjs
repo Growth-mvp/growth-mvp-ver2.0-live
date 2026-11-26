@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import { BASE, PROFILE_DIR } from './common.mjs';
+const ctx = await chromium.launchPersistentContext(PROFILE_DIR, { headless: true, viewport: { width: 1400, height: 900 } });
+const page = ctx.pages()[0] ?? (await ctx.newPage());
+await page.goto(`${BASE}/stage6`, { waitUntil: 'networkidle', timeout: 120000 });
+await page.waitForTimeout(5000);
+const t = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '));
+const i = t.indexOf('年度別の計算内訳');
+console.log('BREAKDOWN', i >= 0 ? t.slice(i, i + 900) : 'none');
+const j = t.indexOf('売上高の見通し');
+console.log('SALES', t.slice(j, j + 300));
+await ctx.close();
