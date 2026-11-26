@@ -708,6 +708,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const allCandidates: Stage1ImportCandidate[] = [];
     const documentProfiles: Array<{ fileName: string; profile: DocumentProfile }> = [];
     const warnings: string[] = [];
+    const failedFiles: string[] = [];
     const tableHints: string[] = [];
 
     for (const file of files) {
@@ -1023,6 +1024,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           cause,
           timestamp: new Date().toISOString(),
         });
+        failedFiles.push(file.name);
         warnings.push(`${file.name}: 解析エラー - ${message}`);
       }
     }
@@ -1073,6 +1075,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       warningsCount: warnings.length,
       timestamp: new Date().toISOString(),
     });
+
+    if (normalized.length === 0 && failedFiles.length > 0) {
+      return NextResponse.json(
+        { success: false, error: 'parse_failed', failedFiles, candidates: [], previewText: warnings.join('\n') },
+        { status: 422 }
+      );
+    }
 
     const result: Stage1ImportResult & { documentProfiles: typeof documentProfiles } = {
       success: true,

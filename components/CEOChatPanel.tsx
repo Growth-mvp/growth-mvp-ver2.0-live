@@ -248,7 +248,13 @@ async function requestDocumentFromChat(args: {
     return setLast(result.message);
   } catch (e) {
     const code = e instanceof Error ? e.message : '';
-    setLast(code === 'insufficient_role' || code === 'forbidden' ? '資料の読み込みは管理者または管理職のみ実行できます。' : '資料の読み込みに失敗しました。時間をおいて再度お試しください。');
+    setLast(
+      code === 'insufficient_role' || code === 'forbidden'
+        ? '資料の読み込みは管理者または管理職のみ実行できます。'
+        : code === 'parse_failed'
+          ? '資料の解析中にエラーが起きたため、取り込めませんでした。取り込める内容がないという意味ではありません。時間をおいて再度お試しください。'
+          : '資料の読み込みに失敗しました。時間をおいて再度お試しください。',
+    );
   }
 }
 
