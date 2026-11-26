@@ -4062,7 +4062,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const nextActionLine = stage2NextActionLine({
     hasDraft,
     hasFinal,
-    committed: (finalStoryFinalRaw?.length ?? 0) > 0,
+    committed: (finalStoryFinalRaw?.length ?? 0) > 0 && !hasUnconfirmedChanges,
     hasPendingDeepDive,
   });
 

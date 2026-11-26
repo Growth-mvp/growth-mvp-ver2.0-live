@@ -1,5 +1,11 @@
 import { buildDbRowFromState, buildStateFromDbRow } from '@/utils/supabase/strategy';
-import { buildConfirmedDocumentEdits, mergeMidtermStrategyIntoDocumentEdits, toConfirmedEdits } from './finalDocument';
+import {
+  buildConfirmedDocumentEdits,
+  findUnconfirmedChanges,
+  mergeMidtermStrategyIntoDocumentEdits,
+  toConfirmedEdits,
+  withMidtermSnapshot,
+} from './finalDocument';
 import type { StoryChapter } from '@/types/strategy';
 
 const chapters = (body: string): StoryChapter[] => [
@@ -68,6 +74,37 @@ describe('確定版と中計編集値の保存・復元', () => {
     expect(merged?.midtermStrategy?.midtermConcept).toBe('');
     expect(merged?.midtermStrategy?.priorityStrategicThemes).toEqual([]);
     expect(merged?.midtermStrategy?.portfolioPolicy).toBe('生成方針');
+  });
+
+  it('確定後に再読込しても中計の戦略の芯は落ちず、未確定の判定が出ない', () => {
+    const strategicCore = { coreStatement: '地域密着の即応配送' };
+    const midterm: any = { midtermConcept: '生成コンセプト', strategicCore };
+    const state: any = {
+      finalStoryFinal: chapters('確定本文'),
+      finalStoryEdited: chapters('確定本文'),
+      finalStory: chapters('確定本文'),
+      stage2FinalDocumentEdits: buildConfirmedDocumentEdits({
+        edits: withMidtermSnapshot({ midtermStrategy: midterm }, midterm),
+        aiGeneratedConclusion: 'AI結論',
+        assumptions: { external: [], internal: [], implications: [] },
+        confirmedAt: '2026-11-11T00:00:00.000Z',
+      }),
+      midtermStrategy: midterm,
+    };
+
+    const row = buildDbRowFromState(state);
+    const reloaded: any = buildStateFromDbRow({ ...row, id: 'strategy-1', company_id: 'company-1', revision: 6 });
+
+    expect(reloaded.midtermStrategy.strategicCore).toEqual(strategicCore);
+    expect(
+      findUnconfirmedChanges({
+        finalStoryFinal: reloaded.finalStoryFinal,
+        finalStoryEdited: reloaded.finalStoryEdited,
+        edits: reloaded.stage2FinalDocumentEdits,
+        midtermStrategy: reloaded.midtermStrategy,
+        aiGeneratedConclusion: 'AI結論',
+      }),
+    ).toEqual({ chapters: false, document: false, midtermStrategy: false });
   });
 
   it('空欄の中計項目を持つトップレベルの中計も、再読込後に空欄として残る', () => {

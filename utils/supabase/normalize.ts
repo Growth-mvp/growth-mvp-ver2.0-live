@@ -1062,6 +1062,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     // 空文字・空配列は「利用者が空欄にした」意味を持つため、未入力（undefined）と区別して残す
     const str = (v: any) => (typeof v === 'string' ? v : undefined);
     const strArr = (v: any) => (Array.isArray(v) ? v.filter((x: any) => typeof x === 'string') : undefined);
+    const obj = (v: any) => (v && typeof v === 'object' && !Array.isArray(v) ? v : undefined);
     const m = {
       midtermConcept: str(raw.midtermConcept),
       targetVisionForMidterm: str(raw.targetVisionForMidterm),
@@ -1072,6 +1073,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       companyWideDecisionCriteria: strArr(raw.companyWideDecisionCriteria),
       deploymentPrinciplesForUnits: strArr(raw.deploymentPrinciplesForUnits),
       managementMeetingIssues: strArr(raw.managementMeetingIssues),
+      strategicCore: obj(raw.strategicCore),
     };
     return Object.values(m).some((v) => v !== undefined) ? m : undefined;
   })();
