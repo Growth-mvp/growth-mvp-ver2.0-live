@@ -2,6 +2,7 @@
  * 部門名・プロジェクト名は架空。検証の基準は緩めない。 */
 import { emptyWorkspaceState, verifyWorkspaceState } from './stage3StrategyBook';
 import { collectPlanUnits, countDepartments } from './stage3Adjustment';
+import { attributableOkrs } from './okrAttribution';
 
 const dept = (id: string, name: string, projectIds: string[]) => ({
   id,
@@ -41,5 +42,26 @@ describe('同じ部門IDが重複した古いデータの検証', () => {
 
   it('重複したIDのままでは、同じIDの2部門が1部門として数えられる（分析の入力が欠ける）', () => {
     expect(countDepartments(collectPlanUnits(legacyDepartments()))).toBe(2);
+  });
+});
+
+describe('帰属不明のOKRは、現在の部門・プロジェクトに実在するOKRだけを数える', () => {
+  const departments = [
+    { ...dept('dept_2', '部門A', ['p-a1']), id: 'dept_2' },
+    { ...dept('dept_new_b', '部門B', ['p-b1']), id: 'dept_new_b' },
+  ];
+  const okrs = [
+    { id: 'o1', department_id: 'dept_2', project_id: 'p-a1' },
+    { id: 'o2', department_id: 'dept_new_b', project_id: 'p-b1' },
+    { id: 'o3', department_id: 'dept_2', project_id: 'p-removed' },
+    { id: 'o4', department_id: 'dept_1', project_id: 'p-a1' },
+  ];
+
+  it('部門IDとプロジェクトIDの組が現在の正式データにあるOKRだけを返す', () => {
+    expect(attributableOkrs(okrs, departments).map((o) => o.id)).toEqual(['o1', 'o2']);
+  });
+
+  it('部門データが無ければ、どのOKRも数えない', () => {
+    expect(attributableOkrs(okrs, null)).toEqual([]);
   });
 });

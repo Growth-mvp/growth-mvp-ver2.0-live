@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
 import { isValidUUID } from '@/lib/utils/isValidUUID';
 import { isProgressLogCheckin } from '@/lib/progressLogCheckin';
+import { attributableProjectKeys } from '@/lib/cascade/okrAttribution';
 
 type RecentProjectUpdate = {
   departmentId: string;
@@ -200,6 +201,20 @@ export async function GET(req: NextRequest): Promise<NextResponse<ExecutionSumma
     const okrMetaMap = new Map<string, { departmentId: string; projectId: string; objective: string | null }>();
     const okrsByProject = new Map<string, { departmentId: string; projectId: string; okrIds: string[]; objectiveHints: string[] }>();
 
+    const { data: strategyRow, error: strategyError } = await admin
+      .from('strategy_data')
+      .select('departments')
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (strategyError) {
+      throw new Error(`Failed to fetch strategy_data: ${strategyError.message}`);
+    }
+
+    const departments = Array.isArray(strategyRow?.departments) ? (strategyRow.departments as any[]) : [];
+    // 現在の正式データに実在する部門・プロジェクトのOKRだけを、未確認の計画として数える（帰属不明のOKRは数えない）
+    const attributableKeys = attributableProjectKeys(departments);
+
     for (const okr of okrRows) {
       const okrId = String(okr?.id ?? '').trim();
       const departmentId = String(okr?.department_id ?? '').trim();
@@ -210,6 +225,7 @@ export async function GET(req: NextRequest): Promise<NextResponse<ExecutionSumma
       okrMetaMap.set(okrId, { departmentId, projectId, objective });
 
       const projectKey = `${departmentId}|${projectId}`;
+      if (!attributableKeys.has(projectKey)) continue;
       if (!okrsByProject.has(projectKey)) {
         okrsByProject.set(projectKey, {
           departmentId,
@@ -249,19 +265,8 @@ export async function GET(req: NextRequest): Promise<NextResponse<ExecutionSumma
 
     const topStale = projectStaleness.slice(0, 3);
 
-    const { data: strategyRow, error: strategyError } = await admin
-      .from('strategy_data')
-      .select('departments')
-      .eq('company_id', companyId)
-      .maybeSingle();
-
-    if (strategyError) {
-      throw new Error(`Failed to fetch strategy_data: ${strategyError.message}`);
-    }
-
     const departmentMap = new Map<string, string>();
     const projectMap = new Map<string, string>();
-    const departments = Array.isArray(strategyRow?.departments) ? (strategyRow.departments as any[]) : [];
 
     for (const dept of departments) {
       const deptId = String(dept?.id ?? '').trim();

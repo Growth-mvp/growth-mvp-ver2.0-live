@@ -12,6 +12,7 @@ import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
 import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat } from '@/lib/ceoChat/answerStyle';
 import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
+import { attributableOkrs } from '@/lib/cascade/okrAttribution';
 import { resolveScreenContext } from '@/lib/screens/screenContext';
 import { consultBlockFor } from '@/lib/consult/consultFocus';
 import { loadExecutionScope, parseExecutionInput } from '@/lib/ceoChat/executionScope';
@@ -790,7 +791,7 @@ export async function POST(req: Request) {
           const company = await fetchStage5Company(admin, companyId, now);
           const stage5Text = buildStage5ProgressBlock({
             departments: (strategy as any)?.departments,
-            okrs: company.okrs,
+            okrs: attributableOkrs(company.okrs, (strategy as any)?.departments),
             companyLogs: company.companyLogs,
             companyLogsFailed: company.companyLogsFailed,
             now,
@@ -975,7 +976,7 @@ export async function POST(req: Request) {
       const registration = buildStage5RegistrationBlock({
         departments: (strategy as any)?.departments,
         planRows: await loadStage4PlanRows(admin, companyId, strategyId),
-        okrs: company.okrs,
+        okrs: attributableOkrs(company.okrs, (strategy as any)?.departments),
         companyLogs: company.companyLogs,
         companyLogsFailed: company.companyLogsFailed,
         now,
