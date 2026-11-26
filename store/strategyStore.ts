@@ -2367,9 +2367,10 @@ export const useStrategyStore = create<StrategyState>()(
           if ((await ensureParentExists()) !== 'ready') return;
           if (!isCompanyWriteCurrent(companyId, epoch)) return;
           try {
-            await saveFinalStory(userId, get().finalStory, { companyId });
+            const res = await saveFinalStory(userId, get().finalStory, { companyId });
+            if (!res.ok) console.error('[strategyStore] saveFinalStory failed:', res.error);
           } catch (e) {
-            console.warn('[strategyStore] saveFinalStory warn:', e);
+            console.error('[strategyStore] saveFinalStory threw:', e);
           }
         })();
       },

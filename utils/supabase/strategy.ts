@@ -3497,9 +3497,19 @@ export async function saveFinalStory(
     });
     const now = new Date().toISOString();
 
+    // final_stories.strategy_id は NOT NULL。strategy_data は company_id 一意のため、そこから解決する。
+    const { data: strategyRow, error: strategyErr } = await supabase
+      .from(T_STRATEGY)
+      .select('id')
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (strategyErr) return { ok: false, error: extractErrorVerbose(strategyErr) };
+    if (!strategyRow?.id) return { ok: false, error: { code: 'strategy_not_found', message: 'strategy_data row not found for company' } };
+
     const row: any = {
       company_id: companyId,
       user_id: userId,
+      strategy_id: strategyRow.id,
       final_story: ensureArray(finalStory),
       updated_at: now,
     };

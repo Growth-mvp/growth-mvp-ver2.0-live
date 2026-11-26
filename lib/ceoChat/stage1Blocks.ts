@@ -9,6 +9,18 @@ export function formatAmount(n: number | undefined | null): string {
   return `${n}円`;
 }
 
+/** financeSummary は財務表の編集に追従しないため、数値が無いときは financePL（正本）から補う */
+export function financeSummaryRowsFromPL(financePL: unknown): Array<{ year: number; revenue?: number; operatingIncome?: number }> {
+  if (!Array.isArray(financePL)) return [];
+  return financePL
+    .filter((r: any) => typeof r?.year === 'number' && (r.revenue != null || r.operatingIncome != null))
+    .map((r: any) => ({ year: r.year, revenue: r.revenue ?? undefined, operatingIncome: r.operatingIncome ?? undefined }));
+}
+
+export function hasFinanceSummaryValues(rows: unknown): boolean {
+  return Array.isArray(rows) && rows.some((r: any) => r?.revenue != null || r?.operatingIncome != null);
+}
+
 export function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
   // ⑤ 検査: buildFinanceSummaryBlock への入力確認
   const isArray = Array.isArray(financeSummary);

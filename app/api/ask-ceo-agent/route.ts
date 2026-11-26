@@ -55,6 +55,7 @@ import {
 import { buildStage5RegistrationBlock } from '@/lib/ceoChat/stage5Registration';
 import { buildStage3QuestionStatusBlock } from '@/lib/ceoChat/stage3QuestionStatus';
 import { buildStage1IssuesBlock } from '@/lib/ceoChat/stage1Issues';
+import { financeSummaryRowsFromPL, hasFinanceSummaryValues } from '@/lib/ceoChat/stage1Blocks';
 import { buildStage2StoryStateBlock } from '@/lib/ceoChat/stage2StoryState';
 import { buildStage3WorkingStateBlock } from '@/lib/ceoChat/stage3WorkingState';
 import { loadWorkspace } from '@/lib/server/stage3StrategyBook';
@@ -284,6 +285,11 @@ async function fetchStrategyContext(args: {
       } catch (e: any) {
         stage1MetricsFailed = true;
         console.warn('[ask-ceo-agent] stage1 value analysis error:', e?.message || e);
+      }
+
+      const plSummaryRows = financeSummaryRowsFromPL(strategy.financePL);
+      if (plSummaryRows.length > 0 && !hasFinanceSummaryValues(strategy.financeSummary)) {
+        strategy.financeSummary = plSummaryRows as any;
       }
 
       const afterNormalize = {
