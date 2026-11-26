@@ -370,7 +370,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // 音声：読み上げは初期状態でOFF。開いた時点の履歴は読み上げず、新しく届いた回答だけを読む
   const [autoRead, setAutoRead] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [inputMode, setInputMode] = useState<InputMode>('voice');
+  const [inputMode, setInputMode] = useState<InputMode>('text');
   const spokenRef = useRef<{ owner: string | null; msg: Msg | null }>({ owner: null, msg: null });
 
   useEffect(() => {
