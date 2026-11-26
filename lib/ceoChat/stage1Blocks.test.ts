@@ -65,7 +65,7 @@ describe('buildFinanceRegistrationStatus', () => {
     const line = buildFinanceRegistrationStatus([{ year: 2025, revenue: 160000000, operatingIncome: 1500000 }]);
     expect(line).toContain('登録済み');
     expect(line).toContain('最新年 2025年');
-    expect(line).toContain('登録が必要だと案内しない');
+    expect(line).toContain('財務データの入力を次の一手として提案しない');
     expect(line).not.toContain('未登録');
   });
 
