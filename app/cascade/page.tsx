@@ -26,6 +26,7 @@ if (typeof window !== 'undefined') {
 }
 
 import StrategyGuard from '@/app/StrategyGuard';
+import { financeSummaryForPrompt } from '@/lib/ceoChat/stage1Blocks';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -3464,7 +3465,7 @@ useEffect(() => {
         ],
         csvFinanceData: s?.csvFinanceData ?? [],
         financeUnitConfirmed: s?.financeUnitConfirmed,
-        financeSummary: s?.financeSummary,
+        financeSummary: financeSummaryForPrompt(s?.financeSummary, s?.financePL),
         businessPortfolio: s?.businessPortfolio,
         // ★P3拡張：businessSegments を送信（segmentName マッピング用）
         businessSegments: s?.businessSegments ?? [],

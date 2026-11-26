@@ -21,6 +21,12 @@ export function hasFinanceSummaryValues(rows: unknown): boolean {
   return Array.isArray(rows) && rows.some((r: any) => r?.revenue != null || r?.operatingIncome != null);
 }
 
+export function financeSummaryForPrompt(financeSummary: unknown, financePL: unknown): unknown {
+  if (hasFinanceSummaryValues(financeSummary)) return financeSummary;
+  const rows = financeSummaryRowsFromPL(financePL);
+  return rows.length > 0 ? rows : financeSummary;
+}
+
 export function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
   // ⑤ 検査: buildFinanceSummaryBlock への入力確認
   const isArray = Array.isArray(financeSummary);

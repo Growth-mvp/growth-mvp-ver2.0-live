@@ -40,6 +40,12 @@ const firstFinalLine = (chapters) => {
 const bodyShowsFinal = (sample) =>
   page.evaluate((s) => (s ? document.body.innerText.replace(/\s+/g, ' ').includes(s) : false), sample);
 
+const showsInFinalTab = async (sample) => {
+  await page.getByRole('button', { name: /最終確定/ }).first().click({ force: true });
+  await page.waitForTimeout(2500);
+  return bodyShowsFinal(sample);
+};
+
 await page.goto(`${BASE}/stage2`, { waitUntil: 'networkidle', timeout: 120000 });
 await page.waitForTimeout(2000);
 const before = await storeLens();
@@ -64,16 +70,15 @@ await page.waitForTimeout(8000);
 const sample = firstFinalLine(generated?.finalStory ?? generated?.sections);
 const afterGen = await storeLens();
 const savedOk = finalWrites.some((w) => w.status >= 200 && w.status < 300);
-check('S2-4c 経営戦略がローカルに反映', afterGen.finalStory > 0, JSON.stringify(afterGen));
 check('S2-4d 経営戦略の保存通信（final_stories）が成功', savedOk, JSON.stringify(finalWrites));
-check('S2-4e 生成した本文が画面に表示', sample.length > 0 && (await bodyShowsFinal(sample)), `sample="${sample}"`);
+check('S2-4e 生成した本文が「最終確定」タブに表示', sample.length > 0 && (await showsInFinalTab(sample)), `sample="${sample}"`);
 await page.screenshot({ path: path.join(dir, '04-final-generated.png'), fullPage: true });
 
 await page.reload({ waitUntil: 'networkidle', timeout: 120000 });
 await page.waitForTimeout(3000);
 const afterReload = await storeLens();
 check('S2-5a リロード後も経営戦略が保持（ローカル）', afterReload.finalStory > 0 && afterReload.finalStory === afterGen.finalStory, `gen=${afterGen.finalStory} reload=${afterReload.finalStory}`);
-check('S2-5b リロード後も本文が画面に表示', sample.length > 0 && (await bodyShowsFinal(sample)), `sample="${sample}"`);
+check('S2-5b リロード後も「最終確定」タブに本文が表示', sample.length > 0 && (await showsInFinalTab(sample)), `sample="${sample}"`);
 
 fs.writeFileSync(
   path.join(dir, 'final-result.json'),

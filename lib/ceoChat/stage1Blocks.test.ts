@@ -1,5 +1,6 @@
 import {
   buildFinanceSummaryBlock,
+  financeSummaryForPrompt,
   financeSummaryRowsFromPL,
   hasFinanceSummaryValues,
 } from './stage1Blocks';
@@ -26,6 +27,24 @@ describe('hasFinanceSummaryValues', () => {
 
   it('売上か営業利益があれば数値ありとみなす', () => {
     expect(hasFinanceSummaryValues([{ year: 2025, revenue: 1 }])).toBe(true);
+  });
+});
+
+describe('financeSummaryForPrompt', () => {
+  const PL = [{ year: 2025, revenue: 160000000, operatingIncome: 1500000 }];
+
+  it('数値のある財務サマリーはそのまま使う', () => {
+    const summary = [{ year: 2025, revenue: 1, operatingIncome: 2 }];
+    expect(financeSummaryForPrompt(summary, PL)).toBe(summary);
+  });
+
+  it('数値の無い財務サマリーは財務表（PL）から補う', () => {
+    expect(financeSummaryForPrompt([{ year: 2025 }], PL)).toEqual([{ year: 2025, revenue: 160000000, operatingIncome: 1500000 }]);
+  });
+
+  it('PLも無ければ元の値を返す', () => {
+    const summary = [{ year: 2025 }];
+    expect(financeSummaryForPrompt(summary, undefined)).toBe(summary);
   });
 });
 
