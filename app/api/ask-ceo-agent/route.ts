@@ -835,7 +835,8 @@ export async function POST(req: Request) {
             companyTargets: (strategy as any)?.companyTargets,
             simulationResults: (strategy as any)?.simulationResults,
             // 重要な投資判断では質問文に明示されない資金余力も参照する。
-            question: consultingPlan?.sources.finance ? lastUser + '\n資金・投資・プロジェクト・実績' : lastUser,
+            question: consultingPlan?.focus === 'investment' || consultingPlan?.focus === 'finance'
+              ? lastUser + '\n資金・投資' : lastUser,
           });
           stage6Facts = { scope: 'plan', financeEmpty: financeAbsent, ...classifyStage6Text(planText) };
           systemBase += '\n\n' + planText;

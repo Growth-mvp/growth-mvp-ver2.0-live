@@ -7,6 +7,8 @@ describe('重要な経営相談の推論方針', () => {
     ['この事業から撤退すべきか？', 'investment', 'high'],
     ['営業部と製造部の対立をどう解消すべきか？', 'organization', 'medium'],
     ['今の経営戦略は妥当か？', 'strategy', 'medium'],
+    ['今の経営戦略で3年後に成長できるか？', 'strategy', 'medium'],
+    ['社長が今、最も優先すべきことは何か？', 'strategy', 'medium'],
     ['資金繰りが厳しくなったらどうすべきか？', 'finance', 'high'],
     ['進捗が未達の場合は何を優先すべきか？', 'execution', 'medium'],
   ])('%s', (question, focus, effort) => {
