@@ -38,7 +38,7 @@ export default function Home() {
               transition={{ duration: 0.6 }}
               className="text-[28px] font-bold tracking-[-0.04em] text-zinc-900 sm:text-[36px] lg:text-[44px] xl:dark:text-white"
             >
-              戦略を行動へ。企業を成長へ。
+              戦略を行動へ。行動を成果へ。
             </motion.h1>
 
             <motion.div
