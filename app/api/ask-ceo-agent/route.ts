@@ -9,6 +9,7 @@ function makeRequestId() {
 }
 import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
+import { buildConsultingReasoningBlock, consultingEffort, selectConsultingPlan, type ConsultingPlan } from '@/lib/ceoChat/consultingReasoning';
 import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat } from '@/lib/ceoChat/answerStyle';
 import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
@@ -618,6 +619,7 @@ export async function POST(req: Request) {
 
     let systemBase: string;
     let companyContextUsed = false;
+    let consultingPlan: ConsultingPlan | null = null;
     let externalSourceAllowlist: string[] | null = null;
     let webSearchDiagnostics: WebSearchDiagnostics | null = null;
     let webSearchFacts: CeoFact[] = [];
@@ -774,7 +776,17 @@ export async function POST(req: Request) {
         });
       }
 
-      const contextSelection = selectContextSources(lastUser);
+      // 重要な個社の経営相談だけ、判断に必要な情報を追加する。
+      consultingPlan = selectConsultingPlan(lastUser, isManual && shouldUseAgentPrompt && !!strategy);
+      const baselineContext = selectContextSources(lastUser);
+      const contextSelection = consultingPlan ? {
+        ...baselineContext,
+        finance: baselineContext.finance || consultingPlan.sources.finance,
+        rationale: baselineContext.rationale || consultingPlan.sources.rationale,
+        alignment: baselineContext.alignment || consultingPlan.sources.alignment,
+        unclear: false,
+      } : baselineContext;
+      if (consultingPlan) systemBase += '\n\n' + buildConsultingReasoningBlock(consultingPlan);
       const selectedContextBlock = buildSelectedContextBlock({
         selection: contextSelection,
         strategy: strategy as any,
@@ -784,7 +796,11 @@ export async function POST(req: Request) {
       if (selectedContextBlock) systemBase += '\n\n' + selectedContextBlock;
 
       if (shouldUseAgentPrompt) {
-        const stageSources = selectStage56Sources(lastUser);
+        const baselineStages = selectStage56Sources(lastUser);
+        const stageSources = consultingPlan ? {
+          progress: baselineStages.progress || consultingPlan.sources.progress,
+          plan: baselineStages.plan || consultingPlan.sources.plan,
+        } : baselineStages;
         let stage5Facts: ReferenceFacts['stage5'] = null;
         let stage6Facts: ReferenceFacts['stage6'] = null;
         let stage2TargetFacts: ReferenceFacts['stage2Targets'] = null;
@@ -818,7 +834,8 @@ export async function POST(req: Request) {
             currentYear: new Date().getFullYear(),
             companyTargets: (strategy as any)?.companyTargets,
             simulationResults: (strategy as any)?.simulationResults,
-            question: lastUser,
+            // 重要な投資判断では質問文に明示されない資金余力も参照する。
+            question: consultingPlan?.sources.finance ? lastUser + '\n資金・投資・プロジェクト・実績' : lastUser,
           });
           stage6Facts = { scope: 'plan', financeEmpty: financeAbsent, ...classifyStage6Text(planText) };
           systemBase += '\n\n' + planText;
@@ -1038,7 +1055,7 @@ export async function POST(req: Request) {
     // --- OpenAI 呼び出し ---
     const openaiReq: any = {
       model: 'gpt-5.6-luna',
-      reasoning_effort: 'low',
+      reasoning_effort: consultingEffort(consultingPlan, process.env.CEO_CHAT_CONSULTING_HIGHER_EFFORT === '1'),
       max_completion_tokens: 6000,
       messages: [{ role: 'system', content: systemBase }, ...askMessages],
     };
