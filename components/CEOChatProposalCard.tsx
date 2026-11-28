@@ -37,9 +37,15 @@ function revenueOf(rows: Row[] | undefined, year: number): number | null {
 /** 入力案の確認と承認。承認するまで保存しない。承認後は、会社・画面・revision を確かめ直してから既存の保存処理で保存する */
 export default function CEOChatProposalCard({ proposal, pathname, onResult }: Props) {
   const [addition, setAddition] = useState(
-    proposal.kind === 'stage2.ceoIntent' ? proposal.addition : proposal.kind === 'stage3.question' ? proposal.answer : '',
+    proposal.kind === 'stage2.ceoIntent'
+      ? proposal.addition
+      : proposal.kind === 'stage3.question'
+        ? proposal.answer
+        : proposal.kind === 'stage1.issue'
+          ? proposal.title
+          : '',
   );
-  const needsText = proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage3.question';
+  const needsText = proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage3.question' || proposal.kind === 'stage1.issue';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,11 +72,13 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
     const current =
       proposal.kind === 'stage2.ceoIntent'
         ? { ceoIntent: st.ceoIntent ?? '' }
-        : proposal.kind === 'stage3.question'
-          ? { stage3Answer: stage3AnswerOf(contextDepartments(st.departments as unknown as StoreDept[]), proposal.departmentName, proposal.stepNumber) }
-          : proposal.kind === 'stage4.plan'
-            ? { stage4Version: proposal.expectedVersion }
-            : { revenueYen: revenueOf(st.financePL as Row[] | undefined, proposal.year) };
+        : proposal.kind === 'stage1.issue'
+          ? { stage1IssueTitles: ((st.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? '') }
+          : proposal.kind === 'stage3.question'
+            ? { stage3Answer: stage3AnswerOf(contextDepartments(st.departments as unknown as StoreDept[]), proposal.departmentName, proposal.stepNumber) }
+            : proposal.kind === 'stage4.plan'
+              ? { stage4Version: proposal.expectedVersion }
+              : { revenueYen: revenueOf(st.financePL as Row[] | undefined, proposal.year) };
     const stale = proposalStaleReason(proposal, current);
     if (stale) {
       discard(stale.message);
@@ -122,6 +130,26 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
       if (reRead) {
         if (reRead.discard) discard(reRead.message);
         else setError(reRead.message);
+        return;
+      }
+
+      if (proposal.kind === 'stage1.issue') {
+        const issues = (after.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
+        if (issues.length >= 5) {
+          discard('経営課題が5件あるため、入力案を破棄しました。保存していません。');
+          return;
+        }
+        const nextIssues = [...issues, { title: addition.trim(), description: '', linkedMetrics: [], scope: 'company' as const }];
+        const saved = await useStrategyStore.getState().saveStrategyData({
+          reason: 'stage1:ai-operation',
+          conflictRetry: false,
+          patch: { stage1Issues: nextIssues as never },
+        });
+        if (!saved.ok) {
+          setError(SAVE_FAILED_MESSAGE);
+          return;
+        }
+        discard(`経営課題に「${addition.trim()}」を追加して保存しました。`);
         return;
       }
 
@@ -242,6 +270,21 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           </label>
           <p className="text-[12px] text-zinc-600">現在の回答：{proposal.before || '（未回答）'}</p>
           {isConflict ? <p className="text-rose-700">登録済みの回答を、入力案の内容に置き換えます。内容を確かめてから承認してください。</p> : null}
+        </>
+      ) : proposal.kind === 'stage1.issue' ? (
+        <>
+          <p className="text-zinc-700">対象：STAGE1「論点整理」に、経営課題を1件追加します（既存の経営課題は変わりません）</p>
+          <label className="block text-[12px] text-zinc-700">
+            経営課題（編集できます）
+            <textarea
+              value={addition}
+              onChange={(e) => setAddition(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white p-2 text-[13px] text-zinc-900"
+              disabled={busy}
+            />
+          </label>
+          <p className="text-[12px] text-zinc-600">現在の経営課題：{proposal.beforeTitles.length}件（上限5件）</p>
         </>
       ) : proposal.kind === 'stage4.plan' ? (
         <>

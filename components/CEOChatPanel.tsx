@@ -274,6 +274,9 @@ function revenueYenByYear(rows: RevenueRow[] | undefined): Record<number, number
 }
 
 function proposalIntroText(p: OperationProposal): string {
+  if (p.kind === 'stage1.issue') {
+    return `経営課題「${p.title}」の入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと追加して保存されます。`;
+  }
   if (p.kind === 'stage4.plan') {
     return `「${p.projectTitle}」の実行計画書への変更の入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。`;
   }
@@ -691,6 +694,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           strategyId: latestStrategyId,
           ceoIntent: st.ceoIntent ?? '',
           revenueYenByYear: revenueYenByYear(st.financePL as RevenueRow[] | undefined),
+          stage1IssueTitles: ((st.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? ''),
           departments: contextDepartments(st.departments as unknown as Parameters<typeof contextDepartments>[0]),
         });
         if (instruction) {

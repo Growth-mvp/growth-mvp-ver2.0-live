@@ -100,3 +100,29 @@ describe('STAGE3 の6問の入力案', () => {
     expect(proposalBlockReason(QUESTION, { ...SAME, pathname: '/okr' })).toEqual(expect.objectContaining({ discard: true }));
   });
 });
+
+describe('proposalStaleReason：STAGE1 経営課題の追加', () => {
+  const ISSUE: OperationProposal = {
+    kind: 'stage1.issue',
+    pathname: '/stage1',
+    companyId: 'company-1',
+    strategyId: 'strategy-1',
+    beforeTitles: ['既存顧客の離脱が増えている'],
+    title: '新規顧客の獲得が鈍い',
+  };
+
+  it('作成後も経営課題が同じなら通す', () => {
+    expect(proposalStaleReason(ISSUE, { stage1IssueTitles: ['既存顧客の離脱が増えている'] })).toBeNull();
+  });
+
+  it('作成後に経営課題が増減・変更されていれば、保存せず破棄する', () => {
+    const added = proposalStaleReason(ISSUE, { stage1IssueTitles: ['既存顧客の離脱が増えている', '別の課題'] });
+    expect(added).toEqual({ message: '入力案を作った後に経営課題が変わったため、保存しません。もう一度指示してください。', discard: true });
+    expect(proposalStaleReason(ISSUE, { stage1IssueTitles: [] })?.discard).toBe(true);
+    expect(proposalStaleReason(ISSUE, { stage1IssueTitles: ['変わった課題'] })?.discard).toBe(true);
+  });
+
+  it('経営課題の追加は、管理職以上の操作', () => {
+    expect(proposalRequiredRole(ISSUE)).toBe('manager');
+  });
+});

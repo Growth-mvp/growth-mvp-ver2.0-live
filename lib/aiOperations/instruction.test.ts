@@ -199,3 +199,59 @@ describe('contextDepartments と stage3AnswerOf', () => {
     expect(stage3AnswerOf(ctx, '新聞販売', 1)).toBe('');
   });
 });
+
+describe('resolveOperationInstruction：STAGE1 経営課題の追加', () => {
+  const ISSUE_BASE: OperationContext = { ...BASE, stage1IssueTitles: ['既存顧客の離脱が増えている'] };
+
+  it.each([
+    '経営課題として「新規顧客の獲得が鈍い」を追加して',
+    '経営課題として新規顧客の獲得が鈍いを追加しておいて',
+    '新規顧客の獲得が鈍いを経営課題に追加して',
+    '論点として「新規顧客の獲得が鈍い」を登録してください',
+  ])('命令の形「%s」は、論点の入力案にする（保存はしない）', (text) => {
+    const result = resolveOperationInstruction(text, ISSUE_BASE);
+    expect(result).toEqual({
+      kind: 'proposal',
+      proposal: {
+        kind: 'stage1.issue',
+        pathname: '/stage1',
+        companyId: 'company-1',
+        strategyId: 'strategy-1',
+        beforeTitles: ['既存顧客の離脱が増えている'],
+        title: '新規顧客の獲得が鈍い',
+      },
+    });
+  });
+
+  it.each([
+    '経営課題として新規顧客の獲得が鈍いを追加したほうがいいですか？',
+    '新規顧客の獲得が鈍いを経営課題に追加すべきかな',
+    'もし新規顧客が鈍いなら、経営課題に追加して',
+    '経営課題として新規顧客の獲得が鈍いを追加したい',
+    '経営課題に追加するかどうか考えている',
+    '経営課題について、どう思いますか',
+  ])('相談・仮定・希望「%s」は、操作にしない（通常の相談に任せる）', (text) => {
+    expect(resolveOperationInstruction(text, ISSUE_BASE)).toBeNull();
+  });
+
+  it('内容が空なら、入力案を作らず、書き方を案内する', () => {
+    const result = resolveOperationInstruction('経営課題として を追加して', ISSUE_BASE);
+    expect(result?.kind).toBe('clarify');
+  });
+
+  it('同じ経営課題がすでにあれば、入力案を作らない', () => {
+    const result = resolveOperationInstruction('経営課題として「既存顧客の離脱が増えている」を追加して', ISSUE_BASE);
+    expect(result).toEqual({ kind: 'clarify', message: '同じ経営課題がすでにあるため、入力案は作りませんでした。' });
+  });
+
+  it('論点は5件までで、6件目は入力案を作らない', () => {
+    const full = { ...BASE, stage1IssueTitles: ['a', 'b', 'c', 'd', 'e'] };
+    const result = resolveOperationInstruction('経営課題として「新規顧客の獲得が鈍い」を追加して', full);
+    expect(result?.kind).toBe('clarify');
+  });
+
+  it('金額を含む指示は、売上の入力案に任せる（経営課題にしない）', () => {
+    const result = resolveOperationInstruction('2025年度の全社売上高を1億6,000万円として経営課題にも追加して', BASE);
+    expect(result?.kind === 'proposal' && result.proposal.kind).toBe('stage1.revenue');
+  });
+});

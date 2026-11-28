@@ -109,9 +109,14 @@ export const OPERATIONS: readonly OperationEntry[] = [
     screenIds: ['stage1'],
     label: '論点を追加',
     source: { file: 'components/stage1/IssueBlockPanel.tsx', line: 997 },
-    purpose: '空の論点カードを1件追加する（上限5件）。',
-    steps: ['「② 論点整理 + STAGE2へ」を開く', '「論点を追加」を押す', 'タイトルなどを入力する'],
-    conditions: '論点が5件に達すると無効になる',
+    purpose: '空の論点カードを1件追加する（上限5件）。AI経営コンサルタントに「経営課題として〇〇を追加して」と頼むと、入力案を作って承認を求めることもできる。',
+    steps: [
+      '「② 論点整理 + STAGE2へ」を開く',
+      '「論点を追加」を押す',
+      'タイトルなどを入力する',
+      'または、AI経営コンサルタントに「経営課題として〇〇を追加して」と頼み、入力案の「承認して保存」を押す',
+    ],
+    conditions: '論点が5件に達すると無効になる。チャットからの追加は、管理職以上・承認後に保存（相談や仮定の発言では入力案を作らない）',
     permission: MANAGER_UI,
     save: { kind: 'auto', target: '戦略データへの自動保存' },
   },
@@ -187,7 +192,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.ai-input-approve',
     screenIds: ['stage1', 'stage2', 'stage3', 'stage4'],
     label: '承認して保存',
-    source: { file: 'components/CEOChatProposalCard.tsx', line: 280 },
+    source: { file: 'components/CEOChatProposalCard.tsx', line: 323 },
     purpose:
       'AI経営コンサルタントに「経営者の思いに〜と追加して」（STAGE2）や「2025年度の全社売上高は1億6,000万円です」（STAGE1）、「宅配事業の6つの問いの1番目に〇〇と入力して」（STAGE3）、「目的に〇〇を追加して」（STAGE4）と指示すると、入力案を作る。入力案は保存されず、確認して承認すると保存される。保存後は、再読込しても残る。',
     steps: [
@@ -275,7 +280,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1430 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1434 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -1320,7 +1325,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1267 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1271 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

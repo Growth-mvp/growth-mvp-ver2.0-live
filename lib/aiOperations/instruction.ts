@@ -21,6 +21,14 @@ export type OperationProposal =
       afterYen: number;
     }
   | {
+      kind: 'stage1.issue';
+      pathname: '/stage1';
+      companyId: string;
+      strategyId: string;
+      beforeTitles: string[];
+      title: string;
+    }
+  | {
       kind: 'stage3.question';
       pathname: '/cascade';
       companyId: string;
@@ -49,6 +57,7 @@ export type OperationContext = {
   strategyId: string;
   ceoIntent: string;
   revenueYenByYear: Record<number, number | null | undefined>;
+  stage1IssueTitles?: string[];
   departments?: ReadonlyArray<{
     name: string;
     steps: ReadonlyArray<{ stepNumber: number; question?: string; answer?: string }>;
@@ -172,6 +181,52 @@ function resolveRevenue(text: string, ctx: OperationContext): OperationInstructi
   };
 }
 
+const ISSUE_CUE = /経営課題|論点/;
+const ISSUE_PREFIX_PATTERN = /(?:経営課題|論点)(?:として|に|へ)[、,]?\s*[「『]?(.+?)[」』]?\s*(?:を|と)?\s*(?:追加|登録|加え|足し)(?:して|しておいて|しておいてください|してください|して下さい|ておいて)?\s*$/;
+const ISSUE_SUFFIX_PATTERN = /^[「『]?(.+?)[」』]?\s*(?:を|と)?\s*(?:経営課題|論点)(?:に|へ|として)?\s*(?:追加|登録|加え|足し)(?:して|しておいて|しておいてください|してください|して下さい|ておいて)?\s*$/;
+const ISSUE_HYPOTHETICAL = /もし|かも|べき|たら|ではないか|どうか|いいか|よいか|でいい|したい|してほしい|検討|考え|迷/;
+const ISSUE_LIMIT = 5;
+const ISSUE_TITLE_MAX = 100;
+
+function squashed(text: string): string {
+  return text.replace(/[\s　]+/g, '');
+}
+
+/** 経営課題（論点）の追加。命令の形だけを入力案にし、相談・仮定・希望は通常の相談に任せる（null） */
+function resolveStage1Issue(text: string, ctx: OperationContext): OperationInstruction | null {
+  if (!ISSUE_CUE.test(text) || QUESTION_CUE.test(text) || ISSUE_HYPOTHETICAL.test(text)) return null;
+  if (parseYenAmounts(text).length > 0) return null;
+  const normalized = text.trim().replace(/[。.]$/, '');
+  const match = normalized.match(ISSUE_PREFIX_PATTERN) ?? normalized.match(ISSUE_SUFFIX_PATTERN);
+  if (!match) return null;
+
+  const title = (match[1] ?? '').replace(/^[\sをとにへ、,]+/, '').trim();
+  if (!title) {
+    return { kind: 'clarify', message: '追加する経営課題の内容を、「経営課題として〇〇を追加して」の形で教えてください。' };
+  }
+  if (title.length > ISSUE_TITLE_MAX) {
+    return { kind: 'clarify', message: `経営課題は${ISSUE_TITLE_MAX}字以内で指示してください。` };
+  }
+  const titles = ctx.stage1IssueTitles ?? [];
+  if (titles.length >= ISSUE_LIMIT) {
+    return { kind: 'clarify', message: `経営課題は${ISSUE_LIMIT}件までです。追加する場合は、STAGE1の論点を1件減らしてから指示してください。` };
+  }
+  if (titles.some((t) => squashed(t) === squashed(title))) {
+    return { kind: 'clarify', message: '同じ経営課題がすでにあるため、入力案は作りませんでした。' };
+  }
+  return {
+    kind: 'proposal',
+    proposal: {
+      kind: 'stage1.issue',
+      pathname: '/stage1',
+      companyId: ctx.companyId,
+      strategyId: ctx.strategyId,
+      beforeTitles: [...titles],
+      title,
+    },
+  };
+}
+
 function mentionedDepartments(text: string, departments: NonNullable<OperationContext['departments']>) {
   const squashed = text.replace(/[\s　]+/g, '');
   return departments.filter((d) => d.name && squashed.includes(d.name.replace(/[\s　]+/g, '')));
@@ -279,6 +334,8 @@ export function resolveOperationInstruction(text: string, ctx: OperationContext)
     const stage3 = resolveStage3(trimmed, ctx);
     if (stage3) return stage3;
   }
+  const issue = resolveStage1Issue(trimmed, ctx);
+  if (issue) return issue;
   return resolveRevenue(trimmed, ctx);
 }
 

@@ -33,12 +33,19 @@ export function proposalBlockReason(proposal: OperationProposal, state: Proposal
 /** 入力案を作った後に、保存済みの値が変わっていないか。変わっていれば保存せず、作り直しを求める */
 export function proposalStaleReason(
   proposal: OperationProposal,
-  current: { ceoIntent?: string; revenueYen?: number | null; stage3Answer?: string; stage4Version?: number },
+  current: { ceoIntent?: string; revenueYen?: number | null; stage3Answer?: string; stage4Version?: number; stage1IssueTitles?: string[] },
 ): ProposalBlock | null {
   if (proposal.kind === 'stage2.ceoIntent') {
     return (current.ceoIntent ?? '') === proposal.before
       ? null
       : { message: '入力案を作った後に「経営者の思い」が変わったため、保存しません。もう一度指示してください。', discard: true };
+  }
+  if (proposal.kind === 'stage1.issue') {
+    const now = current.stage1IssueTitles ?? [];
+    const same = now.length === proposal.beforeTitles.length && now.every((t, i) => t === proposal.beforeTitles[i]);
+    return same
+      ? null
+      : { message: '入力案を作った後に経営課題が変わったため、保存しません。もう一度指示してください。', discard: true };
   }
   if (proposal.kind === 'stage3.question') {
     return (current.stage3Answer ?? '') === proposal.before

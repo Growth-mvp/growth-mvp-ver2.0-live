@@ -97,3 +97,19 @@ describe('AI操作の承認API：操作ごとの役割', () => {
     }
   });
 });
+
+describe('AI操作の承認API：経営課題の追加（STAGE1）', () => {
+  it('管理職以上は、経営課題の承認を受け付ける（保存はしない・監査に残す）', async () => {
+    mockRequireMembership.mockResolvedValue({ companyId: 'c1', role: 'manager' });
+    const res = await POST(request({ ...IDS, operation: 'stage1.issue' }));
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'AI_OPERATION_APPROVED', metadata: { operation: 'stage1.issue' } }));
+  });
+
+  it('一般の利用者は、経営課題の承認を拒否する（403）', async () => {
+    mockRequireMembership.mockResolvedValue({ companyId: 'c1', role: 'member' });
+    const res = await POST(request({ ...IDS, operation: 'stage1.issue' }));
+    expect(res.status).toBe(403);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+});
