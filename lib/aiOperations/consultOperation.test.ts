@@ -5,7 +5,10 @@ import {
   allowConsultCandidate,
   extractConsultOperation,
   isClearIssueInstruction,
+  asksProposalQuestion,
   parseOperationCandidate,
+  withoutUnbackedProposal,
+  UNBACKED_PROPOSAL_NOTE,
 } from './consultOperation';
 
 const ISSUE = { kind: 'stage1.issue', title: '新規顧客の獲得力が弱い', description: '既存顧客は増えるが、新規の商談が増えない。' };
@@ -114,5 +117,21 @@ describe('サーバーが直接の候補を通してよいか', () => {
 
   it('同意の発言は、提案が開いていても直接の候補にしない（AIが内容を作り直さない）', () => {
     expect(allowConsultCandidate({ ...admin, lastUser: 'お願いします', openProposal: true })).toBe(false);
+  });
+});
+
+describe('提案の印のない反映の問いかけ', () => {
+  it('反映の問いかけを検出する（印の有無と関係なく、問いかけの文だけを見る）', () => {
+    expect(asksProposalQuestion('この考えをSTAGE2の『経営者の思い』に追記しておきましょうか？')).toBe(true);
+    expect(asksProposalQuestion('経営課題として記録しましょうか？')).toBe(true);
+    expect(asksProposalQuestion('売上の見通しを整理しましょう。')).toBe(false);
+  });
+
+  it('印のない問いかけは、実行できない提案として見せず、説明に置き換える', () => {
+    const out = withoutUnbackedProposal('収益性の話です。\nこの考えを経営者の思いに追記しておきましょうか？');
+    expect(out).toBe(`収益性の話です。\n${UNBACKED_PROPOSAL_NOTE}`);
+    const middle = withoutUnbackedProposal('A\nこれを記録しましょうか？\n\nB');
+    expect(middle).not.toContain('記録しましょうか');
+    expect(middle).toContain('B');
   });
 });

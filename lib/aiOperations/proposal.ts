@@ -2,7 +2,12 @@
  * 提案は、AIの回答と一緒に、提案時の内容のまま会話の中に保持する（同意の後にAIが作り直さない）。
  * 反映は利用者の同意の後に、既存の操作処理（直接反映・承認カード）で行う。純粋な判定だけを置き、保存はしない。 */
 import type { Stage2Op } from '@/lib/stage2/stage2Input';
-import { isNegatedOrDeferred, parseOperationCandidate, type ConsultOperationCandidate } from './consultOperation';
+import {
+  asksProposalQuestion,
+  isNegatedOrDeferred,
+  parseOperationCandidate,
+  type ConsultOperationCandidate,
+} from './consultOperation';
 
 export type ProposedOp = ConsultOperationCandidate | Stage2Op;
 
@@ -99,6 +104,19 @@ export function decideProposalReply(input: {
     return { kind: 'accept' };
   }
   return isNegatedOrDeferred(input.text) ? { kind: 'decline' } : { kind: 'close' };
+}
+
+/** 同意されたが、保持されている提案がない（直前のAIが反映の問いかけをしていた）ときの、AIへの指示 */
+export const CONSENT_WITHOUT_PROPOSAL_NOTE = [
+  '【同意への対応】',
+  '- 利用者は「お願いします」などと同意したが、保持されている反映の提案はない。',
+  '- 「追記しました」「反映します」と書いて、反映したことにしてはならない。',
+  '- 直前の相談の内容から反映案を1つ作り、回答の最後の行に提案の印（<<PROPOSE …>>）を書き、「この内容で追記しましょうか？」と尋ねる。案が作れないときは、何を反映するかを尋ねる。',
+].join('\n');
+
+/** 同意の発言で、直前のAIの回答が反映の問いかけをしていたのに、提案が保持されていないか */
+export function consentWithoutProposal(input: { lastUser: string; previousAssistant: string; openProposal: boolean }): boolean {
+  return !input.openProposal && isProposalConsent(input.lastUser) && asksProposalQuestion(input.previousAssistant);
 }
 
 type ThreadMessage = { role: string; execKey?: string; consultKey?: string; operationProposal?: ChatProposal };

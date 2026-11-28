@@ -29,8 +29,27 @@ export const OPERATION_PROPOSAL_BLOCK = [
   '- 仮定・検討・質問の段階（「〜かな」「〜したほうがいいですか」など）では、提案の印を書かない。',
   '- 否定・保留（「登録しないで」「やめておく」「あとで」など）を含むときは、印を書かない。',
   '- 同じ内容の提案は、既に登録されている経営課題と重複するときは書かない。断られた提案は、繰り返さない。',
+  '- 提案の文（「〜を経営課題として記録しましょうか？」）を書いたら、同じ回答の最後の行に必ず提案の印を書く。印を書けない問いかけは書かない。',
+  '- 例：利用者「新規の商談が増えないのが悩みです」→ 本文の最後に「新規の商談が増えない点を、経営課題として記録しておきましょうか？」と書き、続けて次の1行を書く。',
+  '  <<PROPOSE {"kind":"stage1.issue","title":"新規の商談が増えない","description":"利用者が、新規の商談が増えないことを悩みとして話した。"}>>',
   '- 1回の回答に書く印は1つまで。企業ID・戦略ID・権限には触れない。',
 ].join('\n');
+
+const PROPOSAL_ASK =
+  /(追記|記録|反映|登録|入れ|加え|追加|設定|修正|変更)[^。\n？?]{0,40}(しておきましょうか|しましょうか|しておきますか|しますか|しておきましょう)[？?]/;
+export const UNBACKED_PROPOSAL_NOTE =
+  '（反映の具体案を組み立てられなかったため、ここでは提案しません。反映したい内容を、もう一度具体的にお聞かせください。）';
+
+/** 反映の問いかけ（「〜に追記しておきましょうか？」）を含むか */
+export function asksProposalQuestion(content: string): boolean {
+  return PROPOSAL_ASK.test(content);
+}
+
+/** 提案の印がないまま書かれた反映の問いかけを、実行できない提案として見せないように書き換える */
+export function withoutUnbackedProposal(content: string): string {
+  const lines = content.split('\n').map((line) => (PROPOSAL_ASK.test(line) ? UNBACKED_PROPOSAL_NOTE : line));
+  return lines.filter((line, i) => !(line === UNBACKED_PROPOSAL_NOTE && lines[i - 1] === UNBACKED_PROPOSAL_NOTE)).join('\n');
+}
 
 export function parseOperationCandidate(raw: unknown): ConsultOperationCandidate | null {
   if (!raw || typeof raw !== 'object') return null;

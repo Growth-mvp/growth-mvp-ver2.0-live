@@ -207,38 +207,57 @@ describe('経営相談から操作の提案・直接の操作を得る（1回の
     expect(body.content).toBe('経営課題として記録しましょうか？');
   });
 
-  it('STAGE2の提案は、管理者の相談に限り、開いている画面を問わず返す', async () => {
+  it('STAGE2の提案は、管理者の相談に限り、どの画面からでも返す', async () => {
     setRole('admin');
     modelSays(`経営者の思いに追記しましょうか？\n${PROPOSE(JSON.stringify(CEO))}`);
-    const admin = await consult([{ role: 'user', content: '収益性を高めて給与を上げたい' }], {
-      stage2Context: STAGE2_CTX,
-      stage2Screen: false,
-    });
+    const admin = await consult([{ role: 'user', content: '収益性を高めて給与を上げたい' }], { stage2Context: STAGE2_CTX });
     expect(admin.body.operationProposal).toEqual({ op: CEO });
 
     setRole('manager');
     modelSays(`経営者の思いに追記しましょうか？\n${PROPOSE(JSON.stringify(CEO))}`);
-    const manager = await consult([{ role: 'user', content: '収益性を高めて給与を上げたい' }], {
-      stage2Context: STAGE2_CTX,
-      stage2Screen: false,
-    });
+    const manager = await consult([{ role: 'user', content: '収益性を高めて給与を上げたい' }], { stage2Context: STAGE2_CTX });
     expect(manager.body.operationProposal).toBeUndefined();
   });
 
-  it('STAGE2の直接の操作は、STAGE2の画面を開いているときだけ返す', async () => {
+  it('STAGE2の直接の操作は、画面を問わず返す（現在の画面を理由に断らない）', async () => {
     modelSays(`承知しました。\n${MARK(JSON.stringify(CEO))}`);
-    const away = await consult([{ role: 'user', content: '今の話を経営者の思いに追記して' }], {
-      stage2Context: STAGE2_CTX,
-      stage2Screen: false,
-    });
-    expect(away.body.stage2Operation).toBeUndefined();
+    const { body } = await consult([{ role: 'user', content: '今の話を経営者の思いに追記して' }], { stage2Context: STAGE2_CTX });
+    expect(body.stage2Operation).toEqual(CEO);
+  });
 
-    modelSays(`承知しました。\n${MARK(JSON.stringify(CEO))}`);
-    const onScreen = await consult([{ role: 'user', content: '今の話を経営者の思いに追記して' }], {
-      stage2Context: STAGE2_CTX,
-      stage2Screen: true,
-    });
-    expect(onScreen.body.stage2Operation).toEqual(CEO);
+  it('反映の問いかけに提案の印がなければ、問いかけを外し、提案として見せない', async () => {
+    modelSays('収益性を高める方向性は大切です。\nこの考えをSTAGE2の『経営者の思い』に追記しておきましょうか？');
+    const { body } = await consult([{ role: 'user', content: '収益性を高めて給与を上げたい' }], { stage2Context: STAGE2_CTX });
+    expect(body.operationProposal).toBeUndefined();
+    expect(body.content).not.toContain('追記しておきましょうか');
+    expect(body.content).toContain('収益性を高める方向性は大切です。');
+    expect(body.content).toContain('反映の具体案を組み立てられなかった');
+  });
+
+  it('同意されたが提案が保持されていなければ、反映したと言わず案を出し直す指示を加える', async () => {
+    setRole('admin');
+    modelSays('承知しました。');
+    const gap = await consult(
+      [
+        { role: 'user', content: '収益性を高めて給与を上げたい' },
+        { role: 'assistant', content: 'この考えをSTAGE2の『経営者の思い』に追記しておきましょうか？' },
+        { role: 'user', content: 'お願いします' },
+      ],
+      { stage2Context: STAGE2_CTX, proposalOpen: false },
+    );
+    expect(gap.system).toContain('【同意への対応】');
+    expect(gap.system).toContain('「追記しました」「反映します」と書いて');
+
+    modelSays('承知しました。');
+    const kept = await consult(
+      [
+        { role: 'user', content: '収益性を高めて給与を上げたい' },
+        { role: 'assistant', content: 'この考えをSTAGE2の『経営者の思い』に追記しておきましょうか？' },
+        { role: 'user', content: 'お願いします' },
+      ],
+      { stage2Context: STAGE2_CTX, proposalOpen: true },
+    );
+    expect(kept.system).not.toContain('【同意への対応】');
   });
 
   it('印が2つ以上なら、提案も候補も返さず、本文だけを返す（安全側）', async () => {

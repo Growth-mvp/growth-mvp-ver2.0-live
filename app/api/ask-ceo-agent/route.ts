@@ -44,10 +44,17 @@ import { withConsultTone } from '@/lib/ceoChat/consultInstruction';
 import {
   OPERATION_PROPOSAL_BLOCK,
   allowConsultCandidate,
+  asksProposalQuestion,
   extractConsultOperation,
+  withoutUnbackedProposal,
   type ConsultOperationCandidate,
 } from '@/lib/aiOperations/consultOperation';
-import { proposalKeyOf, type ProposedOp } from '@/lib/aiOperations/proposal';
+import {
+  CONSENT_WITHOUT_PROPOSAL_NOTE,
+  consentWithoutProposal,
+  proposalKeyOf,
+  type ProposedOp,
+} from '@/lib/aiOperations/proposal';
 import {
   allowStage2Candidate,
   buildStage2OperationBlock,
@@ -163,8 +170,6 @@ type RequestBody = {
   companyId: string;
   /** STAGE2の文脈（業績目標・SWOT・回答・質問）。管理者の相談で、STAGE2の操作の提案・直接の操作の検証に使う */
   stage2Context?: unknown;
-  /** 利用者がSTAGE2の画面を開いているか（直接の操作の印は、この画面の相談に限る） */
-  stage2Screen?: unknown;
   /** 同じ相談で否定された提案の鍵（同じ内容を繰り返し提案しない） */
   declinedProposalKeys?: unknown;
   /** 直前の回答で操作の提案が開いているか（「それを」など指示語の依頼を、提案への指示として扱う） */
@@ -1076,11 +1081,15 @@ export async function POST(req: Request) {
         .filter((k: unknown): k is string => typeof k === 'string' && /^[0-9a-f]{16}$/.test(k))
         .slice(0, 50),
     );
-    // STAGE2の操作（管理者の相談に限る。提案は他の画面からも行える。直接の操作の印は、STAGE2の画面を開いている時だけ）
+    // STAGE2の操作（管理者の相談に限る。どの画面からでも提案・直接の反映ができる）
     const stage2Ctx = isManual && companyContextUsed && !!strategy && membership.role === 'admin' ? parseStage2Context(body?.stage2Context) : null;
     if (stage2Ctx) systemBase += '\n\n' + buildStage2OperationBlock(stage2Ctx);
-    const stage2OnScreen = body?.stage2Screen === true;
     const proposalOpen = body?.proposalOpen === true;
+    const priorAssistant = [...(messages || [])].reverse().find((m) => m.role === 'assistant')?.content ?? '';
+    if (operationProposalEnabled && consentWithoutProposal({ lastUser, previousAssistant: priorAssistant, openProposal: proposalOpen })) {
+      systemBase += '\n\n' + CONSENT_WITHOUT_PROPOSAL_NOTE;
+      console.log('[ask-ceo-agent]', requestId, 'consent_without_proposal');
+    }
 
     const askMessages = sanitizeAskMessages(messages);
     if (
@@ -1240,8 +1249,22 @@ export async function POST(req: Request) {
     let consultProposal: ProposedOp | null = null;
     if (output !== 'json') {
       const op = extractConsultOperation(content, stage2Ctx ? stage2ExtraParser(stage2Ctx) : undefined);
-      content = op.content;
-      const stage2Allowed = allowStage2Candidate({ lastUser, role: membership.role, enabled: !!stage2Ctx && stage2OnScreen });
+      // 反映の問いかけに、実行できる提案の印が無いときは、問いかけを外す（同意しても反映できない提案を見せない）
+      const asked = asksProposalQuestion(op.content);
+      const unbacked = asked && !op.proposal && !op.candidate && !op.extra;
+      content = unbacked ? withoutUnbackedProposal(op.content) : op.content;
+      if (asked || op.proposal || op.rejected) {
+        console.log('[ask-ceo-agent]', requestId, 'consult_proposal_trace', {
+          proposal: !!op.proposal,
+          proposalKind: op.proposal?.kind ?? null,
+          candidate: !!op.candidate,
+          direct: !!op.extra,
+          rejected: op.rejected,
+          asked,
+          unbacked,
+        });
+      }
+      const stage2Allowed = allowStage2Candidate({ lastUser, role: membership.role, enabled: !!stage2Ctx });
       if (op.extra && stage2Allowed) consultStage2 = op.extra as Stage2Op;
       if (op.extra && !stage2Allowed) console.log('[ask-ceo-agent]', requestId, 'stage2_candidate_dropped', { role: membership.role });
       const allowed = allowConsultCandidate({ lastUser, openProposal: proposalOpen, role: membership.role, enabled: operationProposalEnabled });

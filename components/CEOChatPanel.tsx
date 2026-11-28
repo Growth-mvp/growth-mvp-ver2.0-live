@@ -1054,7 +1054,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           ...(isAdminNow
             ? {
                 stage2Context: stage2ContextOf(useStrategyStore.getState(), useConsultFocusStore.getState().entries['stage2-questions']?.question?.id ?? null),
-                stage2Screen: pathname === '/stage2',
               }
             : {}),
           ...(screenId ? { screen: { screenId } } : {}),
@@ -1135,6 +1134,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           reply2('この操作は管理者が行えます。内容は、管理者に依頼してください。');
         } else {
           const applied2 = await applyStage2Op(data.stage2Operation as Stage2Op);
+          if (applied2.ok && window.location.pathname !== '/stage2') router.push('/stage2');
           reply2(applied2.message);
         }
       }

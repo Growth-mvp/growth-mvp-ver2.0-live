@@ -1,5 +1,7 @@
 import {
+  CONSENT_WITHOUT_PROPOSAL_NOTE,
   PROPOSAL_TTL_MS,
+  consentWithoutProposal,
   declinedProposalKeysOf,
   decideProposalReply,
   isProposalConsent,
@@ -136,5 +138,21 @@ describe('相談の中での提案の探し方', () => {
       { role: 'assistant' as const, content: 'd', consultKey: 'k1', operationProposal: open },
     ];
     expect(declinedProposalKeysOf(messages, 'k1')).toEqual([open.key]);
+  });
+});
+
+describe('同意されたが提案が保持されていない場合', () => {
+  const asked = 'この考えをSTAGE2の『経営者の思い』に追記しておきましょうか？';
+
+  it('直前に反映の問いかけがあり、提案が保持されていない同意だけを対象にする', () => {
+    expect(consentWithoutProposal({ lastUser: 'お願いします', previousAssistant: asked, openProposal: false })).toBe(true);
+    expect(consentWithoutProposal({ lastUser: 'お願いします', previousAssistant: asked, openProposal: true })).toBe(false);
+    expect(consentWithoutProposal({ lastUser: 'お願いします', previousAssistant: '他に知りたいことは？', openProposal: false })).toBe(false);
+    expect(consentWithoutProposal({ lastUser: '売上の話をしたい', previousAssistant: asked, openProposal: false })).toBe(false);
+  });
+
+  it('AIへの指示は、反映したと言わせず、案の出し直しを求める', () => {
+    expect(CONSENT_WITHOUT_PROPOSAL_NOTE).toContain('反映したことにしてはならない');
+    expect(CONSENT_WITHOUT_PROPOSAL_NOTE).toContain('<<PROPOSE');
   });
 });
