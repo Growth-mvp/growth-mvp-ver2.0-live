@@ -518,6 +518,50 @@ describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回'
     again.unmount();
   });
 
+  it('事実が0件でも、判断材料の不足を理由とともに示す（AIは呼ばず、定型文で示す）', async () => {
+    completeStoreForReview();
+    mockRiskFetch.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          status: 'INSUFFICIENT',
+          facts: [],
+          text: null,
+          serious: false,
+          coverage: ['- 資金繰り：判断材料不足（新規借入が未入力です。0円とは見なしていません）'],
+        }),
+    }));
+    await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(companionCardText()).toContain('判断材料が不足しています'));
+    expect(companionCardText()).toContain('新規借入が未入力です。0円とは見なしていません');
+    expect(companionCardText()).toContain('経営点検の結論は出せません');
+  });
+
+  it('事実が0件で問題がなければ、問題なしを示す。点検の処理に失敗したときは、失敗として示す', async () => {
+    completeStoreForReview();
+    mockRiskFetch.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ status: 'NO_ISSUE', facts: [], text: null, serious: false, coverage: [] }),
+    }));
+    const first = await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(companionCardText()).toContain('点検できた範囲では問題なし'));
+    first.unmount();
+
+    sessionStorage.clear();
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const k = localStorage.key(i);
+      if (k && /risk/.test(k)) localStorage.removeItem(k);
+    }
+    mockRiskFetch.mockImplementation(async () => ({ ok: false, status: 500, text: async () => '{}' }));
+    await renderReadyPanel();
+    await waitFor(() => expect(companionCardText()).toContain('点検できませんでした'));
+    expect(companionCardText()).toContain('経営点検の処理に失敗したため');
+  });
+
   it('点検していない範囲（費用の計画と実績、会社全体のKR）を、所見の本文に必ず添える', async () => {
     completeStoreForReview();
     await renderReadyPanel();

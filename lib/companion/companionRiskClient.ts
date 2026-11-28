@@ -1,5 +1,5 @@
-/* 経営点検を依頼する。事実が無ければ facts は空で、AIは呼ばれない。失敗しても自動では再依頼しない。 */
-import { NOT_CHECKED_NOTE } from './companionRisk';
+/* 経営点検を依頼する。事実が無ければAIは呼ばれない。失敗しても自動では再依頼しない。 */
+import { NOT_CHECKED_NOTE, STATUS_LEAD, type RiskStatus } from './companionRisk';
 
 export type RiskReviewRequest = {
   companyId: string;
@@ -8,8 +8,17 @@ export type RiskReviewRequest = {
   fetchImpl?: typeof fetch;
 };
 
-export type RiskReviewResult = { facts: string[]; text: string | null; serious: boolean; coverage: string[] };
+export type RiskReviewResult = {
+  status: RiskStatus;
+  facts: string[];
+  text: string | null;
+  serious: boolean;
+  coverage: string[];
+};
 
+const FAILED: RiskReviewResult = { status: 'FAILED', facts: [], text: null, serious: false, coverage: [] };
+
+/** null は依頼しない（停止中・未ログイン）。FAILED は依頼したが点検できなかった */
 export async function requestRiskReview(req: RiskReviewRequest): Promise<RiskReviewResult | null> {
   const doFetch = req.fetchImpl ?? fetch;
   try {
@@ -21,22 +30,28 @@ export async function requestRiskReview(req: RiskReviewRequest): Promise<RiskRev
       credentials: 'include',
       body: JSON.stringify({ companyId: req.companyId, strategyId: req.strategyId }),
     });
-    if (!res.ok) return null;
+    if (res.status === 503) return null;
+    if (!res.ok) return FAILED;
     const raw = await res.text();
     const data = raw
-      ? (JSON.parse(raw) as { facts?: unknown; text?: unknown; serious?: unknown; coverage?: unknown })
+      ? (JSON.parse(raw) as { status?: unknown; facts?: unknown; text?: unknown; serious?: unknown; coverage?: unknown })
       : null;
-    if (!data || !Array.isArray(data.facts)) return null;
+    if (!data || !Array.isArray(data.facts)) return FAILED;
     const facts = data.facts.filter((f): f is string => typeof f === 'string');
     const coverage = Array.isArray(data.coverage) ? data.coverage.filter((c): c is string => typeof c === 'string') : [];
     const text = typeof data.text === 'string' && data.text.trim() ? data.text.trim() : null;
-    return { facts, text, serious: data.serious === true, coverage };
+    const status = isStatus(data.status) ? data.status : facts.length > 0 ? 'ISSUES' : coverage.length > 0 ? 'INSUFFICIENT' : 'NO_ISSUE';
+    return { status, facts, text, serious: data.serious === true, coverage };
   } catch {
-    return null;
+    return FAILED;
   }
 }
 
-export type StoredRisk = { serious: boolean; body: string };
+function isStatus(v: unknown): v is RiskStatus {
+  return v === 'ISSUES' || v === 'NO_ISSUE' || v === 'INSUFFICIENT' || v === 'FAILED';
+}
+
+export type StoredRisk = { status: RiskStatus; serious: boolean; body: string };
 
 export function encodeRiskStored(v: StoredRisk): string {
   return JSON.stringify(v);
@@ -45,17 +60,30 @@ export function encodeRiskStored(v: StoredRisk): string {
 export function decodeRiskStored(raw: string | null): StoredRisk | null {
   if (!raw) return null;
   try {
-    const v = JSON.parse(raw) as { serious?: unknown; body?: unknown };
-    return typeof v.body === 'string' ? { serious: v.serious === true, body: v.body } : null;
+    const v = JSON.parse(raw) as { status?: unknown; serious?: unknown; body?: unknown };
+    if (typeof v.body !== 'string' || !isStatus(v.status)) return null;
+    return { status: v.status, serious: v.serious === true, body: v.body };
   } catch {
     return null;
   }
 }
 
+/** 表示は本文をそのまま出すため、見出しと太字の記号だけを外す（文の内容は変えない） */
+function plainText(text: string): string {
+  return text.replace(/^#{1,6}\s*/gm, '').replace(/\*\*(.+?)\*\*/g, '$1');
+}
+
 /** 事実（プログラムの計算結果）を先に示し、AIの所見は仮説として後ろに続ける。点検していない範囲は必ず添える */
 export function riskReviewBody(result: RiskReviewResult): string {
+  if (result.status === 'FAILED') return STATUS_LEAD.FAILED;
+  if (result.status !== 'ISSUES') {
+    const lines = [STATUS_LEAD[result.status]];
+    if (result.coverage.length > 0) lines.push('', '判断できなかった項目（理由別）', ...result.coverage);
+    lines.push('', NOT_CHECKED_NOTE);
+    return lines.join('\n');
+  }
   const lines = ['事実（保存済みデータの計算結果）', ...result.facts, ''];
-  lines.push(result.text ?? 'AIの所見は取得できませんでした。上の事実を確認してください。');
+  lines.push(result.text ? plainText(result.text) : 'AIの所見は取得できませんでした。上の事実を確認してください。');
   if (result.coverage.length > 0) lines.push('', '判断できなかった項目（理由別）', ...result.coverage);
   lines.push('', NOT_CHECKED_NOTE);
   return lines.join('\n');

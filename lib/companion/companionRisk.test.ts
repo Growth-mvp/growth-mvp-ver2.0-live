@@ -43,13 +43,21 @@ describe('経営点検：事実の判定（プログラムで決める）', () =
     const facts = detectRiskFacts({
       ...EMPTY,
       targets: [
-        { metric: '売上', fiscalYear: 2028, gapYen: 500_000 },
-        { metric: '営業利益', fiscalYear: 2028, gapYen: -100_000 },
-        { metric: '営業利益', fiscalYear: null, gapYen: null },
+        { metric: '売上', source: 'STAGE2', fiscalYear: 2028, gapYen: 500_000 },
+        { metric: '営業利益', source: 'STAGE2', fiscalYear: 2028, gapYen: -100_000 },
+        { metric: '営業利益', source: 'STAGE2', fiscalYear: null, gapYen: null },
       ],
     });
     expect(facts.map((f) => f.category)).toEqual(['TARGET']);
-    expect(facts[0].text).toBe('2028年度の売上：経営目標に対して 500,000円 不足（施策反映後の見通し）');
+    expect(facts[0].text).toBe('2028年度の売上：STAGE2の業績目標に対して 500,000円 不足（施策反映後の見通し）');
+  });
+
+  it('STAGE6の経営目標の不足は、出所をSTAGE6と明記する', () => {
+    const facts = detectRiskFacts({
+      ...EMPTY,
+      targets: [{ metric: '営業利益', source: 'STAGE6', fiscalYear: 2027, gapYen: 18_000_000 }],
+    });
+    expect(facts[0].text).toBe('2027年度の営業利益：STAGE6の経営目標に対して 18,000,000円 不足（施策反映後の見通し）');
   });
 
   it('売上効果が計画の8割を下回り、かつ照合が完了した時だけ、計画との乖離を事実にする', () => {
@@ -123,7 +131,7 @@ describe('経営点検：事実の判定（プログラムで決める）', () =
 describe('経営点検：重大なリスクの判定', () => {
   it('資金不足と目標未達は重大、それ以外の事実は重大でない', () => {
     const cash = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, isForecast: true, shortfallYen: 1 }] });
-    const target = detectRiskFacts({ ...EMPTY, targets: [{ metric: '売上', fiscalYear: 2027, gapYen: 1 }] });
+    const target = detectRiskFacts({ ...EMPTY, targets: [{ metric: '売上', source: 'STAGE2', fiscalYear: 2027, gapYen: 1 }] });
     const stalled = detectRiskFacts({ ...EMPTY, actions: [{ where: 'A', inProgress: true, updatedAt: OLD }] });
     expect(isSeriousRisk(cash)).toBe(true);
     expect(isSeriousRisk(target)).toBe(true);

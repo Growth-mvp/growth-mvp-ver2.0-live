@@ -1,10 +1,14 @@
-/* 経営点検の入力を、保存済みデータと既存の計算結果から作る（計算は既存の関数をそのまま使う）。 */
+/* 経営点検の入力を、保存済みデータと既存の計算結果から作る（計算は既存の関数をそのまま使う）。
+ * 判断できなかった項目は事実にせず、理由（未登録・未算定・取得失敗・判断材料不足）として返す。 */
 import type { Department, KRStructured } from '@/types/strategy';
 import { outlookOf, storedOf, type Stage6ArgsForOutlook } from '@/lib/ceoChat/stage6Plan';
+import type { PlTarget } from '@/utils/stage6/unifiedPl';
+import { buildUnifiedPl, type UnifiedPlMetricGap } from '@/utils/stage6/unifiedPl';
 import { planActualItemsForMode, planActualProjectsOf, planActualYearRowsOf } from '@/utils/stage6/planActualComparison';
 import { parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { progressOf } from '@/lib/stage5/actionProgress';
 import {
+  TARGET_SOURCE_LABEL,
   detectRiskFacts,
   type ActionInput,
   type CashYearInput,
@@ -12,35 +16,24 @@ import {
   type PlanGapInput,
   type RiskFact,
   type TargetGapInput,
+  type TargetSource,
 } from './companionRisk';
 
 export type RiskSourceArgs = Stage6ArgsForOutlook & { departments: unknown; now: Date };
+
+export type RiskInputs = { facts: RiskFact[]; coverage: string[] };
+
+const BLOCKING_HOLD = /未入力|未設定|算出できません|不足|判定できません/;
 
 function departmentsOf(value: unknown): Department[] {
   return Array.isArray(value) ? (value as Department[]) : [];
 }
 
-function cashAndTargets(args: RiskSourceArgs): { cash: CashYearInput[]; targets: TargetGapInput[] } {
-  const stored = storedOf(args.csvFinanceData, args.companyId);
-  if (stored.kind !== 'OK') return { cash: [], targets: [] };
-  const outlook = outlookOf(args, stored.domain);
-  if (!outlook) return { cash: [], targets: [] };
-  const cash = outlook.financedPlan.years.map((y) => ({
-    year: y.year,
-    isForecast: y.kind === 'FORECAST',
-    shortfallYen: typeof y.postShortfall.value === 'number' ? y.postShortfall.value : null,
-  }));
-  const gap = outlook.unifiedPl.gap;
-  const targets: TargetGapInput[] = gap
-    ? [
-        { metric: '売上', fiscalYear: gap.revenue.fiscalYear, gapYen: gap.revenue.valueYen },
-        { metric: '営業利益', fiscalYear: gap.operatingIncome.fiscalYear, gapYen: gap.operatingIncome.valueYen },
-      ]
-    : [];
-  return { cash, targets };
+function yearsLabel(years: number[]): string {
+  return years.map((y) => `${y}年度`).join('・');
 }
 
-function planGapsOf(args: RiskSourceArgs): PlanGapInput[] {
+function planActualGapsOf(args: RiskSourceArgs): PlanGapInput[] {
   const endMonth = parseFiscalYearEndMonth(args.fiscalYearEnd);
   if (endMonth === null) return [];
   const out: PlanGapInput[] = [];
@@ -88,53 +81,151 @@ function krsAndActionsOf(departments: Department[]): { krs: KrInput[]; actions: 
   return { krs, actions };
 }
 
-export function riskFactsFromStrategy(args: RiskSourceArgs): RiskFact[] {
-  const departments = departmentsOf(args.departments);
-  const { cash, targets } = cashAndTargets(args);
-  const { krs, actions } = krsAndActionsOf(departments);
-  return detectRiskFacts({ now: args.now, cash, targets, planGaps: planGapsOf(args), krs, actions });
+function yenText(v: number): string {
+  return `${Math.round(v).toLocaleString('ja-JP')}円`;
 }
 
-/** 判断できなかった項目を、理由（未登録・未算定・取得失敗・判断材料不足）ごとに示す。事実が無くても判定する */
-export function riskCoverageFromStrategy(args: RiskSourceArgs): string[] {
-  const out: string[] = [];
-  const stored = storedOf(args.csvFinanceData, args.companyId);
+function targetOf(value: number | null, due: number | null): string {
+  return `${due !== null ? `${due}年度` : '年度未設定'}・${value !== null ? yenText(value) : '金額未設定'}`;
+}
 
-  if (stored.kind === 'NONE') {
-    out.push('- 資金繰り：未登録（STAGE6の資金計画が保存されていません）');
-  } else if (stored.kind !== 'OK') {
-    out.push('- 資金繰り：取得失敗（保存済みの資金計画を読めませんでした）');
-  } else {
-    const outlook = outlookOf(args, stored.domain);
-    if (!outlook) {
-      out.push('- 資金繰り・経営目標との差：未算定（資金繰り試算の結果が得られませんでした）');
-    } else {
-      const unknown = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST' && typeof y.postShortfall.value !== 'number');
-      if (unknown.length > 0) {
-        out.push(`- 資金繰り（${unknown.map((y) => `${y.year}年度`).join('・')}）：判断材料不足（${unknown[0].postShortfall.note}）`);
-      }
-      const gap = outlook.unifiedPl.gap;
-      const targets = Array.isArray(args.companyTargets) ? args.companyTargets : [];
-      if (targets.length === 0) {
-        out.push('- 経営目標との差：未登録（STAGE2の業績目標が保存されていません）');
-      } else if (!gap || (gap.revenue.valueYen === null && gap.operatingIncome.valueYen === null)) {
-        out.push(`- 経営目標との差：判断材料不足（${gap?.revenue.reason ?? gap?.operatingIncome.reason ?? '見通しが足りず、差を出せません'}）`);
-      }
-    }
+type FinanceJudgement = { cash: CashYearInput[]; targets: TargetGapInput[]; coverage: string[] };
+
+/** 資金繰りと経営目標の差。STAGE2の業績目標とSTAGE6の経営目標を、それぞれ既存の統一PL計算で比べる */
+function judgeFinance(args: RiskSourceArgs): FinanceJudgement {
+  const coverage: string[] = [];
+  const stored = storedOf(args.csvFinanceData, args.companyId);
+  const domain = stored.kind === 'OK' ? stored.domain : null;
+  const outlook = outlookOf(args, domain);
+  if (!outlook) {
+    coverage.push('- 資金繰り・経営目標との差：未算定（資金繰り試算の結果が得られませんでした）');
+    return { cash: [], targets: [], coverage };
   }
+
+  let cash: CashYearInput[] = [];
+  if (stored.kind === 'NONE') {
+    coverage.push('- 資金繰り：未登録（STAGE6の資金計画が保存されていません）');
+  } else if (stored.kind !== 'OK') {
+    coverage.push('- 資金繰り・STAGE6の経営目標：取得失敗（保存済みの資金計画を読めませんでした）');
+  } else if (stored.domain.newLoans.length === 0) {
+    const years = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST').map((y) => y.year);
+    coverage.push(
+      `- 資金繰り（${yearsLabel(years)}）：判断材料不足（新規借入が未入力です。0円とは見なしていません。借入の予定がない場合は、0円の行を入力してください）`,
+    );
+  } else {
+    const forecast = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST');
+    const unknown = forecast.filter((y) => typeof y.postShortfall.value !== 'number');
+    if (unknown.length > 0) {
+      const reasons = [
+        ...new Set(unknown.flatMap((y) => y.holds.filter((h) => BLOCKING_HOLD.test(h)))),
+      ];
+      coverage.push(
+        `- 資金繰り（${yearsLabel(unknown.map((y) => y.year))}）：判断材料不足（${reasons.length > 0 ? reasons.join('、') : unknown[0].postShortfall.note}）`,
+      );
+    }
+    cash = forecast.map((y) => ({
+      year: y.year,
+      isForecast: true,
+      shortfallYen: typeof y.postShortfall.value === 'number' ? y.postShortfall.value : null,
+    }));
+  }
+
+  const stage2: PlTarget = outlook.target;
+  const stage6: PlTarget | null = domain
+    ? {
+        revenueYen: domain.assumptions.targetRevenueYen,
+        revenueDueYear: domain.assumptions.targetYear,
+        operatingIncomeYen: domain.assumptions.targetOperatingIncomeYen,
+        operatingIncomeDueYear: domain.assumptions.targetYear,
+      }
+    : null;
+  const stage6Gap = stage6
+    ? buildUnifiedPl({
+        baseline: outlook.unifiedPl.years.map((y) => ({
+          fiscalYear: y.fiscalYear,
+          revenueYen: y.baseline.revenueYen,
+          operatingIncomeYen: y.baseline.operatingIncomeYen,
+        })),
+        effects: outlook.effectTrial.years,
+        target: stage6,
+      }).gap
+    : null;
+
+  const targets: TargetGapInput[] = [];
+  const metrics = [
+    {
+      metric: '売上' as const,
+      s2: { value: stage2.revenueYen, due: stage2.revenueDueYear, gap: outlook.unifiedPl.gap?.revenue ?? null },
+      s6: stage6 ? { value: stage6.revenueYen, due: stage6.revenueDueYear, gap: stage6Gap?.revenue ?? null } : null,
+    },
+    {
+      metric: '営業利益' as const,
+      s2: { value: stage2.operatingIncomeYen, due: stage2.operatingIncomeDueYear, gap: outlook.unifiedPl.gap?.operatingIncome ?? null },
+      s6: stage6
+        ? { value: stage6.operatingIncomeYen, due: stage6.operatingIncomeDueYear, gap: stage6Gap?.operatingIncome ?? null }
+        : null,
+    },
+  ];
+
+  const addGap = (metric: '売上' | '営業利益', source: TargetSource, gap: UnifiedPlMetricGap | null) => {
+    if (!gap) return;
+    if (gap.valueYen !== null) {
+      targets.push({ metric, source, fiscalYear: gap.fiscalYear, gapYen: gap.valueYen });
+      return;
+    }
+    coverage.push(
+      `- ${metric}との差（${TARGET_SOURCE_LABEL[source]}）：判断材料不足（${gap.reason ?? '差を算出できません'}）`,
+    );
+  };
+
+  let anyTarget = false;
+  for (const m of metrics) {
+    const s2Set = m.s2.value !== null;
+    const s6Set = m.s6 !== null && m.s6.value !== null;
+    if (s2Set || s6Set) anyTarget = true;
+    if (s2Set) addGap(m.metric, 'STAGE2', m.s2.gap);
+    if (!s6Set || !m.s6) continue;
+    const same = s2Set && m.s6.value === m.s2.value && m.s6.due === m.s2.due;
+    if (same) continue;
+    if (s2Set) {
+      coverage.push(
+        `- ${m.metric}の経営目標：不整合（STAGE2は${targetOf(m.s2.value, m.s2.due)}、STAGE6は${targetOf(m.s6.value, m.s6.due)}。両方の目標で差を示しています）`,
+      );
+    }
+    addGap(m.metric, 'STAGE6', m.s6.gap);
+  }
+  if (!anyTarget) {
+    coverage.push('- 経営目標との差：未登録（STAGE2の業績目標もSTAGE6の経営目標も保存されていません）');
+  }
+
+  return { cash, targets, coverage };
+}
+
+/** 点検の入力（事実）と、判断できなかった項目を返す。事実が無くても判断材料の状態を返す */
+export function riskInputsOf(args: RiskSourceArgs): RiskInputs {
+  const departments = departmentsOf(args.departments);
+  const finance = judgeFinance(args);
+  const { krs, actions } = krsAndActionsOf(departments);
+  const coverage = [...finance.coverage];
 
   if (parseFiscalYearEndMonth(args.fiscalYearEnd) === null) {
-    out.push('- 売上効果の計画と実績：判断材料不足（決算月が未設定のため、年度を決められません）');
+    coverage.push('- 売上効果の計画と実績：判断材料不足（決算月が未設定のため、年度を決められません）');
   }
-
-  const { krs, actions } = krsAndActionsOf(departmentsOf(args.departments));
   if (krs.length === 0) {
-    out.push('- KRの期限：未登録（部門の施策にKRがありません）');
+    coverage.push('- KRの期限：未登録（部門の施策にKRがありません）');
   } else {
     const noDue = krs.filter((k) => !k.due).length;
-    if (noDue > 0) out.push(`- KRの期限：判断材料不足（期限が未入力のKRが${noDue}件あり、期限超過は判定していません）`);
+    if (noDue > 0) coverage.push(`- KRの期限：判断材料不足（期限が未入力のKRが${noDue}件あり、期限超過は判定していません）`);
   }
-  if (actions.length === 0) out.push('- 実施事項の進捗：未登録（進捗が1件も記録されていません）');
+  if (actions.length === 0) coverage.push('- 実施事項の進捗：未登録（進捗が1件も記録されていません）');
 
-  return out;
+  const facts = detectRiskFacts({
+    now: args.now,
+    cash: finance.cash,
+    targets: finance.targets,
+    planGaps: planActualGapsOf(args),
+    krs,
+    actions,
+  });
+  return { facts, coverage };
 }

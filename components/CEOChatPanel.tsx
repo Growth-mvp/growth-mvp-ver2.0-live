@@ -55,6 +55,7 @@ import { buildCompanionSnapshot } from '@/lib/companion/companionSnapshot';
 import { detectMilestone, fingerprint, MILESTONE_LABEL } from '@/lib/companion/companionMilestones';
 import { requestMilestoneAdvice } from '@/lib/companion/companionAdviceClient';
 import { decodeRiskStored, encodeRiskStored, requestRiskReview, riskReviewBody } from '@/lib/companion/companionRiskClient';
+import { STATUS_TITLE, type RiskStatus } from '@/lib/companion/companionRisk';
 import {
   isCompanionKilled,
   readCompanionPref,
@@ -1084,7 +1085,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     companionAvailable && companionOn && companionSnapshot.ready && !companionSnapshot.dirty && Boolean(user?.id && companyId && strategyId);
   const progressKeyRef = useRef<string | null>(null);
   progressKeyRef.current = progressKey;
-  const riskResultRef = useRef<{ key: string; serious: boolean; body: string } | null>(null);
+  const riskResultRef = useRef<{ key: string; status: RiskStatus; serious: boolean; body: string } | null>(null);
   const riskShownKeyRef = useRef<string | null>(null);
 
   const showRiskIfDue = () => {
@@ -1097,7 +1098,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setCompanionCard({
       kind: 'advice',
       key: r.key,
-      title: '経営点検（STAGE5・6）：AIの助言',
+      title: STATUS_TITLE[r.status],
       message: '',
       href: '',
       linkLabel: '',
@@ -1134,13 +1135,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         return data?.session?.access_token ?? null;
       },
     }).then((result) => {
-      if (riskKeyRef.current !== key || activeCompanyIdRef.current !== requestedCompany) {
+      if (!result || activeCompanyIdRef.current !== requestedCompany) {
         if (riskKeyRef.current === key) riskKeyRef.current = null;
         return;
       }
-      if (!result || result.facts.length === 0) return;
-      const stored = { serious: result.serious, body: riskReviewBody(result) };
+      const stored = { status: result.status, serious: result.serious, body: riskReviewBody(result) };
       writeAdviceText(companionStores.session, requestedUser, requestedCompany, key, encodeRiskStored(stored));
+      if (riskKeyRef.current !== key) return;
       riskResultRef.current = { key, ...stored };
       showRiskIfDue();
     });
@@ -1183,7 +1184,12 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     const next = !companionOn;
     writeCompanionPref(companionStores.local, user.id, next);
     setCompanionOn(next);
-    if (!next) dismissCompanion();
+    if (!next) {
+      riskKeyRef.current = null;
+      riskResultRef.current = null;
+      riskShownKeyRef.current = null;
+      dismissCompanion();
+    }
   };
 
   // ====== 見た目 ======

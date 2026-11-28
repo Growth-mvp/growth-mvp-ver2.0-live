@@ -8,7 +8,20 @@ export type RiskCategory = 'CASH' | 'TARGET' | 'PLAN_GAP' | 'KR_OVERDUE' | 'ACTI
 export type RiskFact = { category: RiskCategory; text: string };
 
 export type CashYearInput = { year: number; isForecast: boolean; shortfallYen: number | null };
-export type TargetGapInput = { metric: '売上' | '営業利益'; fiscalYear: number | null; gapYen: number | null };
+export type TargetSource = 'STAGE2' | 'STAGE6';
+export type TargetGapInput = {
+  metric: '売上' | '営業利益';
+  source: TargetSource;
+  fiscalYear: number | null;
+  gapYen: number | null;
+};
+
+export type RiskStatus = 'ISSUES' | 'NO_ISSUE' | 'INSUFFICIENT' | 'FAILED';
+
+export const TARGET_SOURCE_LABEL: Record<TargetSource, string> = {
+  STAGE2: 'STAGE2の業績目標',
+  STAGE6: 'STAGE6の経営目標',
+};
 export type PlanGapInput = {
   label: string;
   where: string;
@@ -97,7 +110,7 @@ export function detectRiskFacts(input: RiskInput): RiskFact[] {
     const at = t.fiscalYear !== null ? `${t.fiscalYear}年度の` : '';
     facts.push({
       category: 'TARGET',
-      text: `${at}${t.metric}：経営目標に対して ${yen(t.gapYen)} 不足（施策反映後の見通し）`,
+      text: `${at}${t.metric}：${TARGET_SOURCE_LABEL[t.source]}に対して ${yen(t.gapYen)} 不足（施策反映後の見通し）`,
     });
   }
 
@@ -134,6 +147,25 @@ export function detectRiskFacts(input: RiskInput): RiskFact[] {
 export function isSeriousRisk(facts: RiskFact[]): boolean {
   return facts.some((f) => f.category === 'CASH' || f.category === 'TARGET');
 }
+
+export function riskStatusOf(facts: RiskFact[], coverage: string[]): RiskStatus {
+  if (facts.length > 0) return 'ISSUES';
+  return coverage.length > 0 ? 'INSUFFICIENT' : 'NO_ISSUE';
+}
+
+export const STATUS_TITLE: Record<RiskStatus, string> = {
+  ISSUES: '経営点検（STAGE5・6）：AIの助言',
+  NO_ISSUE: '経営点検（STAGE5・6）：点検できた範囲では問題なし',
+  INSUFFICIENT: '経営点検（STAGE5・6）：判断材料が不足しています',
+  FAILED: '経営点検（STAGE5・6）：点検できませんでした',
+};
+
+/** AIを呼ばずに定型文で示す本文の冒頭（ISSUES 以外） */
+export const STATUS_LEAD: Record<Exclude<RiskStatus, 'ISSUES'>, string> = {
+  NO_ISSUE: '保存済みデータから点検できた範囲では、問題は検出されませんでした。',
+  INSUFFICIENT: '判断材料が不足している項目があるため、経営点検の結論は出せません。下の項目を入力すると、次の点検で判断できます。',
+  FAILED: '経営点検の処理に失敗したため、所見は作っていません。次の点検は明日以降に行われます。',
+};
 
 /** 点検していない範囲。表示で必ず添え、点検済みと誤認させない */
 export const NOT_CHECKED_NOTE =

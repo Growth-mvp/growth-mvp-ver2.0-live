@@ -144,7 +144,7 @@ type Outlook = FinanceOutlook;
 
 export type Stage6ArgsForOutlook = Args;
 
-export function outlookOf(args: Args, domain: OkStored['domain']): Outlook | null {
+export function outlookOf(args: Args, domain: OkStored['domain'] | null): Outlook | null {
   try {
     return buildFinanceOutlook({
       financePL: Array.isArray(args.financePL) ? (args.financePL as any) : [],

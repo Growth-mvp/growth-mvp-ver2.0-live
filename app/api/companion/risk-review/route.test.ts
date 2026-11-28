@@ -12,8 +12,10 @@ jest.mock('@/lib/modelConfig', () => ({ getOpenAIModelParamsForProcess: () => ({
 jest.mock('@/utils/supabase/strategy', () => ({ getFullStrategyDataByStrategyId: jest.fn(async () => ({ data: null, error: null })) }));
 jest.mock('@/utils/supabase/normalize', () => ({ normalizeStrategyData: (x: unknown) => x }));
 jest.mock('@/lib/cascade/projectLifecycle', () => ({ stage6PlanDepartments: (x: unknown) => x }));
-jest.mock('@/lib/companion/companionRiskSource', () => ({ riskFactsFromStrategy: () => [] }));
+jest.mock('@/lib/companion/companionRiskSource', () => ({ riskInputsOf: () => ({ facts: [], coverage: [] }) }));
 
+import { requireMembership } from '@/lib/server/rbacGuard';
+import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { POST } from './route';
 
 function req(body: unknown) {
@@ -43,6 +45,26 @@ describe('経営点検の停止（自律伴走だけを止める設定）', () =
     expect(res.status).toBe(503);
     expect(mockGetSupabaseAdmin).not.toHaveBeenCalled();
     expect(mockGetAuthUserIdFromBearer).not.toHaveBeenCalled();
+  });
+
+  it('所属していない会社の戦略は読まず、403を返す（他社の情報を参照しない）', async () => {
+    delete process.env.NEXT_PUBLIC_CEO_COMPANION_DISABLED;
+    mockGetAuthUserIdFromBearer.mockResolvedValue('user-x');
+    (requireMembership as unknown as jest.Mock).mockResolvedValueOnce(null);
+    const read = getFullStrategyDataByStrategyId as unknown as jest.Mock;
+    read.mockClear();
+    const res = await POST(req({ companyId: 'co-b', strategyId: 'st-b' }));
+    expect(res.status).toBe(403);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('戦略は、リクエストで指定された会社の範囲でだけ読む', async () => {
+    delete process.env.NEXT_PUBLIC_CEO_COMPANION_DISABLED;
+    mockGetAuthUserIdFromBearer.mockResolvedValue('user-a');
+    const read = getFullStrategyDataByStrategyId as unknown as jest.Mock;
+    read.mockClear();
+    await POST(req({ companyId: 'co-a', strategyId: 'st-a' }));
+    expect(read).toHaveBeenCalledWith('st-a', 'co-a', expect.anything());
   });
 
   it('停止の設定が無ければ、従来どおり認証を確認する（認証なしは401）', async () => {

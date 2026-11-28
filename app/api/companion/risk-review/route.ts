@@ -13,9 +13,9 @@ import { logAuditEvent } from '@/lib/server/auditLog';
 import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
-import { riskCoverageFromStrategy, riskFactsFromStrategy } from '@/lib/companion/companionRiskSource';
+import { riskInputsOf } from '@/lib/companion/companionRiskSource';
 import { isCompanionKilled } from '@/lib/companion/companionPolicy';
-import { RISK_GUARD, buildRiskPrompt, isSeriousRisk, renderRiskFacts } from '@/lib/companion/companionRisk';
+import { RISK_GUARD, buildRiskPrompt, isSeriousRisk, renderRiskFacts, riskStatusOf } from '@/lib/companion/companionRisk';
 
 type Body = { companyId?: unknown; strategyId?: unknown };
 
@@ -56,13 +56,14 @@ export async function POST(req: Request) {
   let facts;
   let coverage: string[];
   try {
-    facts = riskFactsFromStrategy(sourceArgs);
-    coverage = riskCoverageFromStrategy(sourceArgs);
+    ({ facts, coverage } = riskInputsOf(sourceArgs));
   } catch (e: any) {
     console.error('[companion-risk-review] FACTS_FAILED', { message: e?.message });
     return NextResponse.json({ error: 'facts_failed' }, { status: 500 });
   }
-  if (facts.length === 0) return NextResponse.json({ facts: [], text: null, serious: false, coverage });
+  if (facts.length === 0) {
+    return NextResponse.json({ status: riskStatusOf(facts, coverage), facts: [], text: null, serious: false, coverage });
+  }
 
   const lines = renderRiskFacts(facts);
   let text: string | null = null;
@@ -88,5 +89,5 @@ export async function POST(req: Request) {
     metadata: { factCount: facts.length, aiUsed: text !== null },
   });
 
-  return NextResponse.json({ facts: lines, text, serious: isSeriousRisk(facts), coverage });
+  return NextResponse.json({ status: 'ISSUES', facts: lines, text, serious: isSeriousRisk(facts), coverage });
 }
