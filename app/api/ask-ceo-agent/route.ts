@@ -50,6 +50,13 @@ import {
   type ConsultOffer,
   type ConsultOperationCandidate,
 } from '@/lib/aiOperations/consultOperation';
+import {
+  allowStage2Candidate,
+  buildStage2OperationBlock,
+  parseStage2Context,
+  stage2ExtraParser,
+  type Stage2Op,
+} from '@/lib/stage2/stage2Input';
 import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
 import { selectCanonicalStory } from '@/lib/ceoChat/strategyRationale';
 import {
@@ -158,6 +165,8 @@ type RequestBody = {
   companyId: string;
   /** 直前の回答で示した操作の提案（画面が保持する。候補の許可は人の発言と役割で判断する） */
   priorOffer?: unknown;
+  /** STAGE2の画面の文脈（業績目標・SWOT・回答・質問）。STAGE2の操作候補の検証に使う */
+  stage2Context?: unknown;
   consultThread?: unknown;
   screen?: unknown;
   execution?: unknown;
@@ -1069,6 +1078,9 @@ export async function POST(req: Request) {
     const offered = parseConsultOffer(body?.priorOffer);
     const priorOffer = offered && offered.key === consultOfferKeyOf(offerThread) ? offered.kind : null;
     if (operationOfferEnabled) systemBase += '\n\n' + OPERATION_OFFER_BLOCK;
+    // STAGE2の操作候補：管理者・STAGE2の文脈がある相談に限る（追加の呼び出しはしない）
+    const stage2Ctx = isManual && companyContextUsed && !!strategy && membership.role === 'admin' ? parseStage2Context(body?.stage2Context) : null;
+    if (stage2Ctx) systemBase += '\n\n' + buildStage2OperationBlock(stage2Ctx);
 
     const askMessages = sanitizeAskMessages(messages);
     if (
@@ -1225,9 +1237,13 @@ export async function POST(req: Request) {
     }
     let consultOperation: ConsultOperationCandidate | null = null;
     let consultOffer: ConsultOffer | null = null;
+    let consultStage2: Stage2Op | null = null;
     if (output !== 'json') {
-      const op = extractConsultOperation(content);
+      const op = extractConsultOperation(content, stage2Ctx ? stage2ExtraParser(stage2Ctx) : undefined);
       content = op.content;
+      const stage2Allowed = allowStage2Candidate({ lastUser, role: membership.role, enabled: !!stage2Ctx });
+      if (op.extra && stage2Allowed) consultStage2 = op.extra as Stage2Op;
+      if (op.extra && !stage2Allowed) console.log('[ask-ceo-agent]', requestId, 'stage2_candidate_dropped', { role: membership.role });
       const allowed = allowConsultCandidate({ lastUser, priorOffer, role: membership.role, enabled: operationOfferEnabled });
       if (op.candidate && allowed) consultOperation = op.candidate;
       if (op.candidate && !allowed) console.log('[ask-ceo-agent]', requestId, 'operation_candidate_dropped', { role: membership.role, priorOffer });
@@ -1320,6 +1336,7 @@ export async function POST(req: Request) {
 
     response.reviewTargets = reviewTargets;
     if (consultOperation) response.operationCandidate = consultOperation;
+    if (consultStage2) response.stage2Operation = consultStage2;
     if (consultOffer) response.operationOffer = consultOffer;
 
     // JSON出力時のみ optional フィールドを追加

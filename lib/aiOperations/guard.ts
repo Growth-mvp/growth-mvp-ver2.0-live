@@ -10,7 +10,9 @@ export type ProposalScreenState = {
 export type ProposalBlock = { message: string; discard: boolean };
 
 export function proposalRequiredRole(proposal: OperationProposal): 'admin' | 'manager' {
-  return proposal.kind === 'stage2.ceoIntent' ? 'admin' : 'manager';
+  return proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage2.remove' || proposal.kind === 'stage2.commit'
+    ? 'admin'
+    : 'manager';
 }
 
 /** 入力案を作る前の確認（保存時の権限は、承認の API でも再検証する） */
@@ -50,6 +52,8 @@ export function proposalStaleReason(
 ): ProposalBlock | null {
   // 財務の値・削除の対象は、反映の直前に applyStageOp が照合する
   if (proposal.kind === 'stage1.op' || proposal.kind === 'stage1.remove') return null;
+  // STAGE2の承認は、承認の時点で対象と版を照合する（applyStage2Op・命令の実行処理が行う）
+  if (proposal.kind === 'stage2.remove' || proposal.kind === 'stage2.commit') return null;
   if (proposal.kind === 'stage2.ceoIntent') {
     return (current.ceoIntent ?? '') === proposal.before
       ? null

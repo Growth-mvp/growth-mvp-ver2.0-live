@@ -1,9 +1,11 @@
-import { resolveStage2Input, type Stage2InputContext } from './stage2Input';
+import { allowStage2Candidate, parseStage2Candidate, parseStage2Context, resolveStage2Input, type Stage2InputContext } from './stage2Input';
 
 const ctx = (over: Partial<Stage2InputContext> = {}): Stage2InputContext => ({
   targets: [{ id: 't-1', label: '営業利益', unit: '万円', base: 5000 }],
   focusQuestionId: 'ch1-q2',
   questionIds: ['ch0-q1', 'ch1-q2'],
+  swot: { strength: '技術力\n顧客との信頼', weakness: '人手不足', opportunity: '', threat: '' },
+  answers: {},
   ...over,
 });
 
@@ -93,5 +95,74 @@ describe('STAGE2の依頼の読み取り：操作として扱わないもの', (
     'ここまでの分析をもとに経営戦略を考えたい',
   ])('「%s」は入力操作にしない', (text) => {
     expect(resolveStage2Input(text, ctx())).toBeNull();
+  });
+});
+
+describe('STAGE2の依頼の読み取り：画面の操作（質問・承認・経営者の思い・SWOT）', () => {
+  it('質問を開く依頼は、回答せず、その質問を表示する操作にする', () => {
+    expect(resolveStage2Input('ch1-q2の質問を開いて', ctx())).toEqual({ kind: 'focus', questionId: 'ch1-q2' });
+  });
+
+  it('存在しない質問は、表示せず確認を求める', () => {
+    expect(resolveStage2Input('ch9-q9の質問を開いて', ctx())?.kind).toBe('clarify');
+  });
+
+  it('業績目標の削除は、直接書き込まず承認の対象にする', () => {
+    expect(resolveStage2Input('営業利益の目標を削除してください', ctx())).toEqual({
+      kind: 'approval',
+      op: { kind: 'target.remove', id: 't-1', label: '営業利益' },
+    });
+  });
+
+  it('経営者の思いの全文の置き換えは、変更の依頼として読み取る', () => {
+    expect(resolveStage2Input('経営者の思いを「地域の暮らしを支える会社です」に変更してください', ctx())).toEqual({
+      kind: 'op',
+      op: { kind: 'ceo.set', text: '地域の暮らしを支える会社です' },
+    });
+  });
+
+  it('SWOTの項目の修正は、項目の文で特定して置き換える', () => {
+    expect(resolveStage2Input('強みの「顧客との信頼」を「顧客との長期的な信頼」に修正して', ctx())).toEqual({
+      kind: 'op',
+      op: { kind: 'swot.replace', field: 'strength', from: '顧客との信頼', to: '顧客との長期的な信頼' },
+    });
+  });
+
+  it('SWOTに無い項目の修正は、変更せず確認を求める', () => {
+    expect(resolveStage2Input('強みの「別の技術」を「別の項目」に修正して', ctx())?.kind).toBe('clarify');
+  });
+
+  it('SWOTの項目の削除は、項目の文で特定する', () => {
+    expect(resolveStage2Input('弱みから「人手不足」を削除して', ctx())).toEqual({
+      kind: 'op',
+      op: { kind: 'swot.remove', field: 'weakness', text: '人手不足' },
+    });
+  });
+});
+
+describe('STAGE2の操作候補の検証（相談の回答）', () => {
+  it('存在しない目標IDや、知らない項目の文は捨てる', () => {
+    expect(parseStage2Candidate({ kind: 'target.remove', id: 'x-9', label: '営業利益' }, ctx())).toBeNull();
+    expect(parseStage2Candidate({ kind: 'swot.remove', field: 'strength', text: '存在しない' }, ctx())).toBeNull();
+    expect(parseStage2Candidate({ kind: 'mvv.set', field: 'mission', value: '地域を支える' }, ctx())?.kind).toBe('mvv.set');
+  });
+
+  it('12の問いの回答は、存在する質問IDだけを受け取る', () => {
+    expect(parseStage2Candidate({ kind: 'answer.set', questionId: 'ch9-q9', text: '回答' }, ctx())).toBeNull();
+    expect(parseStage2Candidate({ kind: 'answer.set', questionId: 'ch1-q2', text: '回答' }, ctx())?.kind).toBe('answer.set');
+  });
+
+  it('形の合わない文脈は受け取らない', () => {
+    expect(parseStage2Context({ targets: 'x' })).toBeNull();
+    expect(parseStage2Context(null)).toBeNull();
+  });
+});
+
+describe('STAGE2の操作候補の許可', () => {
+  it('管理者が明示的に指示した場合だけ許可する', () => {
+    expect(allowStage2Candidate({ lastUser: '今の話を経営者の思いに追記して', role: 'admin', enabled: true })).toBe(true);
+    expect(allowStage2Candidate({ lastUser: '今の話を経営者の思いに追記して', role: 'manager', enabled: true })).toBe(false);
+    expect(allowStage2Candidate({ lastUser: '今の話を経営者の思いに追記して', role: 'admin', enabled: false })).toBe(false);
+    expect(allowStage2Candidate({ lastUser: 'もし経営者の思いに追記するとしたらどうなりますか', role: 'admin', enabled: true })).toBe(false);
   });
 });

@@ -1,4 +1,6 @@
 import { applyStage2Op } from './stage2Apply';
+import { applyUndoRecord } from '@/lib/aiOperations/undoDispatch';
+import { planUndo } from '@/lib/aiOperations/applyDirect';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
@@ -162,5 +164,28 @@ describe('STAGE2の直接反映：確認の途中の変化', () => {
     const r = await applyStage2Op({ kind: 'swot.add', field: 'threat', text: '人手不足' }, { settleMs: 0 });
     expect(r.ok).toBe(false);
     expect(state.setSWOT).not.toHaveBeenCalled();
+  });
+});
+
+describe('STAGE2の直前の入力の取り消し', () => {
+  it('直前のミッションの入力は、値が変わっていなければ元に戻す', async () => {
+    const state = setStore({ mission: '' });
+    allowAuthorize();
+    expect((await applyStage2Op({ kind: 'mvv.set', field: 'mission', value: '地域を支える' }, { settleMs: 0 })).ok).toBe(true);
+    expect(state.mission).toBe('地域を支える');
+    const plan = planUndo();
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    allowAuthorize();
+    expect((await applyUndoRecord(plan.record, { settleMs: 0 })).ok).toBe(true);
+    expect(state.mission).toBe('');
+  });
+
+  it('入力のあとに手で変更された項目は、取り消さない', async () => {
+    const state = setStore({ mission: '' });
+    allowAuthorize();
+    await applyStage2Op({ kind: 'mvv.set', field: 'mission', value: '地域を支える' }, { settleMs: 0 });
+    state.mission = '手で書き換えた内容';
+    expect(planUndo().ok).toBe(false);
   });
 });

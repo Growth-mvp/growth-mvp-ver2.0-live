@@ -15,6 +15,13 @@ import { buildBusinessPortfolio } from '@/lib/stage1/businessPortfolio';
 import type { FinancePLRow, ValueAnalysis } from '@/types/strategy';
 import { saveSentenceOf, waitForSaveSettled } from './saveSettle';
 import { SCOPE_CHANGED, runGuardedWrite } from './guardedWrite';
+import { isStage2Op, stage2SignatureOf } from '@/lib/stage2/stage2Apply';
+import type { Stage2Op } from '@/lib/stage2/stage2Input';
+
+/** 記録された操作の対象の値（STAGE1とSTAGE2で、対象の見方を分ける） */
+function signatureOfRecordOp(op: StageOp | Stage2Op, st: StrategyState): string {
+  return isStage2Op(op) ? stage2SignatureOf(op as Stage2Op, st) : valueSignatureOf(op as StageOp, st);
+}
 
 export type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
 
@@ -367,7 +374,7 @@ function isRecordStillValid(record: AiWriteRecord): boolean {
     now.companyId === record.companyId &&
     now.strategyId === record.strategyId &&
     useUserStore.getState().user?.id === record.userId &&
-    valueSignatureOf(record.op, now) === record.afterSignature
+    signatureOfRecordOp(record.op, now) === record.afterSignature
   );
 }
 
@@ -420,7 +427,7 @@ export function planUndo(): { ok: true; record: AiWriteRecord } | { ok: false; m
   if (st.companyId !== record.companyId || st.strategyId !== record.strategyId) {
     return { ok: false, message: '企業または戦略が変わったため、取り消せません。' };
   }
-  if (valueSignatureOf(record.op, st) !== record.afterSignature) {
+  if (signatureOfRecordOp(record.op, st) !== record.afterSignature) {
     return { ok: false, message: 'その後に同じ項目が変わったため、取り消せません。画面で内容を確かめてください。' };
   }
   return { ok: true, record };

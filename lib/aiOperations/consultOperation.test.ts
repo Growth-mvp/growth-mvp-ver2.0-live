@@ -27,7 +27,7 @@ describe('操作候補の取り出しと検証', () => {
 
   it('印が無ければ、本文はそのまま（通常の相談の回答）', () => {
     const r = extractConsultOperation('まずは顧客の声を集めましょう。');
-    expect(r).toEqual({ content: 'まずは顧客の声を集めましょう。', candidate: null, offer: null, rejected: false });
+    expect(r).toEqual({ content: 'まずは顧客の声を集めましょう。', candidate: null, extra: null, offer: null, rejected: false });
   });
 
   it('JSONが壊れている印や、対象の種類が違う印は捨て、捨てたことを示す', () => {

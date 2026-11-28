@@ -25,7 +25,7 @@ import { useIntentReflectStore } from '@/lib/stage2/intentReflectStore';
 import AiHighlightListener from '@/components/AiHighlightListener';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { REVEAL_FRESH_MS } from '@/lib/stage1/revealTargets';
-import { useStage2CommandStore } from '@/lib/stage2/stage2Command';
+import { useStage2CommandStore, type Stage2CommandKind } from '@/lib/stage2/stage2Command';
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 import {
@@ -2363,14 +2363,73 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       setActiveTab(revealTab);
     }
   }, [revealAt, revealTab]);
-  // チャットからの生成の依頼は、画面の既存の生成処理（ボタンと同じ処理）で実行する
+  // チャットからの生成・確定の依頼は、画面の既存の処理（ボタンと同じ処理）を、準備と権限の確認の後に一度だけ実行する
   const stage2Command = useStage2CommandStore((s) => s.pending);
+  const stage2Busy = generating || generatingFinal || committingFinalStory;
+  const stage2RunRef = useRef<{ id: string; kind: Stage2CommandKind } | null>(null);
+  const [stage2Settled, setStage2Settled] = useState<string | null>(null);
   useEffect(() => {
-    if (!stage2Command) return;
-    useStage2CommandStore.getState().clear();
-    if (stage2Command === 'draft') void handleGenerate();
-    else void handleGenerateFinal();
-  }, [stage2Command]);
+    if (!stage2Command || !hydrated || stage2Busy) return;
+    const cmd = useStage2CommandStore.getState().take();
+    if (!cmd) return;
+    const fail = (message: string) => useStage2CommandStore.getState().report({ id: cmd.id, kind: cmd.kind, ok: false, message });
+    const userNow = useUserStore.getState();
+    const strategyNow = useStrategyStore.getState();
+    if (Date.now() > cmd.expiresAt) {
+      fail('依頼の有効期限が切れたため、実行しませんでした。もう一度依頼してください。');
+      return;
+    }
+    if (!userNow.isAdmin) {
+      fail('この操作は管理者が行えます。');
+      return;
+    }
+    if (cmd.userId !== userNow.user?.id || cmd.companyId !== strategyNow.companyId || cmd.strategyId !== strategyNow.strategyId) {
+      fail('企業・戦略・利用者が切り替わったため、実行しませんでした。');
+      return;
+    }
+    if (cmd.kind === 'draft') {
+      stage2RunRef.current = { id: cmd.id, kind: cmd.kind };
+      void handleGenerate().then(() => setStage2Settled(cmd.id));
+      return;
+    }
+    if (cmd.kind === 'final') {
+      if ((strategyNow.finalStoryFinal?.length ?? 0) > 0) {
+        fail('確定済みの最終ストーリーがあるため、上書きしませんでした。');
+        return;
+      }
+      if ((strategyNow.finalStoryEdited?.length ?? 0) > 0) {
+        fail('すでに最終ストーリーの案があるため、チャットからは上書きしませんでした。最終ストーリーの画面から操作してください。');
+        return;
+      }
+      if (answers12.some((a) => isDeepDiveUnreflected(a) && !isDeepDiveApplicable(a))) {
+        fail('AI深掘りの未反映の回答があるため、チャットからは生成しませんでした。最終ストーリーの画面から操作してください。');
+        return;
+      }
+      stage2RunRef.current = { id: cmd.id, kind: cmd.kind };
+      void handleGenerateFinal().then(() => setStage2Settled(cmd.id));
+      return;
+    }
+    if (editingStory.length === 0) {
+      fail('確定する最終ストーリーがありません。');
+      return;
+    }
+    stage2RunRef.current = { id: cmd.id, kind: cmd.kind };
+    void handleCommitAndBridge().then(() => setStage2Settled(cmd.id));
+  }, [stage2Command, hydrated, stage2Busy]);
+  useEffect(() => {
+    const run = stage2RunRef.current;
+    if (!run || stage2Settled !== run.id || stage2Busy) return;
+    stage2RunRef.current = null;
+    const error = run.kind === 'draft' ? generateError : run.kind === 'final' ? generateFinalError : commitFinalStoryError;
+    const message = error
+      ? `${run.kind === 'commit' ? '確定' : '生成'}に失敗しました：${error}`
+      : run.kind === 'draft'
+        ? '戦略の骨子を生成しました。結果は、STAGE2の画面で確認できます。'
+        : run.kind === 'final'
+          ? '経営戦略書の案を生成しました。結果は、STAGE2の最終ストーリーで確認できます。'
+          : '全社戦略を確定し、STAGE3へ引き渡しました。';
+    useStage2CommandStore.getState().report({ id: run.id, kind: run.kind, ok: !error, message });
+  }, [stage2Settled, stage2Busy, generateError, generateFinalError, commitFinalStoryError]);
 
   const pageTopRef = useRef<HTMLElement | null>(null);
   const [draftScrollSeq, setDraftScrollSeq] = useState(0);

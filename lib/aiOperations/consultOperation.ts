@@ -45,9 +45,14 @@ export function parseOperationCandidate(raw: unknown): ConsultOperationCandidate
   return { kind: 'stage1.issue', title, description };
 }
 
+/** 他のSTAGEの操作候補の検証（呼び出し側が渡す）。対象でない形は null、検証に失敗した形は ok:false */
+export type ExtraCandidateParser = (raw: unknown) => { ok: true; value: unknown } | { ok: false } | null;
+
 export type ConsultMarkResult = {
   content: string;
   candidate: ConsultOperationCandidate | null;
+  /** 他のSTAGEの検証済みの操作候補（STAGE2など） */
+  extra: unknown | null;
   offer: ConsultOfferKind | null;
   /** 印に不備があった（候補・提案は捨てる） */
   rejected: boolean;
@@ -55,25 +60,33 @@ export type ConsultMarkResult = {
 
 /** 回答から操作の印を取り除き、候補と提案の有無を返す。印は利用者の画面に出さない。
  * 安全側に倒す：候補が複数・形式不正・書きかけの印があれば、候補も提案もすべて捨てる */
-export function extractConsultOperation(content: string): ConsultMarkResult {
+export function extractConsultOperation(content: string, extra?: ExtraCandidateParser): ConsultMarkResult {
   const candidateMatches = [...content.matchAll(CANDIDATE_MARK)];
   const offerMatches = [...content.matchAll(OFFER_MARK)];
   const openCandidates = (content.match(/<<OP\b/g) ?? []).length;
   const openOffers = (content.match(/<<OFFER\b/g) ?? []).length;
 
   const parsed = candidateMatches.map((m) => {
+    let json: unknown;
     try {
-      return parseOperationCandidate(JSON.parse(m[1]));
+      json = JSON.parse(m[1]);
     } catch {
-      return null;
+      return { kind: 'invalid' as const };
     }
+    const stage1 = parseOperationCandidate(json);
+    if (stage1) return { kind: 'stage1' as const, value: stage1 };
+    const other = extra ? extra(json) : null;
+    if (other === null) return { kind: 'invalid' as const };
+    return other.ok ? { kind: 'extra' as const, value: other.value } : { kind: 'invalid' as const };
   });
   const malformed = openCandidates !== candidateMatches.length || openOffers !== offerMatches.length;
-  const invalid = parsed.some((p) => p === null);
+  const invalid = parsed.some((p) => p.kind === 'invalid');
   const rejected = malformed || invalid || candidateMatches.length > 1 || offerMatches.length > 1;
 
-  const candidate = !rejected && parsed.length === 1 ? parsed[0] : null;
-  const offer = !rejected && offerMatches.length === 1 && !candidate ? ('stage1.issue' as const) : null;
+  const single = !rejected && parsed.length === 1 ? parsed[0] : null;
+  const candidate = single?.kind === 'stage1' ? single.value : null;
+  const extraValue = single?.kind === 'extra' ? single.value : null;
+  const offer = !rejected && offerMatches.length === 1 && !candidate && !extraValue ? ('stage1.issue' as const) : null;
 
   const stripped = content
     .replace(CANDIDATE_MARK, '')
@@ -81,7 +94,7 @@ export function extractConsultOperation(content: string): ConsultMarkResult {
     .replace(/<<(?:OP|OFFER)\b[^\n]*/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return { content: stripped, candidate, offer, rejected };
+  return { content: stripped, candidate, extra: extraValue, offer, rejected };
 }
 
 const ADD_CUE = /入れ|追加|登録|加え|足し/;

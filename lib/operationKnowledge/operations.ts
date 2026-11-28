@@ -193,7 +193,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.ai-input-approve',
     screenIds: ['stage1', 'stage2', 'stage3', 'stage4'],
     label: '承認して保存',
-    source: { file: 'components/CEOChatProposalCard.tsx', line: 374 },
+    source: { file: 'components/CEOChatProposalCard.tsx', line: 417 },
     purpose:
       'AI経営コンサルタントに「経営者の思いに〜と追加して」（STAGE2）、「宅配事業の6つの問いの1番目に〇〇と入力して」（STAGE3）、「目的に〇〇を追加して」（STAGE4）と指示すると、入力案を作る。入力案は保存されず、確認して承認すると保存される。保存後は、再読込しても残る。STAGE1の売上高の既存値の置き換えも、この欄で確認して承認する（空の年度への入力は、入力欄に直接反映される）。',
     steps: [
@@ -258,7 +258,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 195 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 198 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -281,7 +281,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1634 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1697 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -362,7 +362,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-ot',
     screenIds: ['stage2'],
     label: 'AIで機会・脅威を提案',
-    source: { file: 'app/stage2/page.tsx', line: 4128 },
+    source: { file: 'app/stage2/page.tsx', line: 4271 },
     purpose: '会社情報からSWOTの機会・脅威の候補をAIで提案する。',
     steps: ['「入力」タブを開く', '「SWOT分析」欄を確認する', '「AIで機会・脅威を提案」を押す'],
     conditions: '管理者のみ有効。実行中は無効',
@@ -373,7 +373,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-draft',
     screenIds: ['stage2'],
     label: 'たたき台を生成',
-    source: { file: 'app/stage2/page.tsx', line: 4148 },
+    source: { file: 'app/stage2/page.tsx', line: 4291 },
     purpose: '論点・MVV・SWOTなどから、ストーリーの下書き（4章）を生成する。',
     steps: [
       '「入力」タブで経営者の思い、MVV、業績目標、SWOT分析を入力する',
@@ -418,7 +418,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.edit-final-document',
     screenIds: ['stage2'],
     label: '本文を編集する',
-    source: { file: 'app/stage2/page.tsx', line: 4299 },
+    source: { file: 'app/stage2/page.tsx', line: 4443 },
     purpose: '最終ストーリーの章本文を直接編集し、保存する。',
     steps: ['「最終確定」タブを開く', '「本文を編集する」を押す', '章本文を編集し「保存」を押す'],
     conditions: '管理者のみ。読み取り専用のときは表示されない。確定後も本文は編集できる（直したあと再確定が必要かは画面の表示で確認する）',
@@ -429,7 +429,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.generate-final',
     screenIds: ['stage2'],
     label: '経営戦略を生成',
-    source: { file: 'app/stage2/page.tsx', line: 4237 },
+    source: { file: 'app/stage2/page.tsx', line: 4381 },
     purpose: '4章の最終ストーリーを生成し、結論を作る。',
     steps: ['「戦略議論」タブでたたき台を生成する', '必要に応じて論点に回答する', '「経営戦略を生成」を押す'],
     conditions:
@@ -441,7 +441,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.commit-final-strategy',
     screenIds: ['stage2'],
     label: '全社戦略を確定し、STAGE3へ引き渡す',
-    source: { file: 'app/stage2/page.tsx', line: 4490 },
+    source: { file: 'app/stage2/page.tsx', line: 4635 },
     purpose: '最終ストーリーを確定し、STAGE3への引き渡しデータを作る。',
     steps: [
       '「最終確定」タブで内容を確認する',
@@ -1326,7 +1326,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1471 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1534 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

@@ -1,5 +1,6 @@
 import { applyDirectProposal, applyStageOp, isDirectProposal, planRemoval, planUndo } from './applyDirect';
 import { useAiUndoStore } from './aiUndoStore';
+import { applyUndoRecord } from './undoDispatch';
 import { waitForSaveSettled } from './saveSettle';
 import { buildBusinessPortfolio } from '@/lib/stage1/businessPortfolio';
 import type { BusinessPortfolio } from '@/types/strategy';
@@ -390,7 +391,7 @@ describe('直前のAI入力の取り消し', () => {
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     allowAuthorize();
-    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    const undone = await applyUndoRecord(plan.record, { settleMs: 0 });
     expect(undone.ok).toBe(true);
     expect(state.companyName).toBe('旧社名');
   });
@@ -413,7 +414,7 @@ describe('直前のAI入力の取り消し', () => {
     const plan = planUndo();
     if (!plan.ok) throw new Error(plan.message);
     allowAuthorize();
-    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    const undone = await applyUndoRecord(plan.record, { settleMs: 0 });
     expect(undone.ok).toBe(true);
     expect(state.financePL).toEqual([{ year: 2024, revenue: 100 }]);
   });
@@ -426,7 +427,7 @@ describe('直前のAI入力の取り消し', () => {
     const plan = planUndo();
     if (!plan.ok) throw new Error(plan.message);
     allowAuthorize();
-    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    const undone = await applyUndoRecord(plan.record, { settleMs: 0 });
     expect(undone.ok).toBe(false);
     expect(undone.message).toContain('財務データ');
     expect(state.businessSegments).toHaveLength(2);
@@ -554,7 +555,7 @@ describe('取り消し情報の記録（自動保存の待機との前後関係�
     const plan = planUndo();
     if (!plan.ok) throw new Error(plan.message);
     allowAuthorize();
-    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    const undone = await applyUndoRecord(plan.record, { settleMs: 0 });
     expect(undone.ok).toBe(true);
     expect(state.businessSegments).toEqual([{ id: 'seg-1', name: '製造事業' }]);
   });

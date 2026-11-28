@@ -7,6 +7,8 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { appendCeoIntent, contextDepartments, issueProposalOf, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { applyStageOp, formatYen, revenueOf, type Row } from '@/lib/aiOperations/applyDirect';
 import { saveSentenceOf, waitForSaveSettled } from '@/lib/aiOperations/saveSettle';
+import { applyStage2Op } from '@/lib/stage2/stage2Apply';
+import { useStage2CommandStore } from '@/lib/stage2/stage2Command';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX } from '@/lib/aiOperations/consultOperation';
 import { proposalBlockReason, proposalStaleReason } from '@/lib/aiOperations/guard';
@@ -51,6 +53,35 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
 
   const approve = async () => {
     if (busy) return;
+    if (proposal.kind === 'stage2.remove' || proposal.kind === 'stage2.commit') {
+      const current = useStrategyStore.getState();
+      if (current.companyId !== proposal.companyId || current.strategyId !== proposal.strategyId) {
+        discard('企業が切り替わったため、入力案を破棄しました。');
+        return;
+      }
+      if (pathname !== '/stage2') {
+        setError('STAGE2の画面で承認してください。');
+        return;
+      }
+      if (proposal.kind === 'stage2.commit') {
+        // 確定は、画面の準備と権限の確認を経て、画面の処理が一度だけ実行する（ここでは依頼を置くだけ）
+        useStage2CommandStore.getState().request({
+          kind: 'commit',
+          companyId: proposal.companyId,
+          strategyId: proposal.strategyId,
+          userId: useUserStore.getState().user?.id ?? '',
+        });
+        discard('全社戦略の確定を開始します。結果は、この会話に表示します。');
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      const result = await applyStage2Op(proposal.op);
+      setBusy(false);
+      if (result.ok) discard(result.message);
+      else setError(result.message);
+      return;
+    }
     if (proposal.kind === 'stage1.op' || proposal.kind === 'stage1.remove') {
       const current = useStrategyStore.getState();
       if (current.companyId !== proposal.companyId || current.strategyId !== proposal.strategyId) {
@@ -329,6 +360,18 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           </ul>
           <p className="text-[12px] text-zinc-600">承認すると、この項目だけを実行計画書に保存します。AIの草案は変わりません。</p>
         </>
+      ) : proposal.kind === 'stage2.remove' ? (
+        <>
+          <p className="text-zinc-700">対象：STAGE2「業績目標」の削除（{proposal.op.label}）</p>
+          <p className="rounded-md bg-white p-2 text-[12px] text-zinc-700">{proposal.impact}</p>
+          <p className="text-rose-700">この削除は取り消せません。内容を確かめてから承認してください。</p>
+        </>
+      ) : proposal.kind === 'stage2.commit' ? (
+        <>
+          <p className="text-zinc-700">対象：STAGE2「最終確定」（全社戦略の確定とSTAGE3への引き渡し）</p>
+          <p className="rounded-md bg-white p-2 text-[12px] text-zinc-700">{proposal.impact}</p>
+          <p className="text-rose-700">確定の前に、最終戦略の画面で内容を確かめてください。確定は、承認したときだけ行われます。</p>
+        </>
       ) : proposal.kind === 'stage1.remove' ? (
         <>
           <p className="text-zinc-700">
@@ -371,7 +414,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           disabled={busy || (needsText && addition.trim() === '')}
           className="rounded-lg bg-accent-action px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
         >
-          {busy ? `${applyVerb}しています…` : isConflict ? `既存の値を置き換えて${applyVerb}` : proposal.kind === 'stage1.remove' ? '削除を承認' : '承認して保存'}
+          {busy ? `${applyVerb}しています…` : isConflict ? `既存の値を置き換えて${applyVerb}` : proposal.kind === 'stage1.remove' || proposal.kind === 'stage2.remove' ? '削除を承認' : proposal.kind === 'stage2.commit' ? '確定を承認' : '承認して保存'}
         </button>
         <button
           type="button"

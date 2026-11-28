@@ -34,6 +34,8 @@ import { useAiUndoStore } from '@/lib/aiOperations/aiUndoStore';
 import { resolveStage1Input } from '@/lib/aiOperations/stage1Input';
 import { resolveStage2Input } from '@/lib/stage2/stage2Input';
 import { applyStage2Op } from '@/lib/stage2/stage2Apply';
+import { applyUndoRecord } from '@/lib/aiOperations/undoDispatch';
+import type { Stage2Op } from '@/lib/stage2/stage2Input';
 import { useStage2CommandStore } from '@/lib/stage2/stage2Command';
 import { STAGE2_QUESTIONS_12 } from '@/lib/stage2/questions12';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
@@ -115,6 +117,7 @@ type AskResp = {
   error?: string;
   reviewTargets?: unknown;
   operationCandidate?: unknown;
+  stage2Operation?: unknown;
   operationOffer?: unknown;
 };
 
@@ -285,6 +288,22 @@ function revenueYenByYear(rows: RevenueRow[] | undefined): Record<number, number
   return out;
 }
 
+/** 画面（STAGE2）の文脈。相談の操作候補の検証と、STAGE2の依頼の読み取りに使う */
+function stage2ContextOf(st: ReturnType<typeof useStrategyStore.getState>, focusQuestionId: string | null) {
+  return {
+    targets: (st.companyTargets ?? []) as Array<{ id: string; label: string; unit: string; base: number; dueYear?: number }>,
+    swot: {
+      strength: (st.strength ?? '').slice(0, 8000),
+      weakness: (st.weakness ?? '').slice(0, 8000),
+      opportunity: (st.opportunity ?? '').slice(0, 8000),
+      threat: (st.threat ?? '').slice(0, 8000),
+    },
+    answers: Object.fromEntries((st.answers12 ?? []).map((a) => [a.id, (a.answer ?? '').slice(0, 8000)])),
+    focusQuestionId,
+    questionIds: STAGE2_QUESTIONS_12.map((q) => q.id),
+  };
+}
+
 function proposalIntroText(p: OperationProposal): string {
   if (p.kind === 'stage1.issue') {
     return `経営課題「${p.title}」の入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと追加して保存されます。`;
@@ -297,6 +316,9 @@ function proposalIntroText(p: OperationProposal): string {
   }
   if (p.kind === 'stage2.ceoIntent') {
     return '「経営者の思い」への入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。';
+  }
+  if (p.kind === 'stage2.remove' || p.kind === 'stage2.commit') {
+    return `${p.impact} 内容を確かめ、承認すると実行されます（まだ実行していません）。`;
   }
   if (p.kind === 'stage1.remove') {
     return `${p.impact} 内容を確かめ、「削除を承認」を押すと削除されます（まだ削除していません）。`;
@@ -315,6 +337,14 @@ const STARTER_QUESTIONS = [
 
 export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
+  // 生成・確定の結果を、チャットに正確に伝える（画面の処理が結果を報告したとき）
+  const stage2Report = useStage2CommandStore((s) => s.lastReport);
+  const stage2ReportSince = useRef(Date.now());
+  useEffect(() => {
+    if (!stage2Report || stage2Report.at < stage2ReportSince.current) return;
+    const ticket = openCeoChatRequest(useCeoChatStore.getState().ownerKey);
+    updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: stage2Report.message }]);
+  }, [stage2Report]);
   // 会社切替の検知用。会話履歴と進行中の応答はこの会社に紐づける
   const companyId = useUserStore((s) => s.companyId);
   const pathname = usePathname();
@@ -672,11 +702,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (requestCompanyId && latestStrategyId) {
         const stage2Now = useStrategyStore.getState();
         const focus = useConsultFocusStore.getState().entries['stage2-questions'];
-        const stage2Input = resolveStage2Input(trimmed, {
-          targets: (stage2Now.companyTargets ?? []) as Array<{ id: string; label: string; unit: string; base: number; dueYear?: number }>,
-          focusQuestionId: focus && focus.pathname === '/stage2' ? (focus.question?.id ?? null) : null,
-          questionIds: STAGE2_QUESTIONS_12.map((q) => q.id),
-        });
+        const stage2Input = resolveStage2Input(trimmed, stage2ContextOf(stage2Now, focus && focus.pathname === '/stage2' ? (focus.question?.id ?? null) : null));
         if (stage2Input) {
           const reply = (content: string) => updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
           const goStage2 = () => {
@@ -689,15 +715,22 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           } else if (stage2Input.kind === 'action') {
             const action = stage2Input.action;
             if (action.kind === 'commit') {
-              useAiHighlightStore.getState().flash('stage2.commit');
+              // 確定は明示の承認（カード）を必要とする。承認されるまで何もしない
+              useOperationProposalStore.getState().setPending({
+                kind: 'stage2.commit',
+                pathname: '/stage2',
+                companyId: requestCompanyId,
+                strategyId: latestStrategyId,
+                impact: '全社戦略を確定し、STAGE3へ引き渡します。確定した内容は、STAGE3の事業別戦略の基になります。',
+              });
               goStage2();
-              reply('全社戦略の確定とSTAGE3への引き渡しは、STAGE2の「最終確定」の画面で、本人がボタンを押して行います。内容を確かめてから押してください。');
+              reply('全社戦略の確定とSTAGE3への引き渡しは、内容を確かめて「確定を承認」を押した時に行います（まだ確定していません）。');
             } else if (action.kind === 'final' && (stage2Now.finalStoryEdited ?? []).length > 0) {
               useAiHighlightStore.getState().flash('stage2.final');
               goStage2();
               reply('編集済みの経営戦略書があるため、再生成すると編集内容が置き換わります。内容を確かめたうえで、STAGE2の「最終確定」の画面の再生成ボタンで実行してください。');
             } else {
-              useStage2CommandStore.getState().request(action.kind);
+              useStage2CommandStore.getState().request({ kind: action.kind, companyId: requestCompanyId, strategyId: latestStrategyId, userId: user?.id ?? '' });
               goStage2();
               reply(
                 action.kind === 'draft'
@@ -705,6 +738,22 @@ export default function CEOChatPanel({ embedded = true }: Props) {
                   : '経営戦略書を作成します。完了すると、最終確定の画面に表示されます。',
               );
             }
+          } else if (stage2Input.kind === 'focus') {
+            useAiHighlightStore.getState().flash(`stage2.question.${stage2Input.questionId}`);
+            goStage2();
+            reply('質問を表示しました。回答は、この質問を選んだ状態で指示してください。');
+          } else if (stage2Input.kind === 'approval') {
+            // 業績目標の削除は明示の承認（カード）を必要とする
+            useOperationProposalStore.getState().setPending({
+              kind: 'stage2.remove',
+              pathname: '/stage2',
+              companyId: requestCompanyId,
+              strategyId: latestStrategyId,
+              op: stage2Input.op,
+              impact: `業績目標「${stage2Input.op.label}」を削除します。削除した目標は、画面の一覧から消えます。`,
+            });
+            goStage2();
+            reply(`業績目標「${stage2Input.op.label}」の削除は、内容を確かめて「削除を承認」を押した時に行います（まだ削除していません）。`);
           } else {
             const applied = await applyStage2Op(stage2Input.op);
             if (applied.ok) goStage2();
@@ -748,7 +797,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               if (!plan.ok) {
                 reply(plan.message);
               } else {
-                const undone = await applyStageOp(plan.record.undo, { recordUndo: false });
+                const undone = await applyUndoRecord(plan.record);
                 if (undone.ok) {
                   useAiUndoStore.getState().clear();
                   if (window.location.pathname !== '/stage1') router.push('/stage1');
@@ -918,6 +967,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           strategyId: latestStrategyId,
           companyId: requestCompanyId,
           ...(priorOffer ? { priorOffer, consultThread: execKey } : {}),
+          ...(pathname === '/stage2'
+            ? { stage2Context: stage2ContextOf(useStrategyStore.getState(), useConsultFocusStore.getState().entries['stage2-questions']?.question?.id ?? null) }
+            : {}),
           ...(screenId ? { screen: { screenId } } : {}),
           ...(consult ? { consult } : {}),
           ...(execKey && selNow && selNow.strategyId === latestStrategyId
@@ -980,6 +1032,17 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       ]);
 
       // 相談の中から検証された操作候補（経営課題の入力案）。保存はせず、承認カードで利用者が確かめる
+      // 相談の回答から検証された STAGE2 の入力操作。管理者の権限で入力欄へ直接反映する（承認カードは出さない）
+      if (data?.stage2Operation && requestCompanyId && latestStrategyId) {
+        const reply2 = (content: string) => updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
+        if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'admin')) {
+          reply2('この操作は管理者が行えます。内容は、管理者に依頼してください。');
+        } else {
+          const applied2 = await applyStage2Op(data.stage2Operation as Stage2Op);
+          reply2(applied2.message);
+        }
+      }
+
       const candidate = parseOperationCandidate(data?.operationCandidate);
       if (candidate && requestCompanyId && latestStrategyId) {
         const role = useUserStore.getState().role ?? null;

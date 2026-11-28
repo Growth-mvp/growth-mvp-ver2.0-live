@@ -3,8 +3,24 @@
  * STAGE3 の戦略書の再生成は入力案ではなく、既存の生成処理を呼ぶ指示として扱う。 */
 import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX, isDeicticTitle, isNegatedOrDeferred } from './consultOperation';
 import type { StageOp } from './stage1Input';
+import type { Stage2Op } from '@/lib/stage2/stage2Input';
 
 export type OperationProposal =
+  | {
+      kind: 'stage2.remove';
+      pathname: '/stage2';
+      companyId: string;
+      strategyId: string;
+      op: Extract<Stage2Op, { kind: 'target.remove' }>;
+      impact: string;
+    }
+  | {
+      kind: 'stage2.commit';
+      pathname: '/stage2';
+      companyId: string;
+      strategyId: string;
+      impact: string;
+    }
   | {
       kind: 'stage1.op';
       pathname: '/stage1';
