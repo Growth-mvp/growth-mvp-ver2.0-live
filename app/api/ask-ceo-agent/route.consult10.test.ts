@@ -75,7 +75,7 @@ const OKR_MARKER = '# 部門・OKR・実行計画';
 const STORY_MARKER = '【戦略ストーリー要約】';
 const RATIONALE_MARKER = '【戦略の根拠';
 const BRIDGE_MARKER = '【STAGE3 戦略展開ブリッジ】';
-const GENERAL_MARKER = 'あなたは博識なアシスタント';
+const GENERAL_MARKER = '一般的な経営知識の質問です';
 
 function chain(result: unknown): unknown {
   const proxy: unknown = new Proxy(

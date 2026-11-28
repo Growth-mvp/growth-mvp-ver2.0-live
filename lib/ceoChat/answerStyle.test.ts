@@ -45,7 +45,7 @@ describe('回答スタイル指示の内容', () => {
     expect(block).toContain('【今回の回答スタイル：通常の経営相談】');
     expect(block).toContain('段落数は決めない');
     expect(block).toContain('「結論として」「重点は3つ」「まず90日間で」');
-    expect(block).toContain('「率直に言うと」「正直に言うと」から話し始めない');
+    expect(block).not.toContain('最初の一文で相手の言葉や問題意識を受け止める');
     expect(block).toContain('「うちの会社を良くするには」のような幅広い相談');
     expect(block).toContain('毎回は問わない');
     expect(block).not.toContain('2〜4段落');
@@ -75,9 +75,9 @@ describe('回答スタイル指示の内容', () => {
     expect(block).not.toContain('2〜4段落');
   });
 
-  it('会話型は、気持ちや困りごとを最初に受け止め、事情が足りない時だけ問いを1つ添える', () => {
+  it('会話型は、受け止めを人柄の定義に任せ、事情が足りない時だけ問いを1つ添える', () => {
     const block = buildAnswerStyleBlock('conversation');
-    expect(block).toContain('最初の一文で相手の言葉や問題意識を受け止める');
+    expect(block).not.toContain('最初の一文で相手の言葉や問題意識を受け止める');
     expect(block).toContain('自然な問いを1つだけ添える');
     expect(block).toContain('問い返しでかわさず');
   });

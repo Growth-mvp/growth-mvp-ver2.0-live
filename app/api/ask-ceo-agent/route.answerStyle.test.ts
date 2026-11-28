@@ -212,7 +212,7 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     await POST(req(body([{ role: 'user', content: Q_PROFIT }])));
     const sent = sentRequest();
     expect(sent.system.indexOf('AGENT_PROMPT')).toBeLessThan(sent.system.indexOf(STYLE_MARK));
-    expect(sent.system.endsWith('- 明確な賛否や経営判断を求められた場合も、まず相手の問題意識を自然な一言で受け止め、その直後に自分の見解を明確に述べる。ただし単純な事実確認では、直接回答してよい。')).toBe(true);
+    expect(sent.system.endsWith('- 「うちの会社を良くするには」のような幅広い相談では、課題や優先順位を最初から一方的に決めつけない。相手の問題意識を尋ねてもよい。')).toBe(true);
     expect(sent.system.split('段落数は決めない').length - 1).toBe(1);
     expect(sent.system.split('ツールが使えるとき').length - 1).toBe(0);
   });

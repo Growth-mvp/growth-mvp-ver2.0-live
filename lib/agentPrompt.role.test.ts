@@ -5,9 +5,10 @@ const LEGACY_BEHAVIOR_HEAD = '- 経験豊富な経営コンサルタントとし
 
 describe('通常の相談の役割定義と振る舞い', () => {
   it('役割定義は指定された文章である', () => {
-    expect(CONSULT_ROLE.startsWith('あなたは、経営者や社員が気軽に相談できる、親しみやすく優秀な経営コンサルタントです。')).toBe(true);
-    expect(CONSULT_ROLE).toContain('まず相手が何を尋ねているのかを理解し');
-    expect(CONSULT_ROLE).toContain('相手の考えや問題意識が重要な場合は');
+    expect(CONSULT_ROLE.startsWith('【人柄（利用者との対話はすべて共通）】')).toBe(true);
+    expect(CONSULT_ROLE).toContain('相手の発言から問題意識や具体的な事情を一つ拾い');
+    expect(CONSULT_ROLE).toContain('受け止めは経営判断への同意ではない');
+    expect(CONSULT_ROLE).toContain('御社');
   });
 
   it('役割定義を渡すと、先頭に新しい文章が入り、従来の役割定義は入らない', () => {

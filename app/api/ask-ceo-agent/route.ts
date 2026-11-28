@@ -12,6 +12,7 @@ import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
 import { buildConsultingReasoningBlock, consultingEffort, selectConsultingPlan, type ConsultingPlan } from '@/lib/ceoChat/consultingReasoning';
 import { consultationQueryOf } from '@/lib/ceoChat/followUpContext';
 import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat } from '@/lib/ceoChat/answerStyle';
+import { CONSULTANT_PERSONA, HELP_TONE } from '@/lib/ceoChat/consultantPersona';
 import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { attributableOkrs } from '@/lib/cascade/okrAttribution';
@@ -673,7 +674,8 @@ export async function POST(req: Request) {
         '\n' +
         FEATURE_CLAIM_RULE +
         '\n' +
-        INPUT_AND_IMAGE_RULE;
+        INPUT_AND_IMAGE_RULE + '\n\n' + HELP_TONE;
+      console.log('[ask-ceo-agent]', requestId, 'persona_route', { resolved_mode: 'help', persona: 'help_tone' });
     } else {
       // advisor/facilitator モード: 既存ロジック（agent-based systemPrompt）
       // ③ 検査: どの経路が選ばれるか + 企業データ参照の判定
@@ -744,7 +746,9 @@ export async function POST(req: Request) {
           ? agentPrompt(strategy as any, answers2 as any, finalStory as any, isManual ? CONSULT_ROLE : undefined, isManual ? CONSULT_BEHAVIOR : undefined) +
             (externalFinancialBlock ? '\n\n' + externalFinancialBlock : '') +
             '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
-          : 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION) +
+          : (isManual
+              ? CONSULTANT_PERSONA + '\n\n一般的な経営知識の質問です。自社の登録情報は使わず、推測は推測と明記して、日本語で簡潔かつ正確に回答します。'
+              : 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。') + '\n\n' + GROWTH_SHIFT_FOUNDATION) +
         '\n' +
         TABOO +
         '\n' +
@@ -1055,6 +1059,7 @@ export async function POST(req: Request) {
         priorUserTexts: askMessages.slice(0, -1).filter((m) => m.role === 'user').map((m) => m.content),
       });
       systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle);
+      console.log('[ask-ceo-agent]', requestId, 'persona_route', { resolved_mode: resolvedMode, persona: 'consultant', answer_style: answerStyle });
     }
 
     // --- OpenAI 呼び出し ---
