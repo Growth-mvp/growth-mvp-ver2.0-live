@@ -1,0 +1,36 @@
+{
+  "condition": "A",
+  "questionId": 1,
+  "question": "当社の最大の経営課題は何か？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点では、当社の財務状況や事業環境、経営方針などの情報がこの会話にないため、「最大の経営課題はこれだ」と断定できません。\n\n最大の課題は、単に売上や利益が低いことではなく、たとえば次のどれが成長や企業価値を最も制約しているかで決まります。\n\n- 収益性や資金繰り\n- 顧客・市場の縮小や競争激化\n- 営業力や商品・サービスの競争力\n- 人材不足、組織間の連携\n- 戦略が現場の行動につながっていないこと\n\nまずは、直近で経営者が最も危機感を持っている事象を教えてください。  \n「利益が出ない」「売上が伸びない」「人が育たない」「幹部と現場の認識がずれている」など、簡単な一言で構いません。そこから、最大の経営課題を絞り込みます。",
+  "calls": [
+    {
+      "seq": 1,
+      "tag": "A-q1",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2529,
+        "completion_tokens": 301,
+        "total_tokens": 2830,
+        "prompt_tokens_details": {
+          "cached_tokens": 2526,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 38,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.000867,
+      "error": null,
+      "latencyMs": 3365
+    }
+  ],
+  "costUsd": 0.000867
+}

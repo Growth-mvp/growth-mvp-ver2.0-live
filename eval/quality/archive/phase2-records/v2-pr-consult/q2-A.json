@@ -1,0 +1,36 @@
+{
+  "condition": "A",
+  "questionId": 2,
+  "question": "今の戦略で3年後に成長できるか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点の情報だけでは、3年後に成長できるかは判断できません。戦略の良し悪しだけでなく、顧客に選ばれる根拠があり、それを実行し続けられるかが重要です。\n\nまず、次の点を確認したいです。\n\n- 3年後に何を「成長」とするか（売上、利益、顧客数、事業規模など）\n- 今の戦略で、誰にどんな価値を提供するのか\n- 競合ではなく自社が選ばれる理由は何か\n- 成長の前提となる市場や顧客需要は、今後も続く見込みか\n- その戦略を実行する人材・資金・体制があるか\n- すでに成果が出ている取り組みと、まだ仮説に過ぎない部分は何か\n\n特に注意したいのは、「新規事業を始める」「営業を強化する」といった活動計画を、成長そのものと捉えてしまうことです。3年後の売上や利益にどうつながるかまで説明できなければ、戦略としてはまだ検証不足です。\n\n現在の戦略の概要と、3年後の目標を教えていただければ、実現可能性・主なリスク・見直すべき前提を一緒に整理できます。",
+  "calls": [
+    {
+      "seq": 4,
+      "tag": "A-q2",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2531,
+        "completion_tokens": 375,
+        "total_tokens": 2906,
+        "prompt_tokens_details": {
+          "cached_tokens": 2528,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 36,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0009562,
+      "error": null,
+      "latencyMs": 4055
+    }
+  ],
+  "costUsd": 0.0009562
+}

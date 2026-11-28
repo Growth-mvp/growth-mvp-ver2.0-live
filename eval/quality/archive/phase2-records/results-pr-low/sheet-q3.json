@@ -1,0 +1,106 @@
+{
+  "questionId": 3,
+  "question": "営業部門と製造部門の連携に問題はないか？",
+  "note": "人が採点するまで null のままにする。自動検査（autoAssist）は補助であり、採点・優劣の判定ではない。",
+  "dimensions": [
+    {
+      "dimension": "自社固有の理解",
+      "criteria": [
+        "C1"
+      ],
+      "humanScore": {
+        "A": null,
+        "B": null,
+        "scorer": null,
+        "comment": ""
+      }
+    },
+    {
+      "dimension": "経営課題の洞察",
+      "criteria": [
+        "C4"
+      ],
+      "humanScore": {
+        "A": null,
+        "B": null,
+        "scorer": null,
+        "comment": ""
+      }
+    },
+    {
+      "dimension": "判断の根拠",
+      "criteria": [
+        "C2",
+        "C3"
+      ],
+      "humanScore": {
+        "A": null,
+        "B": null,
+        "scorer": null,
+        "comment": ""
+      }
+    },
+    {
+      "dimension": "実行可能な提案",
+      "criteria": [
+        "C5",
+        "C6"
+      ],
+      "humanScore": {
+        "A": null,
+        "B": null,
+        "scorer": null,
+        "comment": ""
+      }
+    },
+    {
+      "dimension": "GROWTH SHIFTの基本思想との整合",
+      "criteria": [
+        "C7"
+      ],
+      "humanScore": {
+        "A": null,
+        "B": null,
+        "scorer": null,
+        "comment": ""
+      }
+    },
+    {
+      "dimension": "一般論との違い",
+      "criteria": [],
+      "note": "A と B を並べて人が判断する（自動では判定しない）",
+      "humanScore": {
+        "A": null,
+        "B": null,
+        "scorer": null,
+        "comment": ""
+      }
+    },
+    {
+      "dimension": "情報不足時の断定回避（補足）",
+      "criteria": [
+        "C8"
+      ],
+      "humanScore": {
+        "A": null,
+        "B": null,
+        "scorer": null,
+        "comment": ""
+      }
+    }
+  ],
+  "autoAssist": {
+    "A": {
+      "missingFacts": [],
+      "leakedFacts": [],
+      "ungroundedNumbers": []
+    },
+    "B": {
+      "missingFacts": [
+        "価値指標との対応（登録）: 未登録"
+      ],
+      "leakedFacts": [],
+      "ungroundedNumbers": []
+    }
+  }
+}

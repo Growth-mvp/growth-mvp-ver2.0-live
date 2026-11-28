@@ -1,0 +1,37 @@
+{
+  "condition": "A",
+  "questionId": 7,
+  "question": "社長が今、最も優先すべきことは何か？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "今の状況が分からない段階で一つに断定するなら、社長が最も優先すべきことは、**会社が今期に必ず守るもの・伸ばすものを一つに絞り、それを社員と共有すること**です。\n\n売上拡大、人材、コスト削減、新規事業などを同時に追うと、現場の判断が分散します。まず社長自身が、次のどれが最優先かを決める必要があります。\n\n- 資金繰りや赤字の回避\n- 既存顧客・主力事業の収益改善\n- 成長投資や新市場への進出\n- 組織・人材の立て直し\n\nそのうえで、「なぜ今それが最優先なのか」「社員に何を判断基準にしてほしいのか」まで伝え、各部門の行動につなげることが重要です。\n\n会社の状況に即して答えるには、今、社長が最も強く感じているのは **業績の不安、成長の停滞、組織の問題、資金面の不安** のどれに近いでしょうか。",
+  "calls": [
+    {
+      "seq": 10,
+      "tag": "A-q7",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2533,
+        "completion_tokens": 338,
+        "total_tokens": 2871,
+        "prompt_tokens_details": {
+          "cached_tokens": 2530,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 41,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0009122000000000001,
+      "error": null,
+      "latencyMs": 4355,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.0009122000000000001
+}

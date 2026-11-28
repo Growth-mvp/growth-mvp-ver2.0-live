@@ -1,0 +1,37 @@
+{
+  "condition": "A",
+  "questionId": 3,
+  "question": "営業部門と製造部門の連携に問題はないか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点の情報だけでは、営業部門と製造部門の連携に「問題がある」とは断定できません。  \nただし、両部門の連携は、単に会議や情報共有の回数が多いかではなく、**顧客への約束と、製造が実現できる内容が一致しているか**で見るのが重要です。\n\nたとえば、次のような状況があれば、連携に課題がある可能性があります。\n\n- 営業が納期・仕様・数量を先に顧客へ約束し、製造が後から調整している\n- 製造が「営業は現場の制約を理解していない」と感じ、営業が「製造は融通が利かない」と感じている\n- 納期遅延、仕様変更、特急対応が繰り返されている\n- 失注やクレームの原因を、営業と製造が互いの責任だと考えている\n- 営業の受注目標と、製造の生産性・安定稼働の目標が衝突している\n\n一方で、これらがあっても、原因は「仲が悪い」ことではなく、**受注前の確認事項、判断権限、優先順位、情報の受け渡し方が曖昧**なことが多いです。\n\nまず確認したいのは、直近で営業と製造の間に、次のどのような事例があったかです。\n\n1. 納期や仕様をめぐるトラブル  \n2. 受注判断や特急対応をめぐる対立  \n3. 情報共有の遅れ・漏れ  \n4. 部門間の目標や評価の食い違い  \n5. 特に問題はないが、今後の成長に向けて連携を強化したい\n\n具体的な事例が一つ分かれば、それが一時的な行き違いなのか、構造的な連携問題なのかを一緒に切り分けられます。",
+  "calls": [
+    {
+      "seq": 4,
+      "tag": "A-q3",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2533,
+        "completion_tokens": 531,
+        "total_tokens": 3064,
+        "prompt_tokens_details": {
+          "cached_tokens": 2530,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 28,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0011438,
+      "error": null,
+      "latencyMs": 5327,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.0011438
+}

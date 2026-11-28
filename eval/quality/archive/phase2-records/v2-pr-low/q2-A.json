@@ -1,0 +1,36 @@
+{
+  "condition": "A",
+  "questionId": 2,
+  "question": "今の戦略で3年後に成長できるか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点では、今の戦略だけで3年後に成長できるかは判断できません。戦略の内容と、成長を支える実行力・収益性の確認が必要です。\n\nまずは、次の3点を見たいです。\n\n1. **どの市場・顧客で成長するのか**  \n   市場が伸びているのか、顧客に選ばれる理由があるのか。\n\n2. **成長が利益につながるのか**  \n   売上拡大だけでなく、粗利・営業利益・投資回収まで見通せるのか。\n\n3. **社内で実行できるのか**  \n   必要な人材・営業力・商品開発力・資金があり、現場の行動まで落ちているのか。\n\n特に注意したいのは、「売上を伸ばす計画」と「企業価値が高まる計画」は同じではないことです。売上が増えても、値引きや過剰投資で利益や資金が悪化する可能性があります。\n\n判断するために、まず現在の戦略について次の3点を教えてください。\n\n- 3年後に目指している売上・利益・事業規模\n- 成長の柱としている商品・顧客・市場\n- その実現に向けて、今すでに始めている施策\n\nそれをもとに、**「成長可能性が高い部分」「前提が危うい部分」「3年以内に検証すべきこと」**に分けて率直に見ます。",
+  "calls": [
+    {
+      "seq": 4,
+      "tag": "A-q2",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2531,
+        "completion_tokens": 424,
+        "total_tokens": 2955,
+        "prompt_tokens_details": {
+          "cached_tokens": 2528,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 35,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.001015,
+      "error": null,
+      "latencyMs": 4587
+    }
+  ],
+  "costUsd": 0.001015
+}

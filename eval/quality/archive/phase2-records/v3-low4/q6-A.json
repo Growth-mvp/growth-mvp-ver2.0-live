@@ -1,0 +1,37 @@
+{
+  "condition": "A",
+  "questionId": 6,
+  "question": "設備投資と人材採用のどちらを優先すべきか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "一概にどちらが優先とは言えません。判断の軸は、「今の成長制約が設備不足なのか、人手・技能不足なのか」です。\n\n- **設備投資を優先しやすい場合**  \n  受注や需要はあるのに、生産能力・処理能力が足りない。設備導入による売上増や省人化の効果を見積もれる場合。\n- **人材採用を優先しやすい場合**  \n  営業、設計、運用、顧客対応など、人が増えないと設備を稼働させられない。特定の人への業務集中や、技能継承の遅れが大きい場合。\n- **慎重にすべき場合**  \n  需要の見通しが不確か、採用しても育成・配置の計画がない、設備を導入しても使いこなす人がいない場合です。\n\n私の見解では、迷っている段階で高額な設備投資や大量採用に進むより、まず「どちらがボトルネックか」を小さく検証するのが安全です。たとえば、受注残・失注理由・設備稼働率・残業時間・採用後に任せる業務を確認し、投資や採用によって何がどれだけ改善するかを比べます。\n\nなお、設備投資も採用も、資金だけでなく実行後の固定費を増やします。特に需要が読みにくい場合は、リース、外注、業務委託、限定的な採用など、後戻りしやすい選択肢から試す方法もあります。\n\n現在、売上機会を逃している主因は「設備能力の不足」と「人手・技能の不足」のどちらに近いでしょうか？",
+  "calls": [
+    {
+      "seq": 7,
+      "tag": "A-q6",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2535,
+        "completion_tokens": 443,
+        "total_tokens": 2978,
+        "prompt_tokens_details": {
+          "cached_tokens": 2532,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0010386,
+      "error": null,
+      "latencyMs": 5034,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.0010386
+}

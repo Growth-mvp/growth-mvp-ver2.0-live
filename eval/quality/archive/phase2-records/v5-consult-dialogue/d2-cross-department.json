@@ -1,0 +1,123 @@
+{
+  "id": "d2-cross-department",
+  "turns": [
+    {
+      "turn": 1,
+      "user": "他部門がなかなか協力してくれません。営業部との関係をどう改善すべきでしょうか？",
+      "answer": "営業部が協力してくれないと感じるとき、いきなり会議やルールを増やすより、「顧客の設備を止めないために、営業と自部門が何をつなぐ必要があるか」を一緒に確認するのが先です。営業部は新規商談や保守契約の継続、自部門は点検品質や報告の確実さを重視しているため、それぞれが自分の目標を優先しているだけ、という可能性もあります。\n\nたとえば、個別の不満を並べるのではなく、「点検結果が当日中に営業へ伝わらないと、顧客への説明や契約更新の提案が遅れる。一方で、現場は報告作成に必要な情報が不足している。どの情報を、いつ、どの形で渡せば双方が動きやすいか」を、具体的な案件を一つ使って話すとよいでしょう。営業側にも「顧客から何を聞かれて困っているか」を聞き、互いの制約を見えるようにします。\n\nそのうえで、まずは大きな制度ではなく、1件の案件で情報共有のやり方を試し、顧客対応が早くなったかを確認するのが現実的です。協力しない相手を変えるより、「協力すると営業にも自部門にもどんな成果が返るか」を共有することが関係改善の起点になります。\n\n今、営業部との間で最も行き違っているのは、情報の内容・共有のタイミング・優先順位のどれでしょうか。",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 5,
+          "tag": "d2-cross-department-t1",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 148,
+            "completion_tokens": 58,
+            "total_tokens": 206,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.000057,
+          "error": null,
+          "latencyMs": 1332,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 6,
+          "tag": "d2-cross-department-t1",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 6728,
+            "completion_tokens": 558,
+            "total_tokens": 7286,
+            "prompt_tokens_details": {
+              "cached_tokens": 6693,
+              "cache_write_tokens": 32,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 156,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0020152000000000004,
+          "error": null,
+          "latencyMs": 5932,
+          "reasoningEffort": "medium"
+        }
+      ],
+      "costUsd": 0.0020722000000000006
+    },
+    {
+      "turn": 2,
+      "user": "でも、営業部は自分たちの数字で精一杯なので、製造の事情まで聞く余裕がないと言っています。",
+      "answer": "営業部に「製造の事情を理解してほしい」と求めるだけでは、今の状況では動いてもらいにくいと思います。営業部には新規商談120件や保守契約継続率95％という目標があるため、製造との調整が自分たちの成果にどう結びつくかが見えないと、優先順位を上げにくいからです。\n\n製造側からは、理解や協力を求めるのではなく、営業の顧客対応を早くするための「最小限の情報」に絞るのが現実的です。たとえば点検後に、営業が顧客へ説明するための要点を短い定型で渡します。\n\n「異常の有無」「顧客への説明が必要な点」「追加対応の要否」「回答期限」の4項目程度なら、営業に長い報告書を読んでもらう必要がありません。製造部の目標である点検報告の当日提出率90％ともつながりますし、営業にとっても保守契約の更新や追加提案に使える情報になります。\n\nそれでも営業部が対応できない場合は、営業に新しい作業を依頼するのではなく、製造側で要点を整理したうえで、「この情報を使えば顧客にこう説明できます」と完成形に近づけるべきです。ただし、営業が本当に必要としている情報とずれていると逆効果なので、まず営業担当者1人に、実際の顧客対応で何が分からず困るのかを一度だけ確認するのがよいでしょう。",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 7,
+          "tag": "d2-cross-department-t2",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 151,
+            "completion_tokens": 74,
+            "total_tokens": 225,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.00006705,
+          "error": null,
+          "latencyMs": 1733,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 8,
+          "tag": "d2-cross-department-t2",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 6880,
+            "completion_tokens": 467,
+            "total_tokens": 7347,
+            "prompt_tokens_details": {
+              "cached_tokens": 6411,
+              "cache_write_tokens": 466,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 68,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0019364,
+          "error": null,
+          "latencyMs": 5613,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.00200345
+    }
+  ]
+}

@@ -1,0 +1,526 @@
+{
+  "questions": 7,
+  "calls": 21,
+  "spentUsd": 0.020756350000000003,
+  "budgetUsd": 1,
+  "records": [
+    {
+      "seq": 1,
+      "tag": "A-q1",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2529,
+        "completion_tokens": 401,
+        "total_tokens": 2930,
+        "prompt_tokens_details": {
+          "cached_tokens": 2526,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 26,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.000987,
+      "error": null,
+      "latencyMs": 4620,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 2,
+      "tag": "B-q1",
+      "model": "gpt-4o-mini",
+      "usage": {
+        "prompt_tokens": 133,
+        "completion_tokens": 44,
+        "total_tokens": 177,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.000046349999999999995,
+      "error": null,
+      "latencyMs": 1217,
+      "reasoningEffort": null
+    },
+    {
+      "seq": 3,
+      "tag": "B-q1",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 6823,
+        "completion_tokens": 340,
+        "total_tokens": 7163,
+        "prompt_tokens_details": {
+          "cached_tokens": 6820,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 65,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0017726,
+      "error": null,
+      "latencyMs": 4234,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 4,
+      "tag": "A-q2",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2531,
+        "completion_tokens": 340,
+        "total_tokens": 2871,
+        "prompt_tokens_details": {
+          "cached_tokens": 2528,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 30,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0009142,
+      "error": null,
+      "latencyMs": 4215,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 5,
+      "tag": "B-q2",
+      "model": "gpt-4o-mini",
+      "usage": {
+        "prompt_tokens": 135,
+        "completion_tokens": 64,
+        "total_tokens": 199,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.000058649999999999996,
+      "error": null,
+      "latencyMs": 1619,
+      "reasoningEffort": null
+    },
+    {
+      "seq": 6,
+      "tag": "B-q2",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 6974,
+        "completion_tokens": 683,
+        "total_tokens": 7657,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 6971,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 273,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0022144,
+      "error": null,
+      "latencyMs": 7087,
+      "reasoningEffort": "medium"
+    },
+    {
+      "seq": 7,
+      "tag": "A-q3",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2533,
+        "completion_tokens": 489,
+        "total_tokens": 3022,
+        "prompt_tokens_details": {
+          "cached_tokens": 2530,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 29,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0010934,
+      "error": null,
+      "latencyMs": 4922,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 8,
+      "tag": "B-q3",
+      "model": "gpt-4o-mini",
+      "usage": {
+        "prompt_tokens": 137,
+        "completion_tokens": 75,
+        "total_tokens": 212,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.00006555,
+      "error": null,
+      "latencyMs": 1450,
+      "reasoningEffort": null
+    },
+    {
+      "seq": 9,
+      "tag": "B-q3",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 6717,
+        "completion_tokens": 390,
+        "total_tokens": 7107,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 6714,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 77,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0018114000000000001,
+      "error": null,
+      "latencyMs": 3836,
+      "reasoningEffort": "medium"
+    },
+    {
+      "seq": 10,
+      "tag": "A-q4",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2529,
+        "completion_tokens": 184,
+        "total_tokens": 2713,
+        "prompt_tokens_details": {
+          "cached_tokens": 2526,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 16,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0007266,
+      "error": null,
+      "latencyMs": 2259,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 11,
+      "tag": "B-q4",
+      "model": "gpt-4o-mini",
+      "usage": {
+        "prompt_tokens": 133,
+        "completion_tokens": 67,
+        "total_tokens": 200,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.00006014999999999999,
+      "error": null,
+      "latencyMs": 1566,
+      "reasoningEffort": null
+    },
+    {
+      "seq": 12,
+      "tag": "B-q4",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 5623,
+        "completion_tokens": 238,
+        "total_tokens": 5861,
+        "prompt_tokens_details": {
+          "cached_tokens": 5620,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0014102000000000001,
+      "error": null,
+      "latencyMs": 3067,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 13,
+      "tag": "A-q5",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2531,
+        "completion_tokens": 411,
+        "total_tokens": 2942,
+        "prompt_tokens_details": {
+          "cached_tokens": 2528,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 28,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0009994000000000001,
+      "error": null,
+      "latencyMs": 4364,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 14,
+      "tag": "B-q5",
+      "model": "gpt-4o-mini",
+      "usage": {
+        "prompt_tokens": 135,
+        "completion_tokens": 60,
+        "total_tokens": 195,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.00005625,
+      "error": null,
+      "latencyMs": 1466,
+      "reasoningEffort": null
+    },
+    {
+      "seq": 15,
+      "tag": "B-q5",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 5992,
+        "completion_tokens": 420,
+        "total_tokens": 6412,
+        "prompt_tokens_details": {
+          "cached_tokens": 5989,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 125,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0017024000000000002,
+      "error": null,
+      "latencyMs": 4699,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 16,
+      "tag": "A-q6",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2535,
+        "completion_tokens": 461,
+        "total_tokens": 2996,
+        "prompt_tokens_details": {
+          "cached_tokens": 2532,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0010601999999999999,
+      "error": null,
+      "latencyMs": 4976,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 17,
+      "tag": "B-q6",
+      "model": "gpt-4o-mini",
+      "usage": {
+        "prompt_tokens": 139,
+        "completion_tokens": 107,
+        "total_tokens": 246,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.00008505,
+      "error": null,
+      "latencyMs": 2106,
+      "reasoningEffort": null
+    },
+    {
+      "seq": 18,
+      "tag": "B-q6",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 7425,
+        "completion_tokens": 905,
+        "total_tokens": 8330,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 7422,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 512,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.002571,
+      "error": null,
+      "latencyMs": 10120,
+      "reasoningEffort": "high"
+    },
+    {
+      "seq": 19,
+      "tag": "A-q7",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2533,
+        "completion_tokens": 456,
+        "total_tokens": 2989,
+        "prompt_tokens_details": {
+          "cached_tokens": 2530,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 41,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0010538,
+      "error": null,
+      "latencyMs": 4391,
+      "reasoningEffort": "low"
+    },
+    {
+      "seq": 20,
+      "tag": "B-q7",
+      "model": "gpt-4o-mini",
+      "usage": {
+        "prompt_tokens": 137,
+        "completion_tokens": 46,
+        "total_tokens": 183,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.00004815,
+      "error": null,
+      "latencyMs": 1185,
+      "reasoningEffort": null
+    },
+    {
+      "seq": 21,
+      "tag": "B-q7",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 7170,
+        "completion_tokens": 488,
+        "total_tokens": 7658,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 7167,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 139,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0020196,
+      "error": null,
+      "latencyMs": 4940,
+      "reasoningEffort": "medium"
+    }
+  ]
+}

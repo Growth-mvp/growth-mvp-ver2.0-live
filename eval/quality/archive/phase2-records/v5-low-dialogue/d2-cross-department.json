@@ -1,0 +1,123 @@
+{
+  "id": "d2-cross-department",
+  "turns": [
+    {
+      "turn": 1,
+      "user": "他部門がなかなか協力してくれません。営業部との関係をどう改善すべきでしょうか？",
+      "answer": "営業部との協力を改善するには、まず「協力してくれない」と捉えるより、両部門が何を優先しているのかを具体的にすり合わせることが重要です。\n\n現在の登録内容では、営業部は新規顧客の開拓や保守契約の更新、製造部は点検品質と原価低減を担っています。営業は顧客への回答の速さ、製造は点検の確実さを重視しやすく、ここに認識のずれがあると、相手の依頼が「無理な要求」に見えてしまいます。\n\nまずは、個別の不満を並べるのではなく、「地域の製造業の設備を止めない」という共通目的に照らして、顧客にどの情報をいつ共有すれば保守の確かさにつながるかを話し合うのがよいでしょう。特に、点検内容や報告の進み具合を営業が把握できることは、顧客への説明や保守契約の更新にも関係します。登録されている計画でも、点検報告の当日提出率90％が目標になっていますが、これを製造部だけの目標にせず、営業が顧客対応にどう活用するかまで確認できると、協力の意味が共有されやすくなります。\n\nなお、あなたが営業部側・製造部側のどちらにいるかで、最初に働きかける相手や進め方は変わります。どちらの立場で困っていますか？",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 5,
+          "tag": "d2-cross-department-t1",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 148,
+            "completion_tokens": 68,
+            "total_tokens": 216,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.000063,
+          "error": null,
+          "latencyMs": 1852,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 6,
+          "tag": "d2-cross-department-t1",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 6728,
+            "completion_tokens": 379,
+            "total_tokens": 7107,
+            "prompt_tokens_details": {
+              "cached_tokens": 6693,
+              "cache_write_tokens": 32,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0018004000000000002,
+          "error": null,
+          "latencyMs": 4230,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.0018634
+    },
+    {
+      "turn": 2,
+      "user": "でも、営業部は自分たちの数字で精一杯なので、製造の事情まで聞く余裕がないと言っています。",
+      "answer": "営業部が余裕のない状態なら、「製造の事情を理解してもらう」ことを求めるだけでは進みにくいです。営業部の数字に直結する範囲に絞り、製造からの情報を“追加業務”ではなく“顧客対応を早くする材料”として渡す形に変えるのが現実的です。\n\nたとえば、製造部から営業部へ共有する情報を、点検の詳細全般ではなく「完了・未完了」「顧客に伝えてよい注意点」「次回対応が必要か」のような最小限に絞ります。営業部が知りたい内容を先に確認し、当日提出される点検報告から営業向けの要点だけを定型化できれば、営業が製造へ何度も確認する手間も減ります。\n\n伝え方としては、「製造の事情も聞いてください」ではなく、「この3項目だけ共有すれば、顧客への回答と保守契約更新の提案が早くなる。営業側で必要な項目を決めてほしい」と持ちかけるのがよいでしょう。営業部の保守契約継続率95％という目標にも関係するため、協力を求める根拠を営業の成果に置けます。\n\nただし、営業部に情報提供を求めるだけで、製造側が顧客への説明材料を整理しないなら、協力とは言えません。まずは直近の案件を1件選び、「営業が本当に必要だった情報は何か」を一緒に振り返るところから始めるのが妥当です。",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 7,
+          "tag": "d2-cross-department-t2",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 151,
+            "completion_tokens": 74,
+            "total_tokens": 225,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.00006705,
+          "error": null,
+          "latencyMs": 1366,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 8,
+          "tag": "d2-cross-department-t2",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 6863,
+            "completion_tokens": 447,
+            "total_tokens": 7310,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 6860,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 46,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.001909,
+          "error": null,
+          "latencyMs": 5209,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.00197605
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "condition": "A",
+  "questionId": 7,
+  "question": "社長が今、最も優先すべきことは何か？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "（fake回答）社長が今、最も優先す",
+  "calls": [
+    {
+      "seq": 19,
+      "tag": "A-q7",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2439,
+        "completion_tokens": 200
+      },
+      "costUsd": 0.0007277999999999999,
+      "error": null,
+      "latencyMs": 0,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.0007277999999999999
+}

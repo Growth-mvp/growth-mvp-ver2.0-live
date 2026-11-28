@@ -1,0 +1,37 @@
+{
+  "condition": "A",
+  "questionId": 5,
+  "question": "来年度の利益と資金繰りはどうなるか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "来年度の利益と資金繰りは、現時点の情報だけでは判断できません。特に、売上の見込みだけでなく、入金・支払いの時期と借入返済が重要です。\n\nまず、次の情報が分かると見通しを作れます。\n\n- 今期の売上・営業利益・最終利益の実績または着地見込み\n- 来年度の売上見込みと、粗利率・主な費用の変化\n- 売掛金の回収条件、仕入・外注費の支払条件\n- 借入残高、来年度の元金返済額・利払い\n- 設備投資、賞与、税金など大きな支出予定\n- 現預金残高と、利用可能な借入枠\n\n利益については、  \n**売上見込み × 粗利率 − 固定費 − その他費用**  \nで概算できます。一方、資金繰りは利益とは別に、売掛金の回収遅れや借入返済によって厳しくなることがあります。\n\nしたがって、現段階で言えるのは「利益が出る見込みでも、資金繰りが安全とは限らない」ということです。今期の着地見込みと、来年度の売上・大きな支出の予定が分かれば、利益見通しと月次の資金残高を分けて整理できます。",
+  "calls": [
+    {
+      "seq": 7,
+      "tag": "A-q5",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2531,
+        "completion_tokens": 377,
+        "total_tokens": 2908,
+        "prompt_tokens_details": {
+          "cached_tokens": 2528,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 28,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0009586,
+      "error": null,
+      "latencyMs": 3952,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.0009586
+}

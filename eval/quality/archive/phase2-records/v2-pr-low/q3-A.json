@@ -1,0 +1,36 @@
+{
+  "condition": "A",
+  "questionId": 3,
+  "question": "営業部門と製造部門の連携に問題はないか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点の情報だけでは、営業部門と製造部門の連携に問題があるとは断定できません。  \nただし、次のような事実があれば、連携上の課題を疑う余地があります。\n\n- 営業が受注した内容を、製造が「聞いていない」「対応できない」と感じる\n- 納期や仕様の変更が、製造に遅れて伝わる\n- 営業は顧客要望を優先し、製造は生産効率や品質を優先して、判断基準が食い違う\n- 納期遅延、手戻り、特注対応の負担について、互いに相手の責任だと考えている\n- 会議や情報共有はあるが、受注前に製造が判断できる仕組みになっていない\n\n重要なのは、会議の回数や連絡手段よりも、まず両部門が「何を実現するために協働するのか」を共有できているかです。たとえば、単に受注件数を増やすのか、利益を確保しながら納期・品質を守るのかで、営業と製造の適切な判断は変わります。\n\n確認するなら、まず直近の具体的な案件を1〜2件取り上げて、\n\n1. 顧客への約束は何だったか  \n2. 製造が実際に必要とした情報は何か  \n3. どの時点で認識がずれたか  \n4. その結果、誰のどの判断に手戻りが生じたか  \n\nを一緒に追うのが有効です。\n\n最近、納期・仕様・価格・品質のどの点で、営業と製造の間に違和感が出ていますか？",
+  "calls": [
+    {
+      "seq": 7,
+      "tag": "A-q3",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2533,
+        "completion_tokens": 474,
+        "total_tokens": 3007,
+        "prompt_tokens_details": {
+          "cached_tokens": 2530,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 37,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0010754,
+      "error": null,
+      "latencyMs": 5052
+    }
+  ],
+  "costUsd": 0.0010754
+}

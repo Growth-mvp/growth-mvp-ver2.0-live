@@ -1,0 +1,37 @@
+{
+  "condition": "A",
+  "questionId": 4,
+  "question": "どの実行計画が遅れているか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点では、実行計画の一覧や進捗データがこちらに示されていないため、どの計画が遅れているかは判断できません。\n\nSTAGE5の進捗情報、または次の項目が分かれば確認できます。\n\n- 実行計画名\n- 期限\n- 現在の進捗\n- 未完了のタスク\n- 遅延理由（分かる範囲）\n\n計画一覧を貼っていただければ、遅延しているものを「期限超過」「進捗不足」「判断待ち」などに分けて整理します。",
+  "calls": [
+    {
+      "seq": 4,
+      "tag": "A-q4",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2529,
+        "completion_tokens": 172,
+        "total_tokens": 2701,
+        "prompt_tokens_details": {
+          "cached_tokens": 2526,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 18,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0007122000000000001,
+      "error": null,
+      "latencyMs": 2285,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.0007122000000000001
+}

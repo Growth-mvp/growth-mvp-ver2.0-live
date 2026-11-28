@@ -1,0 +1,35 @@
+{
+  "condition": "A",
+  "questionId": 3,
+  "question": "営業部門と製造部門の連携に問題はないか？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点の情報だけでは、営業部門と製造部門の連携に問題があるとは断定できません。  \nただし、両部門の連携では、次のようなズレが問題になりやすいです。\n\n- 営業が受注を優先し、製造が納期・品質・生産能力の制約を抱える\n- 顧客仕様や納期変更が、製造に十分早く伝わらない\n- 営業は「対応可能」と考え、製造は「現実的でない」と考えている\n- 営業の売上目標と、製造の稼働率・品質・原価の評価が別々になっている\n- 問題が起きた際に、原因追及が先になり、顧客への対応が遅れる\n\n特に確認したいのは、単に会議や情報共有の回数ではなく、**受注前に製造が実現可能性を確認できているか、また変更時に誰が判断するのかが明確か**です。\n\n差し支えなければ、最近あった具体例を一つ教えてください。たとえば「納期遅延」「仕様変更」「見積と実際の原価の差」「営業と製造の責任の押し付け合い」などです。そこから、問題が情報共有なのか、判断基準なのか、部門間の目的のズレなのかを整理できます。",
+  "calls": [
+    {
+      "seq": 4,
+      "tag": "A-q3",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2533,
+        "completion_tokens": 378,
+        "total_tokens": 2911,
+        "prompt_tokens_details": {
+          "cached_tokens": 2530,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 24,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.0009602,
+      "error": null
+    }
+  ],
+  "costUsd": 0.0009602
+}

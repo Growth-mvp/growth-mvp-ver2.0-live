@@ -1,0 +1,37 @@
+{
+  "condition": "A",
+  "questionId": 1,
+  "question": "当社の最大の経営課題は何か？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点では、当社の財務状況や事業構成、経営方針などの登録情報がこちらで確認できないため、「最大の経営課題はこれだ」と断定はできません。\n\nただ、最大の課題を特定するには、まず次の3点を見ます。\n\n1. **会社の成果を最も大きく阻んでいるものは何か**\n   - 収益性、売上成長、資金繰り、顧客離れ、人材、業務効率など\n\n2. **それは一時的な問題か、構造的な問題か**\n   - 市況変化による一時的な落ち込みなのか\n   - 商品・顧客・営業方法・組織の仕組みに根本原因があるのか\n\n3. **経営陣が重点を置いていることと、現場の判断・行動が一致しているか**\n   - 戦略があっても、現場が何を優先すべきか理解できていなければ、実行面が最大の課題になることがあります。\n\n会社の現状データを参照できる状態であれば、売上や利益を並べるだけでなく、**企業価値への影響が最も大きく、かつ経営として変えられる課題**を一つに絞ってお伝えします。まずは、現在もっとも危機感を持っているテーマが「業績」「顧客・市場」「組織・人材」のどれに近いか教えてください。",
+  "calls": [
+    {
+      "seq": 1,
+      "tag": "A-q1",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2529,
+        "completion_tokens": 401,
+        "total_tokens": 2930,
+        "prompt_tokens_details": {
+          "cached_tokens": 2526,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 26,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.000987,
+      "error": null,
+      "latencyMs": 4620,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.000987
+}

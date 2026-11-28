@@ -1,0 +1,136 @@
+{
+  "results": [
+    {
+      "id": "1-strategy",
+      "question": "今の当社の経営戦略で、本当に成長できると思いますか？",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 653,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": false
+    },
+    {
+      "id": "2-goal",
+      "question": "当社の経営目標は達成できそうですか？",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 474,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": true
+    },
+    {
+      "id": "5-cross-dept",
+      "question": "他部門がなかなか協力してくれません。",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 318,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": false
+    },
+    {
+      "id": "6-boss",
+      "question": "上司が私の提案を理解してくれません。",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 320,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": false
+    },
+    {
+      "id": "7-trend",
+      "question": "売上と営業利益の推移を分析してください。",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 272,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：詳細】",
+      "has_stage6": true
+    },
+    {
+      "id": "8-roic",
+      "question": "ROICとは何ですか？",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 268,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": false
+    },
+    {
+      "id": "9-stage4",
+      "question": "STAGE4の実行計画はどうやって修正するのですか？",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 286,
+      "has_persona": false,
+      "has_help_tone": true,
+      "style_title": "",
+      "has_stage6": false
+    },
+    {
+      "id": "e1-price",
+      "question": "うちの販売価格を上げるべきでしょうか？",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 273,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": false
+    },
+    {
+      "id": "e2-evaluation",
+      "question": "社長として、社員の評価制度を見直すべきか迷っています。",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 266,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": false
+    },
+    {
+      "id": "e3-margin",
+      "question": "当社の利益率は改善していますか？",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 289,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": true
+    },
+    {
+      "id": "d1-detail",
+      "question": "今の売上と営業利益の数値を比較して、詳しく資料にまとめてください。",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 253,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：詳細】",
+      "has_stage6": true
+    },
+    {
+      "id": "3-employee",
+      "question": "社員がなかなか主体的に動いてくれません。どうすればいいでしょうか？",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 282,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：通常の経営相談】",
+      "has_stage6": false
+    },
+    {
+      "id": "4-followup",
+      "question": "でも、社員は今の仕事で手一杯なんですよ。",
+      "answer": "サーバーエラーが発生しました。",
+      "ms": 280,
+      "has_persona": true,
+      "has_help_tone": false,
+      "style_title": "【今回の回答スタイル：相手の制約・異議を受けて】",
+      "has_stage6": false
+    }
+  ],
+  "costUsd": 0,
+  "calls": 25
+}

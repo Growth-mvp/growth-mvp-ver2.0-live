@@ -1,0 +1,123 @@
+{
+  "id": "d3-employee-boss",
+  "turns": [
+    {
+      "turn": 1,
+      "user": "上司に自分の提案を理解してもらえないのですが、どうすべきでしょうか？",
+      "answer": "提案の内容そのものより、「上司が何を不安に感じているか」を先に確認するのが有効です。上司から見ると、効果がありそうでも、費用・現場負担・失敗時の責任・既存方針との整合性が見えないと、賛成しにくいことがあります。\n\nいきなり提案を繰り返し説明するのではなく、「この提案について、どの点が懸念になりますか」「判断に必要な情報は何でしょうか」と聞いてみてください。その回答を踏まえ、目的、期待する成果、必要な負担、まず小さく試す方法を整理すると、理解されやすくなります。\n\nただし、理解されない原因が説明不足とは限りません。上司の優先課題と提案の目的がずれている可能性もあります。たとえば、あなたが効率化を重視していても、上司は顧客への影響や納期の確実性を最優先しているかもしれません。\n\n差し支えなければ、その提案は「業務の改善」「新しい施策」「顧客対応」など、どのような内容でしょうか。上司の反応も分かれば、伝え方をもう少し具体化できます。",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 9,
+          "tag": "d3-employee-boss-t1",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 145,
+            "completion_tokens": 71,
+            "total_tokens": 216,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.00006434999999999999,
+          "error": null,
+          "latencyMs": 1728,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 10,
+          "tag": "d3-employee-boss-t1",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 5767,
+            "completion_tokens": 309,
+            "total_tokens": 6076,
+            "prompt_tokens_details": {
+              "cached_tokens": 5735,
+              "cache_write_tokens": 29,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0015242,
+          "error": null,
+          "latencyMs": 3740,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.00158855
+    },
+    {
+      "turn": 2,
+      "user": "でも、上司は忙しくて話を聞く時間もくれないんです。",
+      "answer": "時間をもらえないなら、まず「説明の場」を求めるより、上司が短時間で判断できる形にして渡すのが現実的です。口頭で「相談があります」とだけ伝えると後回しになりやすいので、メールやチャットで、要点を数行に絞ります。\n\n「提案：○○」「期待する効果：○○」「懸念点：○○」「まずは△△だけ試したいです。判断いただきたいのは、実施してよいかどうかの1点です」と書き、「3分で確認できます。難しければ、○日までに可否だけいただけますか」と具体的に依頼します。\n\nそれでも反応がない場合は、勝手に進めず、提案資料や送信内容を残したうえで、直属の上司のさらに上の人や関係部署に相談する方法もあります。ただし、飛び越しと受け取られないよう、「上司が多忙なので、判断に必要な情報の整理方法について相談したい」という形が安全です。\n\nその提案は、上司の承認がないと進められないものですか。それとも、あなたの担当範囲で小さく試せる内容でしょうか。",
+      "resolvedMode": "advisor",
+      "stageUsed": "generic",
+      "calls": [
+        {
+          "seq": 11,
+          "tag": "d3-employee-boss-t2",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 140,
+            "completion_tokens": 69,
+            "total_tokens": 209,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0000624,
+          "error": null,
+          "latencyMs": 1387,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 12,
+          "tag": "d3-employee-boss-t2",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 5875,
+            "completion_tokens": 297,
+            "total_tokens": 6172,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 5872,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0015314,
+          "error": null,
+          "latencyMs": 3505,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.0015938
+    }
+  ]
+}

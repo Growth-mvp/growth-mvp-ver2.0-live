@@ -1,0 +1,123 @@
+{
+  "id": "d1-owner-initiative",
+  "turns": [
+    {
+      "turn": 1,
+      "user": "社員が主体的に動いてくれません。どうすべきでしょうか？",
+      "answer": "社員が主体的に動かないときは、本人の意欲だけを問題にするより、「何を実現するために、どこまで自分で判断してよいのか」が伝わっているかを確かめるのが先です。\n\n御社では「地域の中小製造業の設備を止めない」「点検の確実さと速さで選ばれる」という方向性があります。ただ、これが日々の仕事で、たとえば「この状況なら顧客のために何を優先するか」「どの判断は現場で決めてよいか」まで落ちていなければ、社員は指示を待つほうが安全だと考えます。主体性を求めながら、失敗すると叱られる、判断基準が上司ごとに違う、という状態なら、動かないのは合理的な反応でもあります。\n\nまずは「もっと自分から動いて」と伝えるのではなく、具体的な仕事を一つ選び、「この仕事で顧客にどんな価値を届けたいか」「何を見て判断するか」「自分で決めてよい範囲はどこか」を本人とすり合わせてみてください。そのうえで、結果だけでなく、目的に沿って考えて動いたかを振り返ります。\n\nなお、主体性を高めるために、いきなり研修や制度を増やす必要はありません。経営としては、社員にどの判断を任せたいのか、任せた結果のどこまでを受け止めるのかを明確にすることが重要です。今、特に「指示待ち」と感じるのは、どのような仕事や場面でしょうか？",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 1,
+          "tag": "d1-owner-initiative-t1",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 138,
+            "completion_tokens": 76,
+            "total_tokens": 214,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0000663,
+          "error": null,
+          "latencyMs": 1848,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 2,
+          "tag": "d1-owner-initiative-t1",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 5760,
+            "completion_tokens": 409,
+            "total_tokens": 6169,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 5757,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0016428,
+          "error": null,
+          "latencyMs": 4718,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.0017091
+    },
+    {
+      "turn": 2,
+      "user": "でも、うちの社員は今の業務で手一杯で、そこまで考える余裕はないと思います。",
+      "answer": "今の業務で手一杯なら、主体性を求める前に、考える負担を増やさないことが先です。余裕がない状態で「もっと自分で考えて」と言われても、社員には追加業務として受け取られやすく、かえって動きにくくなります。\n\nこの場合は、全員に大きな改善活動を求めるのではなく、日常業務の中で判断が迷う場面を一つだけ取り上げるのが現実的です。たとえば点検工程で、「この条件なら誰に確認するか」「顧客への連絡をどの時点で行うか」を決めておけば、毎回上司に聞く負担を減らせます。主体性を“考える仕事の追加”ではなく、“迷いや手戻りを減らす仕組み”として設計するイメージです。\n\nまた、業務量そのものが過大なら、主体性の問題ではありません。優先順位を下げる仕事や、やめる仕事を決めずに新しい行動だけを加えるのは避けるべきです。まず、社員が特に時間を取られている業務、判断、手戻りのどれが大きいのかを一つ確認できると、現実的な打ち手を選びやすくなります。",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 3,
+          "tag": "d1-owner-initiative-t2",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 148,
+            "completion_tokens": 70,
+            "total_tokens": 218,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0000642,
+          "error": null,
+          "latencyMs": 1412,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 4,
+          "tag": "d1-owner-initiative-t2",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 6738,
+            "completion_tokens": 325,
+            "total_tokens": 7063,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 6735,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0017376000000000002,
+          "error": null,
+          "latencyMs": 3587,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.0018018
+    }
+  ]
+}

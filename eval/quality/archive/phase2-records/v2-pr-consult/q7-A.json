@@ -1,0 +1,36 @@
+{
+  "condition": "A",
+  "questionId": 7,
+  "question": "社長が今、最も優先すべきことは何か？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "現時点の会社の状況が分からないため、断定はできません。  \nただ、社長が最も優先すべきことは、**「今後の成長を左右する経営上の一つの課題を見極め、何に経営資源を集中するかを決めること」**です。\n\n売上拡大、人材、資金繰り、業務改善などを同時に進めようとすると、現場の行動が分散します。まずは次の問いに答えるのがよいと思います。\n\n> **このまま何も変えなかった場合、半年から1年後に会社へ最も大きな影響を与える問題は何か？**\n\nそのうえで、社長だけで結論を出すのではなく、関係する社員と以下をすり合わせます。\n\n- その問題を優先する理由\n- 顧客や会社にとって、何が変われば成果と言えるか\n- 誰が、どの判断や行動を変える必要があるか\n- 何をいったんやめるか\n\n特に資金繰りに明確な危険がある場合は、まず資金の確保と支出判断が最優先です。一方、資金面に緊急性がないなら、目先の施策を増やすより、**会社として「何を成し遂げるのか」と「何に集中し、何をやらないのか」を明確にすること**が先だと考えます。\n\n今、社長が最も気になっているのは、売上・利益、人材、資金、組織の動きのうち、どれに近いでしょうか。",
+  "calls": [
+    {
+      "seq": 19,
+      "tag": "A-q7",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2533,
+        "completion_tokens": 447,
+        "total_tokens": 2980,
+        "prompt_tokens_details": {
+          "cached_tokens": 2530,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 35,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "costUsd": 0.001043,
+      "error": null,
+      "latencyMs": 4940
+    }
+  ],
+  "costUsd": 0.001043
+}

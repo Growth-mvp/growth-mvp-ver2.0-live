@@ -1,0 +1,123 @@
+{
+  "id": "d1-owner-initiative",
+  "turns": [
+    {
+      "turn": 1,
+      "user": "社員が主体的に動いてくれません。どうすべきでしょうか？",
+      "answer": "社員が主体的に動かないときは、まず「やる気がない」と決めつけず、何を判断してよいのか、判断すると何につながるのかが見えているかを確かめるのが先です。\n\nたとえば御社では、「地域の中小製造業の設備を止めない」「点検の確実さと速さで選ばれる」という方向性があります。ただ、これが現場の仕事に「今回の点検で何を優先するか」「異常を見つけたとき、どこまで自分で提案してよいか」として落ちていなければ、社員は指示待ちになりやすいです。主体性は、自由に任せるだけでは生まれず、目的と判断の範囲が分かって初めて発揮されます。\n\nまずは、実際の仕事を一つ取り上げて、「この仕事は顧客に何を提供するためか」「自分で決めてよいこと・相談すべきことは何か」を本人とすり合わせるのがよいと思います。そのうえで、結果だけでなく、目的に沿って考えた行動も振り返ります。\n\n社員が動かない場面では、本人の意欲より先に、経営や管理職がどこまで目的と裁量を共有できているかを見直す必要があります。特に、社員が動いてほしいと感じるのは、点検工程の標準化、新規顧客開拓、既存顧客の保守契約更新のどの場面でしょうか。",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 1,
+          "tag": "d1-owner-initiative-t1",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 138,
+            "completion_tokens": 70,
+            "total_tokens": 208,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0000627,
+          "error": null,
+          "latencyMs": 1627,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 2,
+          "tag": "d1-owner-initiative-t1",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 5760,
+            "completion_tokens": 427,
+            "total_tokens": 6187,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 5757,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 42,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0016644000000000001,
+          "error": null,
+          "latencyMs": 4610,
+          "reasoningEffort": "medium"
+        }
+      ],
+      "costUsd": 0.0017271
+    },
+    {
+      "turn": 2,
+      "user": "でも、うちの社員は今の業務で手一杯で、そこまで考える余裕はないと思います。",
+      "answer": "今の業務で手一杯なら、主体性を求める前に「考える余裕をどう作るか」を扱うべきです。余裕がない状態で理念や追加の改善活動を求めても、社員には仕事が増えたように受け取られます。\n\nまずは新しい会議や研修を増やすのではなく、日常業務の中で一つだけ確認するのが現実的です。たとえば作業の終わりに、「今回、設備を止めないために特に注意したことは何か」「次回、同じ作業を少し楽にするには何を変えられるか」を短時間で話す程度です。出た意見をすべて実行する必要はなく、会社側が一つ選んで試し、効果を本人に返すことが重要です。\n\nただし、業務量そのものが過大なら、本人の意識では解決しません。残業、割り込み作業、手戻り、属人化など、何が余裕を奪っているのかを見ないまま「主体的に」と言い続けるのは適切ではありません。まず、どの業務で最も時間が詰まっているのかを一つ確認し、そこを軽くすることが先です。",
+      "resolvedMode": "advisor",
+      "stageUsed": "strategy",
+      "calls": [
+        {
+          "seq": 3,
+          "tag": "d1-owner-initiative-t2",
+          "model": "gpt-4o-mini",
+          "usage": {
+            "prompt_tokens": 148,
+            "completion_tokens": 66,
+            "total_tokens": 214,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.0000618,
+          "error": null,
+          "latencyMs": 1669,
+          "reasoningEffort": null
+        },
+        {
+          "seq": 4,
+          "tag": "d1-owner-initiative-t2",
+          "model": "gpt-5.6-luna",
+          "usage": {
+            "prompt_tokens": 6708,
+            "completion_tokens": 312,
+            "total_tokens": 7020,
+            "prompt_tokens_details": {
+              "cached_tokens": 6269,
+              "cache_write_tokens": 436,
+              "audio_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "audio_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0
+            }
+          },
+          "costUsd": 0.001716,
+          "error": null,
+          "latencyMs": 3707,
+          "reasoningEffort": "low"
+        }
+      ],
+      "costUsd": 0.0017778000000000002
+    }
+  ]
+}

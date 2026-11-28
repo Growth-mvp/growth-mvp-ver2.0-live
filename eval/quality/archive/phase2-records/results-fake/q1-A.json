@@ -1,0 +1,25 @@
+{
+  "condition": "A",
+  "questionId": 1,
+  "question": "当社の最大の経営課題は何か？",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "max_completion_tokens": 6000,
+  "answer": "（fake回答）当社の最大の経営課題",
+  "calls": [
+    {
+      "seq": 1,
+      "tag": "A-q1",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "prompt_tokens": 2436,
+        "completion_tokens": 200
+      },
+      "costUsd": 0.0007272,
+      "error": null,
+      "latencyMs": 1,
+      "reasoningEffort": "low"
+    }
+  ],
+  "costUsd": 0.0007272
+}
