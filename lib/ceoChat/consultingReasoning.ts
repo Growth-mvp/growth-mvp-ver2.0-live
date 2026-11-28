@@ -6,7 +6,7 @@ export type ConsultingPlan = {
   effort: 'medium' | 'high';
   sources: { finance: boolean; rationale: boolean; alignment: boolean; progress: boolean; plan: boolean };
 };
-const DECISION = /べき|すべき|した方が|どちら|優先|判断|妥当|整合|選択|見直|どう思|どうする|どうすれ|どうか|成長できるか|達成できるか|評価|比較|是非|決め|検討|何を.*(?:変え|すれ|優先)/;
+const DECISION = /べき|すべき|した方が|どちら|優先|判断|妥当|整合|選択|見直|どう思|どうする|どうすれ|どうか|成長できるか|達成できるか|評価|比較|是非|決め|検討|何を.*(?:変え|すれ|優先)|問題(?:は|が)?(?:ない|ある)か/;
 const CAUSE = /原因|なぜ|真因|要因|伸びない|改善しない|動かない|未達|悪化|低迷|対立/;
 const EXPLAIN_ONLY = /とは[？?。\s]*$|意味を教え|定義を教え|一般的な(意味|定義|手法)/;
 const HIGH_STAKES = /撤退|事業売却|新規事業|参入|設備投資|資本配分|経営資源|資源配分|借入|資金繰り|資金不足|事業承継|M&A|買収|廃止/i;

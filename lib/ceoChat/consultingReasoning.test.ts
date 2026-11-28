@@ -13,12 +13,13 @@ describe('重要な経営相談の推論方針', () => {
     ['進捗が未達の場合は何を優先すべきか？', 'execution', 'medium'],
     ['来月から何を変えれば業績が改善するか？', 'execution', 'medium'],
     ['営業部門の活動は全社戦略と整合しているか？', 'organization', 'medium'],
+    ['営業部門と製造部門の連携に問題はないか？', 'organization', 'medium'],
   ])('%s', (question, focus, effort) => {
     const plan = selectConsultingPlan(question, true);
     expect(plan).toMatchObject({ focus, effort });
     expect(buildConsultingReasoningBlock(plan!)).toContain('反する根拠');
   });
-  it.each(['こんにちは', '売上高を教えて', 'ROICとは？', '新規事業とは？', '資料を保存する方法は？'])('通常の質問は対象外：%s', question => {
+  it.each(['こんにちは', '売上高を教えて', 'ROICとは？', '新規事業とは？', '資料を保存する方法は？', '営業部門の担当者は誰か？', 'データに問題はないか？'])('通常の質問は対象外：%s', question => {
     expect(selectConsultingPlan(question, true)).toBeNull();
   });
   it('操作・ファシリテーション・自律伴走等の対象外ルートは変えない', () => {
