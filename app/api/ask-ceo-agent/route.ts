@@ -11,10 +11,8 @@ import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
 import { buildConsultingReasoningBlock, consultingEffort, selectConsultingPlan, type ConsultingPlan } from '@/lib/ceoChat/consultingReasoning';
 import { consultationQueryOf } from '@/lib/ceoChat/followUpContext';
-import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat, type PersonaVariant } from '@/lib/ceoChat/answerStyle';
-import { CONSULTANT_BASE_C, CONSULTANT_PERSONA, CONSULTANT_ROLE_NEUTRAL, HELP_TONE } from '@/lib/ceoChat/consultantPersona';
-import { rewriteWithTwoStage, twoStageEnabled } from '@/lib/ceoChat/twoStage';
-import { applyToneVariant, toneVariantFromEnv } from '@/lib/ceoChat/toneVariant';
+import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat } from '@/lib/ceoChat/answerStyle';
+import { CONSULTANT_PERSONA, HELP_TONE } from '@/lib/ceoChat/consultantPersona';
 import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { attributableOkrs } from '@/lib/cascade/okrAttribution';
@@ -41,7 +39,8 @@ import { detectAutoMode } from '@/lib/autoModeRouter';
 import { buildHelpSystemPrompt } from '@/lib/helpPrompt';
 import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
 import { searchExternalFinancialData } from '@/lib/externalFinancialSearch';
-import { CONSULT_BEHAVIOR, CONSULT_BEHAVIOR_C, CONSULT_ROLE, buildExternalFinancialBlock } from '@/lib/agentPrompt';
+import { CONSULT_BEHAVIOR, CONSULT_ROLE, buildExternalFinancialBlock } from '@/lib/agentPrompt';
+import { withConsultTone } from '@/lib/ceoChat/consultInstruction';
 import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
 import { selectCanonicalStory } from '@/lib/ceoChat/strategyRationale';
 import {
@@ -377,11 +376,6 @@ async function fetchStrategyContext(args: {
 }
 
 /* ========= route ========= */
-function personaVariantFromEnv(): PersonaVariant {
-  const v = process.env.CEO_PERSONA_VARIANT;
-  return v === 'B' || v === 'C' ? v : 'A';
-}
-
 export async function POST(req: Request) {
   const requestId = makeRequestId();
 
@@ -748,12 +742,9 @@ export async function POST(req: Request) {
         });
       }
 
-      const personaVariant = personaVariantFromEnv();
-      const personaRole = personaVariant === 'B' ? CONSULTANT_ROLE_NEUTRAL : personaVariant === 'C' ? CONSULTANT_BASE_C : CONSULT_ROLE;
-      const personaBehavior = personaVariant === 'C' ? CONSULT_BEHAVIOR_C : CONSULT_BEHAVIOR;
       systemBase =
         (shouldUseAgentPrompt
-          ? agentPrompt(strategy as any, answers2 as any, finalStory as any, isManual ? personaRole : undefined, isManual ? personaBehavior : undefined) +
+          ? agentPrompt(strategy as any, answers2 as any, finalStory as any, isManual ? CONSULT_ROLE : undefined, isManual ? CONSULT_BEHAVIOR : undefined) +
             (externalFinancialBlock ? '\n\n' + externalFinancialBlock : '') +
             '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
           : (isManual
@@ -1068,10 +1059,8 @@ export async function POST(req: Request) {
         hasPriorAssistantTurn: askMessages.some((m) => m.role === 'assistant'),
         priorUserTexts: askMessages.slice(0, -1).filter((m) => m.role === 'user').map((m) => m.content),
       });
-      const styleVariant = personaVariantFromEnv();
-      systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle, styleVariant);
-      if (styleVariant === 'B') systemBase += '\n\n' + CONSULTANT_PERSONA;
-      console.log('[ask-ceo-agent]', requestId, 'persona_route', { resolved_mode: resolvedMode, persona: 'consultant', answer_style: answerStyle, variant: styleVariant });
+      systemBase += '\n\n' + buildAnswerStyleBlock(answerStyle);
+      console.log('[ask-ceo-agent]', requestId, 'persona_route', { resolved_mode: resolvedMode, persona: 'consultant', answer_style: answerStyle });
     }
 
     // --- OpenAI 呼び出し ---
@@ -1081,7 +1070,7 @@ export async function POST(req: Request) {
       max_completion_tokens: 6000,
       messages: [
         { role: 'system', content: systemBase },
-        ...(isManual && companyContextUsed ? applyToneVariant(askMessages, toneVariantFromEnv()) : askMessages),
+        ...(isManual && companyContextUsed ? withConsultTone(askMessages) : askMessages),
       ] as any,
     };
 
@@ -1207,11 +1196,6 @@ export async function POST(req: Request) {
       content = review.content;
       reviewTargets = review.reviewTargets;
       reviewMarker = review.diagnostics;
-    }
-    if (twoStageEnabled() && isManual && output !== 'json' && !externalSourceAllowlist && content) {
-      const two = await rewriteWithTwoStage({ client: openai as any, question: lastUser, history: askMessages, draft: content });
-      console.log('[ask-ceo-agent]', requestId, 'two_stage', { outcome: two.outcome, reason: two.reason, model: two.model, latency_ms: two.latencyMs });
-      content = two.content;
     }
     if (reviewRun.applicable) {
       console.log('[ask-ceo-agent]', requestId, 'stage4_review', classifyReviewRun({

@@ -172,7 +172,7 @@ async function runWith(raw: (params: any) => Promise<any>, outDir: string, quest
   const bSystemByQuestion: Record<string, string> = {};
   const send = guard.wrap(async (params: any) => {
     const system = String(params.messages[0].content ?? '');
-    const user = String(params.messages[params.messages.length - 1].content ?? '');
+    const user = String([...params.messages].reverse().find((m: any) => m.role === 'user')?.content ?? '');
     if (system.includes('【会社の前提】')) bSystemByQuestion[user] = system;
     return raw(params);
   });

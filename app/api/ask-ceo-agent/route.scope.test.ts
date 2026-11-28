@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { CONSULT_TONE_INSTRUCTION } from '@/lib/ceoChat/consultInstruction';
 
 const mockChatCreate = jest.fn();
 const mockOpenAICtor = jest.fn();
@@ -206,7 +207,7 @@ describe('メッセージのロール', () => {
     );
     const messages = sentMessages();
     expect(messages.some((m) => m.content === 'DEV-NOTE')).toBe(false);
-    expect(messages.slice(1)).toEqual([{ role: 'user', content: '質問' }]);
+    expect(messages.filter((m) => m.role === 'user')).toEqual([{ role: 'user', content: '質問' }]);
   });
 
   it('user と assistant の会話履歴は順序と内容を保ったままモデルに渡る', async () => {
@@ -220,11 +221,12 @@ describe('メッセージのロール', () => {
         ],
       })
     );
-    expect(sentMessages().slice(1)).toEqual([
+    expect(sentMessages().slice(1, -1)).toEqual([
       { role: 'user', content: '1つ目の質問' },
       { role: 'assistant', content: '1つ目の回答' },
       { role: 'user', content: '2つ目の質問' },
     ]);
+    expect(sentMessages().at(-1)).toEqual({ role: 'developer', content: CONSULT_TONE_INSTRUCTION });
   });
 });
 

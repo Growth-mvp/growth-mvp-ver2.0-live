@@ -1,4 +1,7 @@
 import { NextRequest } from 'next/server';
+import { CONSULT_TONE_INSTRUCTION } from '@/lib/ceoChat/consultInstruction';
+
+const DEVELOPER_TONE = { role: 'developer', content: CONSULT_TONE_INSTRUCTION };
 
 const mockChatCreate = jest.fn();
 const mockClassifyHeuristic = jest.fn();
@@ -184,10 +187,10 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     expect(sent.system).toContain('【今回の回答スタイル：通常の経営相談】');
     expect(sent.system).toContain('段落数は決めない');
     expect(sent.system).not.toContain('前の会話を踏まえ');
-    expect(sent.messages).toEqual([{ role: 'user', content: Q_PROFIT }]);
+    expect(sent.messages).toEqual([{ role: 'user', content: Q_PROFIT }, DEVELOPER_TONE]);
   });
 
-  it('②前の会話がある質問は、前の会話を踏まえる会話型を指示し、履歴をそのまま送る', async () => {
+  it('②前の会話がある質問は、前の会話を踏まえる会話型を指示し、履歴をそのまま送り、末尾に開発者指示を加える', async () => {
     const history = [
       { role: 'user', content: Q_PROFIT },
       { role: 'assistant', content: '売上の内訳を確認しましょう。' },
@@ -197,7 +200,7 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
     const sent = sentRequest();
     expect(sent.system).toContain('【今回の回答スタイル：通常の経営相談（前の会話を踏まえる）】');
     expect(sent.system).toContain('相手の返答を受け止めて議論を深める');
-    expect(sent.messages).toEqual(history);
+    expect(sent.messages).toEqual([...history, DEVELOPER_TONE]);
   });
 
   it('③数値・施策・実行計画を詳しく求める質問は、詳細型を指示し、会話型の段落制限を付けない', async () => {
@@ -253,16 +256,16 @@ describe('手動チャット advisor の回答スタイル（OpenAI へ送る最
 describe('会話履歴に基づく回答スタイル（繰り返し・異議・詳細）', () => {
   const ASSISTANT_PREV = { role: 'assistant', content: '前回の回答です。' };
 
-  it('②同じ質問の繰り返しは、繰り返し用の指示になり、会話履歴をそのまま送る', async () => {
+  it('②同じ質問の繰り返しは、繰り返し用の指示になり、会話履歴をそのまま送り、末尾に開発者指示を加える', async () => {
     const history = [{ role: 'user', content: Q_PROFIT }, ASSISTANT_PREV, { role: 'user', content: Q_PROFIT }];
     await POST(req(body(history)));
     const sent = sentRequest();
     expect(sent.system).toContain('【今回の回答スタイル：同じ質問の繰り返し】');
     expect(sent.system).toContain('前回と同じ説明は繰り返さない');
-    expect(sent.messages).toEqual(history);
+    expect(sent.messages).toEqual([...history, DEVELOPER_TONE]);
   });
 
-  it('③「でも、それは現実的ではない」は、制約・異議の指示になり、会話履歴をそのまま送る', async () => {
+  it('③「でも、それは現実的ではない」は、制約・異議の指示になり、会話履歴をそのまま送り、末尾に開発者指示を加える', async () => {
     const history = [
       { role: 'user', content: Q_PROFIT },
       ASSISTANT_PREV,
@@ -272,7 +275,7 @@ describe('会話履歴に基づく回答スタイル（繰り返し・異議・�
     const sent = sentRequest();
     expect(sent.system).toContain('【今回の回答スタイル：相手の制約・異議を受けて】');
     expect(sent.system).toContain('新しい判断条件として扱う');
-    expect(sent.messages).toEqual(history);
+    expect(sent.messages).toEqual([...history, DEVELOPER_TONE]);
   });
 
   it('④詳細分析の依頼は、会話履歴があっても詳細型を指示する', async () => {
