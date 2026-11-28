@@ -101,7 +101,7 @@ export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: b
       </p>
 
       <div className="space-y-5">
-        <div>
+        <div data-ai-target="stage1.profile.companyName">
           <label className="block text-sm font-medium mb-1">会社名</label>
           <input
             className="border px-3 py-2 w-full disabled:bg-gray-100 disabled:cursor-not-allowed"
@@ -112,7 +112,7 @@ export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: b
           />
         </div>
 
-        <div>
+        <div data-ai-target="stage1.profile.industry">
           <label className="block text-sm font-medium mb-1">業種</label>
           <select className={SELECT_CLASS} value={industry} onChange={handleIndustryChange} disabled={disabled}>
             <option value="">選択してください</option>
@@ -128,7 +128,7 @@ export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: b
         </div>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <div>
+          <div data-ai-target="stage1.profile.location">
             <label className="block text-sm font-medium mb-1">本社所在地</label>
             <select
               className={SELECT_CLASS}
@@ -157,7 +157,7 @@ export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: b
             )}
           </div>
 
-          <div>
+          <div data-ai-target="stage1.profile.employees">
             <label className="block text-sm font-medium mb-1">従業員数</label>
             <select className={SELECT_CLASS} value={employees} onChange={handleEmployeesChange} disabled={disabled}>
               <option value="">未選択</option>
@@ -173,7 +173,7 @@ export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: b
           </div>
         </div>
 
-        <div>
+        <div data-ai-target="stage1.profile.fiscalYearEnd">
           <label className="block text-sm font-medium mb-1">決算月</label>
           <select className={SELECT_CLASS} value={fiscalYearEnd} onChange={handleFiscalYearEndChange} disabled={disabled}>
             <option value="">未設定</option>

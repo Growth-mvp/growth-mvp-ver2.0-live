@@ -56,7 +56,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage1.add-business-segment',
     screenIds: ['stage1'],
     label: '+ セグメントを追加',
-    source: { file: 'components/stage1/BusinessSegmentsPanel.tsx', line: 526 },
+    source: { file: 'components/stage1/BusinessSegmentsPanel.tsx', line: 527 },
     purpose: '事業セグメントを追加する（事業部別財務の入力先になる）。',
     steps: ['「① 企業情報・事業内容」を開く', '事業セグメント定義で「+ セグメントを追加」を押す'],
     conditions: '登録数が上限未満のときのみ表示される。編集権限が必要',
@@ -193,7 +193,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.ai-input-approve',
     screenIds: ['stage1', 'stage2', 'stage3', 'stage4'],
     label: '承認して保存',
-    source: { file: 'components/CEOChatProposalCard.tsx', line: 335 },
+    source: { file: 'components/CEOChatProposalCard.tsx', line: 363 },
     purpose:
       'AI経営コンサルタントに「経営者の思いに〜と追加して」（STAGE2）、「宅配事業の6つの問いの1番目に〇〇と入力して」（STAGE3）、「目的に〇〇を追加して」（STAGE4）と指示すると、入力案を作る。入力案は保存されず、確認して承認すると保存される。保存後は、再読込しても残る。STAGE1の売上高の既存値の置き換えも、この欄で確認して承認する（空の年度への入力は、入力欄に直接反映される）。',
     steps: [
@@ -258,7 +258,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 188 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 190 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -281,7 +281,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1495 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1552 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -1326,7 +1326,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1332 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1389 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

@@ -29,7 +29,9 @@ import CEOChatVoiceControls, { type InputMode } from '@/components/CEOChatVoiceC
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
 import { contextDepartments, issueProposalOf, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { parseConsultOffer, parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
-import { applyDirectProposal, isDirectProposal } from '@/lib/aiOperations/applyDirect';
+import { applyDirectProposal, applyStageOp, isDirectProposal } from '@/lib/aiOperations/applyDirect';
+import { resolveStage1Input } from '@/lib/aiOperations/stage1Input';
+import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { OPERATION_ROLE_DENIED, proposalRequiredRole, roleMeetsRequirement } from '@/lib/aiOperations/guard';
 import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
 import { parseStage4Intent } from '@/lib/aiOperations/stage4';
@@ -290,6 +292,9 @@ function proposalIntroText(p: OperationProposal): string {
   }
   if (p.kind === 'stage2.ceoIntent') {
     return '「経営者の思い」への入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。';
+  }
+  if (p.kind === 'stage1.op') {
+    return `${p.op.year}年度の${p.op.label}の入力案を作りました（まだ反映していません）。内容を確かめ、「既存の値を置き換えて反映」を押すと入力欄に反映されます。`;
   }
   return `${p.year}年度の全社売上高の入力案を作りました（まだ保存していません）。「承認して保存」を押すと、STAGE1の財務に反映して保存されます。`;
 }
@@ -654,6 +659,58 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
+
+      // STAGE1の入力・修正の依頼：承認カードを出さず、入力欄へ直接反映する（保存は画面の保存で行う）
+      if (requestCompanyId && latestStrategyId) {
+        const stage1Now = useStrategyStore.getState();
+        const stage1Input = resolveStage1Input(trimmed, {
+          segmentNames: ((stage1Now.businessSegments ?? []) as Array<{ name: string }>).map((s) => s.name),
+          issueTitles: ((stage1Now.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? ''),
+          financeYen: ({ table, key, year, segment }) => {
+            const rows = segment
+              ? ((((table === 'pl' ? stage1Now.segmentPL : stage1Now.segmentBS) ?? {}) as Record<string, Array<Record<string, unknown>>>)[segment] ?? [])
+              : (((table === 'pl' ? stage1Now.financePL : stage1Now.financeBS) ?? []) as Array<Record<string, unknown>>);
+            const v = rows.find((r) => r.year === year)?.[key];
+            return typeof v === 'number' ? v : null;
+          },
+        });
+        if (stage1Input) {
+          const reply = (content: string) => updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
+          if (stage1Input.kind === 'clarify') {
+            reply(stage1Input.message);
+          } else if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'manager')) {
+            reply(OPERATION_ROLE_DENIED);
+          } else if (stage1Input.kind === 'action') {
+            if (stage1Input.action.kind === 'handover') {
+              if (((stage1Now.stage1Issues ?? []) as unknown[]).length === 0) {
+                reply('STAGE2へ進む前に、経営課題を1件以上入力してください。');
+              } else {
+                if (window.location.pathname !== '/stage1') router.push('/stage1');
+                useAiHighlightStore.getState().flash('stage1.handover');
+                reply('STAGE2への引き渡しは、STAGE1の「STAGE2へ進む」ボタンで行います。内容を確かめてから押してください。');
+              }
+            } else {
+              const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:manual', force: true } as never);
+              reply(saved.ok ? '保存しました。' : '保存できませんでした。画面の全体保存をお試しください。');
+            }
+          } else if (stage1Input.confirm && stage1Input.op.kind === 'finance') {
+            useOperationProposalStore.getState().setPending({
+              kind: 'stage1.op',
+              pathname: '/stage1',
+              companyId: requestCompanyId,
+              strategyId: latestStrategyId,
+              op: stage1Input.op,
+            });
+            if (window.location.pathname !== '/stage1') router.push('/stage1');
+            reply(`${stage1Input.op.label}は現在の値から大きく変わるため、入力案を作りました（まだ反映していません）。内容を確かめ、「既存の値を置き換えて反映」を押すと入力欄に反映されます。`);
+          } else {
+            const applied = await applyStageOp(stage1Input.op);
+            if (applied.ok && stage1Input.op.kind !== 'valuation' && window.location.pathname !== '/stage1') router.push('/stage1');
+            reply(applied.message);
+          }
+          return true;
+        }
+      }
 
       // 実行計画書（STAGE4）への指示：変更案を作る（保存はしない。承認は入力案のカードで行う）
       const stage4Intent = parseStage4Intent(trimmed);

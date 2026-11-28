@@ -51,7 +51,7 @@ export default function WaccPanel({ disabled }: { disabled?: boolean } = {}) {
   );
 
   return (
-    <div className="border rounded-lg p-4 space-y-4">
+    <div className="border rounded-lg p-4 space-y-4" data-ai-target="stage1.assumption.wacc">
       <h3 className="text-lg font-semibold">WACC（加重平均資本コスト）</h3>
 
       {/* WACC値 */}

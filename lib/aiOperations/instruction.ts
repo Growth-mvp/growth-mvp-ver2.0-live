@@ -2,8 +2,16 @@
  * 対象は STAGE2「経営者の思い」への追加、STAGE1 財務表の全社売上高、STAGE3 6つの問いの回答。
  * STAGE3 の戦略書の再生成は入力案ではなく、既存の生成処理を呼ぶ指示として扱う。 */
 import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX, isDeicticTitle, isNegatedOrDeferred } from './consultOperation';
+import type { StageOp } from './stage1Input';
 
 export type OperationProposal =
+  | {
+      kind: 'stage1.op';
+      pathname: '/stage1';
+      companyId: string;
+      strategyId: string;
+      op: Extract<StageOp, { kind: 'finance' }>;
+    }
   | {
       kind: 'stage2.ceoIntent';
       pathname: '/stage2';

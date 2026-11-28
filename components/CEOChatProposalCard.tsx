@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useStrategyStore } from '@/store/strategyStore';
 import { appendCeoIntent, contextDepartments, issueProposalOf, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
-import { formatYen, revenueOf, type Row } from '@/lib/aiOperations/applyDirect';
+import { applyStageOp, formatYen, revenueOf, type Row } from '@/lib/aiOperations/applyDirect';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX } from '@/lib/aiOperations/consultOperation';
 import { proposalBlockReason, proposalStaleReason } from '@/lib/aiOperations/guard';
@@ -37,7 +37,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           : '',
   );
   const needsText = proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage3.question' || proposal.kind === 'stage1.issue';
-  const applyVerb = proposal.kind === 'stage1.revenue' ? '反映' : '保存';
+  const applyVerb = proposal.kind === 'stage1.revenue' || proposal.kind === 'stage1.op' ? '反映' : '保存';
   const [issueDescription, setIssueDescription] = useState(proposal.kind === 'stage1.issue' ? proposal.description : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +49,20 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
 
   const approve = async () => {
     if (busy) return;
+    if (proposal.kind === 'stage1.op') {
+      const current = useStrategyStore.getState();
+      if (current.companyId !== proposal.companyId || current.strategyId !== proposal.strategyId) {
+        discard('企業が切り替わったため、入力案を破棄しました。');
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      const result = await applyStageOp(proposal.op);
+      setBusy(false);
+      if (result.ok) discard(result.message);
+      else setError(result.message);
+      return;
+    }
     const st = useStrategyStore.getState();
     const screen = {
       companyId: st.companyId ?? null,
@@ -228,7 +242,9 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
   };
 
   const isConflict =
-    (proposal.kind === 'stage1.revenue' && proposal.beforeYen !== null) || (proposal.kind === 'stage3.question' && proposal.before !== '');
+    (proposal.kind === 'stage1.revenue' && proposal.beforeYen !== null) ||
+    (proposal.kind === 'stage1.op' && proposal.op.expectedBefore != null) ||
+    (proposal.kind === 'stage3.question' && proposal.before !== '');
   const ceoPreview = proposal.kind === 'stage2.ceoIntent' ? appendCeoIntent(proposal.before, addition) : '';
 
   return (
@@ -309,6 +325,18 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
             ))}
           </ul>
           <p className="text-[12px] text-zinc-600">承認すると、この項目だけを実行計画書に保存します。AIの草案は変わりません。</p>
+        </>
+      ) : proposal.kind === 'stage1.op' ? (
+        <>
+          <p className="text-zinc-700">
+            対象：STAGE1 財務（{proposal.op.segment ? `事業「${proposal.op.segment}」` : '全社'}・{proposal.op.year}年度の{proposal.op.label}）
+          </p>
+          <p>
+            現在：{formatYen(proposal.op.expectedBefore ?? null)}
+            <br />
+            入力案：{formatYen(proposal.op.yen)}
+          </p>
+          <p className="text-rose-700">既存の値を大きく変えるため、内容を確かめてから承認してください。</p>
         </>
       ) : (
         <>

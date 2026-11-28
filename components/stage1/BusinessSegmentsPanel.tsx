@@ -200,6 +200,7 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
             return (
               <div
                 key={seg.id}
+                data-ai-target={`stage1.segment.${idx}`}
                 className={`bg-white border rounded-lg ${
                   hasWarning ? 'border-caution/60' : 'border-gray-200'
                 } p-4`}

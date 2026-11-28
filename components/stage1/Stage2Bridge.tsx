@@ -7,7 +7,7 @@ export default function Stage2Bridge({ disabled = false }: { disabled?: boolean 
   const router = useRouter();
 
   return (
-    <section className="pt-8 border-t">
+    <section className="pt-8 border-t" data-ai-target="stage1.handover">
       <button
         className={`px-6 py-3 rounded font-medium transition ${
           disabled
