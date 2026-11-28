@@ -10,6 +10,7 @@ function makeRequestId() {
 import OpenAI from 'openai';
 import { sanitizeAskMessages } from '@/lib/ceoChat/askPolicy';
 import { buildConsultingReasoningBlock, consultingEffort, selectConsultingPlan, type ConsultingPlan } from '@/lib/ceoChat/consultingReasoning';
+import { consultationQueryOf } from '@/lib/ceoChat/followUpContext';
 import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat } from '@/lib/ceoChat/answerStyle';
 import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
@@ -72,6 +73,7 @@ import {
   buildCashPositionBlock,
   isStage6FinanceAbsent,
   latestActual,
+  hasStage6TargetOf,
 } from '@/lib/ceoChat/stage6Plan';
 import {
   buildStage2TargetBlock,
@@ -479,6 +481,7 @@ export async function POST(req: Request) {
     });
 
     const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
+    const consultationQuery = consultationQueryOf(messages || []);
 
     // ★ アプローチ1: server-side admin client を fetchStrategyContext に渡す
     const { strategy, answers2, finalStory, extraParts, refFacts } = await fetchStrategyContext({
@@ -777,8 +780,8 @@ export async function POST(req: Request) {
       }
 
       // 重要な個社の経営相談だけ、判断に必要な情報を追加する。
-      consultingPlan = selectConsultingPlan(lastUser, isManual && shouldUseAgentPrompt && !!strategy);
-      const baselineContext = selectContextSources(lastUser);
+      consultingPlan = selectConsultingPlan(consultationQuery, isManual && shouldUseAgentPrompt && !!strategy);
+      const baselineContext = selectContextSources(consultationQuery);
       const contextSelection = consultingPlan ? {
         ...baselineContext,
         finance: baselineContext.finance || consultingPlan.sources.finance,
@@ -796,7 +799,7 @@ export async function POST(req: Request) {
       if (selectedContextBlock) systemBase += '\n\n' + selectedContextBlock;
 
       if (shouldUseAgentPrompt) {
-        const baselineStages = selectStage56Sources(lastUser);
+        const baselineStages = selectStage56Sources(consultationQuery);
         const stageSources = consultingPlan ? {
           progress: baselineStages.progress || consultingPlan.sources.progress,
           plan: baselineStages.plan || consultingPlan.sources.plan,
@@ -841,7 +844,7 @@ export async function POST(req: Request) {
           stage6Facts = { scope: 'plan', financeEmpty: financeAbsent, ...classifyStage6Text(planText) };
           systemBase += '\n\n' + planText;
         }
-        const supplement = selectSupplementSources(lastUser);
+        const supplement = selectSupplementSources(consultationQuery);
         if (supplement.cash && !stageSources.plan) {
           const cashText = buildCashPositionBlock({
             csvFinanceData: csvFinance,
@@ -861,7 +864,7 @@ export async function POST(req: Request) {
           const focus = buildFocusAnswersBlock(strategy as any, lastUser);
           if (focus) systemBase += '\n\n' + focus;
         }
-        if (isStage2TargetQuestion(lastUser)) {
+        if (isStage2TargetQuestion(consultationQuery)) {
           const targets = normalizeStage2Targets((strategy as any)?.companyTargets);
           const absenceConfirmed = refFacts?.companyTargetsAbsent ?? false;
           stage2TargetFacts = { rows: targets.rows.length, total: targets.total, absenceConfirmed };
@@ -869,6 +872,7 @@ export async function POST(req: Request) {
             companyTargets: (strategy as any)?.companyTargets,
             actual: latestActual((strategy as any)?.financePL, (strategy as any)?.financeBS),
             absenceConfirmed,
+            stage6TargetRegistered: hasStage6TargetOf((strategy as any)?.csvFinanceData, companyId),
           });
         }
         if (contextSelection.alignment && !contextSelection.operation) {

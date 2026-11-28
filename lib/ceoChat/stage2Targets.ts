@@ -127,15 +127,18 @@ export function buildStage2TargetBlock(args: {
   companyTargets: unknown;
   actual: Stage2Actual | null;
   absenceConfirmed?: boolean;
+  stage6TargetRegistered?: boolean;
 }): string {
   const { rows, total } = normalizeStage2Targets(args.companyTargets);
   const lines: string[] = ['【STAGE2 業績目標（経営者が STAGE2 で登録した目標）】'];
 
   if (rows.length === 0) {
     lines.push(
-      args.absenceConfirmed
-        ? '- 未登録です（STAGE2で業績目標が登録されていません）。目標値を推測せず、「STAGE2で業績目標が登録されていません」と答え、STAGE2での登録を案内してください。'
-        : '- 今回参照した情報では業績目標を確認できません。目標値を推測せず、「今回の情報では業績目標を確認できません」と答え、STAGE2の画面で登録状況を確認するよう案内してください。'
+      args.absenceConfirmed && args.stage6TargetRegistered
+        ? '- STAGE2の業績目標は未登録です。ただし、経営者が登録した目標は「STAGE6 財務計画」の「目標（経営者が登録）」にあるため、経営目標が未設定だとは言わないでください。その数値は目標として、見通しと区別して示してください。STAGE2の業績目標としては未登録だという点だけを補足し、目標値は推測しないでください。'
+        : args.absenceConfirmed
+          ? '- 未登録です（STAGE2で業績目標が登録されていません）。目標値を推測せず、「STAGE2で業績目標が登録されていません」と答え、STAGE2での登録を案内してください。'
+          : '- 今回参照した情報では業績目標を確認できません。目標値を推測せず、「今回の情報では業績目標を確認できません」と答え、STAGE2の画面で登録状況を確認するよう案内してください。'
     );
     return lines.join('\n');
   }

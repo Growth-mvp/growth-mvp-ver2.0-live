@@ -92,6 +92,14 @@ export function storedOf(csvFinanceData: unknown, companyId: string | null): Sto
   return readStoredFinancePlan(csv.financePlanAssumptions, companyId);
 }
 
+/** STAGE6 の「目標（経営者が登録）」が登録されているか。STAGE2 の業績目標とは別の保存先。 */
+export function hasStage6TargetOf(csvFinanceData: unknown, companyId: string | null): boolean {
+  const stored = storedOf(csvFinanceData, companyId);
+  if (stored.kind !== 'OK') return false;
+  const a = stored.domain.assumptions;
+  return a.targetYear !== null && (a.targetRevenueYen !== null || a.targetOperatingIncomeYen !== null);
+}
+
 function storedStatusLine(stored: Stored, noneConfirmed: boolean): string | null {
   switch (stored.kind) {
     case 'NONE':
@@ -188,7 +196,10 @@ function gapLines(outlook: Outlook): string[] {
   if (!gap) return [];
   const row = (label: string, g: { fiscalYear: number | null; valueYen: number | null; reason: string | null }) => {
     const at = g.fiscalYear !== null ? `${g.fiscalYear}年度` : '';
-    if (g.valueYen === null) return `  ・${label}：未算定${g.reason ? `（${g.reason}）` : ''}`;
+    if (g.valueYen === null) {
+      const reason = g.reason?.replace(/^経営目標（.+）が未設定のため差額は算出していません$/, 'STAGE2の業績目標が未登録のため、この差額は算出していません（経営者が登録した目標は「目標（経営者が登録）」を参照）') ?? g.reason;
+      return `  ・${label}：未算定${reason ? `（${reason}）` : ''}`;
+    }
     if (g.valueYen > 0) return `  ・${label}：目標に対して不足 ${formatAmount(g.valueYen)}（${at}）`;
     if (g.valueYen < 0) return `  ・${label}：目標を超過 ${formatAmount(-g.valueYen)}（${at}）`;
     return `  ・${label}：目標と同額（${at}）`;
