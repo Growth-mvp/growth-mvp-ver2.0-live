@@ -11,6 +11,8 @@ describe('重要な経営相談の推論方針', () => {
     ['社長が今、最も優先すべきことは何か？', 'strategy', 'medium'],
     ['資金繰りが厳しくなったらどうすべきか？', 'finance', 'high'],
     ['進捗が未達の場合は何を優先すべきか？', 'execution', 'medium'],
+    ['来月から何を変えれば業績が改善するか？', 'execution', 'medium'],
+    ['営業部門の活動は全社戦略と整合しているか？', 'organization', 'medium'],
   ])('%s', (question, focus, effort) => {
     const plan = selectConsultingPlan(question, true);
     expect(plan).toMatchObject({ focus, effort });
@@ -22,9 +24,12 @@ describe('重要な経営相談の推論方針', () => {
   it('操作・ファシリテーション・自律伴走等の対象外ルートは変えない', () => {
     expect(selectConsultingPlan('新規事業に参入すべきか？', false)).toBeNull();
   });
-  it('参入判断には財務、戦略、部門、実績と計画の情報が必要', () => {
+  it('投資・資金の判断だけ、財務と計画の情報を追加で読む', () => {
     expect(selectConsultingPlan('新規事業に参入すべきか？', true)?.sources).toEqual({
-      finance: true, rationale: true, alignment: true, progress: true, plan: true,
+      finance: true, rationale: false, alignment: false, progress: false, plan: true,
+    });
+    expect(selectConsultingPlan('進捗が未達の場合は何を優先すべきか？', true)?.sources).toEqual({
+      finance: false, rationale: false, alignment: false, progress: false, plan: false,
     });
   });
   it('推論強化は明示的に有効化した場合のみ', () => {
