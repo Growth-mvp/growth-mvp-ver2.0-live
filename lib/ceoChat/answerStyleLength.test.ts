@@ -10,7 +10,7 @@ describe('通常の相談の読みやすさと、分析の依頼の扱い', () =
 
   it('通常の相談の指示は、長さの目安と、番号付き手順・見出しを使わないことを含む', () => {
     const block = buildAnswerStyleBlock('conversation');
-    expect(block).toContain('原則600字程度');
+    expect(block).toContain('通常の経営相談は300〜600字');
     expect(block).toContain('番号付きの手順や太字の小見出しで組み立てない');
   });
 

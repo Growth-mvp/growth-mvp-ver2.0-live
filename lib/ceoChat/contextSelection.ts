@@ -10,6 +10,7 @@ const COMPANY_REFERENCE = /当社|弊社|わが社|我が社|自社|御社|う�
 const DEFINITION_CUE = /とは|って何|意味|定義|一般的|一般論|フレームワーク/;
 const CONCEPT_CUE = /違い|種類|仕組み|手法|基礎/;
 const ADVICE_CUE = /改善|べきか|べきですか|すべき|よいか|どうか|どう思|考えて|しよう|したい|設計|作り|導入|見直|効果|妥当|できるか|必要か|でよい/;
+const GOAL_OUTLOOK_CUE = /経営目標|目標.{0,8}(達成|届|差)|達成.{0,6}(できそう|できる|可能|見込み)|見通し|将来の業績/;
 
 export function hasCompanyReference(query: string): boolean {
   return COMPANY_REFERENCE.test(query ?? '');
@@ -36,7 +37,7 @@ export type ContextSelection = {
 export function selectContextSources(query: string): ContextSelection {
   const q = query ?? '';
   const operation = detectOperationIntent(q);
-  const finance = FINANCE_CUE.test(q);
+  const finance = FINANCE_CUE.test(q) || GOAL_OUTLOOK_CUE.test(q);
   const rationale = RATIONALE_CUE.test(q);
   const alignment = ALIGNMENT_CUE.test(q);
   return { operation, finance, rationale, alignment, unclear: !operation && !finance && !rationale && !alignment };
@@ -51,7 +52,7 @@ export type StageSources = { progress: boolean; plan: boolean };
 export function selectStage56Sources(query: string): StageSources {
   const q = query ?? '';
   const broad = BROAD_CUE.test(q);
-  return { progress: PROGRESS_CUE.test(q) || broad, plan: PLAN_CUE.test(q) || broad };
+  return { progress: PROGRESS_CUE.test(q) || broad, plan: PLAN_CUE.test(q) || GOAL_OUTLOOK_CUE.test(q) || broad };
 }
 
 const STAGE5_TOPIC_CUE = /STAGE\s*5|ステージ\s*5|財務実績|KR(の)?実績|実績|実施事項|進捗|社内共有|共有|活動記録/i;
