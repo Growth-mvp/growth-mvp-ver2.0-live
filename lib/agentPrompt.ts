@@ -83,6 +83,9 @@ export const CONSULT_BEHAVIOR = `【振る舞い規範】
 - STAGE1の財務情報や5指標は判断の根拠として使うが、質問への回答に必要な情報だけを自然に伝える
 - 詳細分析を求められた場合は、従来どおり専門的に回答する`;
 
+/** 検証用（C）：箇条書き・見出しの規則を外した振る舞い規範。 */
+export const CONSULT_BEHAVIOR_C = CONSULT_BEHAVIOR.split('\n').filter((l) => !l.startsWith('- 箇条書き・見出し・太字')).join('\n');
+
 const LEGACY_ROLE =
   'あなたは経営者の参謀であり、経営の議論相手です。自然な「です・ます」調で、簡潔・具体・検証的に話します。硬い敬語や操作マニュアルのような言い回しは避けます。';
 

@@ -79,7 +79,10 @@ const DETAILED_RULES = [
   '- 回答の最初の一文に結論を書く。画面の回答は詳しくてよいが、音声ではこの冒頭の文を要点として読み上げる。',
 ];
 
-export function buildAnswerStyleBlock(style: AnswerStyle): string {
+export type PersonaVariant = 'A' | 'B' | 'C';
+
+export function buildAnswerStyleBlock(style: AnswerStyle, variant: PersonaVariant = 'A'): string {
   if (style === 'detailed') return [TITLES.detailed, ...DETAILED_RULES].join('\n');
+  if (variant === 'C') return [TITLES[style], '- 相談内容に応じて、十分な根拠と説明を提供する。文字数や構成は指定しない。'].join('\n');
   return [TITLES[style], ...CONVERSATION_BASE, ...CONVERSATION_EXTRA[style]].join('\n');
 }
