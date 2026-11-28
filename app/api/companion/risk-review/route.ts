@@ -1,5 +1,6 @@
 /* AI経営コンサルタントの経営点検（PHASE 3）。STAGE5・6の保存済みデータから事実を決め、
- * 事実が無ければAIを呼ばない。事実があれば、AIが仮説と見直しの候補だけを書く。 */
+ * 事実が無ければAIを呼ばない。事実があれば、同じ企業・同じ日に1回だけAIが仮説と見直しの候補を書き、
+ * 同じ事実を持つ同じ企業の利用者は、その所見を共有する。点検の事実は常に返す。 */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -15,7 +16,15 @@ import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { riskInputsOf } from '@/lib/companion/companionRiskSource';
 import { isCompanionKilled } from '@/lib/companion/companionPolicy';
-import { RISK_GUARD, buildRiskPrompt, isSeriousRisk, renderRiskFacts, riskStatusOf } from '@/lib/companion/companionRisk';
+import {
+  RISK_GUARD,
+  buildRiskPrompt,
+  isSeriousRisk,
+  renderRiskFacts,
+  riskFingerprint,
+  riskStatusOf,
+} from '@/lib/companion/companionRisk';
+import { claimDailyRiskReview, finishClaim, jstDateOf, type ClaimKey } from '@/lib/companion/companionRiskClaim';
 
 type Body = { companyId?: unknown; strategyId?: unknown };
 
@@ -42,30 +51,42 @@ export async function POST(req: Request) {
   if (error || !row) return NextResponse.json({ error: 'strategy not found' }, { status: 404 });
   const strategy = normalizeStrategyData(row) as unknown as Record<string, unknown>;
 
-  const sourceArgs = {
-    csvFinanceData: strategy.csvFinanceData,
-    companyId,
-    financePL: strategy.financePL,
-    financeBS: strategy.financeBS,
-    departments: stage6PlanDepartments(strategy.departments),
-    fiscalYearEnd: strategy.fiscalYearEnd as string | undefined,
-    currentYear: new Date().getFullYear(),
-    companyTargets: strategy.companyTargets,
-    now: new Date(),
-  };
+  const now = new Date();
   let facts;
   let coverage: string[];
   try {
-    ({ facts, coverage } = riskInputsOf(sourceArgs));
+    ({ facts, coverage } = riskInputsOf({
+      csvFinanceData: strategy.csvFinanceData,
+      companyId,
+      financePL: strategy.financePL,
+      financeBS: strategy.financeBS,
+      departments: stage6PlanDepartments(strategy.departments),
+      fiscalYearEnd: strategy.fiscalYearEnd as string | undefined,
+      currentYear: now.getFullYear(),
+      companyTargets: strategy.companyTargets,
+      now,
+    }));
   } catch (e: any) {
     console.error('[companion-risk-review] FACTS_FAILED', { message: e?.message });
     return NextResponse.json({ error: 'facts_failed' }, { status: 500 });
   }
+  const status = riskStatusOf(facts, coverage);
   if (facts.length === 0) {
-    return NextResponse.json({ status: riskStatusOf(facts, coverage), facts: [], text: null, serious: false, coverage });
+    return NextResponse.json({ status, facts: [], text: null, serious: false, coverage, aiState: 'NOT_NEEDED' });
   }
 
   const lines = renderRiskFacts(facts);
+  const key: ClaimKey = { companyId, strategyId, day: jstDateOf(now), fingerprint: riskFingerprint(facts) };
+  const serious = isSeriousRisk(facts);
+
+  const claim = await claimDailyRiskReview(admin, key);
+  if (claim.kind === 'REUSE') {
+    return NextResponse.json({ status: 'ISSUES', facts: lines, text: claim.finding, serious, coverage, aiState: 'REUSED' });
+  }
+  if (claim.kind === 'BLOCKED') {
+    return NextResponse.json({ status: 'ISSUES', facts: lines, text: null, serious, coverage, aiState: claim.state });
+  }
+
   let text: string | null = null;
   try {
     const completion = await openai.chat.completions.create({
@@ -80,6 +101,11 @@ export async function POST(req: Request) {
     console.error('[companion-risk-review] OPENAI_CALL_FAILED', { name: e?.name, status: e?.status });
   }
 
+  const finished = text
+    ? await finishClaim(admin, key, { status: 'DONE', finding: text })
+    : await finishClaim(admin, key, { status: 'FAILED' });
+  if (!finished) console.error('[companion-risk-review] CLAIM_UPDATE_FAILED');
+
   await logAuditEvent({
     companyId,
     actorUserId: userId,
@@ -89,5 +115,12 @@ export async function POST(req: Request) {
     metadata: { factCount: facts.length, aiUsed: text !== null },
   });
 
-  return NextResponse.json({ status: 'ISSUES', facts: lines, text, serious: isSeriousRisk(facts), coverage });
+  return NextResponse.json({
+    status: 'ISSUES',
+    facts: lines,
+    text,
+    serious,
+    coverage,
+    aiState: text ? 'GENERATED' : 'FAILED',
+  });
 }

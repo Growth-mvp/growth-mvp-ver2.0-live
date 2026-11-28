@@ -1,12 +1,14 @@
 import { FICTIONAL_COMPANY_ID, FICTIONAL_STRATEGY_ID } from '@/eval/quality/fictionalCompany';
 import { RISK_NOW, riskStrategyFixture, type RiskFixtureOptions } from '@/eval/quality/riskFixtures';
+import { createClaimStore } from '@/eval/quality/riskClaimStore';
 import { RISK_GUARD, NOT_CHECKED_NOTE } from '@/lib/companion/companionRisk';
 import { requestRiskReview, riskReviewBody } from '@/lib/companion/companionRiskClient';
 
 const mockCreate = jest.fn();
 const mockGetFullStrategy = jest.fn();
+let mockStore = createClaimStore();
 
-jest.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({}) }));
+jest.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => mockStoreAdmin() }));
 jest.mock('@/lib/server/rbacGuard', () => ({
   getAuthUserIdFromBearer: async () => 'quality-user-ceo',
   requireMembership: async () => ({ companyId: 'quality-company-a', role: 'admin' }),
@@ -18,6 +20,10 @@ jest.mock('@/utils/supabase/strategy', () => ({
   getFullStrategyDataByStrategyId: (...a: unknown[]) => mockGetFullStrategy(...a),
 }));
 jest.mock('@/utils/supabase/normalize', () => ({ normalizeStrategyData: (x: unknown) => x }));
+
+function mockStoreAdmin() {
+  return mockStore.admin;
+}
 
 import { POST } from './route';
 
@@ -36,7 +42,11 @@ const client = (fetchImpl: (url: string, init: RequestInit) => Promise<Response>
 
 describe('経営点検の一気通貫（API → AI所見 → 表示本文）', () => {
   beforeEach(() => {
-    jest.useFakeTimers().setSystemTime(RISK_NOW);
+    jest.useFakeTimers({
+      now: RISK_NOW,
+      doNotFake: ['setTimeout', 'clearTimeout', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask'],
+    });
+    mockStore = createClaimStore();
     mockCreate.mockReset();
     mockGetFullStrategy.mockReset();
     mockCreate.mockResolvedValue({
@@ -54,6 +64,7 @@ describe('経営点検の一気通貫（API → AI所見 → 表示本文）', (
     );
 
     expect(result?.status).toBe('ISSUES');
+    expect(result?.aiState).toBe('GENERATED');
     const facts = result!.facts.join('\n');
     expect(facts).toContain('2026年度：施策反映・借入反映後の期末現預金が最低現預金を 16,760,000円 下回る見込み');
     expect(facts).toContain('2027年度の売上：STAGE6の経営目標に対して 70,000,000円 不足');
@@ -75,13 +86,14 @@ describe('経営点検の一気通貫（API → AI所見 → 表示本文）', (
     expect(body.endsWith(NOT_CHECKED_NOTE)).toBe(true);
   });
 
-  it('資金計画が未保存で判断材料が限られるときは、AIを呼ばず、判断材料の不足を示す', async () => {
+  it('資金計画が未保存で判断材料が限られるときは、AIを呼ばず、判断材料の不足を示す（実行枠も使わない）', async () => {
     const result = await client(routeOver({ finance: 'none', stage6Target: false }));
 
     expect(result?.status).toBe('INSUFFICIENT');
     expect(result?.facts).toEqual([]);
     expect(result?.coverage).toEqual(expect.arrayContaining([expect.stringContaining('資金繰り：未登録')]));
     expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockStore.stats.inserts).toBe(0);
 
     const body = riskReviewBody(result!);
     expect(body).toContain('判断材料が不足している項目があるため、経営点検の結論は出せません');
@@ -89,7 +101,9 @@ describe('経営点検の一気通貫（API → AI所見 → 表示本文）', (
   });
 
   it('事実が0件で判断材料も揃っていれば、問題なしを定型文で示し、AIを呼ばない', async () => {
-    const result = await client(routeOver({ minCashYen: 150_000_000, newLoan: 'zero', dividends: 'zero', stage6RevenueTargetYen: 900_000_000, stage6OperatingIncomeTargetYen: 40_000_000, progress: 'recent' }));
+    const result = await client(
+      routeOver({ minCashYen: 150_000_000, newLoan: 'zero', dividends: 'zero', stage6RevenueTargetYen: 900_000_000, stage6OperatingIncomeTargetYen: 40_000_000, progress: 'recent' }),
+    );
 
     expect(result?.status).toBe('NO_ISSUE');
     expect(result?.facts).toEqual([]);

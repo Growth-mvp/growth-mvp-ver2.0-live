@@ -24,6 +24,8 @@ export type RiskSourceArgs = Stage6ArgsForOutlook & { departments: unknown; now:
 export type RiskInputs = { facts: RiskFact[]; coverage: string[] };
 
 const BLOCKING_HOLD = /未入力|未設定|算出できません|不足|判定できません/;
+const PREMISE_NO_NEW_LOAN = '追加借入なしの前提。新規借入は未入力のため0円として試算';
+const PREMISE_ENTERED_LOAN = '入力された新規借入を反映。借入計画は確定していません';
 
 function departmentsOf(value: unknown): Department[] {
   return Array.isArray(value) ? (value as Department[]) : [];
@@ -107,26 +109,20 @@ function judgeFinance(args: RiskSourceArgs): FinanceJudgement {
     coverage.push('- 資金繰り：未登録（STAGE6の資金計画が保存されていません）');
   } else if (stored.kind !== 'OK') {
     coverage.push('- 資金繰り・STAGE6の経営目標：取得失敗（保存済みの資金計画を読めませんでした）');
-  } else if (stored.domain.newLoans.length === 0) {
-    const years = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST').map((y) => y.year);
-    coverage.push(
-      `- 資金繰り（${yearsLabel(years)}）：判断材料不足（新規借入が未入力です。0円とは見なしていません。借入の予定がない場合は、0円の行を入力してください）`,
-    );
   } else {
+    const premise = stored.domain.newLoans.length === 0 ? PREMISE_NO_NEW_LOAN : PREMISE_ENTERED_LOAN;
     const forecast = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST');
     const unknown = forecast.filter((y) => typeof y.postShortfall.value !== 'number');
     if (unknown.length > 0) {
-      const reasons = [
-        ...new Set(unknown.flatMap((y) => y.holds.filter((h) => BLOCKING_HOLD.test(h)))),
-      ];
+      const reasons = [...new Set(unknown.flatMap((y) => y.holds.filter((h) => BLOCKING_HOLD.test(h))))];
       coverage.push(
         `- 資金繰り（${yearsLabel(unknown.map((y) => y.year))}）：判断材料不足（${reasons.length > 0 ? reasons.join('、') : unknown[0].postShortfall.note}）`,
       );
     }
     cash = forecast.map((y) => ({
       year: y.year,
-      isForecast: true,
       shortfallYen: typeof y.postShortfall.value === 'number' ? y.postShortfall.value : null,
+      premise,
     }));
   }
 

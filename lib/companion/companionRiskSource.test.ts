@@ -1,4 +1,5 @@
 import { FICTIONAL_COMPANY_ID } from '@/eval/quality/fictionalCompany';
+import { outlookOf, storedOf } from '@/lib/ceoChat/stage6Plan';
 import { RISK_NOW, riskStrategyFixture } from '@/eval/quality/riskFixtures';
 import { riskInputsOf, type RiskSourceArgs } from './companionRiskSource';
 
@@ -34,10 +35,24 @@ describe('経営点検：資金繰りの判定（未入力を0と見なさない
     expect(r.coverage.join('\n')).not.toContain('資金繰り：未登録');
   });
 
-  it('新規借入が未入力なら、0円とは見なさず、資金不足の事実も出さない（不足が起きうる条件でも）', () => {
+  it('新規借入が未入力なら、STAGE6の既存の試算（0円として計算）を使い、追加借入なしの前提を明示する', () => {
     const r = riskInputsOf(argsOf(riskStrategyFixture({ minCashYen: 260_000_000, newLoan: 'none' })));
-    expect(r.facts.some((f) => f.category === 'CASH')).toBe(false);
-    expect(r.coverage.some((l) => l.includes('新規借入が未入力です。0円とは見なしていません'))).toBe(true);
+    const cash = r.facts.filter((f) => f.category === 'CASH');
+    expect(cash).toHaveLength(1);
+    expect(cash[0].text).toContain('追加借入なしの前提。新規借入は未入力のため0円として試算');
+    expect(cash[0].text).not.toContain('確定');
+    expect(r.coverage.some((l) => l.includes('新規借入'))).toBe(false);
+  });
+
+  it('資金繰りの不足は、STAGE6の資金計画の試算結果と同じ金額になる（別の計算をしない）', () => {
+    const fixture = riskStrategyFixture({ minCashYen: 260_000_000, newLoan: 'none', dividends: 'zero' });
+    const args = argsOf(fixture);
+    const stored = storedOf(args.csvFinanceData, args.companyId);
+    const outlook = outlookOf(args, stored.kind === 'OK' ? stored.domain : null);
+    const stage6Shortfall2026 = outlook!.financedPlan.years.find((y) => y.year === 2026)!.postShortfall.value as number;
+    const r = riskInputsOf(args);
+    const cash = r.facts.find((f) => f.category === 'CASH' && f.text.startsWith('2026年度'))!;
+    expect(cash.text).toContain(`${Math.round(stage6Shortfall2026).toLocaleString('ja-JP')}円`);
   });
 
   it('新規借入に0円の行があれば、明示的なゼロとして資金不足を判定する', () => {

@@ -22,14 +22,13 @@ describe('経営点検：事実の判定（プログラムで決める）', () =
     expect(detectRiskFacts(EMPTY)).toEqual([]);
   });
 
-  it('資金不足は、予測年度で不足がある年度だけ事実にする', () => {
+  it('資金不足は、不足がある年度だけ事実にし、前提を添える', () => {
     const facts = detectRiskFacts({
       ...EMPTY,
       cash: [
-        { year: 2027, isForecast: true, shortfallYen: 3_000_000 },
-        { year: 2026, isForecast: false, shortfallYen: 9_000_000 },
-        { year: 2028, isForecast: true, shortfallYen: 0 },
-        { year: 2029, isForecast: true, shortfallYen: null },
+        { year: 2027, shortfallYen: 3_000_000, premise: '追加借入なしの前提' },
+        { year: 2028, shortfallYen: 0, premise: '追加借入なしの前提' },
+        { year: 2029, shortfallYen: null, premise: '追加借入なしの前提' },
       ],
     });
     expect(facts).toHaveLength(1);
@@ -37,6 +36,7 @@ describe('経営点検：事実の判定（プログラムで決める）', () =
     expect(facts[0].text).toContain('2027年度');
     expect(facts[0].text).toContain('3,000,000円');
     expect(facts[0].text).toContain('下回る見込み');
+    expect(facts[0].text).toContain('追加借入なしの前提');
   });
 
   it('経営目標の不足は、不足がある時だけ事実にする（超過や未算定は出さない）', () => {
@@ -130,7 +130,7 @@ describe('経営点検：事実の判定（プログラムで決める）', () =
 
 describe('経営点検：重大なリスクの判定', () => {
   it('資金不足と目標未達は重大、それ以外の事実は重大でない', () => {
-    const cash = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, isForecast: true, shortfallYen: 1 }] });
+    const cash = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, shortfallYen: 1, premise: 'p' }] });
     const target = detectRiskFacts({ ...EMPTY, targets: [{ metric: '売上', source: 'STAGE2', fiscalYear: 2027, gapYen: 1 }] });
     const stalled = detectRiskFacts({ ...EMPTY, actions: [{ where: 'A', inProgress: true, updatedAt: OLD }] });
     expect(isSeriousRisk(cash)).toBe(true);
@@ -148,9 +148,9 @@ describe('経営点検：期限と指紋', () => {
   });
 
   it('同じ事実なら同じ指紋、違えば別の指紋になる（内容が変わった時だけ再依頼する）', () => {
-    const a = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, isForecast: true, shortfallYen: 1 }] });
-    const b = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, isForecast: true, shortfallYen: 1 }] });
-    const c = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, isForecast: true, shortfallYen: 2 }] });
+    const a = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, shortfallYen: 1, premise: 'p' }] });
+    const b = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, shortfallYen: 1, premise: 'p' }] });
+    const c = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, shortfallYen: 2, premise: 'p' }] });
     expect(riskFingerprint(a)).toBe(riskFingerprint(b));
     expect(riskFingerprint(a)).not.toBe(riskFingerprint(c));
   });

@@ -7,7 +7,7 @@ export type RiskCategory = 'CASH' | 'TARGET' | 'PLAN_GAP' | 'KR_OVERDUE' | 'ACTI
 
 export type RiskFact = { category: RiskCategory; text: string };
 
-export type CashYearInput = { year: number; isForecast: boolean; shortfallYen: number | null };
+export type CashYearInput = { year: number; shortfallYen: number | null; premise: string };
 export type TargetSource = 'STAGE2' | 'STAGE6';
 export type TargetGapInput = {
   metric: '売上' | '営業利益';
@@ -98,10 +98,10 @@ export function detectRiskFacts(input: RiskInput): RiskFact[] {
   const facts: RiskFact[] = [];
 
   for (const y of input.cash) {
-    if (!y.isForecast || y.shortfallYen === null || y.shortfallYen <= 0) continue;
+    if (y.shortfallYen === null || y.shortfallYen <= 0) continue;
     facts.push({
       category: 'CASH',
-      text: `${y.year}年度：施策反映・借入反映後の期末現預金が最低現預金を ${yen(y.shortfallYen)} 下回る見込み（資金繰り試算）`,
+      text: `${y.year}年度：施策反映・借入反映後の期末現預金が最低現預金を ${yen(y.shortfallYen)} 下回る見込み（資金繰り試算。${y.premise}）`,
     });
   }
 
@@ -148,6 +148,28 @@ export function isSeriousRisk(facts: RiskFact[]): boolean {
   return facts.some((f) => f.category === 'CASH' || f.category === 'TARGET');
 }
 
+/** 点検結果に付くAI所見の状態。事実は常に返し、所見の状態だけをこれで示す */
+export type AiState =
+  | 'NOT_NEEDED'
+  | 'GENERATED'
+  | 'REUSED'
+  | 'IN_PROGRESS'
+  | 'FAILED_TODAY'
+  | 'STALE'
+  | 'OTHER_STRATEGY'
+  | 'UNAVAILABLE'
+  | 'FAILED';
+
+/** 所見が無い状態の説明（所見がある状態は null） */
+export const AI_NOTE: Partial<Record<AiState, string>> = {
+  IN_PROGRESS: '当日の所見は、別の利用者の点検で作成中です。作成されると、次に開いた時に表示されます。',
+  FAILED_TODAY: '当日の所見は作成できませんでした。次の点検は明日以降に行われます。',
+  STALE: '当日作成した所見は、点検の事実が更新されたため表示していません。上の事実は最新の保存済みデータに基づきます。',
+  OTHER_STRATEGY: '当日の所見は、別の戦略の点検で作成されたため表示していません。',
+  UNAVAILABLE: '所見を作成するための確認ができなかったため、AI所見は作成していません。上の事実は確認できます。',
+  FAILED: 'AI所見を取得できませんでした。上の事実を確認してください。',
+};
+
 export function riskStatusOf(facts: RiskFact[], coverage: string[]): RiskStatus {
   if (facts.length > 0) return 'ISSUES';
   return coverage.length > 0 ? 'INSUFFICIENT' : 'NO_ISSUE';
@@ -183,6 +205,8 @@ export const RISK_GUARD = [
   'あなたは経営コンサルタントです。',
   '「事実」は、保存済みデータから既存の計算で得た確定した内容です。',
   '- 事実の数値・年度・名称は、そのまま使う。変えたり、足したり、推測で補ったりしない。',
+  '- 事実に「前提」が付く場合は、その前提を保ったまま書く。借入計画が確定しているとは書かない。',
+  '- 経営目標は、事実の一覧に示された目標だけを前提にする。一覧にない目標との比較は書かない。',
   '- 表面の数値だけでなく、その原因を「仮説」として考える（例：「仮説：〜の可能性があります」）。事実とは区別して書く。',
   '- 全体最適の視点で、部門の施策が全社の目標にどう効くかを見る。',
   '- 改善策は「見直しの候補」として示し、優先する一点を先に書く。決定は利用者に委ねる。',

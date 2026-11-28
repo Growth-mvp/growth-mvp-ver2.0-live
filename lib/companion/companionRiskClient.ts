@@ -1,5 +1,5 @@
 /* 経営点検を依頼する。事実が無ければAIは呼ばれない。失敗しても自動では再依頼しない。 */
-import { NOT_CHECKED_NOTE, STATUS_LEAD, type RiskStatus } from './companionRisk';
+import { AI_NOTE, NOT_CHECKED_NOTE, STATUS_LEAD, type AiState, type RiskStatus } from './companionRisk';
 
 export type RiskReviewRequest = {
   companyId: string;
@@ -14,6 +14,7 @@ export type RiskReviewResult = {
   text: string | null;
   serious: boolean;
   coverage: string[];
+  aiState?: AiState;
 };
 
 const FAILED: RiskReviewResult = { status: 'FAILED', facts: [], text: null, serious: false, coverage: [] };
@@ -34,17 +35,34 @@ export async function requestRiskReview(req: RiskReviewRequest): Promise<RiskRev
     if (!res.ok) return FAILED;
     const raw = await res.text();
     const data = raw
-      ? (JSON.parse(raw) as { status?: unknown; facts?: unknown; text?: unknown; serious?: unknown; coverage?: unknown })
+      ? (JSON.parse(raw) as { status?: unknown; facts?: unknown; text?: unknown; serious?: unknown; coverage?: unknown; aiState?: unknown })
       : null;
     if (!data || !Array.isArray(data.facts)) return FAILED;
     const facts = data.facts.filter((f): f is string => typeof f === 'string');
     const coverage = Array.isArray(data.coverage) ? data.coverage.filter((c): c is string => typeof c === 'string') : [];
     const text = typeof data.text === 'string' && data.text.trim() ? data.text.trim() : null;
     const status = isStatus(data.status) ? data.status : facts.length > 0 ? 'ISSUES' : coverage.length > 0 ? 'INSUFFICIENT' : 'NO_ISSUE';
-    return { status, facts, text, serious: data.serious === true, coverage };
+    const aiState = isAiState(data.aiState) ? data.aiState : undefined;
+    return { status, facts, text, serious: data.serious === true, coverage, aiState };
   } catch {
     return FAILED;
   }
+}
+
+const AI_STATES: readonly AiState[] = [
+  'NOT_NEEDED',
+  'GENERATED',
+  'REUSED',
+  'IN_PROGRESS',
+  'FAILED_TODAY',
+  'STALE',
+  'OTHER_STRATEGY',
+  'UNAVAILABLE',
+  'FAILED',
+];
+
+function isAiState(v: unknown): v is AiState {
+  return AI_STATES.includes(v as AiState);
 }
 
 function isStatus(v: unknown): v is RiskStatus {
@@ -83,7 +101,7 @@ export function riskReviewBody(result: RiskReviewResult): string {
     return lines.join('\n');
   }
   const lines = ['事実（保存済みデータの計算結果）', ...result.facts, ''];
-  lines.push(result.text ? plainText(result.text) : 'AIの所見は取得できませんでした。上の事実を確認してください。');
+  lines.push(result.text ? plainText(result.text) : (result.aiState && AI_NOTE[result.aiState]) || AI_NOTE.FAILED || '');
   if (result.coverage.length > 0) lines.push('', '判断できなかった項目（理由別）', ...result.coverage);
   lines.push('', NOT_CHECKED_NOTE);
   return lines.join('\n');

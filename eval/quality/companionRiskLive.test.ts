@@ -4,14 +4,16 @@ import fs from 'fs';
 import path from 'path';
 import { FICTIONAL_COMPANY_ID, FICTIONAL_STRATEGY_ID } from './fictionalCompany';
 import { RISK_NOW, riskStrategyFixture, type RiskFixtureOptions } from './riskFixtures';
+import { createClaimStore } from './riskClaimStore';
 
 const LIVE = process.env.QUALITY_LIVE === '1' && process.env.QUALITY_APPROVED === 'yes';
 const describeLive = LIVE ? describe : describe.skip;
 
 const MAX_CALLS = 3;
 const mockGetFullStrategy = jest.fn();
+let mockStore = createClaimStore();
 
-jest.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({}) }));
+jest.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: () => mockStore.admin }));
 jest.mock('@/lib/server/rbacGuard', () => ({
   getAuthUserIdFromBearer: async () => 'quality-user-ceo',
   requireMembership: async () => ({ companyId: 'quality-company-a', role: 'admin' }),
@@ -73,6 +75,7 @@ describeLive('経営点検の実API検証（承認済み・3ケース・最大3�
   });
 
   it.each(CASES)('$name', async ({ name, options }) => {
+    mockStore = createClaimStore();
     mockGetFullStrategy.mockResolvedValue({ data: riskStrategyFixture(options), error: null });
     const res = await post(
       new Request('http://localhost/api/companion/risk-review', {

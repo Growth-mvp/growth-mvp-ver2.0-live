@@ -97,7 +97,22 @@ describe('経営点検の依頼', () => {
     const body = riskReviewBody(result({ facts: ['- 2027年度：不足'], text: null }));
     expect(body.startsWith('事実（保存済みデータの計算結果）')).toBe(true);
     expect(body).toContain('- 2027年度：不足');
-    expect(body).toContain('AIの所見は取得できませんでした');
+    expect(body).toContain('AI所見を取得できませんでした');
+  });
+
+  it('所見が無い理由を状態ごとに示し、事実は必ず残す', () => {
+    const cases: Array<[string, string]> = [
+      ['IN_PROGRESS', '別の利用者の点検で作成中'],
+      ['FAILED_TODAY', '当日の所見は作成できませんでした'],
+      ['STALE', '点検の事実が更新されたため表示していません'],
+      ['OTHER_STRATEGY', '別の戦略の点検で作成されたため'],
+      ['UNAVAILABLE', '確認ができなかったため、AI所見は作成していません'],
+    ];
+    for (const [aiState, note] of cases) {
+      const body = riskReviewBody(result({ facts: ['- 2027年度：不足'], text: null, aiState: aiState as RiskReviewResult['aiState'] }));
+      expect(body).toContain(note);
+      expect(body).toContain('- 2027年度：不足');
+    }
   });
 
   it('本文の末尾に、点検していない範囲（費用の計画と実績、会社全体のKR）を必ず添える', () => {
