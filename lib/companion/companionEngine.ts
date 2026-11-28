@@ -80,7 +80,7 @@ function pickStep(s: CompanionSnapshot): ProgressStep | null {
       message: 'STAGE1の財務データがまだ入っていないため、企業価値の分析と論点の作成に進めません。決算資料を読み込むか、「② 財務データ（読込・手入力）」に直接入力してください。',
       href: '/stage1',
       linkLabel: 'STAGE1の財務データを開く',
-      operationId: 'stage1.finance-read-from-file',
+      operationId: 'stage1.edit-finance-table',
     };
   }
   if (s.issueCount === 0) {
