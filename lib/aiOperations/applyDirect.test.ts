@@ -1,5 +1,6 @@
 import { applyDirectProposal, applyStageOp, isDirectProposal } from './applyDirect';
 import type { OperationProposal } from './instruction';
+import type { StageOp } from './stage1Input';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
@@ -63,7 +64,7 @@ function setStore(over: Record<string, unknown> = {}) {
 }
 
 function allowAuthorize(revision: number | null = 7) {
-  (supabase.auth.getSession as jest.Mock).mockResolvedValue({ data: { session: { access_token: 't' } } });
+  (supabase.auth.getSession as jest.Mock).mockResolvedValue({ data: { session: { access_token: 't', user: { id: 'u1' } } } });
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => ({ revision }),
@@ -72,7 +73,7 @@ function allowAuthorize(revision: number | null = 7) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (useUserStore.getState as jest.Mock).mockReturnValue({ role: 'manager' });
+  (useUserStore.getState as jest.Mock).mockReturnValue({ role: 'manager', user: { id: 'u1' } });
   useAiHighlightStore.setState({ target: null, at: 0 });
 });
 
@@ -304,5 +305,60 @@ describe('applyStageOp：STAGE1の各入力欄への反映', () => {
     const result = await applyStageOp({ kind: 'valuation' });
     expect(result.ok).toBe(true);
     expect(state.recomputeValueAnalysis).toHaveBeenCalled();
+  });
+});
+
+describe('applyStageOp：権限確認の前後で、利用者・企業・戦略と対象の値を確かめる', () => {
+  const PROFILE: StageOp = { kind: 'profile', field: 'companyName', value: 'A社', display: 'A社' };
+  const OP_2025: StageOp = { kind: 'finance', table: 'pl', key: 'operatingIncome', label: '営業利益', year: 2025, yen: 5_000_000 };
+
+  it('権限確認中に利用者が切り替わったら反映しない', async () => {
+    const state = setStore();
+    allowAuthorize();
+    (supabase.auth.getSession as jest.Mock).mockResolvedValueOnce({ data: { session: { access_token: 't', user: { id: 'u2' } } } });
+    const result = await applyStageOp(PROFILE);
+    expect(result.ok).toBe(false);
+    expect(state.setProfile).not.toHaveBeenCalled();
+  });
+
+  it('権限確認中に企業が切り替わったら反映しない', async () => {
+    const state = setStore({ financePL: [{ year: 2024, revenue: 100 }] });
+    allowAuthorize();
+    global.fetch = jest.fn(async () => {
+      (useStrategyStore.getState as jest.Mock).mockReturnValue({ ...state, companyId: 'c2' });
+      return { ok: true, json: async () => ({ revision: 7 }) };
+    }) as unknown as typeof fetch;
+    const result = await applyStageOp(OP_2025);
+    expect(result.ok).toBe(false);
+    expect(state.setFinancePL).not.toHaveBeenCalled();
+  });
+
+  it('権限確認中に同じ項目を手動で変えていたら、上書きしない', async () => {
+    const state = setStore({ financePL: [{ year: 2024, revenue: 100 }] });
+    allowAuthorize();
+    global.fetch = jest.fn(async () => {
+      state.financePL = [{ year: 2024, revenue: 100 }, { year: 2025, operatingIncome: 2_000_000 }];
+      return { ok: true, json: async () => ({ revision: 7 }) };
+    }) as unknown as typeof fetch;
+    const result = await applyStageOp(OP_2025);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('同じ項目が変わった');
+    expect(state.setFinancePL).not.toHaveBeenCalled();
+    expect(state.financePL).toEqual([{ year: 2024, revenue: 100 }, { year: 2025, operatingIncome: 2_000_000 }]);
+  });
+
+  it('権限確認中に別の項目（別の年度）が変わっても、対象の項目だけを反映し、その変更を残す', async () => {
+    const state = setStore({ financePL: [{ year: 2024, revenue: 100 }] });
+    allowAuthorize();
+    global.fetch = jest.fn(async () => {
+      state.financePL = [{ year: 2024, revenue: 200 }];
+      return { ok: true, json: async () => ({ revision: 7 }) };
+    }) as unknown as typeof fetch;
+    const result = await applyStageOp(OP_2025);
+    expect(result.ok).toBe(true);
+    expect(state.financePL).toEqual([
+      { year: 2024, revenue: 200 },
+      { year: 2025, operatingIncome: 5_000_000 },
+    ]);
   });
 });

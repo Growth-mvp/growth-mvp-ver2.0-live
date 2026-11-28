@@ -2,7 +2,7 @@
 // 保存はしない。保存は画面の既存の手動保存と同じ仕様に従う。
 // 未保存の変更があっても止めず、対象の項目だけを更新する。他の利用者による更新と企業・戦略の切り替えは保護する。
 import { supabase } from '@/utils/supabase/client';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { OPERATION_ROLE_DENIED, proposalStaleReason, roleMeetsRequirement } from './guard';
@@ -23,6 +23,7 @@ type Written = { ok: true; message: string; flash?: string } | { ok: false; mess
 const AUTH_FAILED = '権限の確認ができませんでした。所属と権限を確認して、もう一度お試しください。';
 const REVISION_CHANGED = 'ほかの画面で内容が更新されたため、反映しませんでした。画面を再読み込みして、もう一度指示してください。';
 const SCOPE_CHANGED = '企業または戦略が切り替わったため、反映しませんでした。';
+const VALUE_CHANGED = '権限の確認中に同じ項目が変わったため、反映しませんでした。内容を確かめて、もう一度指示してください。';
 const SAVE_NOTE = '保存はまだです。内容を確かめ、必要に応じて修正してから保存してください。';
 const PROFILE_LABEL: Record<string, string> = {
   companyName: '会社名',
@@ -116,6 +117,38 @@ function writeFinance(op: FinanceOp): Written {
   };
 }
 
+function financeValueOf(op: FinanceOp, st: StrategyState): number | null {
+  const rows = op.segment
+    ? (((op.table === 'pl' ? st.segmentPL : st.segmentBS) ?? {}) as Record<string, Array<{ year: number }>>)[op.segment] ?? []
+    : (((op.table === 'pl' ? st.financePL : st.financeBS) ?? []) as Array<{ year: number }>);
+  return currentYearValue(rows, op.year, op.key);
+}
+
+/** 入力対象の現在の値。権限確認の前後で比べ、確認中に同じ項目が変わっていれば上書きしない */
+function valueSignatureOf(op: StageOp, st: StrategyState): string {
+  const segments = (st.businessSegments ?? []) as Array<{ name: string } & Record<string, unknown>>;
+  const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
+  switch (op.kind) {
+    case 'profile':
+      return JSON.stringify((st as unknown as Record<string, unknown>)[op.field] ?? null);
+    case 'segment.add':
+    case 'segment.rename':
+      return JSON.stringify(segments.map((s) => s.name));
+    case 'segment.set':
+      return JSON.stringify(segments.find((s) => s.name === op.name)?.[op.field] ?? null);
+    case 'finance':
+      return JSON.stringify(financeValueOf(op, st));
+    case 'wacc':
+      return JSON.stringify((st as unknown as { stage1Benchmarks?: { waccManual?: number } }).stage1Benchmarks?.waccManual ?? null);
+    case 'issue.add':
+      return JSON.stringify(issues.map((i) => i.title));
+    case 'issue.edit':
+      return JSON.stringify(issues.find((i) => i.title === op.title) ?? null);
+    case 'valuation':
+      return '';
+  }
+}
+
 function writeOp(op: StageOp): Written {
   const st = useStrategyStore.getState();
   switch (op.kind) {
@@ -207,7 +240,9 @@ export async function applyStageOp(op: StageOp): Promise<DirectApplyResult> {
       return { ok: false, message: OPERATION_ROLE_DENIED };
     }
     const before = useStrategyStore.getState();
-    if (!before.companyId || !before.strategyId) return { ok: false, message: SCOPE_CHANGED };
+    const userId = useUserStore.getState().user?.id ?? null;
+    if (!before.companyId || !before.strategyId || !userId) return { ok: false, message: SCOPE_CHANGED };
+    const valueBefore = valueSignatureOf(op, before);
 
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
@@ -222,7 +257,17 @@ export async function applyStageOp(op: StageOp): Promise<DirectApplyResult> {
     const { revision } = (await res.json()) as { revision?: number };
 
     const after = useStrategyStore.getState();
+    const sameScope =
+      after.companyId === before.companyId &&
+      after.strategyId === before.strategyId &&
+      data.session?.user?.id === userId &&
+      useUserStore.getState().user?.id === userId;
+    if (!sameScope) return { ok: false, message: SCOPE_CHANGED };
+    if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'manager')) {
+      return { ok: false, message: OPERATION_ROLE_DENIED };
+    }
     if (typeof revision !== 'number' || after.revision !== revision) return { ok: false, message: REVISION_CHANGED };
+    if (valueSignatureOf(op, after) !== valueBefore) return { ok: false, message: VALUE_CHANGED };
 
     const written = writeOp(op);
     if (!written.ok) return written;
