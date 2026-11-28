@@ -3,7 +3,8 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
-import type { BusinessPortfolio, BusinessUnit, ValueAnalysis, FinancePLRow, BusinessSegment } from '@/types/strategy';
+import type { BusinessPortfolio, ValueAnalysis, FinancePLRow, BusinessSegment } from '@/types/strategy';
+import { buildBusinessPortfolio } from '@/lib/stage1/businessPortfolio';
 import IssueBlockPanel from './IssueBlockPanel';
 import Stage2Bridge from './Stage2Bridge';
 
@@ -32,54 +33,10 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
    * - 各セグメント（事業部）を growthRate / profitMargin / revenueShare で表現
    * - units が存在すれば businessPortfolio として store に保存
    */
-  const computedBusinessPortfolio = useMemo<BusinessPortfolio | null>(() => {
-    const segmentNames = businessSegments?.map((s: any) => s?.name).filter(Boolean) ?? [];
-    if (segmentNames.length === 0) return null;
-
-    const units: BusinessUnit[] = [];
-
-    for (const name of segmentNames) {
-      const va = segmentValueAnalysisRaw?.[name];
-      const rows = segmentPL?.[name];
-
-      // 成長率（CAGR）と利益率を取得
-      const growthRate = typeof (va as any)?.revenueCagrPct === 'number' ? (va as any).revenueCagrPct : 0;
-      const profitMargin = typeof (va as any)?.operatingMarginPctLatest === 'number' ? (va as any).operatingMarginPctLatest : 0;
-
-      // 最新年の売上を取得（revenueShare の基準値として使用）
-      let latestRevenue = 0;
-      if (Array.isArray(rows) && rows.length > 0) {
-        const lastRow = rows[rows.length - 1];
-        latestRevenue = typeof (lastRow as any)?.revenue === 'number' ? (lastRow as any).revenue : 0;
-      }
-
-      const unit: BusinessUnit = {
-        id: name || `unit-${units.length}`,
-        name: name || `Unit ${units.length + 1}`,
-        growthRate,
-        profitMargin,
-        revenueShare: latestRevenue > 0 ? 100 / segmentNames.length : 0, // 均等配分（簡易）
-      };
-      units.push(unit);
-    }
-
-    // units が 1件以上あれば businessPortfolio を返す
-    if (units.length > 0) {
-      const portfolio: BusinessPortfolio = {
-        unitType: 'business',
-        periodLabel: 'FY2025',
-        currency: 'JPY',
-        threshold: {
-          growthBaseline: 0,
-          profitBaseline: 0,
-        },
-        units,
-      };
-      return portfolio;
-    }
-
-    return null;
-  }, [businessSegments, segmentValueAnalysisRaw, segmentPL]);
+  const computedBusinessPortfolio = useMemo<BusinessPortfolio | null>(
+    () => buildBusinessPortfolio({ segments: businessSegments, segmentValueAnalysis: segmentValueAnalysisRaw, segmentPL }),
+    [businessSegments, segmentValueAnalysisRaw, segmentPL],
+  );
 
   /**
    * ★ STAGE2 遷移時に businessPortfolio を確定して store に保存

@@ -11,6 +11,8 @@ import type { OperationProposal } from './instruction';
 import type { RemovalTarget, StageOp } from './stage1Input';
 import { useAiUndoStore, type AiWriteRecord } from './aiUndoStore';
 import { removalCheck, type RemovalOp } from './removalSafety';
+import { buildBusinessPortfolio } from '@/lib/stage1/businessPortfolio';
+import type { FinancePLRow, ValueAnalysis } from '@/types/strategy';
 import { saveSentenceOf, waitForSaveSettled } from './saveSettle';
 
 export type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
@@ -265,7 +267,18 @@ function writeOp(op: StageOp): Written {
     case 'segment.remove': {
       const check = removalCheck(op, st);
       if (!check.ok) return { ok: false, message: check.reason };
-      st.setProfile({ businessSegments: (st.businessSegments ?? []).filter((s) => s.id !== op.id) } as never);
+      const nextSegments = (st.businessSegments ?? []).filter((s) => s.id !== op.id);
+      st.setProfile({ businessSegments: nextSegments } as never);
+      // 自動生成の事業ポートフォリオは、残った事業から同じ生成処理で作り直す（既存の値は残す）
+      if (st.businessPortfolio) {
+        const portfolio = buildBusinessPortfolio({
+          segments: nextSegments,
+          segmentValueAnalysis: (st as unknown as { segmentValueAnalysis?: Record<string, ValueAnalysis> }).segmentValueAnalysis,
+          segmentPL: st.segmentPL as Record<string, FinancePLRow[]> | undefined,
+          fallback: st.businessPortfolio,
+        });
+        st.setProfile({ businessPortfolio: portfolio ?? undefined } as never);
+      }
       return { ok: true, message: `事業「${op.name}」を削除しました。`, undo: null };
     }
     case 'segment.rename': {
@@ -454,7 +467,9 @@ export function planRemoval(target: RemovalTarget): { ok: true; op: RemovalOp; i
     return {
       ok: true,
       op,
-      impact: `事業「${target.name}」の事業概要・主な顧客・展開地域を削除します。事業別の財務・経営課題・部門・事業ポートフォリオ・企業の目標・プロジェクトとの紐づけを確認し、紐づきはありません。`,
+      impact: `事業「${target.name}」の事業概要・主な顧客・展開地域を削除します。事業別の財務・経営課題・部門・企業の目標・プロジェクトとの紐づけを確認し、紐づきはありません。${
+        st.businessPortfolio ? '自動生成の事業ポートフォリオからも、この事業を外して作り直します。' : ''
+      }`,
     };
   }
   const op: RemovalOp = { kind: 'issue.remove', title: target.name };

@@ -1,6 +1,8 @@
 import { applyDirectProposal, applyStageOp, isDirectProposal, planRemoval, planUndo } from './applyDirect';
 import { useAiUndoStore } from './aiUndoStore';
 import { waitForSaveSettled } from './saveSettle';
+import { buildBusinessPortfolio } from '@/lib/stage1/businessPortfolio';
+import type { BusinessPortfolio } from '@/types/strategy';
 import type { OperationProposal } from './instruction';
 import type { StageOp } from './stage1Input';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -555,6 +557,32 @@ describe('取り消し情報の記録（自動保存の待機との前後関係�
     const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
     expect(undone.ok).toBe(true);
     expect(state.businessSegments).toEqual([{ id: 'seg-1', name: '製造事業' }]);
+  });
+});
+
+describe('事業の削除と自動生成の事業ポートフォリオ', () => {
+  it('後から追加した未使用の事業を削除すると、ポートフォリオは残った事業から作り直し、他の事業の値は残す', async () => {
+    const segments = [
+      { id: 'seg-1', name: '製造事業' },
+      { id: 'seg-2', name: 'フィットネス' },
+    ];
+    const stored = buildBusinessPortfolio({ segments })!;
+    const state = setStore({
+      businessSegments: segments,
+      businessPortfolio: { ...stored, units: stored.units.map((u) => (u.name === '製造事業' ? { ...u, growthRate: 7, profitMargin: 12 } : u)) },
+    });
+    allowAuthorize();
+    const plan = planRemoval({ type: 'segment', name: 'フィットネス' });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.impact).toContain('自動生成の事業ポートフォリオ');
+    const r = await applyStageOp(plan.op, { settleMs: 0 });
+    expect(r.ok).toBe(true);
+
+    expect(state.businessSegments).toEqual([{ id: 'seg-1', name: '製造事業' }]);
+    const bp = state.businessPortfolio as BusinessPortfolio;
+    expect(bp.units.map((u) => u.name)).toEqual(['製造事業']);
+    expect(bp.units[0]).toMatchObject({ id: '製造事業', growthRate: 7, profitMargin: 12 });
   });
 });
 

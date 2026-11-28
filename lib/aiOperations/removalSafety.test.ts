@@ -41,11 +41,19 @@ describe('① 既存の戦略がある企業で、後から追加した未使用
 });
 
 describe('② 戦略や財務データに紐づいている事業・経営課題は保護され、理由を伝える', () => {
-  it('部門とポートフォリオに紐づく事業は、その理由を示して削除しない', () => {
+  it('部門に紐づく事業は、その理由を示して削除しない（自動生成のポートフォリオは理由にしない）', () => {
     const r = removalCheck({ kind: 'segment.remove', id: 'seg-1', name: '製造事業' }, STRATEGY as never);
     expect(r.ok).toBe(false);
     expect(r.ok ? '' : r.reason).toContain('部門「営業部」（この事業に紐づけ）');
-    expect(r.ok ? '' : r.reason).toContain('事業ポートフォリオの単位「製造事業」');
+    expect(r.ok ? '' : r.reason).not.toContain('ポートフォリオ');
+  });
+
+  it('自動生成と区別できない事業ポートフォリオがある場合は、安全側に倒して削除しない', () => {
+    const r = removalCheck(fitness, {
+      ...STRATEGY,
+      businessPortfolio: { ...STRATEGY.businessPortfolio, threshold: { growthBaseline: 5, profitBaseline: 0 } },
+    } as never);
+    expect(r.ok ? '' : r.reason).toContain('自動生成の内容と一致せず');
   });
 
   it('事業別の財務データがある事業は削除しない', () => {

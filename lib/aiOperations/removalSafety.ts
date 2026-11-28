@@ -1,5 +1,6 @@
 import type { StrategyState } from '@/store/strategyStore';
 import type { StageOp } from './stage1Input';
+import { isGeneratedPortfolio } from '@/lib/stage1/businessPortfolio';
 
 export type RemovalOp = Extract<StageOp, { kind: 'segment.remove' | 'issue.remove' }>;
 
@@ -40,10 +41,14 @@ function segmentCheck(op: Extract<RemovalOp, { kind: 'segment.remove' }>, st: St
     else if (dept.name === op.name) links.push(`部門「${dept.name}」（事業名と同じ部門）`);
   }
 
-  const units = st.businessPortfolio?.units;
-  if (units !== undefined && !Array.isArray(units)) return unreadable('事業ポートフォリオ');
-  for (const unit of units ?? []) {
-    if (unit.id === op.id || unit.name === op.name) links.push(`事業ポートフォリオの単位「${unit.name}」`);
+  // 事業セグメントから自動生成された事業ポートフォリオは紐づきとして扱わず、削除の時に同じ生成処理で作り直す。
+  // 自動生成と区別できない形の場合は、独立して編集された可能性があるため削除しない
+  const names = (st.businessSegments ?? []).map((s) => s.name);
+  if (st.businessPortfolio && !isGeneratedPortfolio(st.businessPortfolio, names)) {
+    return {
+      ok: false,
+      reason: `事業ポートフォリオが事業セグメントからの自動生成の内容と一致せず、独立して編集された内容かを判定できないため、事業「${op.name}」は削除しません。`,
+    };
   }
 
   if (links.length > 0) return { ok: false, reason: `${links.join('、')}と紐づいているため、事業「${op.name}」は削除しません。` };
