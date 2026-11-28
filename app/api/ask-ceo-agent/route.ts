@@ -13,6 +13,7 @@ import { buildConsultingReasoningBlock, consultingEffort, selectConsultingPlan, 
 import { consultationQueryOf } from '@/lib/ceoChat/followUpContext';
 import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat, type PersonaVariant } from '@/lib/ceoChat/answerStyle';
 import { CONSULTANT_BASE_C, CONSULTANT_PERSONA, CONSULTANT_ROLE_NEUTRAL, HELP_TONE } from '@/lib/ceoChat/consultantPersona';
+import { rewriteWithTwoStage, twoStageEnabled } from '@/lib/ceoChat/twoStage';
 import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { attributableOkrs } from '@/lib/cascade/okrAttribution';
@@ -1202,6 +1203,11 @@ export async function POST(req: Request) {
       content = review.content;
       reviewTargets = review.reviewTargets;
       reviewMarker = review.diagnostics;
+    }
+    if (twoStageEnabled() && isManual && output !== 'json' && !externalSourceAllowlist && content) {
+      const two = await rewriteWithTwoStage({ client: openai as any, question: lastUser, history: askMessages, draft: content });
+      console.log('[ask-ceo-agent]', requestId, 'two_stage', { outcome: two.outcome, reason: two.reason, model: two.model, latency_ms: two.latencyMs });
+      content = two.content;
     }
     if (reviewRun.applicable) {
       console.log('[ask-ceo-agent]', requestId, 'stage4_review', classifyReviewRun({
