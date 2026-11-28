@@ -562,6 +562,52 @@ describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回'
     expect(companionCardText()).toContain('経営点検の処理に失敗したため');
   });
 
+  it('作成中の所見は、利用者が「最新の点検を確認」を押した時だけ取り直し、完成後の所見に置き換える（点検日時を示す）', async () => {
+    completeStoreForReview();
+    const responses = [
+      {
+        status: 'ISSUES',
+        facts: ['- 2027年度：不足'],
+        text: null,
+        serious: true,
+        coverage: [],
+        aiState: 'IN_PROGRESS',
+        checkedAt: '2027-06-15T00:05:00Z',
+      },
+      {
+        status: 'ISSUES',
+        facts: ['- 2027年度：不足'],
+        text: '仮説：完成後の所見です',
+        serious: true,
+        coverage: [],
+        aiState: 'REUSED',
+        checkedAt: '2027-06-15T00:20:00Z',
+      },
+    ];
+    let call = 0;
+    mockRiskFetch.mockImplementation(async () => {
+      const body = responses[Math.min(call, responses.length - 1)];
+      call += 1;
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    });
+    const refreshButton = () =>
+      Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('最新の点検を確認')) as HTMLButtonElement | undefined;
+
+    await renderReadyPanel();
+    await turnCompanionOn();
+    await waitFor(() => expect(companionCardText()).toContain('作成中'));
+    expect(companionCardText()).toContain('点検日時：2027年6月15日 9時05分（日本時間）');
+    expect(riskCalls()).toHaveLength(1);
+    await flush();
+    expect(riskCalls()).toHaveLength(1);
+
+    expect(refreshButton()).toBeDefined();
+    fireEvent.click(refreshButton()!);
+    await waitFor(() => expect(companionCardText()).toContain('完成後の所見です'));
+    expect(companionCardText()).toContain('点検日時：2027年6月15日 9時20分（日本時間）');
+    expect(riskCalls()).toHaveLength(2);
+  });
+
   it('点検していない範囲（費用の計画と実績、会社全体のKR）を、所見の本文に必ず添える', async () => {
     completeStoreForReview();
     await renderReadyPanel();

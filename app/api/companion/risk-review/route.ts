@@ -16,15 +16,14 @@ import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { riskInputsOf } from '@/lib/companion/companionRiskSource';
 import { isCompanionKilled } from '@/lib/companion/companionPolicy';
+import { RISK_GUARD, buildRiskPrompt, isSeriousRisk, renderRiskFacts, riskStatusOf } from '@/lib/companion/companionRisk';
 import {
-  RISK_GUARD,
-  buildRiskPrompt,
-  isSeriousRisk,
-  renderRiskFacts,
+  claimDailyRiskReview,
+  finishClaim,
+  jstDateOf,
   riskFingerprint,
-  riskStatusOf,
-} from '@/lib/companion/companionRisk';
-import { claimDailyRiskReview, finishClaim, jstDateOf, type ClaimKey } from '@/lib/companion/companionRiskClaim';
+  type ClaimKey,
+} from '@/lib/companion/companionRiskClaim';
 
 type Body = { companyId?: unknown; strategyId?: unknown };
 
@@ -71,8 +70,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'facts_failed' }, { status: 500 });
   }
   const status = riskStatusOf(facts, coverage);
+  const checkedAt = now.toISOString();
   if (facts.length === 0) {
-    return NextResponse.json({ status, facts: [], text: null, serious: false, coverage, aiState: 'NOT_NEEDED' });
+    return NextResponse.json({ status, facts: [], text: null, serious: false, coverage, aiState: 'NOT_NEEDED', checkedAt });
   }
 
   const lines = renderRiskFacts(facts);
@@ -81,10 +81,10 @@ export async function POST(req: Request) {
 
   const claim = await claimDailyRiskReview(admin, key);
   if (claim.kind === 'REUSE') {
-    return NextResponse.json({ status: 'ISSUES', facts: lines, text: claim.finding, serious, coverage, aiState: 'REUSED' });
+    return NextResponse.json({ status: 'ISSUES', facts: lines, text: claim.finding, serious, coverage, aiState: 'REUSED', checkedAt });
   }
   if (claim.kind === 'BLOCKED') {
-    return NextResponse.json({ status: 'ISSUES', facts: lines, text: null, serious, coverage, aiState: claim.state });
+    return NextResponse.json({ status: 'ISSUES', facts: lines, text: null, serious, coverage, aiState: claim.state, checkedAt });
   }
 
   let text: string | null = null;
@@ -122,5 +122,6 @@ export async function POST(req: Request) {
     serious,
     coverage,
     aiState: text ? 'GENERATED' : 'FAILED',
+    checkedAt,
   });
 }

@@ -10,11 +10,13 @@ type Props = {
   askDisabled: boolean;
   /** 案内が実際に画面内に見えた時に一度だけ呼ぶ（閉じた引き出しの中では記録しない） */
   onVisible: () => void;
+  /** 経営点検の結果を、利用者の操作で最新の保存済みデータから再取得する（自動の繰り返しはしない） */
+  onRefresh?: () => void;
 };
 
 /* 自律伴走の案内。会話履歴には入れない（AIへの送信内容を増やさず、重複発話もしない）。
  * 進行・操作の案内（progress）と、節目の経営助言（advice）を同じ枠で表示する。 */
-export default function CEOChatCompanionCard({ action, onDismiss, onAsk, askDisabled, onVisible }: Props) {
+export default function CEOChatCompanionCard({ action, onDismiss, onAsk, askDisabled, onVisible, onRefresh }: Props) {
   const cardRef = useRef<HTMLElement | null>(null);
   const onVisibleRef = useRef(onVisible);
   onVisibleRef.current = onVisible;
@@ -95,6 +97,15 @@ export default function CEOChatCompanionCard({ action, onDismiss, onAsk, askDisa
             className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-[12px] text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isAdvice ? 'この助言について相談する' : 'この件をAIに相談する'}
+          </button>
+        )}
+        {!loading && isAdvice && onRefresh && (
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-[12px] text-zinc-800 hover:bg-zinc-50"
+          >
+            最新の点検を確認
           </button>
         )}
         <button

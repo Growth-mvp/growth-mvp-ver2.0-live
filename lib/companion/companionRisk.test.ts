@@ -7,7 +7,6 @@ import {
   detectRiskFacts,
   isSeriousRisk,
   renderRiskFacts,
-  riskFingerprint,
   type RiskInput,
 } from './companionRisk';
 
@@ -147,13 +146,6 @@ describe('経営点検：期限と指紋', () => {
     expect(dueEndOf('来年')).toBeNull();
   });
 
-  it('同じ事実なら同じ指紋、違えば別の指紋になる（内容が変わった時だけ再依頼する）', () => {
-    const a = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, shortfallYen: 1, premise: 'p' }] });
-    const b = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, shortfallYen: 1, premise: 'p' }] });
-    const c = detectRiskFacts({ ...EMPTY, cash: [{ year: 2027, shortfallYen: 2, premise: 'p' }] });
-    expect(riskFingerprint(a)).toBe(riskFingerprint(b));
-    expect(riskFingerprint(a)).not.toBe(riskFingerprint(c));
-  });
 });
 
 describe('経営点検：AIへの依頼（事実だけを渡し、仮説と候補に分けさせる）', () => {

@@ -31,6 +31,7 @@ describeDb('companion_risk_claims のマイグレーション（PostgreSQL互換
     await db.exec(`
       create role anon nologin;
       create role authenticated nologin;
+      create role service_role nologin bypassrls;
       create table public.companies (id uuid primary key);
       insert into public.companies values ('${COMPANY_A}'), ('${COMPANY_B}');
     `);
@@ -137,6 +138,41 @@ describeDb('companion_risk_claims のマイグレーション（PostgreSQL互換
       );
       await db.exec('reset role');
     }
+  });
+
+  it('権限：service_role は必要な操作ができ、anon・authenticated には権限がない', async () => {
+    const privileges = async (role: string) =>
+      (
+        await db.query<{ select: boolean; insert: boolean; update: boolean; delete: boolean; execute: boolean }>(
+          `select has_table_privilege($1, 'public.companion_risk_claims', 'select') as select,
+                  has_table_privilege($1, 'public.companion_risk_claims', 'insert') as insert,
+                  has_table_privilege($1, 'public.companion_risk_claims', 'update') as update,
+                  has_table_privilege($1, 'public.companion_risk_claims', 'delete') as delete,
+                  has_function_privilege($1, 'public.purge_companion_risk_claims(integer)', 'execute') as execute`,
+          [role],
+        )
+      ).rows[0];
+    expect(await privileges('service_role')).toEqual({ select: true, insert: true, update: true, delete: true, execute: true });
+    expect(await privileges('anon')).toEqual({ select: false, insert: false, update: false, delete: false, execute: false });
+    expect(await privileges('authenticated')).toEqual({ select: false, insert: false, update: false, delete: false, execute: false });
+  });
+
+  it('保持日数：範囲外（0、366、null）は受け付けず、削除しない', async () => {
+    await insert(COMPANY_A, '2099-02-01', 'keep');
+    for (const bad of ['0', '366', 'null']) {
+      await expectFail(db.query(`select public.purge_companion_risk_claims(${bad})`), '22023');
+    }
+    const kept = await db.query<{ n: number }>(
+      `select count(*)::int as n from public.companion_risk_claims where claim_date = '2099-02-01'`,
+    );
+    expect(kept.rows[0].n).toBe(1);
+  });
+
+  it('定期削除：pg_cron が未導入なら、登録せず、移行は成功する（既存の行に影響しない）', async () => {
+    const { rows } = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_extension where extname = 'pg_cron'`,
+    );
+    expect(rows[0].n).toBe(0);
   });
 
   it('保存期間：30日より古い日付の行は purge で削除し、新しい行は残す', async () => {

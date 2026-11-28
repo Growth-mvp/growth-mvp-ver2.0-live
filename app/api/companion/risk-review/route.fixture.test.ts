@@ -81,7 +81,8 @@ describe('経営点検の一気通貫（API → AI所見 → 表示本文）', (
     expect(sent.messages[1].content).toContain(result!.facts[0]);
 
     const body = riskReviewBody(result!);
-    expect(body.startsWith('事実（保存済みデータの計算結果）')).toBe(true);
+    expect(body.startsWith('点検日時：')).toBe(true);
+    expect(body).toContain('事実（保存済みデータの計算結果）');
     expect(body).toContain('仮説：営業と製造');
     expect(body.endsWith(NOT_CHECKED_NOTE)).toBe(true);
   });

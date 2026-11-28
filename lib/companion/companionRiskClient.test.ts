@@ -95,7 +95,7 @@ describe('経営点検の依頼', () => {
 
   it('AIの所見が無くても、事実は表示し、所見が無いことを明記する', () => {
     const body = riskReviewBody(result({ facts: ['- 2027年度：不足'], text: null }));
-    expect(body.startsWith('事実（保存済みデータの計算結果）')).toBe(true);
+    expect(body).toContain('事実（保存済みデータの計算結果）');
     expect(body).toContain('- 2027年度：不足');
     expect(body).toContain('AI所見を取得できませんでした');
   });
@@ -159,11 +159,12 @@ describe('経営点検の依頼', () => {
   });
 
   it('保存した所見は、状態・重大さ・本文を元に戻せる。壊れた保存内容は読まない', () => {
-    const raw = encodeRiskStored({ status: 'ISSUES', serious: true, body: '本文' });
-    expect(decodeRiskStored(raw)).toEqual({ status: 'ISSUES', serious: true, body: '本文' });
+    const raw = encodeRiskStored({ status: 'ISSUES', serious: true, body: '本文', aiState: 'GENERATED' });
+    expect(decodeRiskStored(raw)).toEqual({ status: 'ISSUES', serious: true, body: '本文', aiState: 'GENERATED' });
     expect(decodeRiskStored(null)).toBeNull();
     expect(decodeRiskStored('not json')).toBeNull();
-    expect(decodeRiskStored(JSON.stringify({ serious: true, body: '本文' }))).toBeNull();
-    expect(decodeRiskStored(JSON.stringify({ status: 'UNKNOWN', body: '本文' }))).toBeNull();
+    expect(decodeRiskStored(JSON.stringify({ serious: true, body: '本文', aiState: 'GENERATED' }))).toBeNull();
+    expect(decodeRiskStored(JSON.stringify({ status: 'ISSUES', body: '本文', aiState: 'UNKNOWN' }))).toBeNull();
+    expect(decodeRiskStored(JSON.stringify({ status: 'UNKNOWN', body: '本文', aiState: 'GENERATED' }))).toBeNull();
   });
 });

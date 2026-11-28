@@ -1,15 +1,21 @@
 /* 経営点検のAI呼び出しの実行枠（企業・日本時間の日付ごとに1件）と、当日の共通所見を扱う。
  * 実行枠の確保は、認証・所属・戦略の確認の後、AI呼び出しの前に行う。確保できなければAIを呼ばない。 */
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { RiskFact } from './companionRisk';
+import { jstDateOf } from './jst';
 
 const TABLE = 'companion_risk_claims';
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const UNIQUE_VIOLATION = '23505';
 
-/** 日本時間（Asia/Tokyo）の日付（YYYY-MM-DD） */
-export function jstDateOf(now: Date): string {
-  return new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
+/** 点検事実の指紋（SHA-256）。事実の本文が変わった時だけ値が変わる */
+export function riskFingerprint(facts: RiskFact[]): string {
+  return createHash('sha256')
+    .update(facts.map((f) => f.text).join('\n'), 'utf8')
+    .digest('hex');
 }
+
+export { jstDateOf };
 
 export type ClaimKey = { companyId: string; strategyId: string; day: string; fingerprint: string };
 

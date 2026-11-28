@@ -54,8 +54,15 @@ import { judgeCompanion, type CompanionAction } from '@/lib/companion/companionE
 import { buildCompanionSnapshot } from '@/lib/companion/companionSnapshot';
 import { detectMilestone, fingerprint, MILESTONE_LABEL } from '@/lib/companion/companionMilestones';
 import { requestMilestoneAdvice } from '@/lib/companion/companionAdviceClient';
-import { decodeRiskStored, encodeRiskStored, requestRiskReview, riskReviewBody } from '@/lib/companion/companionRiskClient';
-import { STATUS_TITLE, type RiskStatus } from '@/lib/companion/companionRisk';
+import {
+  decodeRiskStored,
+  encodeRiskStored,
+  requestRiskReview,
+  riskReviewBody,
+  type StoredRisk,
+} from '@/lib/companion/companionRiskClient';
+import { STATUS_TITLE } from '@/lib/companion/companionRisk';
+import { jstDayKey } from '@/lib/companion/jst';
 import {
   isCompanionKilled,
   readCompanionPref,
@@ -68,7 +75,6 @@ import {
   recordRiskReviewRequested,
   readAdviceText,
   writeAdviceText,
-  localDayKey,
   COMPANION_COOLDOWN_MS,
   type CompanionStores,
 } from '@/lib/companion/companionPolicy';
@@ -1085,8 +1091,21 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     companionAvailable && companionOn && companionSnapshot.ready && !companionSnapshot.dirty && Boolean(user?.id && companyId && strategyId);
   const progressKeyRef = useRef<string | null>(null);
   progressKeyRef.current = progressKey;
-  const riskResultRef = useRef<{ key: string; status: RiskStatus; serious: boolean; body: string } | null>(null);
+  const riskResultRef = useRef<({ key: string } & StoredRisk) | null>(null);
   const riskShownKeyRef = useRef<string | null>(null);
+
+  const riskCardOf = (key: string, r: StoredRisk): CompanionAction => ({
+    kind: 'advice',
+    key,
+    title: STATUS_TITLE[r.status],
+    message: '',
+    href: '',
+    linkLabel: '',
+    canEdit: true,
+    steps: [],
+    body: r.body,
+    status: 'ready',
+  });
 
   const showRiskIfDue = () => {
     const r = riskResultRef.current;
@@ -1095,38 +1114,12 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     riskShownKeyRef.current = r.key;
     adviceCardActiveRef.current = true;
     shownCompanionKeyRef.current = null;
-    setCompanionCard({
-      kind: 'advice',
-      key: r.key,
-      title: STATUS_TITLE[r.status],
-      message: '',
-      href: '',
-      linkLabel: '',
-      canEdit: true,
-      steps: [],
-      body: r.body,
-      status: 'ready',
-    });
+    setCompanionCard(riskCardOf(r.key, r));
   };
 
-  useEffect(() => {
-    if (!riskEligible || !companionStores || !user?.id || !companyId || !strategyId) return;
-    const requestedCompany = companyId;
-    const requestedUser = user.id;
-    const requestedStrategy = strategyId;
-    const key = `RISK:${requestedCompany}:${requestedStrategy}:${localDayKey(Date.now())}`;
-    if (riskKeyRef.current === key) return;
-    riskKeyRef.current = key;
-
-    const saved = decodeRiskStored(readAdviceText(companionStores.session, requestedUser, requestedCompany, key));
-    if (saved) {
-      riskResultRef.current = { key, ...saved };
-      showRiskIfDue();
-      return;
-    }
-    if (!canRequestRiskReview(companionStores, requestedUser, requestedCompany, Date.now())) return;
-    recordRiskReviewRequested(companionStores, requestedUser, requestedCompany, Date.now());
-
+  /** 点検を依頼し、結果を保存する。refresh のときは、表示中の案内だけを更新する（失敗時は前の結果を残す） */
+  const requestRiskFor = (key: string, requestedCompany: string, requestedUser: string, requestedStrategy: string, refresh: boolean) => {
+    if (!companionStores) return;
     void requestRiskReview({
       companyId: requestedCompany,
       strategyId: requestedStrategy,
@@ -1139,12 +1132,49 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         if (riskKeyRef.current === key) riskKeyRef.current = null;
         return;
       }
-      const stored = { status: result.status, serious: result.serious, body: riskReviewBody(result) };
+      if (refresh && result.status === 'FAILED') return;
+      const stored: StoredRisk = {
+        status: result.status,
+        serious: result.serious,
+        body: riskReviewBody(result),
+        aiState: result.aiState ?? 'FAILED',
+      };
       writeAdviceText(companionStores.session, requestedUser, requestedCompany, key, encodeRiskStored(stored));
       if (riskKeyRef.current !== key) return;
       riskResultRef.current = { key, ...stored };
+      if (refresh && riskShownKeyRef.current === key) {
+        setCompanionCard(riskCardOf(key, stored));
+        return;
+      }
       showRiskIfDue();
     });
+  };
+
+  const refreshRisk = () => {
+    const r = riskResultRef.current;
+    if (!r || !companionStores || !user?.id || !companyId || !strategyId) return;
+    requestRiskFor(r.key, companyId, user.id, strategyId, true);
+  };
+
+  useEffect(() => {
+    if (!riskEligible || !companionStores || !user?.id || !companyId || !strategyId) return;
+    const requestedCompany = companyId;
+    const requestedUser = user.id;
+    const requestedStrategy = strategyId;
+    const key = `RISK:${requestedCompany}:${requestedStrategy}:${jstDayKey(Date.now())}`;
+    if (riskKeyRef.current === key) return;
+    riskKeyRef.current = key;
+
+    const saved = decodeRiskStored(readAdviceText(companionStores.session, requestedUser, requestedCompany, key));
+    if (saved) {
+      riskResultRef.current = { key, ...saved };
+      showRiskIfDue();
+      if (saved.aiState === 'IN_PROGRESS') requestRiskFor(key, requestedCompany, requestedUser, requestedStrategy, true);
+      return;
+    }
+    if (!canRequestRiskReview(companionStores, requestedUser, requestedCompany, Date.now())) return;
+    recordRiskReviewRequested(companionStores, requestedUser, requestedCompany, Date.now());
+    requestRiskFor(key, requestedCompany, requestedUser, requestedStrategy, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riskEligible, companionStores, user?.id, companyId, strategyId]);
 
@@ -1237,6 +1267,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               onAsk={askCompanion}
               askDisabled={sending}
               onVisible={recordCompanionVisible}
+              onRefresh={companionCard.key.startsWith('RISK:') ? refreshRisk : undefined}
             />
           ) : null}
         </div>

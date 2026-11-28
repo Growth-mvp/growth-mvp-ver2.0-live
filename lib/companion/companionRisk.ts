@@ -1,8 +1,6 @@
 /* STAGE5・6の経営点検（PHASE 3）。事実はプログラムで決め、AIには事実だけを渡して仮説と改善案を書かせる。
  * 数値は既存の計算結果（資金繰り試算・見通し・計画と実績の照合・KRの実績・実施事項の進捗）をそのまま使う。 */
 
-import { fingerprint } from './companionMilestones';
-
 export type RiskCategory = 'CASH' | 'TARGET' | 'PLAN_GAP' | 'KR_OVERDUE' | 'ACTION_STALLED';
 
 export type RiskFact = { category: RiskCategory; text: string };
@@ -162,7 +160,7 @@ export type AiState =
 
 /** 所見が無い状態の説明（所見がある状態は null） */
 export const AI_NOTE: Partial<Record<AiState, string>> = {
-  IN_PROGRESS: '当日の所見は、別の利用者の点検で作成中です。作成されると、次に開いた時に表示されます。',
+  IN_PROGRESS: '当日の所見は、別の利用者の点検で作成中です。「最新の点検を確認」で、作成後の所見を取得できます。',
   FAILED_TODAY: '当日の所見は作成できませんでした。次の点検は明日以降に行われます。',
   STALE: '当日作成した所見は、点検の事実が更新されたため表示していません。上の事実は最新の保存済みデータに基づきます。',
   OTHER_STRATEGY: '当日の所見は、別の戦略の点検で作成されたため表示していません。',
@@ -192,10 +190,6 @@ export const STATUS_LEAD: Record<Exclude<RiskStatus, 'ISSUES'>, string> = {
 /** 点検していない範囲。表示で必ず添え、点検済みと誤認させない */
 export const NOT_CHECKED_NOTE =
   '点検していない範囲：費用（OPEX・コスト削減・追加費用）の計画と実績、会社全体のKR（経営目標）の進捗。これらは判断の材料に含めていません。';
-
-export function riskFingerprint(facts: RiskFact[]): string {
-  return fingerprint(facts.map((f) => f.text));
-}
 
 export function renderRiskFacts(facts: RiskFact[]): string[] {
   return facts.map((f) => `- ${f.text}`);

@@ -1,10 +1,11 @@
 /* 自律伴走の表示制御。会社ごとに分け、重複・過剰な案内と助言のAI呼び出しを防ぐ。
  * 保存先は利用者の端末のみ（会話本文は保存しない）。
- * - local：案内を出した日（ローカル日付）、AI助言を依頼した節目と1日の回数、伴走のオン/オフ
+ * - local：案内を出した日（日本時間の日付）、AI助言を依頼した節目と1日の回数、伴走のオン/オフ
  * - session：このタブのセッションで出した回数と最後の時刻（タブを閉じるとリセット）
  * 未完了の作業は、同じ日には繰り返さず、翌日には再び案内する（タブを開いたままでも）。 */
 
 import type { CompanionAction } from './companionEngine';
+import { jstDayKey } from './jst';
 
 export type KeyValueStorage = Pick<Storage, 'getItem' | 'setItem'>;
 export type CompanionStores = { local: KeyValueStorage; session: KeyValueStorage };
@@ -24,13 +25,6 @@ const SESSION_PREFIX = 'growth.ceoCompanion.session.v1';
 /** 環境変数で伴走を止められる（true のときは利用者の設定に関わらず出さない） */
 export function isCompanionKilled(disabledFlag: string | undefined): boolean {
   return disabledFlag === 'true';
-}
-
-/** ローカル日付（YYYY-MM-DD）。同じ日かどうかの判定に使う */
-export function localDayKey(now: number): string {
-  const d = new Date(now);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function readCompanionPref(storage: KeyValueStorage, userId: string): boolean {
@@ -87,7 +81,7 @@ export function shouldShowCompanion(
   now: number,
 ): boolean {
   const days = readJson<Record<string, string>>(stores.local, scoped(DAY_PREFIX, userId, companyId), {});
-  if (days[action.key] === localDayKey(now)) return false;
+  if (days[action.key] === jstDayKey(now)) return false;
   return sessionAllows(stores.session, userId, companyId, now);
 }
 
@@ -101,7 +95,7 @@ export function recordCompanionShown(
 ): void {
   try {
     const days = readJson<Record<string, string>>(stores.local, scoped(DAY_PREFIX, userId, companyId), {});
-    days[action.key] = localDayKey(now);
+    days[action.key] = jstDayKey(now);
     stores.local.setItem(scoped(DAY_PREFIX, userId, companyId), JSON.stringify(days));
     const session = readSession(stores.session, userId, companyId);
     const next: SessionState = { count: session.count + 1, lastAt: now };
@@ -123,7 +117,7 @@ export function canRequestAdvice(
   const advised = readJson<Record<string, true>>(stores.local, scoped(ADVICE_PREFIX, userId, companyId), {} as Record<string, true>);
   if (advised[milestoneKey]) return false;
   const day = readJson<AdviceDay>(stores.local, `${scoped(ADVICE_PREFIX, userId, companyId)}:day`, { day: '', count: 0 });
-  if (day.day === localDayKey(now) && day.count >= COMPANION_MAX_ADVICE_PER_DAY) return false;
+  if (day.day === jstDayKey(now) && day.count >= COMPANION_MAX_ADVICE_PER_DAY) return false;
   return true;
 }
 
@@ -140,7 +134,7 @@ export function recordAdviceRequested(
     const advised = readJson<Record<string, true>>(stores.local, base, {} as Record<string, true>);
     advised[milestoneKey] = true;
     stores.local.setItem(base, JSON.stringify(advised));
-    const today = localDayKey(now);
+    const today = jstDayKey(now);
     const day = readJson<AdviceDay>(stores.local, `${base}:day`, { day: '', count: 0 });
     const next: AdviceDay = day.day === today ? { day: today, count: day.count + 1 } : { day: today, count: 1 };
     stores.local.setItem(`${base}:day`, JSON.stringify(next));
@@ -154,7 +148,7 @@ const RISK_PREFIX = 'growth.ceoCompanion.risk.v1';
 /** 経営点検（STAGE5・6）を、この会社で今日まだ依頼していなければ依頼してよい（1日1回） */
 export function canRequestRiskReview(stores: CompanionStores, userId: string, companyId: string, now: number): boolean {
   try {
-    return stores.local.getItem(scoped(RISK_PREFIX, userId, companyId)) !== localDayKey(now);
+    return stores.local.getItem(scoped(RISK_PREFIX, userId, companyId)) !== jstDayKey(now);
   } catch {
     return false;
   }
@@ -162,7 +156,7 @@ export function canRequestRiskReview(stores: CompanionStores, userId: string, co
 
 export function recordRiskReviewRequested(stores: CompanionStores, userId: string, companyId: string, now: number): void {
   try {
-    stores.local.setItem(scoped(RISK_PREFIX, userId, companyId), localDayKey(now));
+    stores.local.setItem(scoped(RISK_PREFIX, userId, companyId), jstDayKey(now));
   } catch {
     /* 記録できない環境では、依頼は1回の表示に留める（再読み込みで重ねない判定は表示側の保存に任せる） */
   }

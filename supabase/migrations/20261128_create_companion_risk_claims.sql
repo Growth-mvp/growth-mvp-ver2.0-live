@@ -1,9 +1,10 @@
 -- 経営点検（自律伴走）のAI呼び出しの実行枠と、当日の共通所見を保存する。
 -- 日付の基準は日本時間（Asia/Tokyo）。アプリが claim_date を日本時間の日付で渡す。
 -- 主キー（company_id, claim_date）により、同一企業のAI呼び出しは1日1回に制限される（並行リクエストでも1件だけ成功する）。
--- 保存するもの：企業・日付・戦略・点検事実の指紋（事実本文は保存しない）・状態・当日のAI所見。
+-- 保存するもの：企業・日付・戦略・点検事実の指紋（SHA-256。事実本文は保存しない）・状態・当日のAI所見。
 -- 保存しないもの：利用者の個人情報、相談履歴、利用者ID。監査は既存の audit_logs に任せる。
--- 保存期間：claim_date から30日。purge_companion_risk_claims() で古い行を削除する（定期実行は未設定）。
+-- 保存期間：claim_date から30日。purge_companion_risk_claims(30) で古い行を削除する。
+--   定期実行は pg_cron が導入されている場合のみ、この移行の中で登録する（未導入なら登録せず NOTICE を出す）。
 
 create table if not exists public.companion_risk_claims (
   company_id uuid not null references public.companies(id) on delete cascade,
@@ -24,7 +25,8 @@ create index if not exists idx_companion_risk_claims_claim_date
 -- 一般クライアント（anon / authenticated）からは直接読み書きさせない。
 -- ポリシーを作らないため RLS で全て拒否され、サーバーの service_role だけが扱う。
 alter table public.companion_risk_claims enable row level security;
-revoke all on public.companion_risk_claims from anon, authenticated;
+revoke all on public.companion_risk_claims from public, anon, authenticated;
+grant select, insert, update, delete on public.companion_risk_claims to service_role;
 
 create or replace function public.purge_companion_risk_claims(retain_days integer default 30)
 returns integer
@@ -35,6 +37,9 @@ as $$
 declare
   deleted_count integer;
 begin
+  if retain_days is null or retain_days < 1 or retain_days > 365 then
+    raise exception 'retain_days は1から365の整数で指定してください' using errcode = '22023';
+  end if;
   delete from public.companion_risk_claims
   where claim_date < ((now() at time zone 'Asia/Tokyo')::date - retain_days);
   get diagnostics deleted_count = row_count;
@@ -43,3 +48,16 @@ end;
 $$;
 
 revoke all on function public.purge_companion_risk_claims(integer) from public, anon, authenticated;
+grant execute on function public.purge_companion_risk_claims(integer) to service_role;
+
+-- 定期削除（毎日 日本時間 03:00 = UTC 18:00）。pg_cron が無い環境では何もしない。
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    execute $sql$select cron.unschedule(jobid) from cron.job where jobname = 'companion-risk-claims-purge'$sql$;
+    execute $sql$select cron.schedule('companion-risk-claims-purge', '0 18 * * *', 'select public.purge_companion_risk_claims(30)')$sql$;
+  else
+    raise notice 'pg_cron が未導入のため、companion_risk_claims の定期削除は登録しませんでした';
+  end if;
+end;
+$$;

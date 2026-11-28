@@ -6,7 +6,6 @@ import {
   canRequestRiskReview,
   recordRiskReviewRequested,
   isCompanionKilled,
-  localDayKey,
   readCompanionPref,
   recordAdviceRequested,
   recordCompanionShown,
@@ -15,6 +14,7 @@ import {
   type CompanionStores,
 } from './companionPolicy';
 import type { CompanionAction } from './companionEngine';
+import { jstDayKey } from './jst';
 
 function memoryStorage() {
   const m = new Map<string, string>();
@@ -80,9 +80,11 @@ describe('未完了の作業の案内（24時間の固定抑止をしない）',
     expect(shouldShowCompanion(tab(local, session), 'u', 'co-a', action('ADD_ISSUE:co-a:st-a'), DAY2)).toBe(true);
   });
 
-  it('日付の境界はローカル日付で決まる', () => {
-    expect(localDayKey(DAY1)).toBe(localDayKey(DAY1_LATER));
-    expect(localDayKey(DAY1)).not.toBe(localDayKey(DAY2));
+  it('日付の境界は日本時間で決まる（UTCの15時が日本時間の翌日0時）', () => {
+    expect(jstDayKey(Date.parse('2026-11-27T14:59:59Z'))).toBe('2026-11-27');
+    expect(jstDayKey(Date.parse('2026-11-27T15:00:00Z'))).toBe('2026-11-28');
+    expect(jstDayKey(DAY1)).toBe(jstDayKey(DAY1_LATER));
+    expect(jstDayKey(DAY1)).not.toBe(jstDayKey(DAY2));
   });
 });
 
