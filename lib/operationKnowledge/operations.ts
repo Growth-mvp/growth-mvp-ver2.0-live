@@ -115,9 +115,9 @@ export const OPERATIONS: readonly OperationEntry[] = [
       '「論点を追加」を押す',
       'タイトルなどを入力する',
       'または、AI経営コンサルタントに「経営課題として〇〇を追加して」と頼む。論点の入力欄に反映され、その欄を確かめて保存する',
-      'または、AI経営コンサルタントとの相談で、AIが経営課題として整理することを提案したあとに「お願いします」と答える（入力案が作られ、説明文も会話に基づいて入る）',
+      'または、AI経営コンサルタントとの相談で、AIが経営課題として記録することを提案したあとに「お願いします」と答える（提案時の内容がそのまま論点の入力欄に入り、AIは作り直さない）',
     ],
-    conditions: '論点が5件に達すると無効になる。チャットからの追加は、管理職以上。依頼は入力欄に直接反映され、保存は画面の保存で行う（相談や仮定の発言では反映しない。未保存の変更があるときは反映しない）',
+    conditions: '論点が5件に達すると無効になる。チャットからの追加・提案は、管理職以上。依頼と同意は入力欄に直接反映され、保存は画面の保存で行う（相談や仮定の発言では反映しない。提案の後に否定や話題変更があれば反映しない。未保存の変更があるときは反映しない）',
     permission: MANAGER_UI,
     save: { kind: 'auto', target: '戦略データへの自動保存' },
   },
@@ -258,7 +258,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 198 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 205 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -281,7 +281,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1697 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1793 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -1326,7 +1326,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1534 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1630 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

@@ -1,6 +1,8 @@
-/* 通常の経営相談の1回のAI応答から、許可された操作の候補を取り出して検証する（追加のAI呼び出しはしない）。
+/* 通常の経営相談の1回のAI応答から、操作の印を取り出して検証する（追加のAI呼び出しはしない）。
  * AIが出すのは操作の種類と入力内容だけで、企業・戦略・権限は認証済みのシステム側の情報を使う。
- * 保存はしない。候補は入力案になり、既存の承認カードで利用者が確認してから保存される。 */
+ * <<OP>>：利用者が明確に依頼したときの直接の操作（既存の反映処理に渡す）。
+ * <<PROPOSE>>：AIからの提案（内容は保持し、利用者の同意の後に反映する。反映はここでは行わない）。 */
+import type { Stage2Op } from '@/lib/stage2/stage2Input';
 
 export const ISSUE_TITLE_MAX = 100;
 export const ISSUE_DESCRIPTION_MAX = 300;
@@ -11,25 +13,22 @@ export type ConsultOperationCandidate = {
   description: string;
 };
 
-export type ConsultOfferKind = 'stage1.issue';
-
-/** 直前の操作の提案。利用者・企業・戦略・相談の単位に紐づく鍵つき（サーバーが発行し、画面が保持する） */
-export type ConsultOffer = { kind: ConsultOfferKind; key: string };
-
 const CANDIDATE_MARK = /<<OP (\{[^\n]*\})>>/g;
-const OFFER_MARK = /<<OFFER (stage1\.issue)>>/g;
+const PROPOSE_MARK = /<<PROPOSE (\{[^\n]*\})>>/g;
 
-/** AIへの指示。操作候補が必要なときだけ、回答の最後の行に印を書かせる */
-export const OPERATION_OFFER_BLOCK = [
+/** AIへの指示（STAGE1の経営課題）。提案は会話の中で示し、同意の後に反映する */
+export const OPERATION_PROPOSAL_BLOCK = [
   '【操作の提案（経営課題）】',
-  '- 通常の相談への回答は、これまでどおり行う。操作が必要ないときは、この指示を無視して相談に答える。',
-  '- 利用者が経営課題として記録するよう明確に求めたとき（例：「それを経営課題に入れておいて」「経営課題として〇〇を追加して」）、または直前にあなたが提案した経営課題の記録に同意されたとき（例：「お願いします」）に限り、回答の最後の行に次の1行だけを書く。',
+  '- 通常の相談への回答は、これまでどおり行う。提案が必要ないときは、この指示を無視して相談に答える。',
+  '- 新たな経営課題が明らかになった、または既存の経営課題を見直す必要が生じたときは、回答の最後の行に次の1行だけを書き、本文で「経営課題として記録しましょうか？」と尋ねる。',
+  `  <<PROPOSE {"kind":"stage1.issue","title":"題名（${ISSUE_TITLE_MAX}字以内）","description":"説明文（${ISSUE_DESCRIPTION_MAX}字以内）"}>>`,
+  '- 利用者が経営課題として記録するよう明確に求めたときは、回答の最後の行に次の形式の1行を書く（直接反映される）。',
   `  <<OP {"kind":"stage1.issue","title":"題名（${ISSUE_TITLE_MAX}字以内）","description":"説明文（${ISSUE_DESCRIPTION_MAX}字以内）"}>>`,
   '- 題名と説明文は、利用者が話した事実や言葉に基づく。推測や一般論を事実として書かない。根拠が足りないときは説明文を空にする。',
-  '- 対象の経営課題が、複数の話題のどれか曖昧なときは、どれを記録するか質問し、この行は書かない。',
-  '- 仮定・検討・質問の段階（「〜かな」「〜したほうがいいですか」など）では、この行を書かない。',
-  '- 否定・保留（「登録しないで」「やめておく」「あとで」など）を含むときは、この行を書かない。',
-  '- 経営課題として記録してよいかを確かめるだけのときは、回答の最後の行に次の1行だけを書く：<<OFFER stage1.issue>>',
+  '- 対象の経営課題が、複数の話題のどれか曖昧なときは、どれを記録するか質問し、印は書かない。',
+  '- 仮定・検討・質問の段階（「〜かな」「〜したほうがいいですか」など）では、提案の印を書かない。',
+  '- 否定・保留（「登録しないで」「やめておく」「あとで」など）を含むときは、印を書かない。',
+  '- 同じ内容の提案は、既に登録されている経営課題と重複するときは書かない。断られた提案は、繰り返さない。',
   '- 1回の回答に書く印は1つまで。企業ID・戦略ID・権限には触れない。',
 ].join('\n');
 
@@ -51,59 +50,62 @@ export type ExtraCandidateParser = (raw: unknown) => { ok: true; value: unknown 
 export type ConsultMarkResult = {
   content: string;
   candidate: ConsultOperationCandidate | null;
-  /** 他のSTAGEの検証済みの操作候補（STAGE2など） */
+  /** 他のSTAGEの検証済みの直接の操作（STAGE2など） */
   extra: unknown | null;
-  offer: ConsultOfferKind | null;
+  /** 検証済みの提案（STAGE1・STAGE2の操作。反映は利用者の同意の後） */
+  proposal: ConsultOperationCandidate | Stage2Op | null;
   /** 印に不備があった（候補・提案は捨てる） */
   rejected: boolean;
 };
 
-/** 回答から操作の印を取り除き、候補と提案の有無を返す。印は利用者の画面に出さない。
- * 安全側に倒す：候補が複数・形式不正・書きかけの印があれば、候補も提案もすべて捨てる */
+type ParsedMark = { kind: 'stage1'; value: ConsultOperationCandidate } | { kind: 'extra'; value: unknown } | { kind: 'invalid' };
+
+/** 回答から操作の印を取り除き、候補と提案を返す。印は利用者の画面に出さない。
+ * 安全側に倒す：印が複数・形式不正・書きかけのときは、候補も提案もすべて捨てる */
 export function extractConsultOperation(content: string, extra?: ExtraCandidateParser): ConsultMarkResult {
-  const candidateMatches = [...content.matchAll(CANDIDATE_MARK)];
-  const offerMatches = [...content.matchAll(OFFER_MARK)];
-  const openCandidates = (content.match(/<<OP\b/g) ?? []).length;
-  const openOffers = (content.match(/<<OFFER\b/g) ?? []).length;
+  const opMatches = [...content.matchAll(CANDIDATE_MARK)];
+  const proposeMatches = [...content.matchAll(PROPOSE_MARK)];
+  const total = opMatches.length + proposeMatches.length;
+  const openMarks = (content.match(/<<(?:OP|PROPOSE)\b/g) ?? []).length;
 
-  const parsed = candidateMatches.map((m) => {
-    let json: unknown;
+  const parse = (json: string): ParsedMark => {
+    let raw: unknown;
     try {
-      json = JSON.parse(m[1]);
+      raw = JSON.parse(json);
     } catch {
-      return { kind: 'invalid' as const };
+      return { kind: 'invalid' };
     }
-    const stage1 = parseOperationCandidate(json);
-    if (stage1) return { kind: 'stage1' as const, value: stage1 };
-    const other = extra ? extra(json) : null;
-    if (other === null) return { kind: 'invalid' as const };
-    return other.ok ? { kind: 'extra' as const, value: other.value } : { kind: 'invalid' as const };
-  });
-  const malformed = openCandidates !== candidateMatches.length || openOffers !== offerMatches.length;
-  const invalid = parsed.some((p) => p.kind === 'invalid');
-  const rejected = malformed || invalid || candidateMatches.length > 1 || offerMatches.length > 1;
+    const stage1 = parseOperationCandidate(raw);
+    if (stage1) return { kind: 'stage1', value: stage1 };
+    const other = extra ? extra(raw) : null;
+    if (other === null) return { kind: 'invalid' };
+    return other.ok ? { kind: 'extra', value: other.value } : { kind: 'invalid' };
+  };
+  const parsedOps = opMatches.map((m) => parse(m[1]));
+  const parsedProposals = proposeMatches.map((m) => parse(m[1]));
+  const invalid = [...parsedOps, ...parsedProposals].some((p) => p.kind === 'invalid');
+  const rejected = openMarks !== total || invalid || total > 1;
 
-  const single = !rejected && parsed.length === 1 ? parsed[0] : null;
-  const candidate = single?.kind === 'stage1' ? single.value : null;
-  const extraValue = single?.kind === 'extra' ? single.value : null;
-  const offer = !rejected && offerMatches.length === 1 && !candidate && !extraValue ? ('stage1.issue' as const) : null;
+  const single = !rejected && total === 1 ? (opMatches.length === 1 ? parsedOps[0] : parsedProposals[0]) : null;
+  const candidate = single && opMatches.length === 1 && single.kind === 'stage1' ? single.value : null;
+  const extraValue = single && opMatches.length === 1 && single.kind === 'extra' ? single.value : null;
+  const proposal =
+    single && proposeMatches.length === 1 && single.kind !== 'invalid' ? (single.value as ConsultOperationCandidate | Stage2Op) : null;
 
   const stripped = content
     .replace(CANDIDATE_MARK, '')
-    .replace(OFFER_MARK, '')
-    .replace(/<<(?:OP|OFFER)\b[^\n]*/g, '')
+    .replace(PROPOSE_MARK, '')
+    .replace(/<<(?:OP|PROPOSE)\b[^\n]*/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return { content: stripped, candidate, extra: extraValue, offer, rejected };
+  return { content: stripped, candidate, extra: extraValue, proposal, rejected };
 }
 
 const ADD_CUE = /入れ|追加|登録|加え|足し/;
 const ISSUE_CUE = /経営課題|論点/;
-const AFFIRM_CUE = /^(はい|うん|そう|そうです|そうですね|そうして|そうしてください|お願い|ぜひ|いいね|いいですね|それで|それを|入れて|入れておいて|登録して|追加して)/;
 const NON_COMMAND_CUE = /もし|かも|べき|たら|ではないか|どうか|いいか|よいか|でいい|したい|してほしい|検討|考え|迷|[?？]|ですか|でしょうか|かな/;
 /** 否定・保留・反対・留保（「はい、でも」「やっぱり」なども含む）。指示として扱わない */
 const NEGATION_CUE = /しない|しません|せず|ないで|ない(ほう|方)|やめ|よして|見送|保留|取りやめ|取り消|不要|いらない|結構|けっこう|やっぱり|やはり|ではなく|じゃなく|ではなくて|でも|けど|けれど|ただ|待って|あとで|後で|まだ|もう少し|考え直|いや|違う|だめ|ダメ/;
-const SHORT_REPLY_MAX = 30;
 const DEICTIC_CUE = /それ|これ|あれ|さっき/;
 const DEICTIC_TITLE = /^(それ|これ|あれ|さっき|上記|先ほど|今の|その|この)/;
 
@@ -117,48 +119,23 @@ export function isDeicticTitle(title: string): boolean {
   return DEICTIC_TITLE.test(title.trim());
 }
 
-/** 直前の発言が、経営課題の記録の指示・同意として明確かどうか（決定的な判定） */
-export function isClearIssueInstruction(text: string, priorOffer: string | null): boolean {
+/** 経営課題の記録の依頼として明確かどうか（決定的な判定）。
+ * 「それを」などの指示語は、直前に操作の提案が開いている時だけ依頼として扱う（話題が複数あっても1件を勝手に選ばない） */
+export function isClearIssueInstruction(text: string, openProposal: boolean): boolean {
   const t = text.trim();
   if (!t || NON_COMMAND_CUE.test(t) || NEGATION_CUE.test(t)) return false;
-  // 「それを」「これを」など、対象を指す言い方は、直前の操作の提案が明確な時だけ（話題が複数あっても1件を勝手に選ばない）
-  if (DEICTIC_CUE.test(t) && priorOffer !== 'stage1.issue') return false;
-  if (ISSUE_CUE.test(t) && ADD_CUE.test(t)) return true;
-  return t.length <= SHORT_REPLY_MAX && priorOffer === 'stage1.issue' && AFFIRM_CUE.test(t);
+  if (DEICTIC_CUE.test(t) && !openProposal) return false;
+  return ISSUE_CUE.test(t) && ADD_CUE.test(t);
 }
 
-/** サーバー側で候補を通してよいか。役割・機能の有効化・直前の発言の明確さを確かめる */
+/** サーバー側で直接の操作候補を通してよいか。役割・機能の有効化・依頼の明確さを確かめる */
 export function allowConsultCandidate(input: {
   lastUser: string;
-  priorOffer: string | null;
+  openProposal: boolean;
   role: string | null;
   enabled: boolean;
 }): boolean {
   if (!input.enabled) return false;
   if (input.role !== 'admin' && input.role !== 'manager') return false;
-  return isClearIssueInstruction(input.lastUser, input.priorOffer);
-}
-
-function fnv1a(text: string, seed: number): string {
-  let h = seed >>> 0;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0');
-}
-
-/** 提案の鍵：利用者・企業・戦略・相談の単位の組に紐づく。別の組の提案は、この鍵が一致しない */
-export function consultOfferKeyOf(parts: { userId: string; companyId: string; strategyId: string; thread: string }): string {
-  const joined = [parts.userId, parts.companyId, parts.strategyId, parts.thread].join('');
-  return fnv1a(joined, 0x811c9dc5) + fnv1a(joined, 0x9e3779b9);
-}
-
-/** 画面から戻された提案を、形だけ確かめる（鍵の一致は、サーバーが同じ組から作り直して比べる） */
-export function parseConsultOffer(raw: unknown): ConsultOffer | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const v = raw as Record<string, unknown>;
-  if (v.kind !== 'stage1.issue') return null;
-  if (typeof v.key !== 'string' || !/^[0-9a-f]{16}$/.test(v.key)) return null;
-  return { kind: 'stage1.issue', key: v.key };
+  return isClearIssueInstruction(input.lastUser, input.openProposal);
 }

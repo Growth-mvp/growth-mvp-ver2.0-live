@@ -28,7 +28,14 @@ import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
 import CEOChatVoiceControls, { type InputMode } from '@/components/CEOChatVoiceControls';
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
 import { contextDepartments, issueProposalOf, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
-import { parseConsultOffer, parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
+import { parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
+import {
+  decideProposalReply,
+  declinedProposalKeysOf,
+  openProposalMessageOf,
+  type ChatProposal,
+} from '@/lib/aiOperations/proposal';
+import { newChatProposal, proposalSignatureOf } from '@/lib/aiOperations/proposalState';
 import { applyDirectProposal, applyStageOp, isDirectProposal, planRemoval, planUndo } from '@/lib/aiOperations/applyDirect';
 import { useAiUndoStore } from '@/lib/aiOperations/aiUndoStore';
 import { resolveStage1Input } from '@/lib/aiOperations/stage1Input';
@@ -118,7 +125,7 @@ type AskResp = {
   reviewTargets?: unknown;
   operationCandidate?: unknown;
   stage2Operation?: unknown;
-  operationOffer?: unknown;
+  operationProposal?: { op?: unknown };
 };
 
 type Props = { embedded?: boolean };
@@ -287,6 +294,12 @@ function revenueYenByYear(rows: RevenueRow[] | undefined): Record<number, number
   for (const r of rows ?? []) out[r.year] = typeof r.revenue === 'number' ? r.revenue : null;
   return out;
 }
+
+const PROPOSAL_DISCARD_MESSAGE: Record<'expired' | 'scope' | 'changed', string> = {
+  expired: '提案の有効期限が切れたため、反映しませんでした。もう一度ご相談ください。',
+  scope: '企業・戦略が切り替わったため、提案を反映しませんでした。',
+  changed: '提案の後に対象の内容が変わったため、反映しませんでした。もう一度ご相談ください。',
+};
 
 /** 画面（STAGE2）の文脈。相談の操作候補の検証と、STAGE2の依頼の読み取りに使う */
 function stage2ContextOf(st: ReturnType<typeof useStrategyStore.getState>, focusQuestionId: string | null) {
@@ -632,6 +645,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     const selNow = useSelectedProjectStore.getState().selection;
     const execKey = selNow && selNow.companyId === activeCompanyIdRef.current ? consultKeyOf(selNow) : '';
     const userMsg: Msg = { role: 'user', content: trimmed, ...(execKey ? { execKey } : {}) };
+    const openMessage = openProposalMessageOf(current, execKey);
     const requestCompanyId = activeCompanyIdRef.current;
     const isStale = () =>
       activeCompanyIdRef.current !== requestCompanyId ||
@@ -697,6 +711,76 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
+
+      // 直前の回答が示した操作の提案への返事。同意なら、提案時の内容のまま反映する（AIは呼ばない）。
+      // 否定・話題変更は提案を閉じ、通常の相談として続ける
+      if (openMessage?.operationProposal && requestCompanyId && latestStrategyId && user?.id) {
+        const proposal = openMessage.operationProposal;
+        const decision = decideProposalReply({
+          proposal,
+          text: trimmed,
+          now: Date.now(),
+          identity: { userId: user.id, companyId: requestCompanyId, strategyId: latestStrategyId },
+          signatureNow: proposalSignatureOf(proposal.op, useStrategyStore.getState()),
+        });
+        const reply = (content: string) => updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
+        const setStatus = (status: ChatProposal['status']) =>
+          updateCeoChatMessages(ticket, (msgs) =>
+            msgs.map((m) => (m === openMessage ? { ...m, operationProposal: { ...proposal, status } } : m)),
+          );
+        if (decision.kind === 'discard') {
+          setStatus('closed');
+          reply(PROPOSAL_DISCARD_MESSAGE[decision.reason]);
+          return true;
+        }
+        if (decision.kind === 'accept') {
+          setStatus('accepted');
+          const op = proposal.op;
+          const goTo = (path: string) => {
+            if (window.location.pathname !== path) router.push(path);
+          };
+          const required = op.kind === 'stage1.issue' ? 'manager' : 'admin';
+          if (!roleMeetsRequirement(useUserStore.getState().role ?? null, required)) {
+            reply(OPERATION_ROLE_DENIED);
+            return true;
+          }
+          if (op.kind === 'stage1.issue') {
+            const st = useStrategyStore.getState();
+            const instruction = issueProposalOf(op.title, op.description, {
+              companyId: requestCompanyId,
+              strategyId: latestStrategyId,
+              ceoIntent: st.ceoIntent ?? '',
+              revenueYenByYear: revenueYenByYear(st.financePL as RevenueRow[] | undefined),
+              stage1IssueTitles: ((st.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? ''),
+            });
+            if (instruction.kind === 'clarify') {
+              reply(instruction.message);
+            } else {
+              const applied = await applyDirectProposal(instruction.proposal);
+              if (applied.ok) goTo(instruction.proposal.pathname);
+              reply(applied.message);
+            }
+          } else if (op.kind === 'target.remove') {
+            // 削除は、利用者が承認カードで確かめてから行う（同意だけでは削除しない）
+            useOperationProposalStore.getState().setPending({
+              kind: 'stage2.remove',
+              pathname: '/stage2',
+              companyId: requestCompanyId,
+              strategyId: latestStrategyId,
+              op,
+              impact: `業績目標「${op.label}」を削除します。削除した目標は、画面の一覧から消えます。`,
+            });
+            goTo('/stage2');
+            reply(`業績目標「${op.label}」の削除は、内容を確かめて「削除を承認」を押した時に行います（まだ削除していません）。`);
+          } else {
+            const applied = await applyStage2Op(op);
+            if (applied.ok) goTo('/stage2');
+            reply(applied.message);
+          }
+          return true;
+        }
+        setStatus(decision.kind === 'decline' ? 'declined' : 'closed');
+      }
 
       // STAGE2の入力・生成・確定の依頼（管理者）：入力欄へ直接反映し、生成は画面の既存の処理に任せる。確定は本人のボタンで行う
       if (requestCompanyId && latestStrategyId) {
@@ -956,9 +1040,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       const screenId = screenIdForPathname(pathname ?? '');
       const consult = consultPayloadFor(useConsultFocusStore.getState().entries, pathname ?? '', latestStrategyId ?? null);
 
-      // 直前の回答で示した操作の提案（同じ相談の中だけ）。次の発言が同意かどうかの判断に使う
-      const threadMessages = current.filter((m) => (m.execKey ?? '') === execKey);
-      const priorOffer = [...threadMessages].reverse().find((m) => m.role === 'assistant')?.operationOffer ?? null;
+      const declinedKeys = declinedProposalKeysOf(current, execKey);
+      const isAdminNow = roleMeetsRequirement(useUserStore.getState().role ?? null, 'admin');
 
       const doAsk = async () => {
         // ★ Sprint 3A': meta を付与する場合と付与しない場合に対応
@@ -966,9 +1049,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           userId: user!.id,
           strategyId: latestStrategyId,
           companyId: requestCompanyId,
-          ...(priorOffer ? { priorOffer, consultThread: execKey } : {}),
-          ...(pathname === '/stage2'
-            ? { stage2Context: stage2ContextOf(useStrategyStore.getState(), useConsultFocusStore.getState().entries['stage2-questions']?.question?.id ?? null) }
+          ...(declinedKeys.length > 0 ? { declinedProposalKeys: declinedKeys } : {}),
+          ...(openMessage ? { proposalOpen: true } : {}),
+          ...(isAdminNow
+            ? {
+                stage2Context: stage2ContextOf(useStrategyStore.getState(), useConsultFocusStore.getState().entries['stage2-questions']?.question?.id ?? null),
+                stage2Screen: pathname === '/stage2',
+              }
             : {}),
           ...(screenId ? { screen: { screenId } } : {}),
           ...(consult ? { consult } : {}),
@@ -1018,7 +1105,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       // ← 先に送信フラグを落としてからメッセージを追加（UI固着防止）
       setCeoChatPending(ticket, false);
       const reviewTargets = parseReviewTargets(data?.reviewTargets);
-      const operationOffer = parseConsultOffer(data?.operationOffer) ?? undefined;
+      const operationProposal =
+        requestCompanyId && latestStrategyId && user?.id
+          ? newChatProposal(
+              data?.operationProposal?.op,
+              { userId: user.id, companyId: requestCompanyId, strategyId: latestStrategyId },
+              useStrategyStore.getState(),
+              useUserStore.getState().role ?? null,
+              Date.now(),
+            )
+          : undefined;
       updateCeoChatMessages(ticket, (msgs) => [
         ...msgs,
         {
@@ -1027,7 +1123,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           answered: true,
           ...(reviewTargets.length > 0 ? { reviewTargets } : {}),
           ...(execKey ? { consultKey: execKey } : {}),
-          ...(operationOffer ? { operationOffer } : {}),
+          ...(operationProposal ? { operationProposal } : {}),
         },
       ]);
 

@@ -1,4 +1,5 @@
 import type { ReviewTarget } from './reviewTargets';
+import type { ChatProposal } from '@/lib/aiOperations/proposal';
 
 export type CeoChatMessage = {
   role: 'user' | 'assistant';
@@ -9,8 +10,8 @@ export type CeoChatMessage = {
   consultKey?: string;
   /** AIの回答として得られた本文（挨拶・エラー文では付かない）。入力欄への反映の対象に使う */
   answered?: boolean;
-  /** 回答で示した操作の提案（経営課題の記録）。次の発言が同意かどうかの判断に使う */
-  operationOffer?: { kind: 'stage1.issue'; key: string };
+  /** AIの回答が示した操作の提案。利用者の同意の後に、提案時の内容のまま反映する */
+  operationProposal?: ChatProposal;
 };
 
 export const CEO_CHAT_GREETING: CeoChatMessage[] = [

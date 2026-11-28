@@ -42,14 +42,12 @@ import { searchExternalFinancialData } from '@/lib/externalFinancialSearch';
 import { CONSULT_BEHAVIOR, CONSULT_ROLE, buildExternalFinancialBlock } from '@/lib/agentPrompt';
 import { withConsultTone } from '@/lib/ceoChat/consultInstruction';
 import {
-  OPERATION_OFFER_BLOCK,
+  OPERATION_PROPOSAL_BLOCK,
   allowConsultCandidate,
-  consultOfferKeyOf,
   extractConsultOperation,
-  parseConsultOffer,
-  type ConsultOffer,
   type ConsultOperationCandidate,
 } from '@/lib/aiOperations/consultOperation';
+import { proposalKeyOf, type ProposedOp } from '@/lib/aiOperations/proposal';
 import {
   allowStage2Candidate,
   buildStage2OperationBlock,
@@ -163,11 +161,14 @@ type RequestBody = {
   userId: string;
   strategyId: string;
   companyId: string;
-  /** 直前の回答で示した操作の提案（画面が保持する。候補の許可は人の発言と役割で判断する） */
-  priorOffer?: unknown;
-  /** STAGE2の画面の文脈（業績目標・SWOT・回答・質問）。STAGE2の操作候補の検証に使う */
+  /** STAGE2の文脈（業績目標・SWOT・回答・質問）。管理者の相談で、STAGE2の操作の提案・直接の操作の検証に使う */
   stage2Context?: unknown;
-  consultThread?: unknown;
+  /** 利用者がSTAGE2の画面を開いているか（直接の操作の印は、この画面の相談に限る） */
+  stage2Screen?: unknown;
+  /** 同じ相談で否定された提案の鍵（同じ内容を繰り返し提案しない） */
+  declinedProposalKeys?: unknown;
+  /** 直前の回答で操作の提案が開いているか（「それを」など指示語の依頼を、提案への指示として扱う） */
+  proposalOpen?: unknown;
   screen?: unknown;
   execution?: unknown;
   consult?: unknown;
@@ -1067,20 +1068,19 @@ export async function POST(req: Request) {
 
     // 経営課題の操作候補：管理職以上・会社の情報を使う通常相談のときだけ、1回の応答に候補の印を書かせる（追加の呼び出しはしない）。
     // 回答スタイルの指示より前に入れ、回答スタイルは system の末尾に残す
-    const operationOfferEnabled =
+    const operationProposalEnabled =
       isManual && companyContextUsed && !!strategy && (membership.role === 'admin' || membership.role === 'manager');
-    const offerThread = {
-      userId: authUserId,
-      companyId,
-      strategyId: typeof strategyId === 'string' ? strategyId : '',
-      thread: typeof body?.consultThread === 'string' ? body.consultThread : '',
-    };
-    const offered = parseConsultOffer(body?.priorOffer);
-    const priorOffer = offered && offered.key === consultOfferKeyOf(offerThread) ? offered.kind : null;
-    if (operationOfferEnabled) systemBase += '\n\n' + OPERATION_OFFER_BLOCK;
-    // STAGE2の操作候補：管理者・STAGE2の文脈がある相談に限る（追加の呼び出しはしない）
+    if (operationProposalEnabled) systemBase += '\n\n' + OPERATION_PROPOSAL_BLOCK;
+    const declinedKeys = new Set(
+      (Array.isArray(body?.declinedProposalKeys) ? body.declinedProposalKeys : [])
+        .filter((k: unknown): k is string => typeof k === 'string' && /^[0-9a-f]{16}$/.test(k))
+        .slice(0, 50),
+    );
+    // STAGE2の操作（管理者の相談に限る。提案は他の画面からも行える。直接の操作の印は、STAGE2の画面を開いている時だけ）
     const stage2Ctx = isManual && companyContextUsed && !!strategy && membership.role === 'admin' ? parseStage2Context(body?.stage2Context) : null;
     if (stage2Ctx) systemBase += '\n\n' + buildStage2OperationBlock(stage2Ctx);
+    const stage2OnScreen = body?.stage2Screen === true;
+    const proposalOpen = body?.proposalOpen === true;
 
     const askMessages = sanitizeAskMessages(messages);
     if (
@@ -1236,19 +1236,25 @@ export async function POST(req: Request) {
       reviewMarker = review.diagnostics;
     }
     let consultOperation: ConsultOperationCandidate | null = null;
-    let consultOffer: ConsultOffer | null = null;
     let consultStage2: Stage2Op | null = null;
+    let consultProposal: ProposedOp | null = null;
     if (output !== 'json') {
       const op = extractConsultOperation(content, stage2Ctx ? stage2ExtraParser(stage2Ctx) : undefined);
       content = op.content;
-      const stage2Allowed = allowStage2Candidate({ lastUser, role: membership.role, enabled: !!stage2Ctx });
+      const stage2Allowed = allowStage2Candidate({ lastUser, role: membership.role, enabled: !!stage2Ctx && stage2OnScreen });
       if (op.extra && stage2Allowed) consultStage2 = op.extra as Stage2Op;
       if (op.extra && !stage2Allowed) console.log('[ask-ceo-agent]', requestId, 'stage2_candidate_dropped', { role: membership.role });
-      const allowed = allowConsultCandidate({ lastUser, priorOffer, role: membership.role, enabled: operationOfferEnabled });
+      const allowed = allowConsultCandidate({ lastUser, openProposal: proposalOpen, role: membership.role, enabled: operationProposalEnabled });
       if (op.candidate && allowed) consultOperation = op.candidate;
-      if (op.candidate && !allowed) console.log('[ask-ceo-agent]', requestId, 'operation_candidate_dropped', { role: membership.role, priorOffer });
+      if (op.candidate && !allowed) console.log('[ask-ceo-agent]', requestId, 'operation_candidate_dropped', { role: membership.role });
+      if (op.proposal) {
+        const isStage2 = op.proposal.kind !== 'stage1.issue';
+        const roleOk = isStage2 ? !!stage2Ctx : operationProposalEnabled;
+        const declined = declinedKeys.has(proposalKeyOf(op.proposal as ProposedOp));
+        if (roleOk && !declined) consultProposal = op.proposal as ProposedOp;
+        else console.log('[ask-ceo-agent]', requestId, 'operation_proposal_dropped', { role: membership.role, declined });
+      }
       if (op.rejected) console.log('[ask-ceo-agent]', requestId, 'operation_mark_rejected');
-      if (op.offer && operationOfferEnabled) consultOffer = { kind: op.offer, key: consultOfferKeyOf(offerThread) };
     }
     if (reviewRun.applicable) {
       console.log('[ask-ceo-agent]', requestId, 'stage4_review', classifyReviewRun({
@@ -1337,7 +1343,7 @@ export async function POST(req: Request) {
     response.reviewTargets = reviewTargets;
     if (consultOperation) response.operationCandidate = consultOperation;
     if (consultStage2) response.stage2Operation = consultStage2;
-    if (consultOffer) response.operationOffer = consultOffer;
+    if (consultProposal) response.operationProposal = { op: consultProposal };
 
     // JSON出力時のみ optional フィールドを追加
     if (output === 'json') {
