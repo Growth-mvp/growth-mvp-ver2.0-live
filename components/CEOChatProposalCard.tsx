@@ -4,8 +4,9 @@
 import React, { useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useStrategyStore } from '@/store/strategyStore';
-import { summaryFollowsPL } from '@/lib/autofill/financeWrite';
 import { appendCeoIntent, contextDepartments, issueProposalOf, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { formatYen, revenueOf, type Row } from '@/lib/aiOperations/applyDirect';
+import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX } from '@/lib/aiOperations/consultOperation';
 import { proposalBlockReason, proposalStaleReason } from '@/lib/aiOperations/guard';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
@@ -21,19 +22,8 @@ type Props = {
   onResult: (message: string) => void;
 };
 
-type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
 type StoreStep = { stepNumber: number; question: string; reason?: string; answer: string } & Record<string, unknown>;
 type StoreDept = { name: string; answers2?: Array<{ chapterIndex: number; chapterTitle: string; steps: StoreStep[] } & Record<string, unknown>> } & Record<string, unknown>;
-
-function formatYen(yen: number | null): string {
-  if (yen === null) return '未登録';
-  return `${yen.toLocaleString('ja-JP')}円（${(yen / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}百万円）`;
-}
-
-function revenueOf(rows: Row[] | undefined, year: number): number | null {
-  const row = (rows ?? []).find((r) => r.year === year);
-  return typeof row?.revenue === 'number' ? row.revenue : null;
-}
 
 /** 入力案の確認と承認。承認するまで保存しない。承認後は、会社・画面・revision を確かめ直してから既存の保存処理で保存する */
 export default function CEOChatProposalCard({ proposal, pathname, onResult }: Props) {
@@ -47,6 +37,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           : '',
   );
   const needsText = proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage3.question' || proposal.kind === 'stage1.issue';
+  const applyVerb = proposal.kind === 'stage1.revenue' ? '反映' : '保存';
   const [issueDescription, setIssueDescription] = useState(proposal.kind === 'stage1.issue' ? proposal.description : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,27 +203,18 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
       }
 
       const prevPL = (after.financePL ?? []) as Row[];
-      const prevSummary = after.financeSummary;
       const idx = prevPL.findIndex((r) => r.year === proposal.year);
       const nextPL: Row[] =
         idx >= 0
           ? prevPL.map((r, i) => (i === idx ? { ...r, revenue: proposal.afterYen } : r))
           : [...prevPL, { year: proposal.year, revenue: proposal.afterYen }].sort((a, b) => a.year - b.year);
-      const summary = summaryFollowsPL(prevSummary, prevPL, nextPL);
-      const saved = await useStrategyStore.getState().saveStrategyData({
-        reason: 'stage1:ai-operation',
-        conflictRetry: false,
-        patch: {
-          financePL: nextPL as never,
-          financeUnitConfirmed: { ...(after.financeUnitConfirmed ?? {}), pl: nextPL.map((r) => r.year) } as never,
-          ...(summary ? { financeSummary: summary as never } : {}),
-        },
-      });
-      if (!saved.ok) {
-        setError(SAVE_FAILED_MESSAGE);
+      after.setFinancePL(nextPL as never);
+      if (useStrategyStore.getState().financePL !== nextPL) {
+        setError('売上高を反映できませんでした。年度と金額を確かめて、もう一度指示してください。');
         return;
       }
-      discard(`${proposal.year}年度の全社売上高を${formatYen(proposal.afterYen)}で保存しました。企業価値分析にも同じ値が使われます。`);
+      useAiHighlightStore.getState().flash(`stage1.finance.pl.revenue.${proposal.year}`);
+      discard(`${proposal.year}年度の全社売上高を${formatYen(proposal.afterYen)}で入力欄に反映しました。保存はまだです。`);
     } catch {
       setError('保存の結果を確認できませんでした。画面を再読み込みして、内容を確かめてください。');
     } finally {
@@ -350,7 +332,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           disabled={busy || (needsText && addition.trim() === '')}
           className="rounded-lg bg-accent-action px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
         >
-          {busy ? '保存しています…' : isConflict ? '既存の値を置き換えて保存' : '承認して保存'}
+          {busy ? `${applyVerb}しています…` : isConflict ? `既存の値を置き換えて${applyVerb}` : '承認して保存'}
         </button>
         <button
           type="button"

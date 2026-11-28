@@ -977,14 +977,15 @@ export default function IssueBlockPanel({ disabled }: { disabled?: boolean } = {
 
       <div className="space-y-6">
         {issues.map((issue, index) => (
-          <IssueEditor
-            key={index}
-            index={index}
-            issue={issue}
-            onChange={(patch) => updateIssue(index, patch)}
-            onRemove={() => removeIssue(index)}
-            benchmarks={benchmarks}
-          />
+          <div key={index} data-ai-target={`stage1.issue.${index}`}>
+            <IssueEditor
+              index={index}
+              issue={issue}
+              onChange={(patch) => updateIssue(index, patch)}
+              onRemove={() => removeIssue(index)}
+              benchmarks={benchmarks}
+            />
+          </div>
         ))}
       </div>
 

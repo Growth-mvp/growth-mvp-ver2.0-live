@@ -29,6 +29,7 @@ import CEOChatVoiceControls, { type InputMode } from '@/components/CEOChatVoiceC
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
 import { contextDepartments, issueProposalOf, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { parseConsultOffer, parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
+import { applyDirectProposal, isDirectProposal } from '@/lib/aiOperations/applyDirect';
 import { OPERATION_ROLE_DENIED, proposalRequiredRole, roleMeetsRequirement } from '@/lib/aiOperations/guard';
 import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
 import { parseStage4Intent } from '@/lib/aiOperations/stage4';
@@ -722,6 +723,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               ...msgs,
               { role: 'assistant', content: `「${instruction.departmentName}」の戦略書を、6つの問いの回答を反映して再生成します。完了すると、STAGE3の画面に新しい版が表示されます。` },
             ]);
+          } else if (isDirectProposal(instruction.proposal)) {
+            const applied = await applyDirectProposal(instruction.proposal);
+            if (applied.ok && window.location.pathname !== instruction.proposal.pathname) router.push(instruction.proposal.pathname);
+            updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: applied.message }]);
           } else {
             useOperationProposalStore.getState().setPending(instruction.proposal);
             if (window.location.pathname !== instruction.proposal.pathname) router.push(instruction.proposal.pathname);
@@ -854,9 +859,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             stage1IssueTitles: ((st.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? ''),
           });
           if (issueInstruction.kind === 'proposal') {
-            useOperationProposalStore.getState().setPending(issueInstruction.proposal);
-            if (window.location.pathname !== issueInstruction.proposal.pathname) router.push(issueInstruction.proposal.pathname);
-            updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: proposalIntroText(issueInstruction.proposal) }]);
+            const applied = await applyDirectProposal(issueInstruction.proposal);
+            if (applied.ok && window.location.pathname !== issueInstruction.proposal.pathname) router.push(issueInstruction.proposal.pathname);
+            updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: applied.message }]);
           } else {
             updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: issueInstruction.message }]);
           }

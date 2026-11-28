@@ -350,6 +350,7 @@ function CompanyPLEditor({
                     return (
                       <td
                         key={y}
+                        data-ai-target={`stage1.finance.pl.${field.key}.${y}`}
                         onMouseDown={() => {
                           // Excelモード: クリック=選択（編集は Enter/F2/ダブルクリック）
                           setEditingCell(null);

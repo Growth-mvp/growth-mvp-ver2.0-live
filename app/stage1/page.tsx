@@ -20,6 +20,7 @@ import Stage1ToStage2Panel from '@/components/stage1/Stage1ToStage2Panel';
 import ListingInfoPanel from '@/components/stage1/ListingInfoPanel';
 import CompanyAutofillPanel from '@/components/stage1/CompanyAutofillPanel';
 import WaccPanel from '@/components/stage1/WaccPanel';
+import AiHighlightListener from '@/components/AiHighlightListener';
 import { resolveStage1SaveFeedback } from '@/lib/stage1/saveFeedback';
 
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
@@ -559,6 +560,7 @@ export default function Stage1Page() {
   return (
     <StrategyGuard mode="view">
       <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
+        <AiHighlightListener />
         <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">
