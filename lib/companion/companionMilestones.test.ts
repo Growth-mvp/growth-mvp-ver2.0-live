@@ -63,7 +63,7 @@ describe('助言の依頼文と規則（誤った助言を防ぐ）', () => {
   it('依頼文は、経営支援の観点（顧客・整合・すり合わせ・目的と手段・社員の主体性）を含む', () => {
     const text = buildMilestonePrompt('GENERATE');
     for (const f of ADVICE_FOCUS) expect(text).toContain(f);
-    expect(text).toContain('根拠がない内容は「未登録」と書き、数値を作らない');
+    expect(text).toContain('「保存済みの情報では判断できない」と書いてください');
     expect(text).toContain('判断は利用者に委ね');
   });
 

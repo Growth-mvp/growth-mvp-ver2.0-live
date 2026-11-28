@@ -94,3 +94,47 @@ export function riskFactsFromStrategy(args: RiskSourceArgs): RiskFact[] {
   const { krs, actions } = krsAndActionsOf(departments);
   return detectRiskFacts({ now: args.now, cash, targets, planGaps: planGapsOf(args), krs, actions });
 }
+
+/** 判断できなかった項目を、理由（未登録・未算定・取得失敗・判断材料不足）ごとに示す。事実が無くても判定する */
+export function riskCoverageFromStrategy(args: RiskSourceArgs): string[] {
+  const out: string[] = [];
+  const stored = storedOf(args.csvFinanceData, args.companyId);
+
+  if (stored.kind === 'NONE') {
+    out.push('- 資金繰り：未登録（STAGE6の資金計画が保存されていません）');
+  } else if (stored.kind !== 'OK') {
+    out.push('- 資金繰り：取得失敗（保存済みの資金計画を読めませんでした）');
+  } else {
+    const outlook = outlookOf(args, stored.domain);
+    if (!outlook) {
+      out.push('- 資金繰り・経営目標との差：未算定（資金繰り試算の結果が得られませんでした）');
+    } else {
+      const unknown = outlook.financedPlan.years.filter((y) => y.kind === 'FORECAST' && typeof y.postShortfall.value !== 'number');
+      if (unknown.length > 0) {
+        out.push(`- 資金繰り（${unknown.map((y) => `${y.year}年度`).join('・')}）：判断材料不足（${unknown[0].postShortfall.note}）`);
+      }
+      const gap = outlook.unifiedPl.gap;
+      const targets = Array.isArray(args.companyTargets) ? args.companyTargets : [];
+      if (targets.length === 0) {
+        out.push('- 経営目標との差：未登録（STAGE2の業績目標が保存されていません）');
+      } else if (!gap || (gap.revenue.valueYen === null && gap.operatingIncome.valueYen === null)) {
+        out.push(`- 経営目標との差：判断材料不足（${gap?.revenue.reason ?? gap?.operatingIncome.reason ?? '見通しが足りず、差を出せません'}）`);
+      }
+    }
+  }
+
+  if (parseFiscalYearEndMonth(args.fiscalYearEnd) === null) {
+    out.push('- 売上効果の計画と実績：判断材料不足（決算月が未設定のため、年度を決められません）');
+  }
+
+  const { krs, actions } = krsAndActionsOf(departmentsOf(args.departments));
+  if (krs.length === 0) {
+    out.push('- KRの期限：未登録（部門の施策にKRがありません）');
+  } else {
+    const noDue = krs.filter((k) => !k.due).length;
+    if (noDue > 0) out.push(`- KRの期限：判断材料不足（期限が未入力のKRが${noDue}件あり、期限超過は判定していません）`);
+  }
+  if (actions.length === 0) out.push('- 実施事項の進捗：未登録（進捗が1件も記録されていません）');
+
+  return out;
+}

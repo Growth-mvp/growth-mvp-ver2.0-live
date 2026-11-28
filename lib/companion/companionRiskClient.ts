@@ -8,7 +8,7 @@ export type RiskReviewRequest = {
   fetchImpl?: typeof fetch;
 };
 
-export type RiskReviewResult = { facts: string[]; text: string | null; serious: boolean };
+export type RiskReviewResult = { facts: string[]; text: string | null; serious: boolean; coverage: string[] };
 
 export async function requestRiskReview(req: RiskReviewRequest): Promise<RiskReviewResult | null> {
   const doFetch = req.fetchImpl ?? fetch;
@@ -23,11 +23,14 @@ export async function requestRiskReview(req: RiskReviewRequest): Promise<RiskRev
     });
     if (!res.ok) return null;
     const raw = await res.text();
-    const data = raw ? (JSON.parse(raw) as { facts?: unknown; text?: unknown; serious?: unknown }) : null;
+    const data = raw
+      ? (JSON.parse(raw) as { facts?: unknown; text?: unknown; serious?: unknown; coverage?: unknown })
+      : null;
     if (!data || !Array.isArray(data.facts)) return null;
     const facts = data.facts.filter((f): f is string => typeof f === 'string');
+    const coverage = Array.isArray(data.coverage) ? data.coverage.filter((c): c is string => typeof c === 'string') : [];
     const text = typeof data.text === 'string' && data.text.trim() ? data.text.trim() : null;
-    return { facts, text, serious: data.serious === true };
+    return { facts, text, serious: data.serious === true, coverage };
   } catch {
     return null;
   }
@@ -53,6 +56,7 @@ export function decodeRiskStored(raw: string | null): StoredRisk | null {
 export function riskReviewBody(result: RiskReviewResult): string {
   const lines = ['事実（保存済みデータの計算結果）', ...result.facts, ''];
   lines.push(result.text ?? 'AIの所見は取得できませんでした。上の事実を確認してください。');
+  if (result.coverage.length > 0) lines.push('', '判断できなかった項目（理由別）', ...result.coverage);
   lines.push('', NOT_CHECKED_NOTE);
   return lines.join('\n');
 }

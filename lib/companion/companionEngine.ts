@@ -77,10 +77,10 @@ function pickStep(s: CompanionSnapshot): ProgressStep | null {
     return {
       id: 'ENTER_FINANCE',
       title: '財務データを入れると、現状分析が始まります',
-      message: 'STAGE1の財務データがまだ入っていないため、企業価値の分析と論点の作成に進めません。決算資料を読み込むか、「② 財務データ（読込・手入力）」に直接入力してください。',
+      message: 'STAGE1の財務データがまだ入っていないため、企業価値の分析と論点の作成に進めません。AI経営コンサルタントのチャット欄から決算資料（PDF・Excel・CSV）を添付すると、STAGE1の候補欄で確認して反映できます。手入力は「② 財務データ（読込・手入力）」の全社財務データの表で行えます。',
       href: '/stage1',
       linkLabel: 'STAGE1の財務データを開く',
-      operationId: 'stage1.edit-finance-table',
+      operationId: 'common.attach-documents',
     };
   }
   if (s.issueCount === 0) {

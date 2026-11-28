@@ -10,7 +10,7 @@ describe('経営点検の依頼', () => {
   it('事実・所見・重大さを、サーバーの応答から読む（認証付きで送る）', async () => {
     const fetchImpl = jest.fn(async () => jsonResponse({ facts: ['- 2027年度：不足'], text: '仮説：回収の遅れ', serious: true }));
     const result = await requestRiskReview({ companyId: 'co-a', strategyId: 'st-a', getAccessToken: token, fetchImpl: fetchImpl as unknown as typeof fetch });
-    expect(result).toEqual({ facts: ['- 2027年度：不足'], text: '仮説：回収の遅れ', serious: true });
+    expect(result).toEqual({ facts: ['- 2027年度：不足'], text: '仮説：回収の遅れ', serious: true, coverage: [] });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/api/companion/risk-review');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer token-1');
@@ -47,16 +47,39 @@ describe('経営点検の依頼', () => {
   });
 
   it('AIの所見が無くても、事実は表示し、所見が無いことを明記する', () => {
-    const body = riskReviewBody({ facts: ['- 2027年度：不足'], text: null, serious: false });
+    const body = riskReviewBody({ facts: ['- 2027年度：不足'], text: null, serious: false, coverage: [] });
     expect(body.startsWith('事実（保存済みデータの計算結果）')).toBe(true);
     expect(body).toContain('- 2027年度：不足');
     expect(body).toContain('AIの所見は取得できませんでした');
   });
 
   it('本文の末尾に、点検していない範囲（費用の計画と実績、会社全体のKR）を必ず添える', () => {
-    const body = riskReviewBody({ facts: ['- 事実'], text: '仮説：x', serious: false });
+    const body = riskReviewBody({ facts: ['- 事実'], text: '仮説：x', serious: false, coverage: [] });
     expect(body).toContain('点検していない範囲：費用（OPEX・コスト削減・追加費用）の計画と実績、会社全体のKR');
     expect(body.indexOf('点検していない範囲')).toBeGreaterThan(body.indexOf('仮説：x'));
+  });
+
+  it('判断できなかった項目は、理由（未登録・未算定・取得失敗・判断材料不足）ごとに、点検していない範囲より前に示す', () => {
+    const coverage = ['- 資金繰り：取得失敗（保存済みの資金計画を読めませんでした）', '- KRの期限：判断材料不足（期限が未入力のKRが2件あり、期限超過は判定していません）'];
+    const body = riskReviewBody({ facts: ['- 事実'], text: '仮説：x', serious: false, coverage });
+    expect(body).toContain('判断できなかった項目（理由別）');
+    expect(body).toContain(coverage[0]);
+    expect(body.indexOf('判断できなかった項目')).toBeLessThan(body.indexOf('点検していない範囲'));
+  });
+
+  it('判断できなかった項目が無ければ、その見出しは出さない', () => {
+    const body = riskReviewBody({ facts: ['- 事実'], text: '仮説：x', serious: false, coverage: [] });
+    expect(body).not.toContain('判断できなかった項目');
+  });
+
+  it('応答に判断材料の状態が無くても、空として読む（古い応答との互換）', async () => {
+    const result = await requestRiskReview({
+      companyId: 'c',
+      strategyId: 's',
+      getAccessToken: token,
+      fetchImpl: (async () => jsonResponse({ facts: ['- 事実'], text: null, serious: false })) as unknown as typeof fetch,
+    });
+    expect(result?.coverage).toEqual([]);
   });
 
   it('保存した所見は、重大さと本文を元に戻せる。壊れた保存内容は読まない', () => {

@@ -13,7 +13,7 @@ import { logAuditEvent } from '@/lib/server/auditLog';
 import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
-import { riskFactsFromStrategy } from '@/lib/companion/companionRiskSource';
+import { riskCoverageFromStrategy, riskFactsFromStrategy } from '@/lib/companion/companionRiskSource';
 import { isCompanionKilled } from '@/lib/companion/companionPolicy';
 import { RISK_GUARD, buildRiskPrompt, isSeriousRisk, renderRiskFacts } from '@/lib/companion/companionRisk';
 
@@ -42,24 +42,27 @@ export async function POST(req: Request) {
   if (error || !row) return NextResponse.json({ error: 'strategy not found' }, { status: 404 });
   const strategy = normalizeStrategyData(row) as unknown as Record<string, unknown>;
 
+  const sourceArgs = {
+    csvFinanceData: strategy.csvFinanceData,
+    companyId,
+    financePL: strategy.financePL,
+    financeBS: strategy.financeBS,
+    departments: stage6PlanDepartments(strategy.departments),
+    fiscalYearEnd: strategy.fiscalYearEnd as string | undefined,
+    currentYear: new Date().getFullYear(),
+    companyTargets: strategy.companyTargets,
+    now: new Date(),
+  };
   let facts;
+  let coverage: string[];
   try {
-    facts = riskFactsFromStrategy({
-      csvFinanceData: strategy.csvFinanceData,
-      companyId,
-      financePL: strategy.financePL,
-      financeBS: strategy.financeBS,
-      departments: stage6PlanDepartments(strategy.departments),
-      fiscalYearEnd: strategy.fiscalYearEnd as string | undefined,
-      currentYear: new Date().getFullYear(),
-      companyTargets: strategy.companyTargets,
-      now: new Date(),
-    });
+    facts = riskFactsFromStrategy(sourceArgs);
+    coverage = riskCoverageFromStrategy(sourceArgs);
   } catch (e: any) {
     console.error('[companion-risk-review] FACTS_FAILED', { message: e?.message });
     return NextResponse.json({ error: 'facts_failed' }, { status: 500 });
   }
-  if (facts.length === 0) return NextResponse.json({ facts: [], text: null, serious: false });
+  if (facts.length === 0) return NextResponse.json({ facts: [], text: null, serious: false, coverage });
 
   const lines = renderRiskFacts(facts);
   let text: string | null = null;
@@ -85,5 +88,5 @@ export async function POST(req: Request) {
     metadata: { factCount: facts.length, aiUsed: text !== null },
   });
 
-  return NextResponse.json({ facts: lines, text, serious: isSeriousRisk(facts) });
+  return NextResponse.json({ facts: lines, text, serious: isSeriousRisk(facts), coverage });
 }

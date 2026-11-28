@@ -29,7 +29,7 @@ describe('進行と操作の判定（プログラムで決定する）', () => {
 
   it.each([
     ['会社名が未入力', { companyNameEntered: false }, 'ENTER_COMPANY_NAME', 'stage1.company-name'],
-    ['財務データが未入力', { financeEntered: false }, 'ENTER_FINANCE', 'stage1.edit-finance-table'],
+    ['財務データが未入力', { financeEntered: false }, 'ENTER_FINANCE', 'common.attach-documents'],
     ['論点が0件', { issueCount: 0, stage2Started: false }, 'ADD_ISSUE', 'stage1.add-issue'],
     ['STAGE2へ未着手', { stage2Started: false, stage2Generated: false, stage2Confirmed: false }, 'GO_STAGE2', 'stage1.go-to-stage2'],
     ['経営戦略が未生成', { stage2Generated: false, stage2Confirmed: false }, 'STAGE2_GENERATE', 'stage2.generate-final'],

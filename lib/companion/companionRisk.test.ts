@@ -155,8 +155,16 @@ describe('経営点検：AIへの依頼（事実だけを渡し、仮説と候�
     const prompt = buildRiskPrompt(lines);
     expect(prompt).toContain('事実：');
     expect(prompt).toContain('- 2027年度：不足');
-    expect(RISK_GUARD).toContain('「仮説」と明記');
+    expect(RISK_GUARD).toContain('「仮説」として考える');
     expect(RISK_GUARD).toContain('見直しの候補');
     expect(RISK_GUARD).toContain('画面の操作手順は書かない');
+    expect(RISK_GUARD).toContain('「未登録」と決めつけない');
+    expect(RISK_GUARD).not.toContain('未登録のため判断できない');
+  });
+});
+
+describe('経営点検：判断材料の状態（未登録・未算定・取得失敗・判断材料不足を区別する）', () => {
+  it('依頼の規則は、事実にない項目を未登録と断定させない', () => {
+    expect(RISK_GUARD).toContain('この点検では判断していない');
   });
 });
