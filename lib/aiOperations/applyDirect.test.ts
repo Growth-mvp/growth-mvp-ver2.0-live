@@ -525,6 +525,37 @@ describe('取り消し情報の記録（自動保存の待機との前後関係�
     expect(plan.ok).toBe(false);
     expect(plan.ok ? '' : plan.message).toContain('利用者が変わった');
   });
+
+  it('追加した経営課題の題名が同じでも、後から説明文を手動で編集したら取り消さない', async () => {
+    const state = setStore({ stage1Issues: [] });
+    allowAuthorize();
+    await applyStageOp({ kind: 'issue.add', title: '新規顧客', description: 'AIの文' }, { settleMs: 0 });
+    (state.stage1Issues as Array<Record<string, unknown>>)[0].description = '手で直した文';
+    const plan = planUndo();
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toContain('同じ項目が変わった');
+  });
+
+  it('追加した事業の名前が同じでも、後から概要を手動で編集したら取り消さない', async () => {
+    const state = setStore({ businessSegments: [{ id: 'seg-1', name: '製造事業' }] });
+    allowAuthorize();
+    await applyStageOp({ kind: 'segment.add', name: 'カフェ' }, { settleMs: 0 });
+    (state.businessSegments as Array<Record<string, unknown>>)[1].summary = '手で書いた概要';
+    const plan = planUndo();
+    expect(plan.ok).toBe(false);
+  });
+
+  it('紐づくデータがなければ、追加直後の事業を取り消せる', async () => {
+    const state = setStore({ businessSegments: [{ id: 'seg-1', name: '製造事業' }] });
+    allowAuthorize();
+    await applyStageOp({ kind: 'segment.add', name: 'カフェ' }, { settleMs: 0 });
+    const plan = planUndo();
+    if (!plan.ok) throw new Error(plan.message);
+    allowAuthorize();
+    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    expect(undone.ok).toBe(true);
+    expect(state.businessSegments).toEqual([{ id: 'seg-1', name: '製造事業' }]);
+  });
 });
 
 describe('企業価値分析の依頼（他のSTAGEからでも分析・論点タブを示す）', () => {
@@ -541,7 +572,7 @@ describe('企業価値分析の依頼（他のSTAGEからでも分析・論点�
 });
 
 describe('削除の安全確認（下流との紐づけを確認できないものは削除しない）', () => {
-  it('STAGE3の部門など、下流のデータがある事業は削除の案にしない', () => {
+  it('STAGE3の部門と紐づく事業は、理由を示して削除の案にしない', () => {
     setStore({
       businessSegments: [{ id: 'seg-1', name: '製造事業' }],
       segmentPL: {},
@@ -550,14 +581,13 @@ describe('削除の安全確認（下流との紐づけを確認できないも�
     });
     const plan = planRemoval({ type: 'segment', name: '製造事業' });
     expect(plan.ok).toBe(false);
-    expect(plan.ok ? '' : plan.message).toContain('部門（STAGE3）');
+    expect(plan.ok ? '' : plan.message).toContain('部門「製造事業」');
   });
 
-  it('事業ポートフォリオがある間は、経営課題も削除の案にしない', () => {
+  it('事業ポートフォリオがあっても、紐づかない経営課題は削除の案になる', () => {
     setStore({ businessPortfolio: { unitType: 'business', periodLabel: 'FY2025', currency: 'JPY', threshold: { growthBaseline: 0, profitBaseline: 0 }, units: [] } });
     const plan = planRemoval({ type: 'issue', name: '既存の課題' });
-    expect(plan.ok).toBe(false);
-    expect(plan.ok ? '' : plan.message).toContain('事業ポートフォリオ');
+    expect(plan.ok).toBe(true);
   });
 
   it('承認の時点で下流のデータが増えていたら、削除しない', async () => {

@@ -10,7 +10,7 @@ import { OPERATION_ROLE_DENIED, proposalStaleReason, roleMeetsRequirement } from
 import type { OperationProposal } from './instruction';
 import type { RemovalTarget, StageOp } from './stage1Input';
 import { useAiUndoStore, type AiWriteRecord } from './aiUndoStore';
-import { removalBlockReason, type RemovalOp } from './removalSafety';
+import { removalCheck, type RemovalOp } from './removalSafety';
 import { saveSentenceOf, waitForSaveSettled } from './saveSettle';
 
 export type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
@@ -105,8 +105,10 @@ function valueSignatureOf(op: StageOp, st: StrategyState): string {
     case 'profile':
       return JSON.stringify((st as unknown as Record<string, unknown>)[op.field] ?? null);
     case 'segment.add':
-    case 'segment.rename':
+      return JSON.stringify(segments.find((s) => s.name === op.name) ?? null);
     case 'segment.remove':
+      return JSON.stringify(segments.find((s) => s.id === op.id) ?? null);
+    case 'segment.rename':
       return JSON.stringify(segments.map((s) => s.name));
     case 'segment.set':
       return JSON.stringify(segments.find((s) => s.name === op.name)?.[op.field] ?? null);
@@ -116,7 +118,7 @@ function valueSignatureOf(op: StageOp, st: StrategyState): string {
       return JSON.stringify((st as unknown as { stage1Benchmarks?: { waccManual?: number } }).stage1Benchmarks?.waccManual ?? null);
     case 'issue.add':
     case 'issue.remove':
-      return JSON.stringify(issues.map((i) => i.title));
+      return JSON.stringify(issues.find((i) => i.title === op.title) ?? null);
     case 'issue.edit':
       return JSON.stringify(issues.find((i) => i.title === op.title) ?? null);
     case 'valuation':
@@ -201,10 +203,11 @@ function writeOp(op: StageOp): Written {
       };
     }
     case 'issue.remove': {
-      const blocked = removalBlockReason(op, st);
-      if (blocked) return { ok: false, message: blocked };
+      const check = removalCheck(op, st);
+      if (!check.ok) return { ok: false, message: check.reason };
       const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
-      st.setStage1Issues(issues.filter((i) => i.title !== op.title) as never);
+      const idx = issues.findIndex((i) => i.title === op.title);
+      st.setStage1Issues(issues.filter((_, i) => i !== idx) as never);
       return { ok: true, message: `経営課題「${op.title}」を削除しました。`, undo: null };
     }
     case 'issue.edit': {
@@ -250,18 +253,19 @@ function writeOp(op: StageOp): Written {
       const segs = st.businessSegments ?? [];
       if (segs.length >= 10) return { ok: false, message: '事業は10件までのため、反映しませんでした。' };
       if (segs.some((s) => s.name === op.name)) return { ok: false, message: `「${op.name}」という事業はすでにあります。` };
-      st.setProfile({ businessSegments: [...segs, { id: newSegmentId(), name: op.name }] } as never);
+      const id = newSegmentId();
+      st.setProfile({ businessSegments: [...segs, { id, name: op.name }] } as never);
       return {
         ok: true,
         message: `事業「${op.name}」を追加し、入力欄に反映しました。`,
         flash: `stage1.segment.${segs.length}`,
-        undo: { kind: 'segment.remove', name: op.name },
+        undo: { kind: 'segment.remove', id, name: op.name },
       };
     }
     case 'segment.remove': {
-      const blocked = removalBlockReason(op, st);
-      if (blocked) return { ok: false, message: blocked };
-      st.setProfile({ businessSegments: (st.businessSegments ?? []).filter((s) => s.name !== op.name) } as never);
+      const check = removalCheck(op, st);
+      if (!check.ok) return { ok: false, message: check.reason };
+      st.setProfile({ businessSegments: (st.businessSegments ?? []).filter((s) => s.id !== op.id) } as never);
       return { ok: true, message: `事業「${op.name}」を削除しました。`, undo: null };
     }
     case 'segment.rename': {
@@ -442,23 +446,25 @@ export function planUndo(): { ok: true; record: AiWriteRecord } | { ok: false; m
 export function planRemoval(target: RemovalTarget): { ok: true; op: RemovalOp; impact: string } | { ok: false; message: string } {
   const st = useStrategyStore.getState();
   if (target.type === 'segment') {
-    const op: RemovalOp = { kind: 'segment.remove', name: target.name };
-    const blocked = removalBlockReason(op, st);
-    if (blocked) return { ok: false, message: blocked };
+    const seg = (st.businessSegments ?? []).find((s) => s.name === target.name);
+    if (!seg) return { ok: false, message: `事業「${target.name}」が見つかりません。` };
+    const op: RemovalOp = { kind: 'segment.remove', id: seg.id, name: target.name };
+    const check = removalCheck(op, st);
+    if (!check.ok) return { ok: false, message: check.reason };
     return {
       ok: true,
       op,
-      impact: `事業「${target.name}」の事業概要・主な顧客・展開地域を削除します。事業別の財務データはありません。下流のデータはありません。`,
+      impact: `事業「${target.name}」の事業概要・主な顧客・展開地域を削除します。事業別の財務・経営課題・部門・事業ポートフォリオ・企業の目標・プロジェクトとの紐づけを確認し、紐づきはありません。`,
     };
   }
   const op: RemovalOp = { kind: 'issue.remove', title: target.name };
-  const blocked = removalBlockReason(op, st);
-  if (blocked) return { ok: false, message: blocked };
+  const check = removalCheck(op, st);
+  if (!check.ok) return { ok: false, message: check.reason };
   const count = (st.stage1Issues ?? []).length;
   return {
     ok: true,
     op,
-    impact: `経営課題「${target.name}」を削除します。下流のデータはありません。${
+    impact: `経営課題「${target.name}」を削除します。企業の目標・プロジェクトとの紐づけを確認し、紐づきはありません。${
       count === 1 ? '経営課題が0件になるため、STAGE2へは進めなくなります。' : ''
     }`,
   };

@@ -18,7 +18,7 @@ export type StageOp =
   | { kind: 'segment.add'; name: string }
   | { kind: 'segment.rename'; from: string; to: string }
   | { kind: 'segment.set'; name: string; field: SegmentTextField; value: string | string[] | null }
-  | { kind: 'segment.remove'; name: string }
+  | { kind: 'segment.remove'; id: string; name: string }
   | { kind: 'finance'; table: FinanceTable; key: string; label: string; year: number; yen: number | null; segment?: string; expectedBefore?: number | null }
   | { kind: 'wacc'; pct: number | null }
   | { kind: 'issue.add'; title: string; description: string }
