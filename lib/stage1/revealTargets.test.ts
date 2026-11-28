@@ -11,6 +11,8 @@ describe('入力された対象の表示先（タブ・折りたたみ欄・事�
     ['stage1.issue.0', { tab: 'analysis', section: 'issues' }],
     ['stage1.handover', { tab: 'analysis', section: 'issues' }],
     ['stage1.valuation', { tab: 'analysis', section: 'metrics' }],
+    ['stage1.segments', { tab: 'input', section: 'company' }],
+    ['stage1.issues', { tab: 'analysis', section: 'issues' }],
   ])('%s は対応する欄に出す', (target, expected) => {
     expect(revealOf(target)).toEqual(expected);
   });

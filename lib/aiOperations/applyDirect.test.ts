@@ -586,6 +586,63 @@ describe('事業の削除と自動生成の事業ポートフォリオ', () => {
   });
 });
 
+describe('削除後の画面表示（削除の後も残る一覧を示す）', () => {
+  it('事業を削除すると、STAGE1の入力タブの事業セグメント一覧を示す', async () => {
+    setStore({
+      businessSegments: [
+        { id: 'seg-1', name: '製造事業' },
+        { id: 'seg-2', name: 'フィットネス' },
+      ],
+    });
+    allowAuthorize();
+    const plan = planRemoval({ type: 'segment', name: 'フィットネス' });
+    if (!plan.ok) throw new Error(plan.message);
+    const r = await applyStageOp(plan.op, { settleMs: 0 });
+    expect(r.ok).toBe(true);
+    expect(useAiHighlightStore.getState().target).toBe('stage1.segments');
+    expect(useAiHighlightStore.getState().reveal).toEqual({ tab: 'input', section: 'company' });
+  });
+
+  it('最後の1件の事業を削除しても、空の一覧（追加ボタン）を示し、ポートフォリオは作らない', async () => {
+    const state = setStore({ businessSegments: [{ id: 'seg-2', name: 'フィットネス' }] });
+    const lastOnly = [{ id: 'seg-2', name: 'フィットネス' }];
+    state.businessPortfolio = buildBusinessPortfolio({ segments: lastOnly }) ?? undefined;
+    allowAuthorize();
+    const plan = planRemoval({ type: 'segment', name: 'フィットネス' });
+    if (!plan.ok) throw new Error(plan.message);
+    const r = await applyStageOp(plan.op, { settleMs: 0 });
+    expect(r.ok).toBe(true);
+    expect(state.businessSegments).toEqual([]);
+    expect(state.businessPortfolio).toBeUndefined();
+    expect(useAiHighlightStore.getState().target).toBe('stage1.segments');
+  });
+
+  it('経営課題を削除すると、分析・論点タブの論点一覧を示す', async () => {
+    setStore();
+    allowAuthorize();
+    const plan = planRemoval({ type: 'issue', name: '既存の課題' });
+    if (!plan.ok) throw new Error(plan.message);
+    const r = await applyStageOp(plan.op, { settleMs: 0 });
+    expect(r.ok).toBe(true);
+    expect(useAiHighlightStore.getState().target).toBe('stage1.issues');
+    expect(useAiHighlightStore.getState().reveal).toEqual({ tab: 'analysis', section: 'issues' });
+  });
+
+  it('削除が拒否された場合は、成功と表示せず、表示も切り替えない', async () => {
+    setStore({
+      businessSegments: [{ id: 'seg-1', name: '製造事業' }],
+      segmentPL: { 製造事業: [{ year: 2025, revenue: 1 }] },
+    });
+    allowAuthorize();
+    const plan = planRemoval({ type: 'segment', name: '製造事業' });
+    expect(plan.ok).toBe(false);
+    const r = await applyStageOp({ kind: 'segment.remove', id: 'seg-1', name: '製造事業' }, { settleMs: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.message).not.toContain('削除しました');
+    expect(useAiHighlightStore.getState().target).toBeNull();
+  });
+});
+
 describe('企業価値分析の依頼（他のSTAGEからでも分析・論点タブを示す）', () => {
   it('分析の更新は、財務指標の表示先を示し、再計算する', async () => {
     const state = setStore();

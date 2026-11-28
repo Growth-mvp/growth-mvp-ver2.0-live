@@ -734,7 +734,7 @@ export default function IssueBlockPanel({ disabled }: { disabled?: boolean } = {
   }, [externalIssueCandidates, issues, setStage1Issues]);
 
   return (
-    <section>
+    <section data-ai-target="stage1.issues">
       <h2 className="text-xl font-semibold mb-4">次の一手（論点）</h2>
 
       <p className="text-sm text-gray-600 mb-6">

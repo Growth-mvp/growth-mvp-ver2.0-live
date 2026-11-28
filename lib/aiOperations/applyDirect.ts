@@ -210,7 +210,7 @@ function writeOp(op: StageOp): Written {
       const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
       const idx = issues.findIndex((i) => i.title === op.title);
       st.setStage1Issues(issues.filter((_, i) => i !== idx) as never);
-      return { ok: true, message: `経営課題「${op.title}」を削除しました。`, undo: null };
+      return { ok: true, message: `経営課題「${op.title}」を削除しました。`, flash: 'stage1.issues', undo: null };
     }
     case 'issue.edit': {
       const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
@@ -279,7 +279,7 @@ function writeOp(op: StageOp): Written {
         });
         st.setProfile({ businessPortfolio: portfolio ?? undefined } as never);
       }
-      return { ok: true, message: `事業「${op.name}」を削除しました。`, undo: null };
+      return { ok: true, message: `事業「${op.name}」を削除しました。`, flash: 'stage1.segments', undo: null };
     }
     case 'segment.rename': {
       const segs = st.businessSegments ?? [];

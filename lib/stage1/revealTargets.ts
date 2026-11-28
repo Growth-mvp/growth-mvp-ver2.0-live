@@ -15,6 +15,9 @@ export type Reveal = {
 };
 
 export function revealOf(target: string): Reveal | null {
+  // 削除の後も残る一覧（事業セグメント定義・次の一手（論点））を示す
+  if (target === 'stage1.segments') return { tab: 'input', section: 'company' };
+  if (target === 'stage1.issues') return { tab: 'analysis', section: 'issues' };
   if (target.startsWith('stage1.profile.') || target.startsWith('stage1.segment.')) {
     return { tab: 'input', section: 'company' };
   }

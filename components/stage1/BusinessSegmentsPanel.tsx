@@ -167,7 +167,7 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
   }, [businessSegments]);
 
   return (
-    <section>
+    <section data-ai-target="stage1.segments">
       <h2 className="text-xl font-semibold mb-4">事業セグメント定義</h2>
 
       <p className="text-sm text-gray-600 mb-6">
