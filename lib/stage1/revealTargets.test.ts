@@ -26,6 +26,22 @@ describe('入力された対象の表示先（タブ・折りたたみ欄・事�
     expect(revealOf('stage1.finance.pl.revenue.2025')).toEqual({ tab: 'input', section: 'finance' });
   });
 
+  it.each([
+    ['stage2.ceoIntent', { tab: 'input', section: 'ceo' }],
+    ['stage2.mvv', { tab: 'input', section: 'mvv' }],
+    ['stage2.target.abc-1', { tab: 'input', section: 'targets' }],
+    ['stage2.swot.threat', { tab: 'input', section: 'swot' }],
+    ['stage2.draft', { tab: 'draft', section: 'draft' }],
+    ['stage2.final', { tab: 'final', section: 'final' }],
+    ['stage2.commit', { tab: 'final', section: 'commit' }],
+  ])('STAGE2の %s は対応するタブに出す', (target, expected) => {
+    expect(revealOf(target)).toEqual(expected);
+  });
+
+  it('STAGE2の12の問いは、そのタブと質問を示す', () => {
+    expect(revealOf('stage2.question.ch1-q2')).toEqual({ tab: 'draft', section: 'questions', questionId: 'ch1-q2' });
+  });
+
   it('対応のない対象は、表示先を変えない', () => {
     expect(revealOf('unknown.target')).toBeNull();
   });

@@ -32,6 +32,10 @@ import { parseConsultOffer, parseOperationCandidate } from '@/lib/aiOperations/c
 import { applyDirectProposal, applyStageOp, isDirectProposal, planRemoval, planUndo } from '@/lib/aiOperations/applyDirect';
 import { useAiUndoStore } from '@/lib/aiOperations/aiUndoStore';
 import { resolveStage1Input } from '@/lib/aiOperations/stage1Input';
+import { resolveStage2Input } from '@/lib/stage2/stage2Input';
+import { applyStage2Op } from '@/lib/stage2/stage2Apply';
+import { useStage2CommandStore } from '@/lib/stage2/stage2Command';
+import { STAGE2_QUESTIONS_12 } from '@/lib/stage2/questions12';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { OPERATION_ROLE_DENIED, proposalRequiredRole, roleMeetsRequirement } from '@/lib/aiOperations/guard';
 import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
@@ -663,6 +667,52 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
+
+      // STAGE2の入力・生成・確定の依頼（管理者）：入力欄へ直接反映し、生成は画面の既存の処理に任せる。確定は本人のボタンで行う
+      if (requestCompanyId && latestStrategyId) {
+        const stage2Now = useStrategyStore.getState();
+        const focus = useConsultFocusStore.getState().entries['stage2-questions'];
+        const stage2Input = resolveStage2Input(trimmed, {
+          targets: (stage2Now.companyTargets ?? []) as Array<{ id: string; label: string; unit: string; base: number; dueYear?: number }>,
+          focusQuestionId: focus && focus.pathname === '/stage2' ? (focus.question?.id ?? null) : null,
+          questionIds: STAGE2_QUESTIONS_12.map((q) => q.id),
+        });
+        if (stage2Input) {
+          const reply = (content: string) => updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content }]);
+          const goStage2 = () => {
+            if (window.location.pathname !== '/stage2') router.push('/stage2');
+          };
+          if (stage2Input.kind === 'clarify') {
+            reply(stage2Input.message);
+          } else if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'admin')) {
+            reply('この操作は管理者が行えます。内容は、管理者に依頼してください。');
+          } else if (stage2Input.kind === 'action') {
+            const action = stage2Input.action;
+            if (action.kind === 'commit') {
+              useAiHighlightStore.getState().flash('stage2.commit');
+              goStage2();
+              reply('全社戦略の確定とSTAGE3への引き渡しは、STAGE2の「最終確定」の画面で、本人がボタンを押して行います。内容を確かめてから押してください。');
+            } else if (action.kind === 'final' && (stage2Now.finalStoryEdited ?? []).length > 0) {
+              useAiHighlightStore.getState().flash('stage2.final');
+              goStage2();
+              reply('編集済みの経営戦略書があるため、再生成すると編集内容が置き換わります。内容を確かめたうえで、STAGE2の「最終確定」の画面の再生成ボタンで実行してください。');
+            } else {
+              useStage2CommandStore.getState().request(action.kind);
+              goStage2();
+              reply(
+                action.kind === 'draft'
+                  ? '戦略のたたき台を作成します。完了すると、戦略議論の画面に表示されます。'
+                  : '経営戦略書を作成します。完了すると、最終確定の画面に表示されます。',
+              );
+            }
+          } else {
+            const applied = await applyStage2Op(stage2Input.op);
+            if (applied.ok) goStage2();
+            reply(applied.message);
+          }
+          return true;
+        }
+      }
 
       // STAGE1の入力・修正の依頼：承認カードを出さず、入力欄へ直接反映する（保存は画面の保存で行う）
       if (requestCompanyId && latestStrategyId) {

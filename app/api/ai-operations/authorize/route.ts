@@ -14,7 +14,7 @@ const ID_MAX = 100;
 const bodySchema = z.object({
   companyId: z.string().trim().min(1).max(ID_MAX),
   strategyId: z.string().trim().min(1).max(ID_MAX),
-  operation: z.enum(['stage2.ceoIntent', 'stage1.revenue', 'stage1.issue', 'stage1.input', 'stage3.question', 'stage4.plan']),
+  operation: z.enum(['stage2.ceoIntent', 'stage2.input', 'stage1.revenue', 'stage1.issue', 'stage1.input', 'stage3.question', 'stage4.plan']),
   year: z.number().int().min(1900).max(2100).optional(),
 });
 
@@ -23,6 +23,7 @@ const REQUIRED_ROLE = {
   'stage1.revenue': 'manager',
   'stage1.issue': 'manager',
   'stage1.input': 'manager',
+  'stage2.input': 'admin',
   'stage3.question': 'manager',
   'stage4.plan': 'manager',
 } as const;

@@ -14,6 +14,7 @@ import { removalCheck, type RemovalOp } from './removalSafety';
 import { buildBusinessPortfolio } from '@/lib/stage1/businessPortfolio';
 import type { FinancePLRow, ValueAnalysis } from '@/types/strategy';
 import { saveSentenceOf, waitForSaveSettled } from './saveSettle';
+import { SCOPE_CHANGED, runGuardedWrite } from './guardedWrite';
 
 export type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
 
@@ -29,10 +30,6 @@ export type ApplyOptions = { settleMs?: number; recordUndo?: boolean };
 type FinanceOp = Extract<StageOp, { kind: 'finance' }>;
 type Written = { ok: true; message: string; flash?: string; undo: StageOp | null } | { ok: false; message: string };
 
-const AUTH_FAILED = '権限の確認ができませんでした。所属と権限を確認して、もう一度お試しください。';
-const REVISION_CHANGED = 'ほかの画面で内容が更新されたため、反映しませんでした。画面を再読み込みして、もう一度指示してください。';
-const SCOPE_CHANGED = '企業または戦略が切り替わったため、反映しませんでした。';
-const VALUE_CHANGED = '権限の確認中に同じ項目が変わったため、反映しませんでした。内容を確かめて、もう一度指示してください。';
 const PROFILE_LABEL: Record<string, string> = {
   companyName: '会社名',
   industry: '業種',
@@ -377,45 +374,19 @@ function isRecordStillValid(record: AiWriteRecord): boolean {
 /** 入力操作を、画面の入力欄（ストア）へ反映する。権限・企業/戦略・他の利用者による更新・対象の値を確かめてから書く */
 export async function applyStageOp(op: StageOp, options: ApplyOptions = {}): Promise<DirectApplyResult> {
   try {
-    if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'manager')) {
-      return { ok: false, message: OPERATION_ROLE_DENIED };
-    }
-    const before = useStrategyStore.getState();
-    const userId = useUserStore.getState().user?.id ?? null;
-    if (!before.companyId || !before.strategyId || !userId) return { ok: false, message: SCOPE_CHANGED };
-    const valueBefore = valueSignatureOf(op, before);
-
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    const res = token
-      ? await fetch('/api/ai-operations/authorize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ companyId: before.companyId, strategyId: before.strategyId, operation: 'stage1.input' }),
-        })
-      : null;
-    if (!res || !res.ok) return { ok: false, message: AUTH_FAILED };
-    const { revision } = (await res.json()) as { revision?: number };
-
-    const after = useStrategyStore.getState();
-    const sameScope =
-      after.companyId === before.companyId &&
-      after.strategyId === before.strategyId &&
-      data.session?.user?.id === userId &&
-      useUserStore.getState().user?.id === userId;
-    if (!sameScope) return { ok: false, message: SCOPE_CHANGED };
-    if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'manager')) {
-      return { ok: false, message: OPERATION_ROLE_DENIED };
-    }
-    if (typeof revision !== 'number' || after.revision !== revision) return { ok: false, message: REVISION_CHANGED };
-    if (valueSignatureOf(op, after) !== valueBefore) return { ok: false, message: VALUE_CHANGED };
-
-    const written = writeOp(op);
-    if (!written.ok) return written;
+    const guarded = await runGuardedWrite({
+      minRole: 'manager',
+      operation: 'stage1.input',
+      signature: (st) => valueSignatureOf(op, st),
+      write: () => writeOp(op),
+    });
+    if (!guarded.ok) return guarded;
+    const written = guarded;
     if (written.flash) useAiHighlightStore.getState().flash(written.flash);
+    const userId = written.userId;
 
     // 取り消し情報は、自動保存を待つ前（反映直後）の利用者・企業・戦略・対象値で記録する
-    const record = options.recordUndo !== false ? recordAfterWrite(op, written, userId) : null;
+    const record = options.recordUndo !== false ? recordAfterWrite(op, { undo: written.undo as StageOp | null, message: written.message }, userId) : null;
 
     const status =
       options.settleMs === 0 ? saveStatusTypeOf(useStrategyStore.getState()) : await waitForSaveSettled(options.settleMs);

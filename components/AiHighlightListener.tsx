@@ -23,6 +23,10 @@ export default function AiHighlightListener() {
       if (!found && tries < SEARCH_TRIES) return;
       window.clearInterval(search);
       if (!found) return;
+      // 閉じている折りたたみ（details）の中の対象は、開いてから表示する
+      for (let p: HTMLElement | null = found.parentElement; p; p = p.parentElement) {
+        if (p.tagName === 'DETAILS') (p as HTMLDetailsElement).open = true;
+      }
       const prevOutline = found.style.outline;
       const prevOffset = found.style.outlineOffset;
       found.style.outline = '2px solid #2563eb';

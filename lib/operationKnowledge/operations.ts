@@ -258,7 +258,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 191 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 195 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -281,7 +281,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1584 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1634 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -306,7 +306,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.ceo-intent-reflect',
     screenIds: ['stage2'],
     label: 'STAGE2に反映',
-    source: { file: 'app/stage2/page.tsx', line: 960 },
+    source: { file: 'app/stage2/page.tsx', line: 964 },
     purpose: 'AI経営コンサルタントの相談から、経営者ご自身の思いを「経営者の思い」欄の末尾に入れる。',
     steps: [
       '右側のAI経営コンサルタントに相談する',
@@ -321,7 +321,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.ceo-intent',
     screenIds: ['stage2'],
     label: '経営者の思い',
-    source: { file: 'app/stage2/page.tsx', line: 953 },
+    source: { file: 'app/stage2/page.tsx', line: 962 },
     purpose: '経営者の思い（原点・譲れない価値観・実現したい未来など）を入力する。ストーリーのたたき台は、この内容をもとに作られる。',
     steps: ['STAGE2の「入力」タブを開く', '「経営者の思い」の欄に、原点・譲れない価値観・実現したい未来などを書く（箇条書きでもよい）'],
     conditions: '管理者のみ編集できる。入力内容は自動で保存される',
@@ -332,7 +332,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.swot-input',
     screenIds: ['stage2'],
     label: 'SWOT分析',
-    source: { file: 'app/stage2/page.tsx', line: 1432 },
+    source: { file: 'app/stage2/page.tsx', line: 1437 },
     purpose: 'STAGE2の「SWOT分析」欄に、強み（S）・弱み（W）・機会（O）・脅威（T）を直接入力する。入力すると、戦略データに自動で保存される。',
     steps: [
       '「入力」タブを開き、「SWOT分析」欄を表示する',
@@ -387,7 +387,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.deep-dive',
     screenIds: ['stage2'],
     label: 'AIともう一段掘り下げる',
-    source: { file: 'app/stage2/page.tsx', line: 2007 },
+    source: { file: 'app/stage2/page.tsx', line: 2023 },
     purpose: '対象の4問について、AIが追加の質問を1つ出す。',
     steps: [
       '「戦略議論」タブを開く',
@@ -403,7 +403,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'stage2.add-company-target',
     screenIds: ['stage2'],
     label: '+ 新規メトリクスを追加',
-    source: { file: 'app/stage2/page.tsx', line: 1412 },
+    source: { file: 'app/stage2/page.tsx', line: 1417 },
     purpose: '業績目標（売上・営業利益など）を1件追加する。',
     steps: [
       '「入力」タブの「業績目標」を開く',
@@ -1326,7 +1326,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1421 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1471 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

@@ -247,7 +247,7 @@ export default function Stage1Page() {
   const revealTab = useAiHighlightStore((s) => s.reveal?.tab);
   // AIが対象を反映したとき、その対象のタブに切り替える
   useEffect(() => {
-    if (revealTab && Date.now() - revealAt < REVEAL_FRESH_MS) setActiveTab(revealTab);
+    if ((revealTab === 'input' || revealTab === 'analysis') && Date.now() - revealAt < REVEAL_FRESH_MS) setActiveTab(revealTab);
   }, [revealAt, revealTab]);
 
   // ===== CEOチャットの相談文脈（いま見ている入力・指標・論点） =====

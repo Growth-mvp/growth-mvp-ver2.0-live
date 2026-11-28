@@ -22,6 +22,10 @@ import { withoutCandidateState } from '@/lib/swot/candidatePool';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { resolveCeoIntentApply } from '@/lib/stage2/ceoIntent';
 import { useIntentReflectStore } from '@/lib/stage2/intentReflectStore';
+import AiHighlightListener from '@/components/AiHighlightListener';
+import { useAiHighlightStore } from '@/store/aiHighlightStore';
+import { REVEAL_FRESH_MS } from '@/lib/stage1/revealTargets';
+import { useStage2CommandStore } from '@/lib/stage2/stage2Command';
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 import {
@@ -954,7 +958,7 @@ function CEOIntentSection() {
   }, [pendingIntent, stage2CompanyId, stage2StrategyId, clearPendingIntent, setCeoIntent]);
 
   return (
-    <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+    <div data-ai-target="stage2.ceoIntent" className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
       <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">経営者の思い</h3>
 
       <GlassCard title="経営者の思い" hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください。右側のAI経営コンサルタントの回答で「STAGE2に反映」を押すと、相談の中の経営者ご自身の思いを、この欄の末尾に追記できます。">
@@ -982,7 +986,7 @@ function MVVSection() {
   const value = useStrategyStore((s: StrategyState) => s.value ?? '');
 
   return (
-    <div className="space-y-4">
+    <div data-ai-target="stage2.mvv" className="space-y-4">
       <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">MVV（ミッション・ビジョン・バリュー）</h3>
 
       <GlassCard title="Mission（ミッション）" hint="会社が存在する理由。短く、覚えやすく。">
@@ -1188,7 +1192,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
       <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">🏁 業績目標</h3>
 
       {/* 既存目標表示 */}
-      <div className="space-y-3 max-h-[500px] overflow-auto mb-6">
+      <div data-ai-target="stage2.targets" className="space-y-3 max-h-[500px] overflow-auto mb-6">
         {companyTargets.length === 0 && !isAddingNew && !editingId && (
           <p className="text-sm text-gray-600 xl:dark:text-gray-400">業績目標はまだ設定されていません</p>
         )}
@@ -1198,6 +1202,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
           return (
             <div
               key={ctId}
+              data-ai-target={`stage2.target.${ctId}`}
               className="rounded-xl border border-zinc-200 bg-white p-4"
             >
               <div className="flex items-start justify-between">
@@ -1435,6 +1440,7 @@ function SWOTSection() {
         <GlassCard title="Strength（強み）" hint="自社の競争優位性">
           <AutoResizeTextarea
             className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
+            data-ai-target="stage2.swot.strength"
             value={strength}
             onChange={(e) => setSWOT({ strength: e.target.value })}
             placeholder="例：高度な技術力／顧客との信頼関係"
@@ -1446,6 +1452,7 @@ function SWOTSection() {
         <GlassCard title="Weakness（弱み）" hint="改善が必要な領域">
           <AutoResizeTextarea
             className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
+            data-ai-target="stage2.swot.weakness"
             value={weakness}
             onChange={(e) => setSWOT({ weakness: e.target.value })}
             placeholder="例：人材不足／情報発信の弱さ"
@@ -1457,6 +1464,7 @@ function SWOTSection() {
         <GlassCard title="Opportunity（機会）" hint="外部環境の追い風">
           <AutoResizeTextarea
             className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
+            data-ai-target="stage2.swot.opportunity"
             value={opportunity}
             onChange={(e) => setSWOT({ opportunity: e.target.value })}
             placeholder="例：市場拡大／規制緩和"
@@ -1468,6 +1476,7 @@ function SWOTSection() {
         <GlassCard title="Threat（脅威）" hint="外部環境のリスク">
           <AutoResizeTextarea
             className="min-h-[120px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-[15px] text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-4 focus:ring-accent/20"
+            data-ai-target="stage2.swot.threat"
             value={threat}
             onChange={(e) => setSWOT({ threat: e.target.value })}
             placeholder="例：価格競争の激化／景気悪化"
@@ -1681,6 +1690,12 @@ function Questions12Section({
   storyDraft?: StoryChapter[];
 }) {
   const [selectedId, setSelectedId] = useState<string>(TEMPLATE12[0].id);
+  // AIが回答を反映したとき、その質問を選んで表示する
+  const questionRevealAt = useAiHighlightStore((s) => s.at);
+  const questionRevealId = useAiHighlightStore((s) => s.reveal?.questionId);
+  useEffect(() => {
+    if (questionRevealId && Date.now() - questionRevealAt < REVEAL_FRESH_MS) setSelectedId(questionRevealId);
+  }, [questionRevealAt, questionRevealId]);
 
   // ★ 新規：深掘り関連のローカルstate
   const [deepDiveLoading, setDeepDiveLoading] = useState(false);
@@ -1922,6 +1937,7 @@ function Questions12Section({
                   return (
                     <button
                       key={q.id}
+                      data-ai-target={`stage2.question.${q.id}`}
                       onClick={() => setSelectedId(q.id)}
                       className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                         isSelected
@@ -2339,6 +2355,22 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
+  // AIが対象を反映したとき、その対象のタブに切り替える（削除の後は、残る一覧のタブ）
+  const revealAt = useAiHighlightStore((s) => s.at);
+  const revealTab = useAiHighlightStore((s) => s.reveal?.tab);
+  useEffect(() => {
+    if ((revealTab === 'input' || revealTab === 'draft' || revealTab === 'final') && Date.now() - revealAt < REVEAL_FRESH_MS) {
+      setActiveTab(revealTab);
+    }
+  }, [revealAt, revealTab]);
+  // チャットからの生成の依頼は、画面の既存の生成処理（ボタンと同じ処理）で実行する
+  const stage2Command = useStage2CommandStore((s) => s.pending);
+  useEffect(() => {
+    if (!stage2Command) return;
+    useStage2CommandStore.getState().clear();
+    if (stage2Command === 'draft') void handleGenerate();
+    else void handleGenerateFinal();
+  }, [stage2Command]);
 
   const pageTopRef = useRef<HTMLElement | null>(null);
   const [draftScrollSeq, setDraftScrollSeq] = useState(0);
@@ -4220,9 +4252,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               </ReadOnlyBlock>
             )}
             {/* DRAFTタグ：STAGE1論点（最大5件を第1章に内包）＋4章ストーリー＋深掘り議論（統合） */}
+            <AiHighlightListener />
             {activeTab === 'draft' && (
               <ReadOnlyBlock readOnly={readOnly}>
-              <div className="space-y-6">
+              <div data-ai-target="stage2.draft" className="space-y-6">
                 <DraftStoryPanel storyDraft={storyDraft} issueBlocks={issueBlocks} />
 
                 <div className="flex justify-center">
@@ -4306,7 +4339,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 {/* 最終タグ：最終ストーリー */}
             {activeTab === 'final' && (
               <ReadOnlyBlock readOnly={readOnly}>
-              <div className="space-y-6">
+              <div data-ai-target="stage2.final" className="space-y-6">
                 <StoryConsultFocus
                   focus={buildFinalDocumentConsultFocus({
                     editing: storyEditMode,
@@ -4535,6 +4568,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             </div>
                           )}
                           <button
+                            data-ai-target="stage2.commit"
                             disabled={disabled || committingFinalStory || commitSuccessful}
                             onClick={handleCommitAndBridge}
                             className="px-6 py-3 rounded-xl bg-accent-action text-sm font-semibold text-white hover:bg-accent-hover transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
