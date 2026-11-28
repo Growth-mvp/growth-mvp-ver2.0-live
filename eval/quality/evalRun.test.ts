@@ -112,7 +112,7 @@ function approxChars(messages: Array<{ content: unknown }>): number {
 }
 
 /** 送信関数。raw は実 API または偽物を渡す。 */
-async function runWith(raw: (params: any) => Promise<any>, outDir: string) {
+async function runWith(raw: (params: any) => Promise<any>, outDir: string, questions: typeof QUALITY_QUESTIONS = QUALITY_QUESTIONS) {
   const guard = new EvalCallGuard();
   const bSystemByQuestion: Record<string, string> = {};
   const send = guard.wrap(async (params: any) => {
@@ -124,7 +124,7 @@ async function runWith(raw: (params: any) => Promise<any>, outDir: string) {
   (globalThis as any).__evalCreate = send;
 
   const summary = await runEvaluation({
-    questions: QUALITY_QUESTIONS,
+    questions,
     guard,
     outDir,
     groundingBOf: (question) => bSystemByQuestion[question] ?? '',
@@ -252,7 +252,9 @@ const LIVE = process.env.QUALITY_LIVE === '1' && process.env.QUALITY_APPROVED ==
       }
     }
     const raw = (params: any) => real.chat.completions.create(params);
-    const { summary } = await runWith(raw, path.join(__dirname, 'results-live'));
+    const ids = (process.env.QUALITY_QUESTION_IDS ?? '').split(',').filter(Boolean).map(Number);
+    const questions = ids.length ? QUALITY_QUESTIONS.filter((q) => ids.includes(q.id)) : QUALITY_QUESTIONS;
+    const { summary } = await runWith(raw, path.join(__dirname, 'results-live'), questions);
     expect(summary.spentUsd).toBeLessThan(BUDGET_USD);
   }, 1_800_000);
 });
