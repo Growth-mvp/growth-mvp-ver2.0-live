@@ -29,7 +29,8 @@ import CEOChatVoiceControls, { type InputMode } from '@/components/CEOChatVoiceC
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
 import { contextDepartments, issueProposalOf, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { parseConsultOffer, parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
-import { applyDirectProposal, applyStageOp, isDirectProposal } from '@/lib/aiOperations/applyDirect';
+import { applyDirectProposal, applyStageOp, isDirectProposal, planRemoval, planUndo } from '@/lib/aiOperations/applyDirect';
+import { useAiUndoStore } from '@/lib/aiOperations/aiUndoStore';
 import { resolveStage1Input } from '@/lib/aiOperations/stage1Input';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { OPERATION_ROLE_DENIED, proposalRequiredRole, roleMeetsRequirement } from '@/lib/aiOperations/guard';
@@ -292,6 +293,9 @@ function proposalIntroText(p: OperationProposal): string {
   }
   if (p.kind === 'stage2.ceoIntent') {
     return '「経営者の思い」への入力案を作りました（まだ保存していません）。内容を確かめ、「承認して保存」を押すと保存されます。';
+  }
+  if (p.kind === 'stage1.remove') {
+    return `${p.impact} 内容を確かめ、「削除を承認」を押すと削除されます（まだ削除していません）。`;
   }
   if (p.kind === 'stage1.op') {
     return `${p.op.year}年度の${p.op.label}の入力案を作りました（まだ反映していません）。内容を確かめ、「既存の値を置き換えて反映」を押すと入力欄に反映されます。`;
@@ -689,9 +693,37 @@ export default function CEOChatPanel({ embedded = true }: Props) {
                 useAiHighlightStore.getState().flash('stage1.handover');
                 reply('STAGE2への引き渡しは、STAGE1の「STAGE2へ進む」ボタンで行います。内容を確かめてから押してください。');
               }
+            } else if (stage1Input.action.kind === 'undo') {
+              const plan = planUndo();
+              if (!plan.ok) {
+                reply(plan.message);
+              } else {
+                const undone = await applyStageOp(plan.record.undo, { recordUndo: false });
+                if (undone.ok) {
+                  useAiUndoStore.getState().clear();
+                  if (window.location.pathname !== '/stage1') router.push('/stage1');
+                }
+                reply(undone.message);
+              }
             } else {
               const saved = await useStrategyStore.getState().saveStrategyData({ reason: 'stage1:manual', force: true } as never);
               reply(saved.ok ? '保存しました。' : '保存できませんでした。画面の全体保存をお試しください。');
+            }
+          } else if (stage1Input.kind === 'remove') {
+            const plan = planRemoval(stage1Input.target);
+            if (!plan.ok) {
+              reply(plan.message);
+            } else {
+              useOperationProposalStore.getState().setPending({
+                kind: 'stage1.remove',
+                pathname: '/stage1',
+                companyId: requestCompanyId,
+                strategyId: latestStrategyId,
+                op: plan.op,
+                impact: plan.impact,
+              });
+              if (window.location.pathname !== '/stage1') router.push('/stage1');
+              reply(`${plan.impact} 内容を確かめ、「削除を承認」を押すと削除されます（まだ削除していません）。`);
             }
           } else if (stage1Input.confirm && stage1Input.op.kind === 'finance') {
             useOperationProposalStore.getState().setPending({

@@ -17,18 +17,23 @@ export type StageOp =
   | { kind: 'profile'; field: ProfileField; value: string; display: string }
   | { kind: 'segment.add'; name: string }
   | { kind: 'segment.rename'; from: string; to: string }
-  | { kind: 'segment.set'; name: string; field: SegmentTextField; value: string | string[] }
-  | { kind: 'finance'; table: FinanceTable; key: string; label: string; year: number; yen: number; segment?: string; expectedBefore?: number | null }
-  | { kind: 'wacc'; pct: number }
+  | { kind: 'segment.set'; name: string; field: SegmentTextField; value: string | string[] | null }
+  | { kind: 'segment.remove'; name: string }
+  | { kind: 'finance'; table: FinanceTable; key: string; label: string; year: number; yen: number | null; segment?: string; expectedBefore?: number | null }
+  | { kind: 'wacc'; pct: number | null }
   | { kind: 'issue.add'; title: string; description: string }
-  | { kind: 'issue.edit'; title: string; field: IssueEditField; value: string | string[] }
+  | { kind: 'issue.edit'; title: string; field: IssueEditField; value: string | string[] | null }
+  | { kind: 'issue.remove'; title: string }
   | { kind: 'valuation' };
 
-export type ChatStageAction = { kind: 'handover' } | { kind: 'save' };
+export type ChatStageAction = { kind: 'handover' } | { kind: 'save' } | { kind: 'undo' };
+
+export type RemovalTarget = { type: 'segment' | 'issue'; name: string };
 
 export type Stage1InputResult =
   | { kind: 'op'; op: StageOp; confirm: boolean }
   | { kind: 'action'; action: ChatStageAction }
+  | { kind: 'remove'; target: RemovalTarget }
   | { kind: 'clarify'; message: string };
 
 export type Stage1InputContext = {
@@ -189,10 +194,32 @@ function isValidYear(text: string): number | null {
 export function resolveStage1Input(raw: string, ctx: Stage1InputContext): Stage1InputResult | null {
   const text = norm(raw).replace(/[。.!！]+$/, '');
   if (!text || text.length > 300) return null;
+  // 取り消しの依頼は、「取り消し」という語を含むが否定ではない
+  if (/^(?:直前の|さっきの|今の)?(?:入力|変更|反映|内容)?を?(?:取り消して|取り消し|取り消す|取消して|元に戻して|戻して)$/.test(text)) {
+    return { kind: 'action', action: { kind: 'undo' } };
+  }
   if (isNegatedOrDeferred(text) || HYPOTHETICAL.test(text) || /[?？]$|か$/.test(text)) return null;
 
   if (/^(?:STAGE2)(?:に|へ)(?:進|移|引き渡|引渡)/.test(text)) return { kind: 'action', action: { kind: 'handover' } };
   if (/^(?:この内容を)?保存(?:して|してください|しておいて)?$/.test(text)) return { kind: 'action', action: { kind: 'save' } };
+  if (/初期化|全データ|全部(?:消|削除)/.test(text)) return clarify('全データの初期化は、この画面からは行えません。');
+
+  // 登録済みの事業・経営課題の削除（影響は、確認の前に調べる）
+  const segmentRemove = text.match(/^事業(?:セグメント)?[「『]?(.+?)[」』]?を削除(?:して|してください)?$/);
+  if (segmentRemove) {
+    const name = findSegment(ctx.segmentNames, segmentRemove[1]);
+    if (!name) return clarify(`事業「${unquote(segmentRemove[1])}」が見つかりません。登録中の事業: ${ctx.segmentNames.join('、') || 'なし'}`);
+    return { kind: 'remove', target: { type: 'segment', name } };
+  }
+  const issueRemove = text.match(/^経営課題[「『](.+?)[」』]を削除(?:して|してください)?$/);
+  if (issueRemove) {
+    const title = findIssue(ctx.issueTitles, issueRemove[1]);
+    if (!title) return clarify(`経営課題「${unquote(issueRemove[1])}」が見つかりません。登録中の経営課題の題名を「」で示してください。`);
+    return { kind: 'remove', target: { type: 'issue', name: title } };
+  }
+  if (/^(?:先ほど|さっき)?の?経営課題を削除/.test(text)) {
+    return clarify('どの経営課題を削除するかを「」で示してください（例：「経営課題「新規顧客の獲得が鈍い」を削除して」）。');
+  }
   if (/^企業価値分析を(?:更新|再計算|計算し直|計算|やり直)(?:して|し直して)?(?:ください)?$/.test(text)) {
     return { kind: 'op', op: { kind: 'valuation' }, confirm: false };
   }

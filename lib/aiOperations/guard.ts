@@ -23,7 +23,7 @@ export const OPERATION_ROLE_DENIED = 'この操作は管理職以上が行えま
 
 /** 未保存の変更があっても、対象の項目だけを更新する入力は止めない（同じ項目の競合は、値の照合で保護する） */
 function acceptsUnsavedChanges(proposal: OperationProposal): boolean {
-  return proposal.kind === 'stage1.op' || proposal.kind === 'stage1.revenue';
+  return proposal.kind === 'stage1.op' || proposal.kind === 'stage1.revenue' || proposal.kind === 'stage1.remove';
 }
 
 /** 承認の直前に、入力案の対象（会社・戦略・画面）と未保存の変更を確認する。対象が変わった入力案は破棄する */
@@ -48,8 +48,8 @@ export function proposalStaleReason(
   proposal: OperationProposal,
   current: { ceoIntent?: string; revenueYen?: number | null; stage3Answer?: string; stage4Version?: number; stage1IssueTitles?: string[] },
 ): ProposalBlock | null {
-  // 財務の値は、反映の直前に applyStageOp が照合する
-  if (proposal.kind === 'stage1.op') return null;
+  // 財務の値・削除の対象は、反映の直前に applyStageOp が照合する
+  if (proposal.kind === 'stage1.op' || proposal.kind === 'stage1.remove') return null;
   if (proposal.kind === 'stage2.ceoIntent') {
     return (current.ceoIntent ?? '') === proposal.before
       ? null

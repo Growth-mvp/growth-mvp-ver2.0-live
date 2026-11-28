@@ -1,4 +1,5 @@
-import { applyDirectProposal, applyStageOp, isDirectProposal } from './applyDirect';
+import { applyDirectProposal, applyStageOp, isDirectProposal, planRemoval, planUndo } from './applyDirect';
+import { useAiUndoStore } from './aiUndoStore';
 import type { OperationProposal } from './instruction';
 import type { StageOp } from './stage1Input';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -9,6 +10,10 @@ import { supabase } from '@/utils/supabase/client';
 jest.mock('@/utils/supabase/client', () => ({ supabase: { auth: { getSession: jest.fn() } } }));
 jest.mock('@/store/strategyStore', () => ({ useStrategyStore: { getState: jest.fn() } }));
 jest.mock('@/store/userStore', () => ({ useUserStore: { getState: jest.fn() } }));
+jest.mock('./saveSettle', () => ({
+  ...jest.requireActual('./saveSettle'),
+  waitForSaveSettled: jest.fn(async () => 'dirty'),
+}));
 
 const ISSUE: OperationProposal = {
   kind: 'stage1.issue',
@@ -51,11 +56,17 @@ function setStore(over: Record<string, unknown> = {}) {
     setFinancePL: jest.fn((rows: unknown[]) => {
       state.financePL = rows;
     }),
-    setFinanceBS: jest.fn(),
-    setProfile: jest.fn(),
-    upsertSegmentPL: jest.fn(),
+    setFinanceBS: jest.fn((rows: unknown[]) => {
+      state.financeBS = rows;
+    }),
+    setProfile: jest.fn((patch: Record<string, unknown>) => Object.assign(state, patch)),
+    upsertSegmentPL: jest.fn((name: string, rows: unknown[]) => {
+      state.segmentPL = { ...state.segmentPL, [name]: rows };
+    }),
     upsertSegmentBS: jest.fn(),
-    setStage1Benchmarks: jest.fn(),
+    setStage1Benchmarks: jest.fn((bm: unknown) => {
+      state.stage1Benchmarks = bm;
+    }),
     recomputeValueAnalysis: jest.fn(),
     ...over,
   };
@@ -74,7 +85,8 @@ function allowAuthorize(revision: number | null = 7) {
 beforeEach(() => {
   jest.clearAllMocks();
   (useUserStore.getState as jest.Mock).mockReturnValue({ role: 'manager', user: { id: 'u1' } });
-  useAiHighlightStore.setState({ target: null, at: 0 });
+  useAiHighlightStore.setState({ target: null, at: 0, reveal: null });
+  useAiUndoStore.setState({ last: null });
 });
 
 describe('isDirectProposal：直接反映する操作', () => {
@@ -249,7 +261,7 @@ describe('applyStageOp：STAGE1の各入力欄への反映', () => {
     });
     expect(result.ok).toBe(true);
     expect(state.upsertSegmentPL).toHaveBeenCalledWith('製造事業', [{ year: 2025, revenue: 900_000_000 }]);
-    expect(useAiHighlightStore.getState().target).toBe('stage1.segment.0');
+    expect(useAiHighlightStore.getState().target).toBe('stage1.finance.segment.seg-1.pl.revenue.2025');
   });
 
   it('全社の財務は、他の年度を変えずに該当の項目だけを入力する', async () => {
@@ -360,5 +372,94 @@ describe('applyStageOp：権限確認の前後で、利用者・企業・戦略�
       { year: 2024, revenue: 200 },
       { year: 2025, operatingIncome: 5_000_000 },
     ]);
+  });
+});
+
+describe('直前のAI入力の取り消し', () => {
+  const OP_2025: StageOp = { kind: 'finance', table: 'pl', key: 'operatingIncome', label: '営業利益', year: 2025, yen: 5_000_000 };
+
+  it('基本情報の入力は、対象の値が反映時のままなら取り消せる', async () => {
+    const state = setStore({ companyName: '旧社名' });
+    allowAuthorize();
+    expect((await applyStageOp({ kind: 'profile', field: 'companyName', value: '新社名', display: '新社名' }, { settleMs: 0 })).ok).toBe(true);
+    expect(state.companyName).toBe('新社名');
+    const plan = planUndo();
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    allowAuthorize();
+    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    expect(undone.ok).toBe(true);
+    expect(state.companyName).toBe('旧社名');
+  });
+
+  it('取り消しの前に同じ項目が手動で変わっていれば、取り消さない', async () => {
+    const state = setStore({ companyName: '旧社名' });
+    allowAuthorize();
+    await applyStageOp({ kind: 'profile', field: 'companyName', value: '新社名', display: '新社名' }, { settleMs: 0 });
+    state.companyName = '手入力の社名';
+    const plan = planUndo();
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toContain('同じ項目が変わった');
+  });
+
+  it('財務の入力を取り消すと、入力した年度の値を空欄に戻し、年度の行は残さない', async () => {
+    const state = setStore({ financePL: [{ year: 2024, revenue: 100 }] });
+    allowAuthorize();
+    await applyStageOp(OP_2025, { settleMs: 0 });
+    expect(state.financePL).toEqual([{ year: 2024, revenue: 100 }, { year: 2025, operatingIncome: 5_000_000 }]);
+    const plan = planUndo();
+    if (!plan.ok) throw new Error(plan.message);
+    allowAuthorize();
+    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    expect(undone.ok).toBe(true);
+    expect(state.financePL).toEqual([{ year: 2024, revenue: 100 }]);
+  });
+
+  it('事業の追加は取り消せるが、事業に財務データが入っていれば削除しない', async () => {
+    const state = setStore({ businessSegments: [{ id: 'seg-1', name: '製造事業' }] });
+    allowAuthorize();
+    await applyStageOp({ kind: 'segment.add', name: 'カフェ' }, { settleMs: 0 });
+    state.segmentPL = { ...state.segmentPL, カフェ: [{ year: 2025, revenue: 1 }] };
+    const plan = planUndo();
+    if (!plan.ok) throw new Error(plan.message);
+    allowAuthorize();
+    const undone = await applyStageOp(plan.record.undo, { settleMs: 0, recordUndo: false });
+    expect(undone.ok).toBe(false);
+    expect(undone.message).toContain('財務データ');
+    expect(state.businessSegments).toHaveLength(2);
+  });
+});
+
+describe('登録済みの事業・経営課題の削除（明示承認の前に影響を確かめる）', () => {
+  it('財務データのない事業は、削除の案になる', () => {
+    setStore({
+      businessSegments: [{ id: 'seg-1', name: '製造事業' }, { id: 'seg-2', name: 'カフェ' }],
+      segmentPL: {},
+      segmentBS: {},
+    });
+    const plan = planRemoval({ type: 'segment', name: '製造事業' });
+    expect(plan).toMatchObject({ ok: true, op: { kind: 'segment.remove', name: '製造事業' } });
+  });
+
+  it('事業別の財務データがある事業は、削除の案にしない', () => {
+    setStore({
+      businessSegments: [{ id: 'seg-1', name: '製造事業' }, { id: 'seg-2', name: 'カフェ' }],
+      segmentPL: { カフェ: [{ year: 2025, revenue: 1 }] },
+    });
+    const plan = planRemoval({ type: 'segment', name: 'カフェ' });
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toContain('財務データ');
+  });
+
+  it('経営課題の削除は、影響を示した案になる。承認すると削除する', async () => {
+    const state = setStore();
+    const plan = planRemoval({ type: 'issue', name: '既存の課題' });
+    expect(plan).toMatchObject({ ok: true, op: { kind: 'issue.remove', title: '既存の課題' } });
+    if (!plan.ok) return;
+    expect(plan.impact).toContain('既存の課題');
+    allowAuthorize();
+    const r = await applyStageOp(plan.op, { settleMs: 0 });
+    expect(r.ok).toBe(true);
+    expect(state.stage1Issues).toEqual([]);
   });
 });

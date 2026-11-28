@@ -86,7 +86,7 @@ beforeEach(() => {
 
 describe('STAGE1の直接反映：財務データの単位確定状態', () => {
   it('AI反映の確定状態は、財務表の手動入力（同じ setFinancePL）と同じになる', async () => {
-    const r = await applyStageOp(OP_2025);
+    const r = await applyStageOp(OP_2025, { settleMs: 0 });
     expect(r.ok).toBe(true);
     const aiRows = useStrategyStore.getState().financePL;
     const aiConfirmed = useStrategyStore.getState().financeUnitConfirmed?.pl;
@@ -100,7 +100,7 @@ describe('STAGE1の直接反映：財務データの単位確定状態', () => {
 
   it('AI反映は、他の年度の値と、他の項目の未保存変更を変えない', async () => {
     setScope({ companyName: '未保存の社名', dirty: true, financePL: [{ year: 2024, revenue: 100, operatingIncome: 7 }] });
-    const r = await applyStageOp(OP_2025);
+    const r = await applyStageOp(OP_2025, { settleMs: 0 });
     expect(r.ok).toBe(true);
     const s = useStrategyStore.getState() as any;
     expect(s.companyName).toBe('未保存の社名');
@@ -116,7 +116,7 @@ describe('STAGE1の直接反映：権限確認中の変化', () => {
     authorizeOk(() => {
       useStrategyStore.setState({ financePL: [{ year: 2024, revenue: 100 }, { year: 2025, operatingIncome: 2_000_000 }] } as any);
     });
-    const r = await applyStageOp(OP_2025);
+    const r = await applyStageOp(OP_2025, { settleMs: 0 });
     expect(r.ok).toBe(false);
     expect((useStrategyStore.getState() as any).financePL).toEqual([
       { year: 2024, revenue: 100 },
@@ -128,14 +128,14 @@ describe('STAGE1の直接反映：権限確認中の変化', () => {
     authorizeOk(() => {
       useStrategyStore.setState({ companyId: 'c2' } as any);
     });
-    const r = await applyStageOp(OP_2025);
+    const r = await applyStageOp(OP_2025, { settleMs: 0 });
     expect(r.ok).toBe(false);
     expect((useStrategyStore.getState() as any).financePL).toEqual([{ year: 2024, revenue: 100 }]);
   });
 
   it('利用者が切り替わっていたら反映しない', async () => {
     (supabase.auth.getSession as jest.Mock).mockResolvedValueOnce({ data: { session: { access_token: 't', user: { id: 'u2' } } } });
-    const r = await applyStageOp(OP_2025);
+    const r = await applyStageOp(OP_2025, { settleMs: 0 });
     expect(r.ok).toBe(false);
     expect((useStrategyStore.getState() as any).financePL).toEqual([{ year: 2024, revenue: 100 }]);
   });

@@ -6,7 +6,7 @@ import { useAiHighlightStore } from '@/store/aiHighlightStore';
 const FRESH_MS = 8000;
 const HIGHLIGHT_MS = 2500;
 const SEARCH_INTERVAL_MS = 100;
-const SEARCH_TRIES = 40;
+const SEARCH_TRIES = 60;
 
 /** AIが反映した入力欄へスクロールし、一時的に青い枠で示す。値には触れない */
 export default function AiHighlightListener() {

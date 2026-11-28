@@ -1,8 +1,10 @@
 // /components/stage1/FinanceDataPanel.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import { useAiHighlightStore } from '@/store/aiHighlightStore';
+import { REVEAL_FRESH_MS } from '@/lib/stage1/revealTargets';
 import { FinanceYearEditorTable } from './FinanceYearEditorTable';
 
 /**
@@ -15,6 +17,15 @@ export default function FinanceDataPanel({ readOnly, disabled }: { readOnly?: bo
 
   const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? []);
   const hasSegments = businessSegments.length > 0;
+
+  // AIが事業別の財務を反映したとき、その事業を選び直す
+  const revealAt = useAiHighlightStore((s) => s.at);
+  const revealSegmentId = useAiHighlightStore((s) => s.reveal?.segmentId);
+  useEffect(() => {
+    if (!revealSegmentId || Date.now() - revealAt >= REVEAL_FRESH_MS) return;
+    const seg = (useStrategyStore.getState().businessSegments ?? []).find((s) => s.id === revealSegmentId);
+    if (seg) setSelectedSegmentName(seg.name);
+  }, [revealAt, revealSegmentId]);
 
   const initialSegment = useMemo(() => {
     if (businessSegments.length > 0 && !selectedSegmentName) return businessSegments[0].name;

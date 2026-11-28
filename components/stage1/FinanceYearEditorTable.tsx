@@ -124,9 +124,11 @@ function CompanyPLEditor({
   onMouseEnterCell,
   onMouseUpCell,
   onSaveSnapshot,
+  aiTargetBase,
 }: {
   years: number[];
   data: FinancePLRow[];
+  aiTargetBase?: string;
   onDataChange: (rows: FinancePLRow[]) => void;
   onAddYear: () => void;
   onRemoveYear: (year: number) => void;
@@ -337,7 +339,7 @@ function CompanyPLEditor({
                     return (
                       <td
                         key={y}
-                        data-ai-target={`stage1.finance.pl.${field.key}.${y}`}
+                        data-ai-target={aiTargetBase ? `${aiTargetBase}.pl.${field.key}.${y}` : undefined}
                         onMouseDown={() => {
                           // Excelモード: クリック=選択（編集は Enter/F2/ダブルクリック）
                           setEditingCell(null);
@@ -481,9 +483,11 @@ function CompanyBSEditor({
   onMouseEnterCell,
   onMouseUpCell,
   onSaveSnapshot,
+  aiTargetBase,
 }: {
   years: number[];
   data: FinanceBSRow[];
+  aiTargetBase?: string;
   onDataChange: (rows: FinanceBSRow[]) => void;
   onAddYear: () => void;
   onRemoveYear: (year: number) => void;
@@ -705,7 +709,7 @@ function CompanyBSEditor({
                     return (
                       <td
                         key={y}
-                        data-ai-target={`stage1.finance.bs.${field.key}.${y}`}
+                        data-ai-target={aiTargetBase ? `${aiTargetBase}.bs.${field.key}.${y}` : undefined}
                         onMouseDown={() => {
                           setEditingCell(null);
                           setFocusedCell({ table: 'bs', year: y, fieldKey: field.key });
@@ -849,6 +853,12 @@ type FinanceYearEditorTableProps =
 export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   const mode = (props?.mode ?? 'company') as 'company' | 'segment';
   const segmentName = mode === 'segment' && props && 'segmentName' in props ? props.segmentName : undefined;
+  const segmentId = useStrategyStore((s: StrategyState) =>
+    segmentName ? s.businessSegments?.find((seg) => seg.name === segmentName)?.id : undefined,
+  );
+  // AIが反映した箇所の名前。全社と事業別で別の名前にして、別の表の同じ項目と取り違えないようにする
+  const aiTargetBase =
+    mode === 'company' ? 'stage1.finance' : segmentId ? `stage1.finance.segment.${segmentId}` : undefined;
 
   // ★ focusedCell を追跡（paste を必ず拾うため）
   const [focusedCell, setFocusedCell] = useState<{
@@ -1428,6 +1438,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           </button>
         </div>
         <CompanyPLEditor
+          aiTargetBase={aiTargetBase}
           years={years}
           data={plData}
           onDataChange={handleSetPL}
@@ -1470,6 +1481,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           </button>
         </div>
         <CompanyBSEditor
+          aiTargetBase={aiTargetBase}
           years={years}
           data={bsData}
           onDataChange={handleSetBS}

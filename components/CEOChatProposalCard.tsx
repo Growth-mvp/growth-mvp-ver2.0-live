@@ -6,6 +6,7 @@ import { supabase } from '@/utils/supabase/client';
 import { useStrategyStore } from '@/store/strategyStore';
 import { appendCeoIntent, contextDepartments, issueProposalOf, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
 import { applyStageOp, formatYen, revenueOf, type Row } from '@/lib/aiOperations/applyDirect';
+import { saveSentenceOf, waitForSaveSettled } from '@/lib/aiOperations/saveSettle';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
 import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX } from '@/lib/aiOperations/consultOperation';
 import { proposalBlockReason, proposalStaleReason } from '@/lib/aiOperations/guard';
@@ -37,7 +38,8 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           : '',
   );
   const needsText = proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage3.question' || proposal.kind === 'stage1.issue';
-  const applyVerb = proposal.kind === 'stage1.revenue' || proposal.kind === 'stage1.op' ? '反映' : '保存';
+  const applyVerb =
+    proposal.kind === 'stage1.revenue' || proposal.kind === 'stage1.op' ? '反映' : proposal.kind === 'stage1.remove' ? '削除' : '保存';
   const [issueDescription, setIssueDescription] = useState(proposal.kind === 'stage1.issue' ? proposal.description : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
 
   const approve = async () => {
     if (busy) return;
-    if (proposal.kind === 'stage1.op') {
+    if (proposal.kind === 'stage1.op' || proposal.kind === 'stage1.remove') {
       const current = useStrategyStore.getState();
       if (current.companyId !== proposal.companyId || current.strategyId !== proposal.strategyId) {
         discard('企業が切り替わったため、入力案を破棄しました。');
@@ -228,7 +230,8 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         return;
       }
       useAiHighlightStore.getState().flash(`stage1.finance.pl.revenue.${proposal.year}`);
-      discard(`${proposal.year}年度の全社売上高を${formatYen(proposal.afterYen)}で入力欄に反映しました。保存はまだです。`);
+      const status = await waitForSaveSettled();
+      discard(`${proposal.year}年度の全社売上高を${formatYen(proposal.afterYen)}で入力欄に反映しました。${saveSentenceOf(status)}`);
     } catch {
       setError('保存の結果を確認できませんでした。画面を再読み込みして、内容を確かめてください。');
     } finally {
@@ -326,6 +329,14 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           </ul>
           <p className="text-[12px] text-zinc-600">承認すると、この項目だけを実行計画書に保存します。AIの草案は変わりません。</p>
         </>
+      ) : proposal.kind === 'stage1.remove' ? (
+        <>
+          <p className="text-zinc-700">
+            対象：STAGE1（{proposal.op.kind === 'segment.remove' ? `事業「${proposal.op.name}」` : `経営課題「${proposal.op.title}」`}）の削除
+          </p>
+          <p className="rounded-md bg-white p-2 text-[12px] text-zinc-700">{proposal.impact}</p>
+          <p className="text-rose-700">この削除は取り消せません。内容を確かめてから承認してください。</p>
+        </>
       ) : proposal.kind === 'stage1.op' ? (
         <>
           <p className="text-zinc-700">
@@ -360,7 +371,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           disabled={busy || (needsText && addition.trim() === '')}
           className="rounded-lg bg-accent-action px-3 py-1.5 text-[12px] font-medium text-white hover:bg-accent-hover disabled:bg-zinc-300"
         >
-          {busy ? `${applyVerb}しています…` : isConflict ? `既存の値を置き換えて${applyVerb}` : '承認して保存'}
+          {busy ? `${applyVerb}しています…` : isConflict ? `既存の値を置き換えて${applyVerb}` : proposal.kind === 'stage1.remove' ? '削除を承認' : '承認して保存'}
         </button>
         <button
           type="button"

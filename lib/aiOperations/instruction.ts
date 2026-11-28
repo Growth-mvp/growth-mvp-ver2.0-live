@@ -13,6 +13,14 @@ export type OperationProposal =
       op: Extract<StageOp, { kind: 'finance' }>;
     }
   | {
+      kind: 'stage1.remove';
+      pathname: '/stage1';
+      companyId: string;
+      strategyId: string;
+      op: Extract<StageOp, { kind: 'segment.remove' | 'issue.remove' }>;
+      impact: string;
+    }
+  | {
       kind: 'stage2.ceoIntent';
       pathname: '/stage2';
       companyId: string;

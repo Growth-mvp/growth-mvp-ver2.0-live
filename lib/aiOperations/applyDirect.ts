@@ -1,13 +1,16 @@
 // 通常の入力操作の反映。依頼そのものを入力の意思表示とみなし、既存の入力欄（ストア）へ直接反映する。
-// 保存はしない。保存は画面の既存の手動保存と同じ仕様に従う。
+// 保存はしない。保存は画面の既存の手動保存と同じ仕様に従う（自動保存の結果を待ち、画面の表示と同じ説明をする）。
 // 未保存の変更があっても止めず、対象の項目だけを更新する。他の利用者による更新と企業・戦略の切り替えは保護する。
 import { supabase } from '@/utils/supabase/client';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAiHighlightStore } from '@/store/aiHighlightStore';
+import { saveStatusTypeOf } from '@/lib/strategy/saveStatus';
 import { OPERATION_ROLE_DENIED, proposalStaleReason, roleMeetsRequirement } from './guard';
 import type { OperationProposal } from './instruction';
-import type { StageOp } from './stage1Input';
+import type { RemovalTarget, StageOp } from './stage1Input';
+import { useAiUndoStore, type AiWriteRecord } from './aiUndoStore';
+import { saveSentenceOf, waitForSaveSettled } from './saveSettle';
 
 export type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
 
@@ -17,14 +20,16 @@ export type DirectProposal =
 
 export type DirectApplyResult = { ok: boolean; message: string };
 
+/** settleMs: 自動保存を待つ時間（0 なら待たない）。recordUndo: 取り消しの対象として記録するか */
+export type ApplyOptions = { settleMs?: number; recordUndo?: boolean };
+
 type FinanceOp = Extract<StageOp, { kind: 'finance' }>;
-type Written = { ok: true; message: string; flash?: string } | { ok: false; message: string };
+type Written = { ok: true; message: string; flash?: string; undo: StageOp | null } | { ok: false; message: string };
 
 const AUTH_FAILED = '権限の確認ができませんでした。所属と権限を確認して、もう一度お試しください。';
 const REVISION_CHANGED = 'ほかの画面で内容が更新されたため、反映しませんでした。画面を再読み込みして、もう一度指示してください。';
 const SCOPE_CHANGED = '企業または戦略が切り替わったため、反映しませんでした。';
 const VALUE_CHANGED = '権限の確認中に同じ項目が変わったため、反映しませんでした。内容を確かめて、もう一度指示してください。';
-const SAVE_NOTE = '保存はまだです。内容を確かめ、必要に応じて修正してから保存してください。';
 const PROFILE_LABEL: Record<string, string> = {
   companyName: '会社名',
   industry: '業種',
@@ -61,8 +66,16 @@ function currentFor(proposal: DirectProposal) {
   return { stage1IssueTitles: ((st.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? '') };
 }
 
-function withYearValue<T extends { year: number }>(rows: T[], year: number, key: string, yen: number): T[] {
+/** 年度の行に値を入れる。null は値を空欄に戻す（行に他の値が残らなければ行ごと外す） */
+function withYearValue<T extends { year: number }>(rows: T[], year: number, key: string, yen: number | null): T[] {
   const idx = rows.findIndex((r) => r.year === year);
+  if (yen === null) {
+    if (idx < 0) return rows;
+    const row: Record<string, unknown> = { ...rows[idx] };
+    delete row[key];
+    const hasValues = Object.keys(row).some((k) => k !== 'year');
+    return hasValues ? rows.map((r, i) => (i === idx ? (row as unknown as T) : r)) : rows.filter((_, i) => i !== idx);
+  }
   if (idx >= 0) return rows.map((r, i) => (i === idx ? { ...r, [key]: yen } : r));
   return [...rows, { year, [key]: yen } as unknown as T].sort((a, b) => a.year - b.year);
 }
@@ -76,11 +89,62 @@ function newSegmentId(): string {
   return `seg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function financeValueOf(op: FinanceOp, st: StrategyState): number | null {
+  const rows = op.segment
+    ? (((op.table === 'pl' ? st.segmentPL : st.segmentBS) ?? {}) as Record<string, Array<{ year: number }>>)[op.segment] ?? []
+    : (((op.table === 'pl' ? st.financePL : st.financeBS) ?? []) as Array<{ year: number }>);
+  return currentYearValue(rows, op.year, op.key);
+}
+
+/** 入力対象の現在の値。権限確認の前後で比べ、確認中に同じ項目が変わっていれば上書きしない */
+function valueSignatureOf(op: StageOp, st: StrategyState): string {
+  const segments = (st.businessSegments ?? []) as Array<{ name: string } & Record<string, unknown>>;
+  const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
+  switch (op.kind) {
+    case 'profile':
+      return JSON.stringify((st as unknown as Record<string, unknown>)[op.field] ?? null);
+    case 'segment.add':
+    case 'segment.rename':
+    case 'segment.remove':
+      return JSON.stringify(segments.map((s) => s.name));
+    case 'segment.set':
+      return JSON.stringify(segments.find((s) => s.name === op.name)?.[op.field] ?? null);
+    case 'finance':
+      return JSON.stringify(financeValueOf(op, st));
+    case 'wacc':
+      return JSON.stringify((st as unknown as { stage1Benchmarks?: { waccManual?: number } }).stage1Benchmarks?.waccManual ?? null);
+    case 'issue.add':
+    case 'issue.remove':
+      return JSON.stringify(issues.map((i) => i.title));
+    case 'issue.edit':
+      return JSON.stringify(issues.find((i) => i.title === op.title) ?? null);
+    case 'valuation':
+      return '';
+  }
+}
+
+function financeMessage(op: FinanceOp, segmentName?: string): string {
+  const subject = segmentName ? `「${segmentName}」の` : '';
+  return op.yen === null
+    ? `${subject}${op.year}年度の${op.label}を空欄に戻しました。`
+    : `${subject}${op.year}年度の${op.label}を${formatYen(op.yen)}として入力欄に反映しました。`;
+}
+
 function writeFinance(op: FinanceOp): Written {
   const st = useStrategyStore.getState();
+  const undo: StageOp = {
+    kind: 'finance',
+    table: op.table,
+    key: op.key,
+    label: op.label,
+    year: op.year,
+    yen: financeValueOf(op, st),
+    ...(op.segment ? { segment: op.segment } : {}),
+  };
   if (op.segment) {
     const segIndex = (st.businessSegments ?? []).findIndex((s) => s.name === op.segment);
     if (segIndex < 0) return { ok: false, message: `事業「${op.segment}」が見つかりません。反映しませんでした。` };
+    const segId = (st.businessSegments ?? [])[segIndex].id;
     const current = (((op.table === 'pl' ? st.segmentPL : st.segmentBS) ?? {}) as Record<string, Array<{ year: number }>>)[op.segment] ?? [];
     if (op.expectedBefore !== undefined && currentYearValue(current, op.year, op.key) !== op.expectedBefore) {
       return { ok: false, message: '入力案を作った後に値が変わったため、反映しませんでした。もう一度指示してください。' };
@@ -90,8 +154,9 @@ function writeFinance(op: FinanceOp): Written {
     else st.upsertSegmentBS(op.segment, next as never);
     return {
       ok: true,
-      message: `「${op.segment}」の${op.year}年度の${op.label}を${formatYen(op.yen)}として入力欄に反映しました。${SAVE_NOTE}`,
-      flash: `stage1.segment.${segIndex}`,
+      message: financeMessage(op, op.segment),
+      flash: `stage1.finance.segment.${segId}.${op.table}.${op.key}.${op.year}`,
+      undo,
     };
   }
   const rows = ((op.table === 'pl' ? st.financePL : st.financeBS) ?? []) as Array<{ year: number }>;
@@ -112,41 +177,10 @@ function writeFinance(op: FinanceOp): Written {
   }
   return {
     ok: true,
-    message: `${op.year}年度の${op.label}を${formatYen(op.yen)}として入力欄に反映しました。${SAVE_NOTE}`,
+    message: financeMessage(op),
     flash: `stage1.finance.${op.table}.${op.key}.${op.year}`,
+    undo,
   };
-}
-
-function financeValueOf(op: FinanceOp, st: StrategyState): number | null {
-  const rows = op.segment
-    ? (((op.table === 'pl' ? st.segmentPL : st.segmentBS) ?? {}) as Record<string, Array<{ year: number }>>)[op.segment] ?? []
-    : (((op.table === 'pl' ? st.financePL : st.financeBS) ?? []) as Array<{ year: number }>);
-  return currentYearValue(rows, op.year, op.key);
-}
-
-/** 入力対象の現在の値。権限確認の前後で比べ、確認中に同じ項目が変わっていれば上書きしない */
-function valueSignatureOf(op: StageOp, st: StrategyState): string {
-  const segments = (st.businessSegments ?? []) as Array<{ name: string } & Record<string, unknown>>;
-  const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
-  switch (op.kind) {
-    case 'profile':
-      return JSON.stringify((st as unknown as Record<string, unknown>)[op.field] ?? null);
-    case 'segment.add':
-    case 'segment.rename':
-      return JSON.stringify(segments.map((s) => s.name));
-    case 'segment.set':
-      return JSON.stringify(segments.find((s) => s.name === op.name)?.[op.field] ?? null);
-    case 'finance':
-      return JSON.stringify(financeValueOf(op, st));
-    case 'wacc':
-      return JSON.stringify((st as unknown as { stage1Benchmarks?: { waccManual?: number } }).stage1Benchmarks?.waccManual ?? null);
-    case 'issue.add':
-      return JSON.stringify(issues.map((i) => i.title));
-    case 'issue.edit':
-      return JSON.stringify(issues.find((i) => i.title === op.title) ?? null);
-    case 'valuation':
-      return '';
-  }
 }
 
 function writeOp(op: StageOp): Written {
@@ -160,9 +194,16 @@ function writeOp(op: StageOp): Written {
       st.setStage1Issues(next as never);
       return {
         ok: true,
-        message: `経営課題に「${op.title}」を追加し、入力欄に反映しました。${SAVE_NOTE}`,
+        message: `経営課題に「${op.title}」を追加し、入力欄に反映しました。`,
         flash: `stage1.issue.${next.length - 1}`,
+        undo: { kind: 'issue.remove', title: op.title },
       };
+    }
+    case 'issue.remove': {
+      const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
+      if (!issues.some((i) => i.title === op.title)) return { ok: false, message: `経営課題「${op.title}」が見つかりません。反映しませんでした。` };
+      st.setStage1Issues(issues.filter((i) => i.title !== op.title) as never);
+      return { ok: true, message: `経営課題「${op.title}」を削除しました。`, undo: null };
     }
     case 'issue.edit': {
       const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
@@ -171,17 +212,36 @@ function writeOp(op: StageOp): Written {
       if (op.field === 'title' && issues.some((i, j) => j !== idx && i.title === op.value)) {
         return { ok: false, message: '同じ題名の経営課題がすでにあるため、反映しませんでした。' };
       }
-      const next = issues.map((issue, i) => (i === idx ? { ...issue, [op.field]: op.value } : issue));
+      const prev = issues[idx][op.field] as string | string[] | undefined;
+      const next = issues.map((issue, i) => {
+        if (i !== idx) return issue;
+        const copy: Record<string, unknown> = { ...issue };
+        if (op.value === null) delete copy[op.field];
+        else copy[op.field] = op.value;
+        return copy as typeof issue;
+      });
       st.setStage1Issues(next as never);
       const what = op.field === 'title' ? '題名' : op.field === 'description' ? '説明文' : op.field === 'scope' ? '対象範囲' : '根拠となる指標';
-      return { ok: true, message: `経営課題「${op.title}」の${what}を入力欄に反映しました。${SAVE_NOTE}`, flash: `stage1.issue.${idx}` };
+      return {
+        ok: true,
+        message: `経営課題「${op.title}」の${what}を入力欄に反映しました。`,
+        flash: `stage1.issue.${idx}`,
+        undo: {
+          kind: 'issue.edit',
+          title: op.field === 'title' && typeof op.value === 'string' ? op.value : op.title,
+          field: op.field,
+          value: prev ?? null,
+        },
+      };
     }
     case 'profile': {
+      const prev = (st as unknown as Record<string, unknown>)[op.field];
       st.setProfile({ [op.field]: op.value } as never);
       return {
         ok: true,
-        message: `${PROFILE_LABEL[op.field]}を「${op.display}」として入力欄に反映しました。${SAVE_NOTE}`,
+        message: `${PROFILE_LABEL[op.field]}を「${op.display}」として入力欄に反映しました。`,
         flash: `stage1.profile.${op.field}`,
+        undo: { kind: 'profile', field: op.field, value: typeof prev === 'string' ? prev : '', display: typeof prev === 'string' ? prev : '' },
       };
     }
     case 'segment.add': {
@@ -191,9 +251,20 @@ function writeOp(op: StageOp): Written {
       st.setProfile({ businessSegments: [...segs, { id: newSegmentId(), name: op.name }] } as never);
       return {
         ok: true,
-        message: `事業「${op.name}」を追加し、入力欄に反映しました。${SAVE_NOTE}`,
+        message: `事業「${op.name}」を追加し、入力欄に反映しました。`,
         flash: `stage1.segment.${segs.length}`,
+        undo: { kind: 'segment.remove', name: op.name },
       };
+    }
+    case 'segment.remove': {
+      const segs = st.businessSegments ?? [];
+      if (!segs.some((s) => s.name === op.name)) return { ok: false, message: `事業「${op.name}」が見つかりません。反映しませんでした。` };
+      const hasFinance = (st.segmentPL?.[op.name]?.length ?? 0) > 0 || (st.segmentBS?.[op.name]?.length ?? 0) > 0;
+      if (hasFinance) return { ok: false, message: `事業「${op.name}」には事業別の財務データがあるため、削除しません。` };
+      const linked = ((st.stage1Issues ?? []) as Array<{ segmentName?: string }>).some((i) => i.segmentName === op.name);
+      if (linked) return { ok: false, message: `経営課題が事業「${op.name}」に紐づいているため、削除しません。` };
+      st.setProfile({ businessSegments: segs.filter((s) => s.name !== op.name) } as never);
+      return { ok: true, message: `事業「${op.name}」を削除しました。`, undo: null };
     }
     case 'segment.rename': {
       const segs = st.businessSegments ?? [];
@@ -203,8 +274,9 @@ function writeOp(op: StageOp): Written {
       st.setProfile({ businessSegments: segs.map((s, i) => (i === idx ? { ...s, name: op.to } : s)) } as never);
       return {
         ok: true,
-        message: `事業名を「${op.from}」から「${op.to}」に変更し、入力欄に反映しました。${SAVE_NOTE}`,
+        message: `事業名を「${op.from}」から「${op.to}」に変更し、入力欄に反映しました。`,
         flash: `stage1.segment.${idx}`,
+        undo: { kind: 'segment.rename', from: op.to, to: op.from },
       };
     }
     case 'segment.set': {
@@ -212,29 +284,46 @@ function writeOp(op: StageOp): Written {
       const idx = segs.findIndex((s) => s.name === op.name);
       if (idx < 0) return { ok: false, message: `事業「${op.name}」が見つかりません。反映しませんでした。` };
       const field = op.field;
-      const next = segs.map((s, i) => (i === idx ? { ...s, [field]: op.value } : s));
+      const prev = (segs[idx] as unknown as Record<string, unknown>)[field] as string | string[] | undefined;
+      const next = segs.map((s, i) => {
+        if (i !== idx) return s;
+        const copy: Record<string, unknown> = { ...s };
+        if (op.value === null) delete copy[field];
+        else copy[field] = op.value;
+        return copy as typeof s;
+      });
       st.setProfile({ businessSegments: next } as never);
       return {
         ok: true,
-        message: `「${op.name}」の${field === 'keyCustomers' ? '主な顧客' : field === 'summary' ? '事業概要' : '展開地域'}を入力欄に反映しました。${SAVE_NOTE}`,
+        message: `「${op.name}」の${field === 'keyCustomers' ? '主な顧客' : field === 'summary' ? '事業概要' : '展開地域'}を入力欄に反映しました。`,
         flash: `stage1.segment.${idx}`,
+        undo: { kind: 'segment.set', name: op.name, field, value: prev ?? null },
       };
     }
     case 'finance':
       return writeFinance(op);
     case 'wacc': {
-      st.setStage1Benchmarks({ ...((st.stage1Benchmarks ?? {}) as object), waccManual: op.pct } as never);
-      return { ok: true, message: `WACCを${op.pct}%として入力欄に反映しました。${SAVE_NOTE}`, flash: 'stage1.assumption.wacc' };
+      const bm = { ...((st.stage1Benchmarks ?? {}) as object) } as { waccManual?: number };
+      const prev = bm.waccManual ?? null;
+      if (op.pct === null) delete bm.waccManual;
+      else bm.waccManual = op.pct;
+      st.setStage1Benchmarks(bm as never);
+      return {
+        ok: true,
+        message: op.pct === null ? 'WACCを空欄に戻しました。' : `WACCを${op.pct}%として入力欄に反映しました。`,
+        flash: 'stage1.assumption.wacc',
+        undo: { kind: 'wacc', pct: prev },
+      };
     }
     case 'valuation': {
       st.recomputeValueAnalysis();
-      return { ok: true, message: '企業価値分析を更新しました。結果は「企業価値分析」の欄に表示されます。' };
+      return { ok: true, message: '企業価値分析を更新しました。結果は「企業価値分析」の欄に表示されます。', undo: null };
     }
   }
 }
 
-/** 入力操作を、画面の入力欄（ストア）へ反映する。権限・企業/戦略・他の利用者による更新を確かめてから書く */
-export async function applyStageOp(op: StageOp): Promise<DirectApplyResult> {
+/** 入力操作を、画面の入力欄（ストア）へ反映する。権限・企業/戦略・他の利用者による更新・対象の値を確かめてから書く */
+export async function applyStageOp(op: StageOp, options: ApplyOptions = {}): Promise<DirectApplyResult> {
   try {
     if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'manager')) {
       return { ok: false, message: OPERATION_ROLE_DENIED };
@@ -272,18 +361,83 @@ export async function applyStageOp(op: StageOp): Promise<DirectApplyResult> {
     const written = writeOp(op);
     if (!written.ok) return written;
     if (written.flash) useAiHighlightStore.getState().flash(written.flash);
-    return { ok: true, message: written.message };
+
+    const status =
+      options.settleMs === 0 ? saveStatusTypeOf(useStrategyStore.getState()) : await waitForSaveSettled(options.settleMs);
+    if (options.recordUndo !== false) {
+      const now = useStrategyStore.getState();
+      if (written.undo) {
+        const record: AiWriteRecord = {
+          companyId: now.companyId ?? '',
+          strategyId: now.strategyId ?? '',
+          op,
+          undo: written.undo,
+          afterSignature: valueSignatureOf(op, now),
+          label: written.message,
+        };
+        useAiUndoStore.getState().record(record);
+      } else {
+        useAiUndoStore.getState().clear();
+      }
+    }
+    return { ok: true, message: `${written.message}${saveSentenceOf(status)}` };
   } catch {
     return { ok: false, message: '反映の途中で問題が起きました。画面を再読み込みして、内容を確かめてください。' };
   }
 }
 
 /** 経営課題の追加・売上の空欄への入力などの入力案を、入力欄へ直接反映する */
-export async function applyDirectProposal(proposal: OperationProposal): Promise<DirectApplyResult> {
+export async function applyDirectProposal(proposal: OperationProposal, options: ApplyOptions = {}): Promise<DirectApplyResult> {
   if (!isDirectProposal(proposal)) return { ok: false, message: 'この操作は、入力欄への直接反映の対象ではありません。' };
   const st = useStrategyStore.getState();
   if (st.companyId !== proposal.companyId || st.strategyId !== proposal.strategyId) return { ok: false, message: SCOPE_CHANGED };
   const stale = proposalStaleReason(proposal, currentFor(proposal));
   if (stale) return { ok: false, message: stale.message };
-  return applyStageOp(opOfDirectProposal(proposal));
+  return applyStageOp(opOfDirectProposal(proposal), options);
+}
+
+/** 直前のAI入力を取り消せるかを確かめる。対象の値が反映時のままで、企業・戦略が同じ場合だけ */
+export function planUndo(): { ok: true; record: AiWriteRecord } | { ok: false; message: string } {
+  const record = useAiUndoStore.getState().last;
+  if (!record) return { ok: false, message: '取り消せる直前の入力はありません。' };
+  const st = useStrategyStore.getState();
+  if (st.companyId !== record.companyId || st.strategyId !== record.strategyId) {
+    return { ok: false, message: '企業または戦略が変わったため、取り消せません。' };
+  }
+  if (valueSignatureOf(record.op, st) !== record.afterSignature) {
+    return { ok: false, message: 'その後に同じ項目が変わったため、取り消せません。画面で内容を確かめてください。' };
+  }
+  return { ok: true, record };
+}
+
+/** 登録済みの事業・経営課題の削除の影響を調べる。影響を安全に扱えないものは削除の案にしない */
+export type RemovalOp = Extract<StageOp, { kind: 'segment.remove' | 'issue.remove' }>;
+
+export function planRemoval(target: RemovalTarget): { ok: true; op: RemovalOp; impact: string } | { ok: false; message: string } {
+  const st = useStrategyStore.getState();
+  if (target.type === 'segment') {
+    const name = target.name;
+    if (!(st.businessSegments ?? []).some((s) => s.name === name)) return { ok: false, message: `事業「${name}」が見つかりません。` };
+    const hasFinance = (st.segmentPL?.[name]?.length ?? 0) > 0 || (st.segmentBS?.[name]?.length ?? 0) > 0;
+    if (hasFinance) {
+      return { ok: false, message: `事業「${name}」には事業別の財務データがあるため、削除しません。先に財務表で数値を削除してください。` };
+    }
+    const linked = ((st.stage1Issues ?? []) as Array<{ segmentName?: string }>).some((i) => i.segmentName === name);
+    if (linked) return { ok: false, message: `経営課題が事業「${name}」に紐づいているため、削除しません。先に経営課題の紐づけを確かめてください。` };
+    return {
+      ok: true,
+      op: { kind: 'segment.remove', name },
+      impact: `事業「${name}」の事業概要・主な顧客・展開地域を削除します。事業別の財務データはありません。STAGE2以降の戦略書は、自動では変わりません。`,
+    };
+  }
+  const title = target.name;
+  const count = (st.stage1Issues ?? []).length;
+  if (!(st.stage1Issues ?? []).some((i) => i.title === title)) return { ok: false, message: `経営課題「${title}」が見つかりません。` };
+  return {
+    ok: true,
+    op: { kind: 'issue.remove', title },
+    impact: `経営課題「${title}」を削除します。STAGE2への引き渡しや企業価値分析の論点に使われます。${
+      count === 1 ? '経営課題が0件になるため、STAGE2へは進めなくなります。' : ''
+    }`,
+  };
 }

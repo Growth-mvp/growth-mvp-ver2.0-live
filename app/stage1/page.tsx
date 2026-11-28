@@ -8,6 +8,8 @@ import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useConsultFocus } from '@/hooks/useConsultFocus';
 import { useSaveStatus } from '@/hooks/useSaveStatus';
+import { useAiHighlightStore } from '@/store/aiHighlightStore';
+import { REVEAL_FRESH_MS } from '@/lib/stage1/revealTargets';
 import { useStage1PdfExport } from '@/hooks/useStage1PdfExport';
 import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
 import StrategyGuard from '@/app/StrategyGuard';
@@ -30,15 +32,24 @@ type TabType = 'input' | 'analysis';
  * SectionCard（折りたたみコンポーネント）
  * =============================== */
 function SectionCard({
+  id,
   title,
   defaultOpen = true,
   children,
 }: {
+  id: string;
   title: string;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const revealAt = useAiHighlightStore((s) => s.at);
+  const revealSection = useAiHighlightStore((s) => s.reveal?.section);
+
+  // AIが対象を反映したとき、閉じていても、その対象を含む欄を開く（欄の表示が後から描画されても開く）
+  useEffect(() => {
+    if (revealSection === id && Date.now() - revealAt < REVEAL_FRESH_MS) setIsOpen(true);
+  }, [revealAt, revealSection, id]);
 
   return (
     <div className="border rounded-lg">
@@ -232,6 +243,12 @@ export default function Stage1Page() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveMessage, setSaveMessage] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('input');
+  const revealAt = useAiHighlightStore((s) => s.at);
+  const revealTab = useAiHighlightStore((s) => s.reveal?.tab);
+  // AIが対象を反映したとき、その対象のタブに切り替える
+  useEffect(() => {
+    if (revealTab && Date.now() - revealAt < REVEAL_FRESH_MS) setActiveTab(revealTab);
+  }, [revealAt, revealTab]);
 
   // ===== CEOチャットの相談文脈（いま見ている入力・指標・論点） =====
   // 保存状態は共通判定（useSaveStatus）を使う。「保存済み」以外（未保存・保存中・失敗）は未保存扱い。
@@ -625,20 +642,20 @@ export default function Stage1Page() {
               </div>
             </div>
 
-            <SectionCard title="① 企業情報・事業内容" defaultOpen={false}>
+            <SectionCard id="company" title="① 企業情報・事業内容" defaultOpen={false}>
               <ReadOnlyBlock readOnly={!canEdit}>
                 <CompanyAutofillPanel disabled={!canEdit} />
                 <CompanyAndBusinessPanel readOnly={!canEdit} disabled={!canEdit} />
               </ReadOnlyBlock>
             </SectionCard>
 
-            <SectionCard title="② 財務データ（読込・手入力）" defaultOpen={false}>
+            <SectionCard id="finance" title="② 財務データ（読込・手入力）" defaultOpen={false}>
               <ReadOnlyBlock readOnly={!canEdit}>
                 <FinanceDataPanel readOnly={!canEdit} disabled={!canEdit} />
               </ReadOnlyBlock>
             </SectionCard>
 
-            <SectionCard title="③ 上場情報・外部ベンチマーク・WACC（任意）" defaultOpen={false}>
+            <SectionCard id="wacc" title="③ 上場情報・外部ベンチマーク・WACC（任意）" defaultOpen={false}>
               <ReadOnlyBlock readOnly={!canEdit}>
                 <div className="space-y-6">
                   <ListingInfoPanel disabled={!canEdit} />
@@ -666,13 +683,13 @@ export default function Stage1Page() {
               </div>
             </div>
 
-            <SectionCard title="① 財務指標" defaultOpen={false}>
+            <SectionCard id="metrics" title="① 財務指標" defaultOpen={false}>
               <ReadOnlyBlock readOnly={!canEdit}>
                 <MetricsPanel readOnly={!canEdit} disabled={!canEdit} />
               </ReadOnlyBlock>
             </SectionCard>
 
-            <SectionCard title="② 論点整理 + STAGE2へ" defaultOpen={false}>
+            <SectionCard id="issues" title="② 論点整理 + STAGE2へ" defaultOpen={false}>
               <ReadOnlyBlock readOnly={!canEdit}>
                 <Stage1ToStage2Panel readOnly={!canEdit} disabled={!canEdit} />
               </ReadOnlyBlock>

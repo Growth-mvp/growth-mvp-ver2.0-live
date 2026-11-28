@@ -949,7 +949,7 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
   const pbr = (valueAnalysis as any)?.pbr;
 
   return (
-    <section>
+    <section data-ai-target="stage1.valuation">
       <h2 className="text-xl font-semibold mb-4"> 企業価値の主要指標</h2>
 
       <p className="text-sm text-gray-600 mb-6">

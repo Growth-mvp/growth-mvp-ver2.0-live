@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
-import { workingHashOf } from '@/utils/stage6/financePlanSnapshot';
+import { saveStatusTypeOf, type SaveStatusType } from '@/lib/strategy/saveStatus';
 import { REVISION_UNKNOWN_SAVE_MESSAGE } from '@/lib/strategy/revisionUnknown';
 
-export type SaveStatusType = 'error' | 'saving' | 'dirty' | 'saved';
+export type { SaveStatusType };
 
 export interface SaveStatusInfo {
   status: SaveStatusType;
@@ -29,16 +29,9 @@ export interface SaveStatusInfo {
  * - buttonDisabled?: Whether save button should be disabled
  */
 export function useSaveStatus(): SaveStatusInfo {
-  const isSaving = useStrategyStore((s: StrategyState) => s.boot?.isSaving ?? false);
+  const status = useStrategyStore((s: StrategyState) => saveStatusTypeOf(s));
   const lastSavedAt = useStrategyStore((s: StrategyState) => s.lastSavedAt);
   const saveError = useStrategyStore((s: StrategyState) => s.saveError);
-  const dirtyOther = useStrategyStore((s: StrategyState) => s.dirty ?? false);
-  // 財務計画（STAGE6）の作業コピーが保存済み版と異なる場合も未保存とみなす
-  const dirtyFinancePlan = useStrategyStore((s: StrategyState) => {
-    const working = workingHashOf(s.csvFinanceData);
-    return working !== undefined && s.financePlanSavedHash !== undefined && s.financePlanSavedHash !== working;
-  });
-  const dirty = dirtyOther || dirtyFinancePlan;
 
   const [displayTime, setDisplayTime] = useState<string>('');
 
@@ -51,8 +44,7 @@ export function useSaveStatus(): SaveStatusInfo {
     setDisplayTime(`${hours}:${minutes}`);
   }, [lastSavedAt]);
 
-  // Priority: error > saving > dirty > saved
-  if (saveError) {
+  if (status === 'error') {
     return {
       status: 'error',
       message: '保存に失敗',
@@ -61,7 +53,7 @@ export function useSaveStatus(): SaveStatusInfo {
     };
   }
 
-  if (isSaving) {
+  if (status === 'saving') {
     return {
       status: 'saving',
       message: '保存中…',
@@ -69,7 +61,7 @@ export function useSaveStatus(): SaveStatusInfo {
     };
   }
 
-  if (dirty) {
+  if (status === 'dirty') {
     return {
       status: 'dirty',
       message: '未保存の変更あり',
