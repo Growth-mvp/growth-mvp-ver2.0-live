@@ -14,6 +14,7 @@ import { consultationQueryOf } from '@/lib/ceoChat/followUpContext';
 import { buildAnswerStyleBlock, decideAnswerStyle, isManualAdvisorChat, type PersonaVariant } from '@/lib/ceoChat/answerStyle';
 import { CONSULTANT_BASE_C, CONSULTANT_PERSONA, CONSULTANT_ROLE_NEUTRAL, HELP_TONE } from '@/lib/ceoChat/consultantPersona';
 import { rewriteWithTwoStage, twoStageEnabled } from '@/lib/ceoChat/twoStage';
+import { applyToneVariant, toneVariantFromEnv } from '@/lib/ceoChat/toneVariant';
 import { composeExtraBlock, isExecutionQuestion, type ExtraParts } from '@/lib/ceoChat/extraContext';
 import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { attributableOkrs } from '@/lib/cascade/okrAttribution';
@@ -1078,7 +1079,10 @@ export async function POST(req: Request) {
       model: 'gpt-5.6-luna',
       reasoning_effort: consultingEffort(consultingPlan, process.env.CEO_CHAT_CONSULTING_HIGHER_EFFORT === '1'),
       max_completion_tokens: 6000,
-      messages: [{ role: 'system', content: systemBase }, ...askMessages],
+      messages: [
+        { role: 'system', content: systemBase },
+        ...(isManual && companyContextUsed ? applyToneVariant(askMessages, toneVariantFromEnv()) : askMessages),
+      ] as any,
     };
 
     // ★ meta.output === 'json' のときだけ response_format を付与（JSON形式を要求）
