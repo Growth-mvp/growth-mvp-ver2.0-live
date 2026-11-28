@@ -13,6 +13,14 @@ export function proposalRequiredRole(proposal: OperationProposal): 'admin' | 'ma
   return proposal.kind === 'stage2.ceoIntent' ? 'admin' : 'manager';
 }
 
+/** 入力案を作る前の確認（保存時の権限は、承認の API でも再検証する） */
+export function roleMeetsRequirement(role: string | null | undefined, required: 'admin' | 'manager'): boolean {
+  if (role === 'admin') return true;
+  return required === 'manager' && role === 'manager';
+}
+
+export const OPERATION_ROLE_DENIED = 'この操作は管理職以上が行えます。内容は、管理者・管理職に依頼してください。';
+
 /** 承認の直前に、入力案の対象（会社・戦略・画面）と未保存の変更を確認する。対象が変わった入力案は破棄する */
 export function proposalBlockReason(proposal: OperationProposal, state: ProposalScreenState): ProposalBlock | null {
   if (state.companyId !== proposal.companyId || state.strategyId !== proposal.strategyId) {

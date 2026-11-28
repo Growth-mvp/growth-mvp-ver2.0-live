@@ -258,7 +258,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.web-company-profile',
     screenIds: ['stage1'],
     label: 'Webから会社情報を取得',
-    source: { file: 'components/CEOChatPanel.tsx', line: 186 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 187 },
     purpose:
       'AI経営コンサルタントのチャットに「〇〇株式会社の会社情報を調べて」と入力すると、会社名だけを使って公式サイトなどの公開情報を調べ、会社名・所在地・業種・従業員数・事業内容の候補を作る。候補は出典URLと確認日つきで、STAGE1の候補欄に渡される。入力欄は変わらない。',
     steps: [
@@ -281,7 +281,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.attach-documents',
     screenIds: ['stage1'],
     label: '資料を添付',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1478 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1490 },
     purpose:
       'AI経営コンサルタントのチャット欄の「資料を添付」から、会社案内や決算書（PDF・Excel・CSV）を読み込み、会社の基本情報・直近5期のPL/BS・事業別財務の候補を作る。金額は、単位（円・千円・百万円）が確認できたものだけ円に換算する。',
     steps: [
@@ -1326,7 +1326,7 @@ export const OPERATIONS: readonly OperationEntry[] = [
     operationId: 'common.companion-toggle',
     screenIds: [],
     label: '自律伴走',
-    source: { file: 'components/CEOChatPanel.tsx', line: 1315 },
+    source: { file: 'components/CEOChatPanel.tsx', line: 1327 },
     purpose: '自律伴走（節目での助言や、経営の点検をAIが知らせる機能）のオン・オフを切り替える。',
     steps: ['AI経営コンサルタントのパネル上部の「自律伴走：オフ（オンにする）」を押す', 'もう一度押すとオフに戻る'],
     conditions: '既定はオフ。設定はブラウザごとに記録される。進行の編集は管理者・管理職だけ。経営の点検は会社につき1日1回',

@@ -28,7 +28,8 @@ import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
 import CEOChatVoiceControls, { type InputMode } from '@/components/CEOChatVoiceControls';
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
 import { contextDepartments, issueProposalOf, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
-import { parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
+import { parseConsultOffer, parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
+import { OPERATION_ROLE_DENIED, proposalRequiredRole, roleMeetsRequirement } from '@/lib/aiOperations/guard';
 import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
 import { parseStage4Intent } from '@/lib/aiOperations/stage4';
 import { requestStage4, stage4ExcludedTitles, stage4ProjectRefs } from '@/lib/aiOperations/stage4Client';
@@ -656,6 +657,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       // 実行計画書（STAGE4）への指示：変更案を作る（保存はしない。承認は入力案のカードで行う）
       const stage4Intent = parseStage4Intent(trimmed);
       if (stage4Intent && requestCompanyId && latestStrategyId && user?.id) {
+        if (!roleMeetsRequirement(useUserStore.getState().role ?? null, 'manager')) {
+          updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: OPERATION_ROLE_DENIED }]);
+          return true;
+        }
         const pendingNow = useOperationProposalStore.getState().pending;
         const result = await requestStage4({
           intent: stage4Intent,
@@ -701,6 +706,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           departments: contextDepartments(st.departments as unknown as Parameters<typeof contextDepartments>[0]),
         });
         if (instruction) {
+          if (instruction.kind !== 'clarify') {
+            const required = instruction.kind === 'proposal' ? proposalRequiredRole(instruction.proposal) : 'manager';
+            if (!roleMeetsRequirement(useUserStore.getState().role ?? null, required)) {
+              updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: OPERATION_ROLE_DENIED }]);
+              return true;
+            }
+          }
           if (instruction.kind === 'clarify') {
             updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: instruction.message }]);
           } else if (instruction.kind === 'command') {
@@ -761,7 +773,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           userId: user!.id,
           strategyId: latestStrategyId,
           companyId: requestCompanyId,
-          ...(priorOffer ? { priorOffer } : {}),
+          ...(priorOffer ? { priorOffer, consultThread: execKey } : {}),
           ...(screenId ? { screen: { screenId } } : {}),
           ...(consult ? { consult } : {}),
           ...(execKey && selNow && selNow.strategyId === latestStrategyId
@@ -810,7 +822,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       // ← 先に送信フラグを落としてからメッセージを追加（UI固着防止）
       setCeoChatPending(ticket, false);
       const reviewTargets = parseReviewTargets(data?.reviewTargets);
-      const operationOffer = data?.operationOffer === 'stage1.issue' ? ('stage1.issue' as const) : undefined;
+      const operationOffer = parseConsultOffer(data?.operationOffer) ?? undefined;
       updateCeoChatMessages(ticket, (msgs) => [
         ...msgs,
         {

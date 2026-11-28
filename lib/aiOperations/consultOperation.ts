@@ -13,6 +13,9 @@ export type ConsultOperationCandidate = {
 
 export type ConsultOfferKind = 'stage1.issue';
 
+/** 直前の操作の提案。利用者・企業・戦略・相談の単位に紐づく鍵つき（サーバーが発行し、画面が保持する） */
+export type ConsultOffer = { kind: ConsultOfferKind; key: string };
+
 const CANDIDATE_MARK = /<<OP (\{[^\n]*\})>>/g;
 const OFFER_MARK = /<<OFFER (stage1\.issue)>>/g;
 
@@ -25,8 +28,9 @@ export const OPERATION_OFFER_BLOCK = [
   '- 題名と説明文は、利用者が話した事実や言葉に基づく。推測や一般論を事実として書かない。根拠が足りないときは説明文を空にする。',
   '- 対象の経営課題が、複数の話題のどれか曖昧なときは、どれを記録するか質問し、この行は書かない。',
   '- 仮定・検討・質問の段階（「〜かな」「〜したほうがいいですか」など）では、この行を書かない。',
+  '- 否定・保留（「登録しないで」「やめておく」「あとで」など）を含むときは、この行を書かない。',
   '- 経営課題として記録してよいかを確かめるだけのときは、回答の最後の行に次の1行だけを書く：<<OFFER stage1.issue>>',
-  '- 企業ID・戦略ID・権限には触れない。',
+  '- 1回の回答に書く印は1つまで。企業ID・戦略ID・権限には触れない。',
 ].join('\n');
 
 export function parseOperationCandidate(raw: unknown): ConsultOperationCandidate | null {
@@ -45,27 +49,38 @@ export type ConsultMarkResult = {
   content: string;
   candidate: ConsultOperationCandidate | null;
   offer: ConsultOfferKind | null;
-  /** 印はあったが、検証できなかった（候補は捨てる） */
+  /** 印に不備があった（候補・提案は捨てる） */
   rejected: boolean;
 };
 
-/** 回答から操作の印を取り除き、候補と提案の有無を返す。印は利用者の画面に出さない */
+/** 回答から操作の印を取り除き、候補と提案の有無を返す。印は利用者の画面に出さない。
+ * 安全側に倒す：候補が複数・形式不正・書きかけの印があれば、候補も提案もすべて捨てる */
 export function extractConsultOperation(content: string): ConsultMarkResult {
-  let candidate: ConsultOperationCandidate | null = null;
-  let rejected = false;
-  for (const m of content.matchAll(CANDIDATE_MARK)) {
-    let parsed: unknown = null;
+  const candidateMatches = [...content.matchAll(CANDIDATE_MARK)];
+  const offerMatches = [...content.matchAll(OFFER_MARK)];
+  const openCandidates = (content.match(/<<OP\b/g) ?? []).length;
+  const openOffers = (content.match(/<<OFFER\b/g) ?? []).length;
+
+  const parsed = candidateMatches.map((m) => {
     try {
-      parsed = JSON.parse(m[1]);
+      return parseOperationCandidate(JSON.parse(m[1]));
     } catch {
-      parsed = null;
+      return null;
     }
-    const valid = parseOperationCandidate(parsed);
-    if (valid) candidate = valid;
-    else rejected = true;
-  }
-  const offer = /<<OFFER stage1\.issue>>/.test(content) ? ('stage1.issue' as const) : null;
-  const stripped = content.replace(CANDIDATE_MARK, '').replace(OFFER_MARK, '').replace(/\n{3,}/g, '\n\n').trim();
+  });
+  const malformed = openCandidates !== candidateMatches.length || openOffers !== offerMatches.length;
+  const invalid = parsed.some((p) => p === null);
+  const rejected = malformed || invalid || candidateMatches.length > 1 || offerMatches.length > 1;
+
+  const candidate = !rejected && parsed.length === 1 ? parsed[0] : null;
+  const offer = !rejected && offerMatches.length === 1 && !candidate ? ('stage1.issue' as const) : null;
+
+  const stripped = content
+    .replace(CANDIDATE_MARK, '')
+    .replace(OFFER_MARK, '')
+    .replace(/<<(?:OP|OFFER)\b[^\n]*/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return { content: stripped, candidate, offer, rejected };
 }
 
@@ -73,13 +88,26 @@ const ADD_CUE = /入れ|追加|登録|加え|足し/;
 const ISSUE_CUE = /経営課題|論点/;
 const AFFIRM_CUE = /^(はい|うん|そう|そうです|そうですね|そうして|そうしてください|お願い|ぜひ|いいね|いいですね|それで|それを|入れて|入れておいて|登録して|追加して)/;
 const NON_COMMAND_CUE = /もし|かも|べき|たら|ではないか|どうか|いいか|よいか|でいい|したい|してほしい|検討|考え|迷|[?？]|ですか|でしょうか|かな/;
+/** 否定・保留・反対・留保（「はい、でも」「やっぱり」なども含む）。指示として扱わない */
+const NEGATION_CUE = /しない|しません|せず|ないで|ない(ほう|方)|やめ|よして|見送|保留|取りやめ|取り消|不要|いらない|結構|けっこう|やっぱり|やはり|ではなく|じゃなく|ではなくて|でも|けど|けれど|ただ|待って|あとで|後で|まだ|もう少し|考え直|いや|違う|だめ|ダメ/;
 const SHORT_REPLY_MAX = 30;
 const DEICTIC_CUE = /それ|これ|あれ|さっき/;
+const DEICTIC_TITLE = /^(それ|これ|あれ|さっき|上記|先ほど|今の|その|この)/;
+
+/** 否定・保留・反対を含む発言か（操作の指示として扱わない） */
+export function isNegatedOrDeferred(text: string): boolean {
+  return NEGATION_CUE.test(text);
+}
+
+/** 題名が「それ」「これ」などの指示語だけか（直前の文脈が無いと、何を指すか決まらない） */
+export function isDeicticTitle(title: string): boolean {
+  return DEICTIC_TITLE.test(title.trim());
+}
 
 /** 直前の発言が、経営課題の記録の指示・同意として明確かどうか（決定的な判定） */
 export function isClearIssueInstruction(text: string, priorOffer: string | null): boolean {
   const t = text.trim();
-  if (!t || NON_COMMAND_CUE.test(t)) return false;
+  if (!t || NON_COMMAND_CUE.test(t) || NEGATION_CUE.test(t)) return false;
   // 「それを」「これを」など、対象を指す言い方は、直前の操作の提案が明確な時だけ（話題が複数あっても1件を勝手に選ばない）
   if (DEICTIC_CUE.test(t) && priorOffer !== 'stage1.issue') return false;
   if (ISSUE_CUE.test(t) && ADD_CUE.test(t)) return true;
@@ -96,4 +124,28 @@ export function allowConsultCandidate(input: {
   if (!input.enabled) return false;
   if (input.role !== 'admin' && input.role !== 'manager') return false;
   return isClearIssueInstruction(input.lastUser, input.priorOffer);
+}
+
+function fnv1a(text: string, seed: number): string {
+  let h = seed >>> 0;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+/** 提案の鍵：利用者・企業・戦略・相談の単位の組に紐づく。別の組の提案は、この鍵が一致しない */
+export function consultOfferKeyOf(parts: { userId: string; companyId: string; strategyId: string; thread: string }): string {
+  const joined = [parts.userId, parts.companyId, parts.strategyId, parts.thread].join('');
+  return fnv1a(joined, 0x811c9dc5) + fnv1a(joined, 0x9e3779b9);
+}
+
+/** 画面から戻された提案を、形だけ確かめる（鍵の一致は、サーバーが同じ組から作り直して比べる） */
+export function parseConsultOffer(raw: unknown): ConsultOffer | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const v = raw as Record<string, unknown>;
+  if (v.kind !== 'stage1.issue') return null;
+  if (typeof v.key !== 'string' || !/^[0-9a-f]{16}$/.test(v.key)) return null;
+  return { kind: 'stage1.issue', key: v.key };
 }

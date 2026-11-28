@@ -255,6 +255,22 @@ describe('resolveOperationInstruction：STAGE1 経営課題の追加', () => {
     const result = resolveOperationInstruction('2025年度の全社売上高を1億6,000万円として経営課題にも追加して', BASE);
     expect(result?.kind === 'proposal' && result.proposal.kind).toBe('stage1.revenue');
   });
+
+  it.each([
+    'それを経営課題に追加して',
+    'これを経営課題に入れて',
+    'さっきの話を経営課題に追加して',
+  ])('指示語「%s」は、題名「それ」などにせず、相談の流れに任せる', (text) => {
+    expect(resolveOperationInstruction(text, ISSUE_BASE)).toBeNull();
+  });
+
+  it.each([
+    'はい、でも経営課題に追加しないで',
+    '経営課題として新規顧客の獲得が鈍いを追加するのはやめておく',
+    'やっぱり経営課題に入れるのは見送ろう',
+  ])('否定・保留「%s」は、入力案にしない', (text) => {
+    expect(resolveOperationInstruction(text, ISSUE_BASE)).toBeNull();
+  });
 });
 
 describe('issueProposalOf：経営課題の入力案（説明文と上限・重複の検証）', () => {

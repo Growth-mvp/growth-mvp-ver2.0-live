@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { consultOfferKeyOf } from '@/lib/aiOperations/consultOperation';
 
 const mockChatCreate = jest.fn();
 const mockClassifyLLM = jest.fn();
@@ -120,6 +121,10 @@ async function consult(messages: Turn[], extra: Record<string, unknown> = {}) {
 
 const MARK = (json: string) => `<<OP ${json}>>`;
 const CLEAR = { kind: 'stage1.issue', title: '新規顧客の獲得力が弱い', description: '既存顧客は増えるが、新規の商談が増えないと話された。' };
+const OFFER = (thread = '') => ({
+  kind: 'stage1.issue',
+  key: consultOfferKeyOf({ userId: USER, companyId: COMPANY, strategyId: STRATEGY, thread }),
+});
 
 beforeAll(() => {
   process.env.OPENAI_API_KEY = 'test-key';
@@ -159,7 +164,7 @@ describe('経営相談から操作候補を得る（1回のAI応答）：許可�
         { role: 'assistant', content: '経営課題として整理することを提案します。' },
         { role: 'user', content: 'それを経営課題に入れておいて' },
       ],
-      { priorOffer: 'stage1.issue' },
+      { priorOffer: OFFER() },
     );
     expect(body.operationCandidate).toEqual({ kind: 'stage1.issue', title: CLEAR.title, description: CLEAR.description });
     expect(body.content).toBe('承知しました。');
@@ -173,7 +178,7 @@ describe('経営相談から操作候補を得る（1回のAI応答）：許可�
         { role: 'assistant', content: '経営課題として記録しますか。' },
         { role: 'user', content: 'お願いします' },
       ],
-      { priorOffer: 'stage1.issue' },
+      { priorOffer: OFFER() },
     );
     expect(withOffer.body.operationCandidate?.title).toBe(CLEAR.title);
 
@@ -199,7 +204,7 @@ describe('経営相談から操作候補を得る（1回のAI応答）：許可�
   it('提案のみの印（<<OFFER>>）は、画面に提案の有無だけを返し、保存に関係しない', async () => {
     modelSays('経営課題として整理しますか。\n<<OFFER stage1.issue>>');
     const { body } = await consult([{ role: 'user', content: '新規顧客が増えない' }]);
-    expect(body.operationOffer).toBe('stage1.issue');
+    expect(body.operationOffer).toEqual(OFFER());
     expect(body.operationCandidate).toBeUndefined();
     expect(body.content).toBe('経営課題として整理しますか。');
   });
@@ -210,5 +215,41 @@ describe('経営相談から操作候補を得る（1回のAI応答）：許可�
     expect(body.content).toBe('新規顧客の伸びにくさは、商品の届け方か、商談の数かで打ち手が変わります。');
     expect(body.operationCandidate).toBeUndefined();
     expect(body.operationOffer).toBeUndefined();
+  });
+
+  it('別の相談対象の提案は紐づかず、同意の発言でも候補にしない', async () => {
+    modelSays(`承知しました。\n${MARK(JSON.stringify(CLEAR))}`);
+    const { body } = await consult([{ role: 'user', content: 'それを経営課題に入れておいて' }], {
+      priorOffer: OFFER('other-thread'),
+      consultThread: '',
+    });
+    expect(body.operationCandidate).toBeUndefined();
+  });
+
+  it('形の違う提案（文字列だけ・鍵なし）は紐づけに使わない', async () => {
+    modelSays(`承知しました。\n${MARK(JSON.stringify(CLEAR))}`);
+    const { body } = await consult([{ role: 'user', content: 'お願いします' }], { priorOffer: 'stage1.issue' });
+    expect(body.operationCandidate).toBeUndefined();
+  });
+
+  it('否定・保留を含む発言は、提案があっても候補にしない', async () => {
+    modelSays(`承知しました。\n${MARK(JSON.stringify(CLEAR))}`);
+    const { body } = await consult(
+      [
+        { role: 'user', content: '新規顧客が増えない' },
+        { role: 'assistant', content: '経営課題として記録しますか。' },
+        { role: 'user', content: 'はい、でも登録しないで' },
+      ],
+      { priorOffer: OFFER() },
+    );
+    expect(body.operationCandidate).toBeUndefined();
+  });
+
+  it('候補が複数あれば、候補と提案をすべて捨てる（安全側）', async () => {
+    modelSays(`回答です。\n${MARK(JSON.stringify(CLEAR))}\n${MARK(JSON.stringify({ ...CLEAR, title: '別の課題' }))}`);
+    const { body } = await consult([{ role: 'user', content: '経営課題として新規顧客の獲得力を追加して' }]);
+    expect(body.operationCandidate).toBeUndefined();
+    expect(body.operationOffer).toBeUndefined();
+    expect(body.content).toBe('回答です。');
   });
 });

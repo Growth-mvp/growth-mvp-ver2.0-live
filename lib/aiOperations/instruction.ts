@@ -1,7 +1,7 @@
 /* 音声・文字の指示から、既存の入力欄への「入力案」を作る（AIは呼ばない。保存もしない）。
  * 対象は STAGE2「経営者の思い」への追加、STAGE1 財務表の全社売上高、STAGE3 6つの問いの回答。
  * STAGE3 の戦略書の再生成は入力案ではなく、既存の生成処理を呼ぶ指示として扱う。 */
-import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX } from './consultOperation';
+import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX, isDeicticTitle, isNegatedOrDeferred } from './consultOperation';
 
 export type OperationProposal =
   | {
@@ -196,12 +196,15 @@ function squashed(text: string): string {
 /** 経営課題（論点）の追加。命令の形だけを入力案にし、相談・仮定・希望は通常の相談に任せる（null） */
 function resolveStage1Issue(text: string, ctx: OperationContext): OperationInstruction | null {
   if (!ISSUE_CUE.test(text) || QUESTION_CUE.test(text) || ISSUE_HYPOTHETICAL.test(text)) return null;
+  if (isNegatedOrDeferred(text)) return null;
   if (parseYenAmounts(text).length > 0) return null;
   const normalized = text.trim().replace(/[。.]$/, '');
   const match = normalized.match(ISSUE_PREFIX_PATTERN) ?? normalized.match(ISSUE_SUFFIX_PATTERN);
   if (!match) return null;
 
   const title = (match[1] ?? '').replace(/^[\sをとにへ、,]+/, '').trim();
+  // 「それを経営課題に追加して」の「それ」は、直前の文脈が無いと何を指すか決まらない。入力案にせず、相談の流れに任せる
+  if (isDeicticTitle(title)) return null;
   if (!title) {
     return { kind: 'clarify', message: '追加する経営課題の内容を、「経営課題として〇〇を追加して」の形で教えてください。' };
   }

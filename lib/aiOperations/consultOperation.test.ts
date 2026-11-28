@@ -4,7 +4,9 @@ import {
   OPERATION_OFFER_BLOCK,
   allowConsultCandidate,
   extractConsultOperation,
+  consultOfferKeyOf,
   isClearIssueInstruction,
+  parseConsultOffer,
   parseOperationCandidate,
 } from './consultOperation';
 
@@ -132,5 +134,56 @@ describe('検証シナリオ（人の発言 → 候補の可否）', () => {
     expect(allowConsultCandidate({ ...admin, lastUser: 'それを経営課題に入れて', priorOffer: null })).toBe(false);
     expect(allowConsultCandidate({ ...admin, lastUser: 'それを経営課題に入れて', priorOffer: 'stage1.issue' })).toBe(true);
     expect(OPERATION_OFFER_BLOCK).toContain('どれか曖昧');
+  });
+});
+
+describe('否定・保留と、印の不備（安全側）', () => {
+  it.each([
+    ['はい、でも登録しないで', 'stage1.issue'],
+    ['やっぱりやめておく', 'stage1.issue'],
+    ['それを経営課題に入れないで', 'stage1.issue'],
+    ['経営課題に入れるのは見送りたい', null],
+    ['経営課題として追加して、でも後で考える', null],
+  ])('「%s」（提案: %s）は指示にしない', (text, offer) => {
+    expect(isClearIssueInstruction(text, offer)).toBe(false);
+  });
+
+  it('候補が2つ以上なら、候補も提案もすべて捨てる', () => {
+    const one = '<<OP {"kind":"stage1.issue","title":"A"}>>';
+    const two = '<<OP {"kind":"stage1.issue","title":"B"}>>';
+    const r = extractConsultOperation(`本文\n${one}\n${two}`);
+    expect(r).toMatchObject({ content: '本文', candidate: null, offer: null, rejected: true });
+  });
+
+  it('候補と提案が同時にあれば、候補は残し提案は持たない', () => {
+    const r = extractConsultOperation('本文\n<<OP {"kind":"stage1.issue","title":"A"}>>\n<<OFFER stage1.issue>>');
+    expect(r).toMatchObject({ content: '本文', candidate: { title: 'A' }, offer: null, rejected: false });
+  });
+
+  it('閉じていない印は捨て、本文に残さない', () => {
+    const r = extractConsultOperation('本文\n<<OP {"kind":"stage1.issue","title":"A"');
+    expect(r).toMatchObject({ content: '本文', candidate: null, rejected: true });
+  });
+});
+
+describe('提案の紐づけ鍵', () => {
+  const base = { userId: 'u1', companyId: 'c1', strategyId: 's1', thread: 'c1|s1|d|p' };
+
+  it('同じ組なら同じ鍵、いずれかが違えば別の鍵', () => {
+    const key = consultOfferKeyOf(base);
+    expect(key).toMatch(/^[0-9a-f]{16}$/);
+    expect(consultOfferKeyOf({ ...base })).toBe(key);
+    expect(consultOfferKeyOf({ ...base, userId: 'u2' })).not.toBe(key);
+    expect(consultOfferKeyOf({ ...base, companyId: 'c2' })).not.toBe(key);
+    expect(consultOfferKeyOf({ ...base, strategyId: 's2' })).not.toBe(key);
+    expect(consultOfferKeyOf({ ...base, thread: '' })).not.toBe(key);
+  });
+
+  it('画面から戻された提案は、種類と鍵の形だけを受け付ける', () => {
+    const key = consultOfferKeyOf(base);
+    expect(parseConsultOffer({ kind: 'stage1.issue', key })).toEqual({ kind: 'stage1.issue', key });
+    expect(parseConsultOffer('stage1.issue')).toBeNull();
+    expect(parseConsultOffer({ kind: 'stage1.issue', key: 'xyz' })).toBeNull();
+    expect(parseConsultOffer({ kind: 'stage4.plan', key })).toBeNull();
   });
 });

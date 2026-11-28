@@ -44,8 +44,10 @@ import { withConsultTone } from '@/lib/ceoChat/consultInstruction';
 import {
   OPERATION_OFFER_BLOCK,
   allowConsultCandidate,
+  consultOfferKeyOf,
   extractConsultOperation,
-  type ConsultOfferKind,
+  parseConsultOffer,
+  type ConsultOffer,
   type ConsultOperationCandidate,
 } from '@/lib/aiOperations/consultOperation';
 import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
@@ -156,6 +158,7 @@ type RequestBody = {
   companyId: string;
   /** 直前の回答で示した操作の提案（画面が保持する。候補の許可は人の発言と役割で判断する） */
   priorOffer?: unknown;
+  consultThread?: unknown;
   screen?: unknown;
   execution?: unknown;
   consult?: unknown;
@@ -1057,7 +1060,14 @@ export async function POST(req: Request) {
     // 回答スタイルの指示より前に入れ、回答スタイルは system の末尾に残す
     const operationOfferEnabled =
       isManual && companyContextUsed && !!strategy && (membership.role === 'admin' || membership.role === 'manager');
-    const priorOffer = body?.priorOffer === 'stage1.issue' ? 'stage1.issue' : null;
+    const offerThread = {
+      userId: authUserId,
+      companyId,
+      strategyId: typeof strategyId === 'string' ? strategyId : '',
+      thread: typeof body?.consultThread === 'string' ? body.consultThread : '',
+    };
+    const offered = parseConsultOffer(body?.priorOffer);
+    const priorOffer = offered && offered.key === consultOfferKeyOf(offerThread) ? offered.kind : null;
     if (operationOfferEnabled) systemBase += '\n\n' + OPERATION_OFFER_BLOCK;
 
     const askMessages = sanitizeAskMessages(messages);
@@ -1214,7 +1224,7 @@ export async function POST(req: Request) {
       reviewMarker = review.diagnostics;
     }
     let consultOperation: ConsultOperationCandidate | null = null;
-    let consultOffer: ConsultOfferKind | null = null;
+    let consultOffer: ConsultOffer | null = null;
     if (output !== 'json') {
       const op = extractConsultOperation(content);
       content = op.content;
@@ -1222,7 +1232,7 @@ export async function POST(req: Request) {
       if (op.candidate && allowed) consultOperation = op.candidate;
       if (op.candidate && !allowed) console.log('[ask-ceo-agent]', requestId, 'operation_candidate_dropped', { role: membership.role, priorOffer });
       if (op.rejected) console.log('[ask-ceo-agent]', requestId, 'operation_mark_rejected');
-      if (op.offer && operationOfferEnabled) consultOffer = op.offer;
+      if (op.offer && operationOfferEnabled) consultOffer = { kind: op.offer, key: consultOfferKeyOf(offerThread) };
     }
     if (reviewRun.applicable) {
       console.log('[ask-ceo-agent]', requestId, 'stage4_review', classifyReviewRun({
