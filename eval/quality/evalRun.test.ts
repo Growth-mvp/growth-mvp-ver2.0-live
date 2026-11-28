@@ -1,7 +1,7 @@
 /* 評価ランナーの end-to-end。既定では偽の送信関数で実行する（API は呼ばない）。
  * 実 API は QUALITY_LIVE=1 かつ QUALITY_APPROVED=yes のときだけ動く（既定では skip）。 */
 import path from 'path';
-import { readFileSync, readdirSync, existsSync } from 'fs';
+import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { NextRequest } from 'next/server';
 import { EvalCallGuard, MAX_TOTAL_CALLS, BUDGET_USD } from './costGuard';
 import { runEvaluation } from './runner';
@@ -94,7 +94,9 @@ function makeAdmin() {
   };
 }
 
-function req(query: string) {
+type Turn = { role: 'user' | 'assistant'; content: string };
+
+function req(query: string | Turn[]) {
   return new NextRequest('http://localhost/api/ask-ceo-agent', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer t' },
@@ -102,9 +104,62 @@ function req(query: string) {
       userId: FICTIONAL_USER_ID,
       strategyId: FICTIONAL_STRATEGY_ID,
       companyId: FICTIONAL_COMPANY_ID,
-      messages: [{ role: 'user', content: query }],
+      messages: typeof query === 'string' ? [{ role: 'user', content: query }] : query,
     }),
   });
+}
+
+const DIALOGUES: Array<{ id: string; turns: string[] }> = [
+  {
+    id: 'd1-owner-initiative',
+    turns: [
+      '社員が主体的に動いてくれません。どうすべきでしょうか？',
+      'でも、うちの社員は今の業務で手一杯で、そこまで考える余裕はないと思います。',
+    ],
+  },
+  {
+    id: 'd2-cross-department',
+    turns: [
+      '他部門がなかなか協力してくれません。営業部との関係をどう改善すべきでしょうか？',
+      'でも、営業部は自分たちの数字で精一杯なので、製造の事情まで聞く余裕がないと言っています。',
+    ],
+  },
+  {
+    id: 'd3-employee-boss',
+    turns: [
+      '上司に自分の提案を理解してもらえないのですが、どうすべきでしょうか？',
+      'でも、上司は忙しくて話を聞く時間もくれないんです。',
+    ],
+  },
+];
+
+async function runDialogues(raw: (params: any) => Promise<any>, outDir: string) {
+  const guard = new EvalCallGuard();
+  (globalThis as any).__evalCreate = guard.wrap(raw);
+  mkdirSync(outDir, { recursive: true });
+  for (const d of DIALOGUES) {
+    const history: Turn[] = [];
+    const turns: unknown[] = [];
+    for (let i = 0; i < d.turns.length; i++) {
+      const tag = `${d.id}-t${i + 1}`;
+      guard.setTag(tag);
+      history.push({ role: 'user', content: d.turns[i] });
+      const res = await POST(req([...history]));
+      const body = await res.json();
+      history.push({ role: 'assistant', content: body.content as string });
+      turns.push({
+        turn: i + 1,
+        user: d.turns[i],
+        answer: body.content,
+        resolvedMode: body.resolvedMode ?? null,
+        stageUsed: body.stageUsed ?? null,
+        calls: guard.records.filter((r) => r.tag === tag),
+        costUsd: guard.records.filter((r) => r.tag === tag).reduce((n, r) => n + r.costUsd, 0),
+      });
+    }
+    writeFileSync(path.join(outDir, `${d.id}.json`), JSON.stringify({ id: d.id, turns }, null, 2), 'utf8');
+  }
+  return guard;
 }
 
 function approxChars(messages: Array<{ content: unknown }>): number {
@@ -256,5 +311,15 @@ const LIVE = process.env.QUALITY_LIVE === '1' && process.env.QUALITY_APPROVED ==
     const questions = ids.length ? QUALITY_QUESTIONS.filter((q) => ids.includes(q.id)) : QUALITY_QUESTIONS;
     const { summary } = await runWith(raw, path.join(__dirname, 'results-live'), questions);
     expect(summary.spentUsd).toBeLessThan(BUDGET_USD);
+  }, 1_800_000);
+
+  it('3つの対話を、異議・制約を伝えた後の返答まで実行し、回答原文と費用を保存する', async () => {
+    const RealOpenAI = jest.requireActual('openai').default;
+    const real = new RealOpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0 });
+    const guard = await runDialogues(
+      (params: any) => real.chat.completions.create(params),
+      path.join(__dirname, 'results-dialogue')
+    );
+    expect(guard.spentUsd).toBeLessThan(BUDGET_USD);
   }, 1_800_000);
 });
