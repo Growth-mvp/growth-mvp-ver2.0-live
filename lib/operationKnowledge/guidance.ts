@@ -18,8 +18,10 @@ const ROLE_LABEL: Record<OperationRole, string> = {
 
 export type QuestionKind = 'operation' | 'compound' | 'consult' | 'none';
 
-const ONBOARDING_CUE = /((初めて|はじめて)(使|利用|操作|登録|ログイン)|何から)/;
-const STRONG_OPERATION_CUE = /(この画面|次は|次に|使い方|操作方法|使う|ボタン|タブ|見当たら|保存)/;
+const ONBOARDING_CUE = /((初めて|はじめて)(使|利用|操作|登録|ログイン)|(GROWTH|アプリ|この画面)[^。？?]*何から)/i;
+const STRONG_OPERATION_CUE = /(この画面|使い方|操作方法|使う|ボタン|タブ|見当たら|保存)/;
+/* 「次は・次に」は一般語のため、操作語（入力・保存・出力など）と組み合わさった場合だけ操作の質問とする */
+const NEXT_STEP_OPERATION_CUE = /(次は|次に).{0,20}(入力|保存|出力|登録|入れ|押)|次は何を(すれば|やれば)(いい|よい)/;
 const WEAK_OPERATION_CUE = /(どうすれば|どうやって|どうしたら|やり方|進め方|手順|作りたい|作る|作成|生成|入力|追加|削除|編集|更新|共有|公開|依頼|何をす|何のため|目的|どこ|開く)/;
 const APP_OBJECT = /(画面|欄|部門|SWOT|たたき台|論点|計画書|ルーム|セグメント|財務データ|業績目標|メトリクス|分析|KPI|OKR|STAGE|ステージ|GROWTH|アプリ|違和感|プロジェクト|借入|返済|設備投資|達成率|招待|権限)/i;
 const OPERATION_ASK_CUE = /(修正|変更|どこ|招待|出力|PDF|ダウンロード|解消|公開|見られ|見え|知られ|再生成|中止|外す|表示されな)/;
@@ -69,6 +71,7 @@ export function classifyQuestion(text: string): QuestionKind {
   const operation =
     ONBOARDING_CUE.test(text) ||
     STRONG_OPERATION_CUE.test(text) ||
+    NEXT_STEP_OPERATION_CUE.test(text) ||
     (WEAK_OPERATION_CUE.test(text) && object && !validityAsk) ||
     (appTerm && APP_TERM_OPERATION_CUE.test(text)) ||
     (OPERATION_ASK_CUE.test(text) && (registryScore(text) >= REGISTRY_MATCH_MIN || OPERATION_TERM.test(text)));
