@@ -536,7 +536,7 @@ describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回'
     await turnCompanionOn();
     await waitFor(() => expect(companionCardText()).toContain('判断材料が不足しています'));
     expect(companionCardText()).toContain('新規借入が未入力です。0円とは見なしていません');
-    expect(companionCardText()).toContain('経営点検の結論は出せません');
+    expect(companionCardText()).toContain('まだ結論は出せません');
   });
 
   it('事実が0件で問題がなければ、問題なしを示す。点検の処理に失敗したときは、失敗として示す', async () => {
@@ -559,7 +559,7 @@ describe('自律伴走：経営点検（STAGE5・6）は会社ごとに1日1回'
     mockRiskFetch.mockImplementation(async () => ({ ok: false, status: 500, text: async () => '{}' }));
     await renderReadyPanel();
     await waitFor(() => expect(companionCardText()).toContain('点検できませんでした'));
-    expect(companionCardText()).toContain('経営点検の処理に失敗したため');
+    expect(companionCardText()).toContain('経営点検を完了できませんでした');
   });
 
   it('作成中の所見は、利用者が「最新の点検を確認」を押した時だけ取り直し、完成後の所見に置き換える（点検日時を示す）', async () => {

@@ -139,7 +139,7 @@ describe('経営点検の依頼', () => {
 
   it('事実が0件で点検できた範囲に問題がなければ、問題なしと定型文で示し、AIの所見は含めない', () => {
     const body = riskReviewBody(result({ status: 'NO_ISSUE' }));
-    expect(body).toContain('点検できた範囲では、問題は検出されませんでした');
+    expect(body).toContain('点検できた範囲では問題は見当たりませんでした');
     expect(body).not.toContain('仮説');
     expect(body).toContain('点検していない範囲');
   });
@@ -147,14 +147,14 @@ describe('経営点検の依頼', () => {
   it('事実が0件で判断材料が不足していれば、不足の理由を並べ、結論を出さない', () => {
     const coverage = ['- 資金繰り：判断材料不足（新規借入が未入力です）'];
     const body = riskReviewBody(result({ status: 'INSUFFICIENT', coverage }));
-    expect(body).toContain('判断材料が不足している項目があるため、経営点検の結論は出せません');
+    expect(body).toContain('まだ結論は出せません');
     expect(body).toContain(coverage[0]);
     expect(body).not.toContain('問題は検出されませんでした');
   });
 
   it('点検に失敗したときは、失敗と次の点検の時期を示し、所見や事実は作らない', () => {
     const body = riskReviewBody(result({ status: 'FAILED' }));
-    expect(body).toContain('経営点検の処理に失敗したため');
+    expect(body).toContain('経営点検を完了できませんでした');
     expect(body).not.toContain('事実（保存済みデータの計算結果）');
   });
 

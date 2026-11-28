@@ -97,7 +97,7 @@ describe('経営点検の一気通貫（API → AI所見 → 表示本文）', (
     expect(mockStore.stats.inserts).toBe(0);
 
     const body = riskReviewBody(result!);
-    expect(body).toContain('判断材料が不足している項目があるため、経営点検の結論は出せません');
+    expect(body).toContain('まだ結論は出せません');
     expect(body).toContain('資金繰り：未登録');
   });
 
@@ -110,7 +110,7 @@ describe('経営点検の一気通貫（API → AI所見 → 表示本文）', (
     expect(result?.facts).toEqual([]);
     expect(result?.coverage).toEqual([]);
     expect(mockCreate).not.toHaveBeenCalled();
-    expect(riskReviewBody(result!)).toContain('点検できた範囲では、問題は検出されませんでした');
+    expect(riskReviewBody(result!)).toContain('点検できた範囲では問題は見当たりませんでした');
   });
 
   it('点検の処理が失敗したときは、失敗として示し、AIを呼ばない', async () => {

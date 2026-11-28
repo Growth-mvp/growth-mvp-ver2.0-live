@@ -92,13 +92,27 @@ describe('経営点検の実行枠と所見の共有', () => {
   });
 
   it('作成中（IN_PROGRESS）の利用者は、完成後の所見を再取得できる（自動の繰り返しはない）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const base = mockCreate.getMockImplementation();
+    mockCreate.mockImplementationOnce(async (params: unknown) => {
+      await gate;
+      return base!(params as never);
+    });
     const first = call(FICTIONAL_COMPANY_ID, 'user-1');
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    for (let i = 0; i < 500 && mockStore.rows.size === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(mockStore.rows.size).toBe(1);
+
     const waiting = await json(await call(FICTIONAL_COMPANY_ID, 'user-2'));
     expect(waiting.aiState).toBe('IN_PROGRESS');
     expect(waiting.text).toBeNull();
     expect(typeof waiting.checkedAt).toBe('string');
 
+    release();
     const generated = await json(await first);
     expect(generated.aiState).toBe('GENERATED');
     expect(mockCreate).toHaveBeenCalledTimes(1);

@@ -8,6 +8,7 @@ import { planActualItemsForMode, planActualProjectsOf, planActualYearRowsOf } fr
 import { parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { progressOf } from '@/lib/stage5/actionProgress';
 import {
+  STALL_DAYS,
   TARGET_SOURCE_LABEL,
   detectRiskFacts,
   type ActionInput,
@@ -18,10 +19,13 @@ import {
   type TargetGapInput,
   type TargetSource,
 } from './companionRisk';
+import type { RiskHighlights } from './companionRiskSummary';
 
 export type RiskSourceArgs = Stage6ArgsForOutlook & { departments: unknown; now: Date };
 
-export type RiskInputs = { facts: RiskFact[]; coverage: string[] };
+export type RiskInputs = { facts: RiskFact[]; coverage: string[]; highlights: RiskHighlights };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const BLOCKING_HOLD = /未入力|未設定|算出できません|不足|判定できません/;
 const PREMISE_NO_NEW_LOAN = '追加借入なしの前提。新規借入は未入力のため0円として試算';
@@ -223,5 +227,28 @@ export function riskInputsOf(args: RiskSourceArgs): RiskInputs {
     krs,
     actions,
   });
-  return { facts, coverage };
+
+  const stallCutoff = args.now.getTime() - STALL_DAYS * DAY_MS;
+  const seenTargets = new Set<string>();
+  const highlights: RiskHighlights = {
+    targetGaps: finance.targets
+      .filter((t): t is TargetGapInput & { gapYen: number } => t.gapYen !== null && t.gapYen > 0)
+      .filter((t) => {
+        const k = `${t.metric}|${t.fiscalYear}`;
+        if (seenTargets.has(k)) return false;
+        seenTargets.add(k);
+        return true;
+      })
+      .map((t) => ({ metric: t.metric, fiscalYear: t.fiscalYear, gapYen: t.gapYen })),
+    cashShortfalls: finance.cash
+      .filter((y): y is CashYearInput & { shortfallYen: number } => y.shortfallYen !== null && y.shortfallYen > 0)
+      .map((y) => ({ year: y.year, shortfallYen: y.shortfallYen })),
+    overdueKrCount: facts.filter((f) => f.category === 'KR_OVERDUE').length,
+    stalledActionCount: actions.filter((a) => {
+      const at = Date.parse(a.updatedAt);
+      return a.inProgress && Number.isFinite(at) && at <= stallCutoff;
+    }).length,
+    planGapCount: facts.filter((f) => f.category === 'PLAN_GAP').length,
+  };
+  return { facts, coverage, highlights };
 }

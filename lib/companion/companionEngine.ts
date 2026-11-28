@@ -35,6 +35,12 @@ export type CompanionAction = {
   steps: string[];
   body?: string;
   status?: 'loading' | 'ready';
+  /** 経営点検：初期表示の要約（会話形式） */
+  summary?: string;
+  /** 経営点検：「経営点検の詳細を見る」で開く全文 */
+  detail?: string;
+  /** 経営点検：点検日時（常に表示する） */
+  checkedLabel?: string;
 };
 
 const EDIT_ROLES: ReadonlySet<CompanionRole> = new Set(['admin', 'manager']);

@@ -62,7 +62,18 @@ export default function CEOChatCompanionCard({ action, onDismiss, onAsk, askDisa
           <p className="mt-1 text-zinc-600">保存済みの内容から、助言を準備しています…</p>
         ) : (
           <>
-            <p className="mt-1 whitespace-pre-wrap">{action.body}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words">{action.summary ?? action.body}</p>
+            {action.detail && (
+              <details className="mt-2 group">
+                <summary className="cursor-pointer select-none text-[12px] font-semibold text-accent hover:underline">
+                  経営点検の詳細を見る
+                </summary>
+                <div className="mt-2 whitespace-pre-wrap break-words rounded border border-zinc-200 bg-white/80 p-3 text-[12px] leading-5 text-zinc-800">
+                  {action.detail}
+                </div>
+              </details>
+            )}
+            {action.checkedLabel && <p className="mt-2 text-[11px] text-zinc-500">{action.checkedLabel}</p>}
             <p className="mt-2 text-[11px] text-zinc-500">
               AIの助言です。根拠と前提を確かめて、判断は利用者が行ってください。
             </p>

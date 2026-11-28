@@ -58,7 +58,7 @@ import {
   decodeRiskStored,
   encodeRiskStored,
   requestRiskReview,
-  riskReviewBody,
+  riskReviewView,
   type StoredRisk,
 } from '@/lib/companion/companionRiskClient';
 import { STATUS_TITLE } from '@/lib/companion/companionRisk';
@@ -1105,6 +1105,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     steps: [],
     body: r.body,
     status: 'ready',
+    summary: r.summary ?? r.body,
+    detail: r.detail,
+    checkedLabel: r.checkedLabel,
   });
 
   const showRiskIfDue = () => {
@@ -1133,11 +1136,15 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         return;
       }
       if (refresh && result.status === 'FAILED') return;
+      const view = riskReviewView(result);
       const stored: StoredRisk = {
         status: result.status,
         serious: result.serious,
-        body: riskReviewBody(result),
+        body: view.body,
         aiState: result.aiState ?? 'FAILED',
+        summary: view.summary,
+        detail: view.detail ?? undefined,
+        checkedLabel: view.checkedLabel ?? undefined,
       };
       writeAdviceText(companionStores.session, requestedUser, requestedCompany, key, encodeRiskStored(stored));
       if (riskKeyRef.current !== key) return;
@@ -1249,7 +1256,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       </header>
 
       {companionAvailable && user?.id ? (
-        <div className="shrink-0 space-y-2 px-5 pt-2">
+        <div className="shrink-0 px-5 pt-2">
           <div className="flex justify-end">
             <button
               type="button"
@@ -1261,14 +1268,19 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             </button>
           </div>
           {companionCard ? (
-            <CEOChatCompanionCard
-              action={companionCard}
-              onDismiss={dismissCompanion}
-              onAsk={askCompanion}
-              askDisabled={sending}
-              onVisible={recordCompanionVisible}
-              onRefresh={companionCard.key.startsWith('RISK:') ? refreshRisk : undefined}
-            />
+            <div
+              className="mt-2 max-h-[min(40vh,22rem)] overflow-y-auto overscroll-contain pr-1"
+              data-testid="companion-card-scroll"
+            >
+              <CEOChatCompanionCard
+                action={companionCard}
+                onDismiss={dismissCompanion}
+                onAsk={askCompanion}
+                askDisabled={sending}
+                onVisible={recordCompanionVisible}
+                onRefresh={companionCard.key.startsWith('RISK:') ? refreshRisk : undefined}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}

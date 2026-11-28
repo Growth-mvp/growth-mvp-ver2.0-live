@@ -17,6 +17,7 @@ import { stage6PlanDepartments } from '@/lib/cascade/projectLifecycle';
 import { riskInputsOf } from '@/lib/companion/companionRiskSource';
 import { isCompanionKilled } from '@/lib/companion/companionPolicy';
 import { RISK_GUARD, buildRiskPrompt, isSeriousRisk, renderRiskFacts, riskStatusOf } from '@/lib/companion/companionRisk';
+import { riskSummaryOf, type RiskHighlights } from '@/lib/companion/companionRiskSummary';
 import {
   claimDailyRiskReview,
   finishClaim,
@@ -53,8 +54,9 @@ export async function POST(req: Request) {
   const now = new Date();
   let facts;
   let coverage: string[];
+  let highlights: RiskHighlights;
   try {
-    ({ facts, coverage } = riskInputsOf({
+    ({ facts, coverage, highlights } = riskInputsOf({
       csvFinanceData: strategy.csvFinanceData,
       companyId,
       financePL: strategy.financePL,
@@ -71,8 +73,9 @@ export async function POST(req: Request) {
   }
   const status = riskStatusOf(facts, coverage);
   const checkedAt = now.toISOString();
+  const summary = riskSummaryOf(status, highlights);
   if (facts.length === 0) {
-    return NextResponse.json({ status, facts: [], text: null, serious: false, coverage, aiState: 'NOT_NEEDED', checkedAt });
+    return NextResponse.json({ status, facts: [], text: null, serious: false, coverage, aiState: 'NOT_NEEDED', checkedAt, summary });
   }
 
   const lines = renderRiskFacts(facts);
@@ -81,10 +84,10 @@ export async function POST(req: Request) {
 
   const claim = await claimDailyRiskReview(admin, key);
   if (claim.kind === 'REUSE') {
-    return NextResponse.json({ status: 'ISSUES', facts: lines, text: claim.finding, serious, coverage, aiState: 'REUSED', checkedAt });
+    return NextResponse.json({ status: 'ISSUES', facts: lines, text: claim.finding, serious, coverage, aiState: 'REUSED', checkedAt, summary });
   }
   if (claim.kind === 'BLOCKED') {
-    return NextResponse.json({ status: 'ISSUES', facts: lines, text: null, serious, coverage, aiState: claim.state, checkedAt });
+    return NextResponse.json({ status: 'ISSUES', facts: lines, text: null, serious, coverage, aiState: claim.state, checkedAt, summary });
   }
 
   let text: string | null = null;
@@ -123,5 +126,6 @@ export async function POST(req: Request) {
     coverage,
     aiState: text ? 'GENERATED' : 'FAILED',
     checkedAt,
+    summary,
   });
 }
