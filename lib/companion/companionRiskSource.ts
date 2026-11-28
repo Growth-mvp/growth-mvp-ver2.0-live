@@ -95,7 +95,7 @@ function targetOf(value: number | null, due: number | null): string {
   return `${due !== null ? `${due}年度` : '年度未設定'}・${value !== null ? yenText(value) : '金額未設定'}`;
 }
 
-type FinanceJudgement = { cash: CashYearInput[]; targets: TargetGapInput[]; coverage: string[] };
+type FinanceJudgement = { cash: CashYearInput[]; targets: TargetGapInput[]; coverage: string[]; inconsistentTargets: boolean };
 
 /** 資金繰りと経営目標の差。STAGE2の業績目標とSTAGE6の経営目標を、それぞれ既存の統一PL計算で比べる */
 function judgeFinance(args: RiskSourceArgs): FinanceJudgement {
@@ -105,7 +105,7 @@ function judgeFinance(args: RiskSourceArgs): FinanceJudgement {
   const outlook = outlookOf(args, domain);
   if (!outlook) {
     coverage.push('- 資金繰り・経営目標との差：未算定（資金繰り試算の結果が得られませんでした）');
-    return { cash: [], targets: [], coverage };
+    return { cash: [], targets: [], coverage, inconsistentTargets: false };
   }
 
   let cash: CashYearInput[] = [];
@@ -179,6 +179,7 @@ function judgeFinance(args: RiskSourceArgs): FinanceJudgement {
   };
 
   let anyTarget = false;
+  let inconsistentTargets = false;
   for (const m of metrics) {
     const s2Set = m.s2.value !== null;
     const s6Set = m.s6 !== null && m.s6.value !== null;
@@ -188,6 +189,7 @@ function judgeFinance(args: RiskSourceArgs): FinanceJudgement {
     const same = s2Set && m.s6.value === m.s2.value && m.s6.due === m.s2.due;
     if (same) continue;
     if (s2Set) {
+      inconsistentTargets = true;
       coverage.push(
         `- ${m.metric}の経営目標：不整合（STAGE2は${targetOf(m.s2.value, m.s2.due)}、STAGE6は${targetOf(m.s6.value, m.s6.due)}。両方の目標で差を示しています）`,
       );
@@ -198,7 +200,7 @@ function judgeFinance(args: RiskSourceArgs): FinanceJudgement {
     coverage.push('- 経営目標との差：未登録（STAGE2の業績目標もSTAGE6の経営目標も保存されていません）');
   }
 
-  return { cash, targets, coverage };
+  return { cash, targets, coverage, inconsistentTargets };
 }
 
 /** 点検の入力（事実）と、判断できなかった項目を返す。事実が無くても判断材料の状態を返す */
@@ -249,6 +251,7 @@ export function riskInputsOf(args: RiskSourceArgs): RiskInputs {
       return a.inProgress && Number.isFinite(at) && at <= stallCutoff;
     }).length,
     planGapCount: facts.filter((f) => f.category === 'PLAN_GAP').length,
+    inconsistentTargets: finance.inconsistentTargets,
   };
   return { facts, coverage, highlights };
 }

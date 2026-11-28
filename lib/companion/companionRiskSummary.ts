@@ -8,6 +8,8 @@ export type RiskHighlights = {
   overdueKrCount: number;
   stalledActionCount: number;
   planGapCount: number;
+  /** STAGE2とSTAGE6の経営目標が異なる（年度または数値）。要約で触れ、詳細で両方を確認できる */
+  inconsistentTargets: boolean;
 };
 
 export const NO_HIGHLIGHTS: RiskHighlights = {
@@ -16,9 +18,10 @@ export const NO_HIGHLIGHTS: RiskHighlights = {
   overdueKrCount: 0,
   stalledActionCount: 0,
   planGapCount: 0,
+  inconsistentTargets: false,
 };
 
-/** 億円・万円の読みやすい表記（例：7000万円、1.8億円） */
+/** 億円・万円の読みやすい表記（例：7,000万円、1.5億円） */
 export function yenJa(yen: number): string {
   const n = Math.abs(yen);
   if (n >= 1e8) return `${Math.round(n / 1e7) / 10}億円`;
@@ -43,15 +46,23 @@ export function riskSummaryOf(status: RiskStatus, h: RiskHighlights = NO_HIGHLIG
   const hasFinance = h.targetGaps.length > 0 || h.cashShortfalls.length > 0;
 
   if (h.targetGaps.length > 0) {
-    const years = h.targetGaps.map((g) => g.fiscalYear).filter((y): y is number => y !== null);
-    const year = years.length > 0 ? Math.min(...years) : null;
-    const metrics = [...new Set(h.targetGaps.map((g) => g.metric))];
-    const metricText = metrics.length === 2 ? '売上高と営業利益' : metrics[0] === '売上' ? '売上高' : '営業利益';
-    const yearText = year !== null ? `${year}年度の` : '';
-    const amounts = h.targetGaps.map((g) => `${g.metric === '売上' ? '売上高' : '営業利益'} ${yenJa(g.gapYen)}`);
-    paragraphs.push(
-      `現在の業績見通しでは、${yearText}経営目標に対して、${metricText}が不足しています。不足額は、${amounts.join('、')}です。`,
-    );
+    // 年度ごとに文を分け、各項目を自分の年度の目標に紐づける（年度を混ぜない）
+    const byYear = new Map<number | null, RiskHighlights['targetGaps']>();
+    for (const g of h.targetGaps) {
+      const list = byYear.get(g.fiscalYear) ?? [];
+      list.push(g);
+      byYear.set(g.fiscalYear, list);
+    }
+    const years = [...byYear.keys()].sort((a, b) => (a === null ? 1 : b === null ? -1 : a - b));
+    years.forEach((year, i) => {
+      const gaps = byYear.get(year) ?? [];
+      const metrics = [...new Set(gaps.map((g) => g.metric))];
+      const metricText = metrics.length === 2 ? '売上高と営業利益' : metrics[0] === '売上' ? '売上高' : '営業利益';
+      const target = year !== null ? `${year}年度の経営目標` : '年度未設定の経営目標';
+      const lead = i === 0 ? '現在の業績見通しでは、' : 'また、';
+      const amounts = gaps.map((g) => `${g.metric === '売上' ? '売上高' : '営業利益'} ${yenJa(g.gapYen)}`);
+      paragraphs.push(`${lead}${target}に対して、${metricText}が不足しています。不足額は、${amounts.join('、')}です。`);
+    });
   }
 
   if (h.cashShortfalls.length > 0) {
@@ -59,6 +70,10 @@ export function riskSummaryOf(status: RiskStatus, h: RiskHighlights = NO_HIGHLIG
     paragraphs.push(
       `また、${first.year}年度は、資金が最低必要額を${yenJa(first.shortfallYen)}下回る見込みです（資金繰りの試算による見込みで、借入の計画は確定していません）。`,
     );
+  }
+
+  if (h.inconsistentTargets) {
+    paragraphs.push('STAGE2とSTAGE6で経営目標の年度または数値が異なります。両方の目標による差は、詳細で年度と出所を確認できます。');
   }
 
   const presentKinds = [h.overdueKrCount, h.stalledActionCount, h.planGapCount].filter((n) => n > 0).length;

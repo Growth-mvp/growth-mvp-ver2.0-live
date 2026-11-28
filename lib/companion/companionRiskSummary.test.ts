@@ -2,7 +2,14 @@ import { riskSummaryOf, yenJa, type RiskHighlights } from './companionRiskSummar
 import { riskReviewView, type RiskReviewResult } from './companionRiskClient';
 import { NOT_CHECKED_NOTE } from './companionRisk';
 
-const NONE: RiskHighlights = { targetGaps: [], cashShortfalls: [], overdueKrCount: 0, stalledActionCount: 0, planGapCount: 0 };
+const NONE: RiskHighlights = {
+  targetGaps: [],
+  cashShortfalls: [],
+  overdueKrCount: 0,
+  stalledActionCount: 0,
+  planGapCount: 0,
+  inconsistentTargets: false,
+};
 
 describe('経営点検の要約：金額の表記', () => {
   it('億円・万円の読みやすい表記にする', () => {
@@ -12,6 +19,30 @@ describe('経営点検の要約：金額の表記', () => {
     expect(yenJa(150_000_000)).toBe('1.5億円');
     expect(yenJa(16_760_000)).toBe('1,676万円');
     expect(yenJa(9_000)).toBe('9,000円');
+  });
+});
+
+describe('経営点検の要約：目標の年度を混ぜない', () => {
+  it('年度が異なる目標は、年度ごとに文を分け、各項目を自分の年度に紐づける', () => {
+    const text = riskSummaryOf('ISSUES', {
+      ...NONE,
+      targetGaps: [
+        { metric: '売上', fiscalYear: 2027, gapYen: 70_000_000 },
+        { metric: '営業利益', fiscalYear: 2029, gapYen: 18_000_000 },
+      ],
+    });
+    expect(text).toContain('現在の業績見通しでは、2027年度の経営目標に対して、売上高が不足しています。不足額は、売上高 7,000万円です。');
+    expect(text).toContain('また、2029年度の経営目標に対して、営業利益が不足しています。不足額は、営業利益 1,800万円です。');
+    expect(text).not.toMatch(/2027年度の経営目標に対して、売上高と営業利益/);
+  });
+
+  it('STAGE2とSTAGE6の目標が異なる場合は、その旨を要約で示し、詳細で確認できると伝える', () => {
+    const text = riskSummaryOf('ISSUES', {
+      ...NONE,
+      targetGaps: [{ metric: '売上', fiscalYear: 2027, gapYen: 70_000_000 }],
+      inconsistentTargets: true,
+    });
+    expect(text).toContain('STAGE2とSTAGE6で経営目標の年度または数値が異なります。両方の目標による差は、詳細で年度と出所を確認できます。');
   });
 });
 
