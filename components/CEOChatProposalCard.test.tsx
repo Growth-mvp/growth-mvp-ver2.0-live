@@ -28,6 +28,7 @@ const PROPOSAL: OperationProposal = {
   strategyId: 'strategy-1',
   beforeTitles: ['既存顧客の離脱が増えている'],
   title: '新規顧客の獲得が鈍い',
+  description: '',
 };
 
 const SAVE_FAILED = '保存されませんでした。';
@@ -124,6 +125,41 @@ describe('入力案の承認：STAGE1 経営課題の追加', () => {
     render(<CEOChatProposalCard proposal={PROPOSAL} pathname="/stage1" onResult={onResult} />);
     fireEvent.click(approveButton());
     await waitFor(() => expect(screen.getByText(/承認の確認ができませんでした/)).toBeTruthy());
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(onResult).not.toHaveBeenCalled();
+  });
+});
+
+describe('入力案の承認：説明文と検証（文字数・重複・上限）', () => {
+  it('説明文を編集すると、その内容で保存する', async () => {
+    const onResult = jest.fn();
+    render(<CEOChatProposalCard proposal={PROPOSAL} pathname="/stage1" onResult={onResult} />);
+    const description = screen.getAllByRole('textbox')[1] as HTMLTextAreaElement;
+    fireEvent.change(description, { target: { value: '商談の数が減っていると話された。' } });
+    fireEvent.click(approveButton());
+    await waitFor(() => expect(onResult).toHaveBeenCalled());
+    expect(mockSave.mock.calls[0][0].patch.stage1Issues.at(-1).description).toBe('商談の数が減っていると話された。');
+  });
+
+  it('説明文が300字を超えたら、保存せず、入力は残す', async () => {
+    const onResult = jest.fn();
+    render(<CEOChatProposalCard proposal={PROPOSAL} pathname="/stage1" onResult={onResult} />);
+    const description = screen.getAllByRole('textbox')[1] as HTMLTextAreaElement;
+    fireEvent.change(description, { target: { value: 'あ'.repeat(301) } });
+    fireEvent.click(approveButton());
+    await waitFor(() => expect(screen.getByText(/説明文は300字以内/)).toBeTruthy());
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(onResult).not.toHaveBeenCalled();
+    expect(useOperationProposalStore.getState().pending).not.toBeNull();
+  });
+
+  it('題名を、既存の経営課題と同じ内容に編集したら、保存せず、入力は残す（重複）', async () => {
+    const onResult = jest.fn();
+    render(<CEOChatProposalCard proposal={PROPOSAL} pathname="/stage1" onResult={onResult} />);
+    const title = screen.getAllByRole('textbox')[0] as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: '既存顧客の離脱が増えている' } });
+    fireEvent.click(approveButton());
+    await waitFor(() => expect(screen.getByText(/同じ経営課題がすでにあるため/)).toBeTruthy());
     expect(mockSave).not.toHaveBeenCalled();
     expect(onResult).not.toHaveBeenCalled();
   });

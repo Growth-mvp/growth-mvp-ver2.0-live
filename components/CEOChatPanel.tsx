@@ -27,7 +27,8 @@ import { screenIdForPathname } from '@/lib/screens/screenContext';
 import CEOChatCompanionCard from '@/components/CEOChatCompanionCard';
 import CEOChatVoiceControls, { type InputMode } from '@/components/CEOChatVoiceControls';
 import { resolveVoiceNavigation, type VoiceDepartment } from '@/lib/voice/navigationIntent';
-import { contextDepartments, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { contextDepartments, issueProposalOf, resolveOperationInstruction, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { parseOperationCandidate } from '@/lib/aiOperations/consultOperation';
 import { useStage3CommandStore } from '@/lib/aiOperations/stage3Command';
 import { parseStage4Intent } from '@/lib/aiOperations/stage4';
 import { requestStage4, stage4ExcludedTitles, stage4ProjectRefs } from '@/lib/aiOperations/stage4Client';
@@ -104,6 +105,8 @@ type AskResp = {
   confidence?: number;
   error?: string;
   reviewTargets?: unknown;
+  operationCandidate?: unknown;
+  operationOffer?: unknown;
 };
 
 type Props = { embedded?: boolean };
@@ -748,12 +751,17 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       const screenId = screenIdForPathname(pathname ?? '');
       const consult = consultPayloadFor(useConsultFocusStore.getState().entries, pathname ?? '', latestStrategyId ?? null);
 
+      // 直前の回答で示した操作の提案（同じ相談の中だけ）。次の発言が同意かどうかの判断に使う
+      const threadMessages = current.filter((m) => (m.execKey ?? '') === execKey);
+      const priorOffer = [...threadMessages].reverse().find((m) => m.role === 'assistant')?.operationOffer ?? null;
+
       const doAsk = async () => {
         // ★ Sprint 3A': meta を付与する場合と付与しない場合に対応
         const payload: any = {
           userId: user!.id,
           strategyId: latestStrategyId,
           companyId: requestCompanyId,
+          ...(priorOffer ? { priorOffer } : {}),
           ...(screenId ? { screen: { screenId } } : {}),
           ...(consult ? { consult } : {}),
           ...(execKey && selNow && selNow.strategyId === latestStrategyId
@@ -802,10 +810,46 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       // ← 先に送信フラグを落としてからメッセージを追加（UI固着防止）
       setCeoChatPending(ticket, false);
       const reviewTargets = parseReviewTargets(data?.reviewTargets);
+      const operationOffer = data?.operationOffer === 'stage1.issue' ? ('stage1.issue' as const) : undefined;
       updateCeoChatMessages(ticket, (msgs) => [
         ...msgs,
-        { role: 'assistant', content, answered: true, ...(reviewTargets.length > 0 ? { reviewTargets } : {}), ...(execKey ? { consultKey: execKey } : {}) },
+        {
+          role: 'assistant',
+          content,
+          answered: true,
+          ...(reviewTargets.length > 0 ? { reviewTargets } : {}),
+          ...(execKey ? { consultKey: execKey } : {}),
+          ...(operationOffer ? { operationOffer } : {}),
+        },
       ]);
+
+      // 相談の中から検証された操作候補（経営課題の入力案）。保存はせず、承認カードで利用者が確かめる
+      const candidate = parseOperationCandidate(data?.operationCandidate);
+      if (candidate && requestCompanyId && latestStrategyId) {
+        const role = useUserStore.getState().role ?? null;
+        if (role !== 'admin' && role !== 'manager') {
+          updateCeoChatMessages(ticket, (msgs) => [
+            ...msgs,
+            { role: 'assistant', content: '経営課題の追加は、管理者・管理職が行えます。内容は、この会話を共有して依頼してください。' },
+          ]);
+        } else {
+          const st = useStrategyStore.getState();
+          const issueInstruction = issueProposalOf(candidate.title, candidate.description, {
+            companyId: requestCompanyId,
+            strategyId: latestStrategyId,
+            ceoIntent: st.ceoIntent ?? '',
+            revenueYenByYear: revenueYenByYear(st.financePL as RevenueRow[] | undefined),
+            stage1IssueTitles: ((st.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? ''),
+          });
+          if (issueInstruction.kind === 'proposal') {
+            useOperationProposalStore.getState().setPending(issueInstruction.proposal);
+            if (window.location.pathname !== issueInstruction.proposal.pathname) router.push(issueInstruction.proposal.pathname);
+            updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: proposalIntroText(issueInstruction.proposal) }]);
+          } else {
+            updateCeoChatMessages(ticket, (msgs) => [...msgs, { role: 'assistant', content: issueInstruction.message }]);
+          }
+        }
+      }
       return true;
     } catch (e) {
       // 会社切替による abort は通信エラーとして表示しない

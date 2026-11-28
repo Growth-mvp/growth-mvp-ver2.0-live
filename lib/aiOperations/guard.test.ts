@@ -109,6 +109,7 @@ describe('proposalStaleReason：STAGE1 経営課題の追加', () => {
     strategyId: 'strategy-1',
     beforeTitles: ['既存顧客の離脱が増えている'],
     title: '新規顧客の獲得が鈍い',
+    description: '',
   };
 
   it('作成後も経営課題が同じなら通す', () => {

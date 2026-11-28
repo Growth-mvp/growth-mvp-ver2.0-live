@@ -1,4 +1,4 @@
-import { appendCeoIntent, contextDepartments, parseYenAmounts, resolveOperationInstruction, stage3AnswerOf, type OperationContext } from './instruction';
+import { appendCeoIntent, contextDepartments, issueProposalOf, parseYenAmounts, resolveOperationInstruction, stage3AnswerOf, type OperationContext } from './instruction';
 
 const BASE: OperationContext = {
   companyId: 'company-1',
@@ -219,6 +219,7 @@ describe('resolveOperationInstruction：STAGE1 経営課題の追加', () => {
         strategyId: 'strategy-1',
         beforeTitles: ['既存顧客の離脱が増えている'],
         title: '新規顧客の獲得が鈍い',
+        description: '',
       },
     });
   });
@@ -253,5 +254,40 @@ describe('resolveOperationInstruction：STAGE1 経営課題の追加', () => {
   it('金額を含む指示は、売上の入力案に任せる（経営課題にしない）', () => {
     const result = resolveOperationInstruction('2025年度の全社売上高を1億6,000万円として経営課題にも追加して', BASE);
     expect(result?.kind === 'proposal' && result.proposal.kind).toBe('stage1.revenue');
+  });
+});
+
+describe('issueProposalOf：経営課題の入力案（説明文と上限・重複の検証）', () => {
+  const CTX: OperationContext = { ...BASE, stage1IssueTitles: ['既存顧客の離脱が増えている'] };
+
+  it('題名と説明文を入力案にする（保存はしない）', () => {
+    const r = issueProposalOf('新規顧客の獲得力が弱い', '  新規の商談が増えないと話された。 ', CTX);
+    expect(r).toEqual({
+      kind: 'proposal',
+      proposal: {
+        kind: 'stage1.issue',
+        pathname: '/stage1',
+        companyId: 'company-1',
+        strategyId: 'strategy-1',
+        beforeTitles: ['既存顧客の離脱が増えている'],
+        title: '新規顧客の獲得力が弱い',
+        description: '新規の商談が増えないと話された。',
+      },
+    });
+  });
+
+  it('説明文が300字を超えたら入力案を作らない', () => {
+    const r = issueProposalOf('新規顧客', 'あ'.repeat(301), CTX);
+    expect(r.kind).toBe('clarify');
+  });
+
+  it('題名が空・100字超・重複・5件の上限では入力案を作らない', () => {
+    expect(issueProposalOf('  ', '', CTX).kind).toBe('clarify');
+    expect(issueProposalOf('あ'.repeat(101), '', CTX).kind).toBe('clarify');
+    expect(issueProposalOf('既存顧客の離脱が増えている', '', CTX)).toEqual({
+      kind: 'clarify',
+      message: '同じ経営課題がすでにあるため、入力案は作りませんでした。',
+    });
+    expect(issueProposalOf('新しい課題', '', { ...BASE, stage1IssueTitles: ['a', 'b', 'c', 'd', 'e'] }).kind).toBe('clarify');
   });
 });

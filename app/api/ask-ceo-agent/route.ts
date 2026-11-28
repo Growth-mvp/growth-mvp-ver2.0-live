@@ -41,6 +41,13 @@ import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
 import { searchExternalFinancialData } from '@/lib/externalFinancialSearch';
 import { CONSULT_BEHAVIOR, CONSULT_ROLE, buildExternalFinancialBlock } from '@/lib/agentPrompt';
 import { withConsultTone } from '@/lib/ceoChat/consultInstruction';
+import {
+  OPERATION_OFFER_BLOCK,
+  allowConsultCandidate,
+  extractConsultOperation,
+  type ConsultOfferKind,
+  type ConsultOperationCandidate,
+} from '@/lib/aiOperations/consultOperation';
 import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
 import { selectCanonicalStory } from '@/lib/ceoChat/strategyRationale';
 import {
@@ -147,6 +154,8 @@ type RequestBody = {
   userId: string;
   strategyId: string;
   companyId: string;
+  /** 直前の回答で示した操作の提案（画面が保持する。候補の許可は人の発言と役割で判断する） */
+  priorOffer?: unknown;
   screen?: unknown;
   execution?: unknown;
   consult?: unknown;
@@ -1044,6 +1053,13 @@ export async function POST(req: Request) {
       );
     }
 
+    // 経営課題の操作候補：管理職以上・会社の情報を使う通常相談のときだけ、1回の応答に候補の印を書かせる（追加の呼び出しはしない）。
+    // 回答スタイルの指示より前に入れ、回答スタイルは system の末尾に残す
+    const operationOfferEnabled =
+      isManual && companyContextUsed && !!strategy && (membership.role === 'admin' || membership.role === 'manager');
+    const priorOffer = body?.priorOffer === 'stage1.issue' ? 'stage1.issue' : null;
+    if (operationOfferEnabled) systemBase += '\n\n' + OPERATION_OFFER_BLOCK;
+
     const askMessages = sanitizeAskMessages(messages);
     if (
       isManualAdvisorChat({
@@ -1197,6 +1213,17 @@ export async function POST(req: Request) {
       reviewTargets = review.reviewTargets;
       reviewMarker = review.diagnostics;
     }
+    let consultOperation: ConsultOperationCandidate | null = null;
+    let consultOffer: ConsultOfferKind | null = null;
+    if (output !== 'json') {
+      const op = extractConsultOperation(content);
+      content = op.content;
+      const allowed = allowConsultCandidate({ lastUser, priorOffer, role: membership.role, enabled: operationOfferEnabled });
+      if (op.candidate && allowed) consultOperation = op.candidate;
+      if (op.candidate && !allowed) console.log('[ask-ceo-agent]', requestId, 'operation_candidate_dropped', { role: membership.role, priorOffer });
+      if (op.rejected) console.log('[ask-ceo-agent]', requestId, 'operation_mark_rejected');
+      if (op.offer && operationOfferEnabled) consultOffer = op.offer;
+    }
     if (reviewRun.applicable) {
       console.log('[ask-ceo-agent]', requestId, 'stage4_review', classifyReviewRun({
         asJson: output === 'json',
@@ -1282,6 +1309,8 @@ export async function POST(req: Request) {
     };
 
     response.reviewTargets = reviewTargets;
+    if (consultOperation) response.operationCandidate = consultOperation;
+    if (consultOffer) response.operationOffer = consultOffer;
 
     // JSON出力時のみ optional フィールドを追加
     if (output === 'json') {

@@ -9,6 +9,8 @@ export type CeoChatMessage = {
   consultKey?: string;
   /** AIの回答として得られた本文（挨拶・エラー文では付かない）。入力欄への反映の対象に使う */
   answered?: boolean;
+  /** 回答で示した操作の提案（経営課題の記録）。次の発言が同意かどうかの判断に使う */
+  operationOffer?: 'stage1.issue';
 };
 
 export const CEO_CHAT_GREETING: CeoChatMessage[] = [

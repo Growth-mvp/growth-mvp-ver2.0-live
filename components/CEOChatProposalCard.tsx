@@ -5,7 +5,8 @@ import React, { useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useStrategyStore } from '@/store/strategyStore';
 import { summaryFollowsPL } from '@/lib/autofill/financeWrite';
-import { appendCeoIntent, contextDepartments, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { appendCeoIntent, contextDepartments, issueProposalOf, stage3AnswerOf, type OperationProposal } from '@/lib/aiOperations/instruction';
+import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX } from '@/lib/aiOperations/consultOperation';
 import { proposalBlockReason, proposalStaleReason } from '@/lib/aiOperations/guard';
 import { useOperationProposalStore } from '@/lib/aiOperations/proposalStore';
 import { planStore } from '@/lib/aiOperations/stage4Client';
@@ -46,6 +47,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           : '',
   );
   const needsText = proposal.kind === 'stage2.ceoIntent' || proposal.kind === 'stage3.question' || proposal.kind === 'stage1.issue';
+  const [issueDescription, setIssueDescription] = useState(proposal.kind === 'stage1.issue' ? proposal.description : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,6 +89,19 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
     if (needsText && addition.trim() === '') {
       setError('入力してください。');
       return;
+    }
+    if (proposal.kind === 'stage1.issue') {
+      const check = issueProposalOf(addition, issueDescription, {
+        companyId: proposal.companyId,
+        strategyId: proposal.strategyId,
+        ceoIntent: '',
+        revenueYenByYear: {},
+        stage1IssueTitles: ((st.stage1Issues ?? []) as Array<{ title?: string }>).map((i) => i.title ?? ''),
+      });
+      if (check.kind === 'clarify') {
+        setError(check.message);
+        return;
+      }
     }
 
     setBusy(true);
@@ -139,7 +154,10 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
           discard('経営課題が5件あるため、入力案を破棄しました。保存していません。');
           return;
         }
-        const nextIssues = [...issues, { title: addition.trim(), description: '', linkedMetrics: [], scope: 'company' as const }];
+        const nextIssues = [
+          ...issues,
+          { title: addition.trim(), description: issueDescription.trim(), linkedMetrics: [], scope: 'company' as const },
+        ];
         const saved = await useStrategyStore.getState().saveStrategyData({
           reason: 'stage1:ai-operation',
           conflictRetry: false,
@@ -275,7 +293,7 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
         <>
           <p className="text-zinc-700">対象：STAGE1「論点整理」に、経営課題を1件追加します（既存の経営課題は変わりません）</p>
           <label className="block text-[12px] text-zinc-700">
-            経営課題（編集できます）
+            経営課題（編集できます・{ISSUE_TITLE_MAX}字以内）
             <textarea
               value={addition}
               onChange={(e) => setAddition(e.target.value)}
@@ -284,7 +302,19 @@ export default function CEOChatProposalCard({ proposal, pathname, onResult }: Pr
               disabled={busy}
             />
           </label>
-          <p className="text-[12px] text-zinc-600">現在の経営課題：{proposal.beforeTitles.length}件（上限5件）</p>
+          <label className="block text-[12px] text-zinc-700">
+            説明文（任意・{ISSUE_DESCRIPTION_MAX}字以内。会話で話された内容に基づくものだけを残してください）
+            <textarea
+              value={issueDescription}
+              onChange={(e) => setIssueDescription(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white p-2 text-[13px] text-zinc-900"
+              disabled={busy}
+            />
+          </label>
+          <p className="text-[12px] text-zinc-600">
+            現在の経営課題：{proposal.beforeTitles.length}件（上限5件）。説明文は、AIが会話から作った案です。内容を確かめてから承認してください。
+          </p>
         </>
       ) : proposal.kind === 'stage4.plan' ? (
         <>

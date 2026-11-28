@@ -1,6 +1,7 @@
 /* 音声・文字の指示から、既存の入力欄への「入力案」を作る（AIは呼ばない。保存もしない）。
  * 対象は STAGE2「経営者の思い」への追加、STAGE1 財務表の全社売上高、STAGE3 6つの問いの回答。
  * STAGE3 の戦略書の再生成は入力案ではなく、既存の生成処理を呼ぶ指示として扱う。 */
+import { ISSUE_DESCRIPTION_MAX, ISSUE_TITLE_MAX } from './consultOperation';
 
 export type OperationProposal =
   | {
@@ -27,6 +28,7 @@ export type OperationProposal =
       strategyId: string;
       beforeTitles: string[];
       title: string;
+      description: string;
     }
   | {
       kind: 'stage3.question';
@@ -186,7 +188,6 @@ const ISSUE_PREFIX_PATTERN = /(?:経営課題|論点)(?:として|に|へ)[、,]
 const ISSUE_SUFFIX_PATTERN = /^[「『]?(.+?)[」』]?\s*(?:を|と)?\s*(?:経営課題|論点)(?:に|へ|として)?\s*(?:追加|登録|加え|足し)(?:して|しておいて|しておいてください|してください|して下さい|ておいて)?\s*$/;
 const ISSUE_HYPOTHETICAL = /もし|かも|べき|たら|ではないか|どうか|いいか|よいか|でいい|したい|してほしい|検討|考え|迷/;
 const ISSUE_LIMIT = 5;
-const ISSUE_TITLE_MAX = 100;
 
 function squashed(text: string): string {
   return text.replace(/[\s　]+/g, '');
@@ -207,11 +208,31 @@ function resolveStage1Issue(text: string, ctx: OperationContext): OperationInstr
   if (title.length > ISSUE_TITLE_MAX) {
     return { kind: 'clarify', message: `経営課題は${ISSUE_TITLE_MAX}字以内で指示してください。` };
   }
+  return issueProposalOf(title, '', ctx);
+}
+
+/** 経営課題の入力案を作る（題名・説明文・上限・重複を確かめる。保存はしない）。承認カードでの編集後にも使う */
+export function issueProposalOf(
+  title: string,
+  description: string,
+  ctx: OperationContext,
+): Extract<OperationInstruction, { kind: 'proposal' | 'clarify' }> {
+  const name = title.trim();
+  const body = description.trim();
+  if (!name) {
+    return { kind: 'clarify', message: '追加する経営課題の内容を、「経営課題として〇〇を追加して」の形で教えてください。' };
+  }
+  if (name.length > ISSUE_TITLE_MAX) {
+    return { kind: 'clarify', message: `経営課題は${ISSUE_TITLE_MAX}字以内で指示してください。` };
+  }
+  if (body.length > ISSUE_DESCRIPTION_MAX) {
+    return { kind: 'clarify', message: `説明文は${ISSUE_DESCRIPTION_MAX}字以内にしてください。` };
+  }
   const titles = ctx.stage1IssueTitles ?? [];
   if (titles.length >= ISSUE_LIMIT) {
     return { kind: 'clarify', message: `経営課題は${ISSUE_LIMIT}件までです。追加する場合は、STAGE1の論点を1件減らしてから指示してください。` };
   }
-  if (titles.some((t) => squashed(t) === squashed(title))) {
+  if (titles.some((t) => squashed(t) === squashed(name))) {
     return { kind: 'clarify', message: '同じ経営課題がすでにあるため、入力案は作りませんでした。' };
   }
   return {
@@ -222,7 +243,8 @@ function resolveStage1Issue(text: string, ctx: OperationContext): OperationInstr
       companyId: ctx.companyId,
       strategyId: ctx.strategyId,
       beforeTitles: [...titles],
-      title,
+      title: name,
+      description: body,
     },
   };
 }
