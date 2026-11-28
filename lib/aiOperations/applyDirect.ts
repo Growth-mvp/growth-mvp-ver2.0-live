@@ -10,6 +10,7 @@ import { OPERATION_ROLE_DENIED, proposalStaleReason, roleMeetsRequirement } from
 import type { OperationProposal } from './instruction';
 import type { RemovalTarget, StageOp } from './stage1Input';
 import { useAiUndoStore, type AiWriteRecord } from './aiUndoStore';
+import { removalBlockReason, type RemovalOp } from './removalSafety';
 import { saveSentenceOf, waitForSaveSettled } from './saveSettle';
 
 export type Row = { year: number; revenue?: number | null } & Record<string, unknown>;
@@ -200,8 +201,9 @@ function writeOp(op: StageOp): Written {
       };
     }
     case 'issue.remove': {
+      const blocked = removalBlockReason(op, st);
+      if (blocked) return { ok: false, message: blocked };
       const issues = (st.stage1Issues ?? []) as Array<{ title?: string } & Record<string, unknown>>;
-      if (!issues.some((i) => i.title === op.title)) return { ok: false, message: `経営課題「${op.title}」が見つかりません。反映しませんでした。` };
       st.setStage1Issues(issues.filter((i) => i.title !== op.title) as never);
       return { ok: true, message: `経営課題「${op.title}」を削除しました。`, undo: null };
     }
@@ -257,13 +259,9 @@ function writeOp(op: StageOp): Written {
       };
     }
     case 'segment.remove': {
-      const segs = st.businessSegments ?? [];
-      if (!segs.some((s) => s.name === op.name)) return { ok: false, message: `事業「${op.name}」が見つかりません。反映しませんでした。` };
-      const hasFinance = (st.segmentPL?.[op.name]?.length ?? 0) > 0 || (st.segmentBS?.[op.name]?.length ?? 0) > 0;
-      if (hasFinance) return { ok: false, message: `事業「${op.name}」には事業別の財務データがあるため、削除しません。` };
-      const linked = ((st.stage1Issues ?? []) as Array<{ segmentName?: string }>).some((i) => i.segmentName === op.name);
-      if (linked) return { ok: false, message: `経営課題が事業「${op.name}」に紐づいているため、削除しません。` };
-      st.setProfile({ businessSegments: segs.filter((s) => s.name !== op.name) } as never);
+      const blocked = removalBlockReason(op, st);
+      if (blocked) return { ok: false, message: blocked };
+      st.setProfile({ businessSegments: (st.businessSegments ?? []).filter((s) => s.name !== op.name) } as never);
       return { ok: true, message: `事業「${op.name}」を削除しました。`, undo: null };
     }
     case 'segment.rename': {
@@ -317,9 +315,46 @@ function writeOp(op: StageOp): Written {
     }
     case 'valuation': {
       st.recomputeValueAnalysis();
-      return { ok: true, message: '企業価値分析を更新しました。結果は「企業価値分析」の欄に表示されます。', undo: null };
+      // 他のSTAGEから頼まれた場合も、STAGE1の「分析・論点」タブの財務指標を示す
+      return {
+        ok: true,
+        message: '企業価値分析を更新しました。結果は「分析・論点」タブの「財務指標」に表示されます。',
+        flash: 'stage1.valuation',
+        undo: null,
+      };
     }
   }
+}
+
+/** 反映直後の取り消し情報。自動保存を待つ前に記録する（待機中に変わったら、後で取り消さない） */
+function recordAfterWrite(op: StageOp, written: { undo: StageOp | null; message: string }, userId: string): AiWriteRecord | null {
+  const now = useStrategyStore.getState();
+  if (!written.undo || !now.companyId || !now.strategyId) {
+    useAiUndoStore.getState().clear();
+    return null;
+  }
+  const record: AiWriteRecord = {
+    companyId: now.companyId,
+    strategyId: now.strategyId,
+    userId,
+    op,
+    undo: written.undo,
+    afterSignature: valueSignatureOf(op, now),
+    label: written.message,
+  };
+  useAiUndoStore.getState().record(record);
+  return record;
+}
+
+/** 自動保存の待機の後も、記録した時の利用者・企業・戦略・対象値のままか */
+function isRecordStillValid(record: AiWriteRecord): boolean {
+  const now = useStrategyStore.getState();
+  return (
+    now.companyId === record.companyId &&
+    now.strategyId === record.strategyId &&
+    useUserStore.getState().user?.id === record.userId &&
+    valueSignatureOf(record.op, now) === record.afterSignature
+  );
 }
 
 /** 入力操作を、画面の入力欄（ストア）へ反映する。権限・企業/戦略・他の利用者による更新・対象の値を確かめてから書く */
@@ -362,24 +397,14 @@ export async function applyStageOp(op: StageOp, options: ApplyOptions = {}): Pro
     if (!written.ok) return written;
     if (written.flash) useAiHighlightStore.getState().flash(written.flash);
 
+    // 取り消し情報は、自動保存を待つ前（反映直後）の利用者・企業・戦略・対象値で記録する
+    const record = options.recordUndo !== false ? recordAfterWrite(op, written, userId) : null;
+
     const status =
       options.settleMs === 0 ? saveStatusTypeOf(useStrategyStore.getState()) : await waitForSaveSettled(options.settleMs);
-    if (options.recordUndo !== false) {
-      const now = useStrategyStore.getState();
-      if (written.undo) {
-        const record: AiWriteRecord = {
-          companyId: now.companyId ?? '',
-          strategyId: now.strategyId ?? '',
-          op,
-          undo: written.undo,
-          afterSignature: valueSignatureOf(op, now),
-          label: written.message,
-        };
-        useAiUndoStore.getState().record(record);
-      } else {
-        useAiUndoStore.getState().clear();
-      }
-    }
+
+    // 待機中に変わっていれば、その取り消し情報は登録しない
+    if (record && !isRecordStillValid(record)) useAiUndoStore.getState().clear();
     return { ok: true, message: `${written.message}${saveSentenceOf(status)}` };
   } catch {
     return { ok: false, message: '反映の途中で問題が起きました。画面を再読み込みして、内容を確かめてください。' };
@@ -396,11 +421,14 @@ export async function applyDirectProposal(proposal: OperationProposal, options: 
   return applyStageOp(opOfDirectProposal(proposal), options);
 }
 
-/** 直前のAI入力を取り消せるかを確かめる。対象の値が反映時のままで、企業・戦略が同じ場合だけ */
+/** 直前のAI入力を取り消せるかを確かめる。利用者・企業・戦略が同じで、対象の値が反映時のままの場合だけ */
 export function planUndo(): { ok: true; record: AiWriteRecord } | { ok: false; message: string } {
   const record = useAiUndoStore.getState().last;
   if (!record) return { ok: false, message: '取り消せる直前の入力はありません。' };
   const st = useStrategyStore.getState();
+  if (useUserStore.getState().user?.id !== record.userId) {
+    return { ok: false, message: '利用者が変わったため、取り消せません。' };
+  }
   if (st.companyId !== record.companyId || st.strategyId !== record.strategyId) {
     return { ok: false, message: '企業または戦略が変わったため、取り消せません。' };
   }
@@ -410,33 +438,27 @@ export function planUndo(): { ok: true; record: AiWriteRecord } | { ok: false; m
   return { ok: true, record };
 }
 
-/** 登録済みの事業・経営課題の削除の影響を調べる。影響を安全に扱えないものは削除の案にしない */
-export type RemovalOp = Extract<StageOp, { kind: 'segment.remove' | 'issue.remove' }>;
-
+/** 登録済みの事業・経営課題の削除の案を作る。下流との紐づけを安全に確認できないものは案にしない（承認時にも同じ判定をかける） */
 export function planRemoval(target: RemovalTarget): { ok: true; op: RemovalOp; impact: string } | { ok: false; message: string } {
   const st = useStrategyStore.getState();
   if (target.type === 'segment') {
-    const name = target.name;
-    if (!(st.businessSegments ?? []).some((s) => s.name === name)) return { ok: false, message: `事業「${name}」が見つかりません。` };
-    const hasFinance = (st.segmentPL?.[name]?.length ?? 0) > 0 || (st.segmentBS?.[name]?.length ?? 0) > 0;
-    if (hasFinance) {
-      return { ok: false, message: `事業「${name}」には事業別の財務データがあるため、削除しません。先に財務表で数値を削除してください。` };
-    }
-    const linked = ((st.stage1Issues ?? []) as Array<{ segmentName?: string }>).some((i) => i.segmentName === name);
-    if (linked) return { ok: false, message: `経営課題が事業「${name}」に紐づいているため、削除しません。先に経営課題の紐づけを確かめてください。` };
+    const op: RemovalOp = { kind: 'segment.remove', name: target.name };
+    const blocked = removalBlockReason(op, st);
+    if (blocked) return { ok: false, message: blocked };
     return {
       ok: true,
-      op: { kind: 'segment.remove', name },
-      impact: `事業「${name}」の事業概要・主な顧客・展開地域を削除します。事業別の財務データはありません。STAGE2以降の戦略書は、自動では変わりません。`,
+      op,
+      impact: `事業「${target.name}」の事業概要・主な顧客・展開地域を削除します。事業別の財務データはありません。下流のデータはありません。`,
     };
   }
-  const title = target.name;
+  const op: RemovalOp = { kind: 'issue.remove', title: target.name };
+  const blocked = removalBlockReason(op, st);
+  if (blocked) return { ok: false, message: blocked };
   const count = (st.stage1Issues ?? []).length;
-  if (!(st.stage1Issues ?? []).some((i) => i.title === title)) return { ok: false, message: `経営課題「${title}」が見つかりません。` };
   return {
     ok: true,
-    op: { kind: 'issue.remove', title },
-    impact: `経営課題「${title}」を削除します。STAGE2への引き渡しや企業価値分析の論点に使われます。${
+    op,
+    impact: `経営課題「${target.name}」を削除します。下流のデータはありません。${
       count === 1 ? '経営課題が0件になるため、STAGE2へは進めなくなります。' : ''
     }`,
   };

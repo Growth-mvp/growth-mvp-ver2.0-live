@@ -5,6 +5,7 @@ import type { StageOp } from './stage1Input';
 export type AiWriteRecord = {
   companyId: string;
   strategyId: string;
+  userId: string;
   op: StageOp;
   undo: StageOp;
   afterSignature: string;

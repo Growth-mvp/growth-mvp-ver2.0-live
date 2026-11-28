@@ -1,5 +1,6 @@
 import { applyDirectProposal, applyStageOp, isDirectProposal, planRemoval, planUndo } from './applyDirect';
 import { useAiUndoStore } from './aiUndoStore';
+import { waitForSaveSettled } from './saveSettle';
 import type { OperationProposal } from './instruction';
 import type { StageOp } from './stage1Input';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -461,5 +462,117 @@ describe('登録済みの事業・経営課題の削除（明示承認の前に�
     const r = await applyStageOp(plan.op, { settleMs: 0 });
     expect(r.ok).toBe(true);
     expect(state.stage1Issues).toEqual([]);
+  });
+});
+
+describe('取り消し情報の記録（自動保存の待機との前後関係）', () => {
+  const PROFILE: StageOp = { kind: 'profile', field: 'companyName', value: '新社名', display: '新社名' };
+
+  it('反映直後、自動保存を待つ前に、利用者・企業・戦略・対象値を記録する', async () => {
+    const state = setStore({ companyName: '旧社名' });
+    allowAuthorize();
+    let seen: unknown = 'not-called';
+    (waitForSaveSettled as jest.Mock).mockImplementationOnce(async () => {
+      seen = useAiUndoStore.getState().last;
+      return 'dirty';
+    });
+    const r = await applyStageOp(PROFILE);
+    expect(r.ok).toBe(true);
+    expect(seen).toMatchObject({ companyId: 'c1', strategyId: 's1', userId: 'u1', label: expect.any(String) });
+    expect(useAiUndoStore.getState().last).not.toBeNull();
+    expect(state.companyName).toBe('新社名');
+  });
+
+  it('自動保存の待機中に企業が切り替わったら、取り消し情報を登録しない', async () => {
+    const state = setStore({ companyName: '旧社名' });
+    allowAuthorize();
+    (waitForSaveSettled as jest.Mock).mockImplementationOnce(async () => {
+      state.companyId = 'c2';
+      return 'dirty';
+    });
+    await applyStageOp(PROFILE);
+    expect(useAiUndoStore.getState().last).toBeNull();
+  });
+
+  it('自動保存の待機中に利用者が切り替わったら、取り消し情報を登録しない', async () => {
+    setStore({ companyName: '旧社名' });
+    allowAuthorize();
+    (waitForSaveSettled as jest.Mock).mockImplementationOnce(async () => {
+      (useUserStore.getState as jest.Mock).mockReturnValue({ role: 'manager', user: { id: 'u2' } });
+      return 'dirty';
+    });
+    await applyStageOp(PROFILE);
+    expect(useAiUndoStore.getState().last).toBeNull();
+  });
+
+  it('自動保存の待機中に対象の値が変わったら、取り消し情報を登録しない', async () => {
+    const state = setStore({ companyName: '旧社名' });
+    allowAuthorize();
+    (waitForSaveSettled as jest.Mock).mockImplementationOnce(async () => {
+      state.companyName = '手入力の社名';
+      return 'dirty';
+    });
+    await applyStageOp(PROFILE);
+    expect(useAiUndoStore.getState().last).toBeNull();
+  });
+
+  it('記録の後に利用者が変わっていたら、取り消さない', async () => {
+    setStore({ companyName: '旧社名' });
+    allowAuthorize();
+    await applyStageOp(PROFILE, { settleMs: 0 });
+    (useUserStore.getState as jest.Mock).mockReturnValue({ role: 'manager', user: { id: 'u2' } });
+    const plan = planUndo();
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toContain('利用者が変わった');
+  });
+});
+
+describe('企業価値分析の依頼（他のSTAGEからでも分析・論点タブを示す）', () => {
+  it('分析の更新は、財務指標の表示先を示し、再計算する', async () => {
+    const state = setStore();
+    allowAuthorize();
+    const r = await applyStageOp({ kind: 'valuation' }, { settleMs: 0 });
+    expect(r.ok).toBe(true);
+    expect(state.recomputeValueAnalysis).toHaveBeenCalled();
+    expect(useAiHighlightStore.getState().target).toBe('stage1.valuation');
+    expect(useAiHighlightStore.getState().reveal).toEqual({ tab: 'analysis', section: 'metrics' });
+    expect(r.message).toContain('分析・論点');
+  });
+});
+
+describe('削除の安全確認（下流との紐づけを確認できないものは削除しない）', () => {
+  it('STAGE3の部門など、下流のデータがある事業は削除の案にしない', () => {
+    setStore({
+      businessSegments: [{ id: 'seg-1', name: '製造事業' }],
+      segmentPL: {},
+      segmentBS: {},
+      departments: [{ name: '製造事業', mission: '', projects: [], finalized: false }],
+    });
+    const plan = planRemoval({ type: 'segment', name: '製造事業' });
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toContain('部門（STAGE3）');
+  });
+
+  it('事業ポートフォリオがある間は、経営課題も削除の案にしない', () => {
+    setStore({ businessPortfolio: { unitType: 'business', periodLabel: 'FY2025', currency: 'JPY', threshold: { growthBaseline: 0, profitBaseline: 0 }, units: [] } });
+    const plan = planRemoval({ type: 'issue', name: '既存の課題' });
+    expect(plan.ok).toBe(false);
+    expect(plan.ok ? '' : plan.message).toContain('事業ポートフォリオ');
+  });
+
+  it('承認の時点で下流のデータが増えていたら、削除しない', async () => {
+    const state = setStore({
+      businessSegments: [{ id: 'seg-1', name: '製造事業' }, { id: 'seg-2', name: 'カフェ' }],
+      segmentPL: {},
+      segmentBS: {},
+    });
+    const plan = planRemoval({ type: 'segment', name: 'カフェ' });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    state.departments = [{ name: 'カフェ', mission: '', projects: [], finalized: false }];
+    allowAuthorize();
+    const r = await applyStageOp(plan.op, { settleMs: 0 });
+    expect(r.ok).toBe(false);
+    expect(state.businessSegments).toHaveLength(2);
   });
 });

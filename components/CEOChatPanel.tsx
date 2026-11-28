@@ -737,7 +737,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             reply(`${stage1Input.op.label}は現在の値から大きく変わるため、入力案を作りました（まだ反映していません）。内容を確かめ、「既存の値を置き換えて反映」を押すと入力欄に反映されます。`);
           } else {
             const applied = await applyStageOp(stage1Input.op);
-            if (applied.ok && stage1Input.op.kind !== 'valuation' && window.location.pathname !== '/stage1') router.push('/stage1');
+            if (applied.ok && window.location.pathname !== '/stage1') router.push('/stage1');
             reply(applied.message);
           }
           return true;
