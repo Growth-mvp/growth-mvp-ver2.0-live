@@ -31,6 +31,7 @@ export type CallRecord = {
   costUsd: number;
   error: string | null;
   latencyMs: number | null;
+  reasoningEffort: string | null;
 };
 
 export class EvalBudgetExceeded extends Error {}
@@ -90,7 +91,13 @@ export class EvalCallGuard {
     this.calls += 1;
   }
 
-  afterCall(model: string, usage: Usage | null, error: string | null = null, latencyMs: number | null = null): void {
+  afterCall(
+    model: string,
+    usage: Usage | null,
+    error: string | null = null,
+    latencyMs: number | null = null,
+    reasoningEffort: string | null = null
+  ): void {
     const cost = usage ? costUsd(model, usage) : 0;
     this.spent += cost;
     this.records.push({
@@ -101,6 +108,7 @@ export class EvalCallGuard {
       costUsd: cost,
       error,
       latencyMs,
+      reasoningEffort,
     });
   }
 
@@ -115,12 +123,13 @@ export class EvalCallGuard {
       const cap = params.max_completion_tokens ?? INTENT_OUTPUT_CAP_TOKENS;
       this.beforeCall(params.model, est, cap);
       const started = Date.now();
+      const reasoningEffort = (params as { reasoning_effort?: string }).reasoning_effort ?? null;
       try {
         const res = await raw(params);
-        this.afterCall(params.model, res.usage ?? null, null, Date.now() - started);
+        this.afterCall(params.model, res.usage ?? null, null, Date.now() - started, reasoningEffort);
         return res;
       } catch (e) {
-        this.afterCall(params.model, null, e instanceof Error ? e.message : String(e), Date.now() - started);
+        this.afterCall(params.model, null, e instanceof Error ? e.message : String(e), Date.now() - started, reasoningEffort);
         throw e;
       }
     };

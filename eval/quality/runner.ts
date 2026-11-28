@@ -45,6 +45,7 @@ export async function runEvaluation(args: {
     const sheet = buildScoreSheet(q, { A: a.content, B: b.content }, { A: groundingA, B: groundingB });
 
     const recordsOf = (tag: string) => guard.records.filter((r) => r.tag === tag);
+    const sentEffortOf = (tag: string) => recordsOf(tag).find((r) => r.reasoningEffort)?.reasoningEffort ?? null;
     writeFileSync(
       path.join(outDir, `q${q.id}-A.json`),
       JSON.stringify(
@@ -53,7 +54,7 @@ export async function runEvaluation(args: {
           questionId: q.id,
           question: q.text,
           model: payloadA.model,
-          reasoning_effort: payloadA.reasoning_effort,
+          reasoning_effort: sentEffortOf(`A-q${q.id}`),
           max_completion_tokens: payloadA.max_completion_tokens,
           answer: a.content,
           calls: recordsOf(`A-q${q.id}`),
@@ -72,7 +73,7 @@ export async function runEvaluation(args: {
           questionId: q.id,
           question: q.text,
           model: payloadA.model,
-          reasoning_effort: payloadA.reasoning_effort,
+          reasoning_effort: sentEffortOf(`B-q${q.id}`),
           max_completion_tokens: payloadA.max_completion_tokens,
           answer: b.content,
           route: { resolvedMode: b.resolvedMode ?? null, stageUsed: b.stageUsed ?? null },
